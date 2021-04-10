@@ -2439,12 +2439,12 @@ void RemoveAllAircrafts (void)
   }
 }
 
-/* ============================== Snip mode ================================= */
+/* ============================== Strip mode ================================= */
 
 /* Get raw IQ samples and filter everything that is < than the specified level
  * for more than 256 samples in order to reduce example file size.
  */
-void snipMode (int level)
+void stripMode (int level)
 {
   int i, q;
   long long c = 0;
@@ -3430,7 +3430,7 @@ void show_help (const char *fmt, ...)
             "  --onlyaddr               Show only ICAO addresses (testing purposes).\n"
             "  --rate <hz>              Set sample-rate (default: 2MS/s).\n"
             "  --raw                    Show only messages with raw hex values.\n"
-            "  --snip <level>           Strip IQ file removing samples < level.\n"
+            "  --strip <level>          Strip IQ file removing samples below level.\n"
             "  -h, --help               Show this help.\n"
             "  \n"
             "  Debug mode flags: E = Log frames decoded with errors.\n"
@@ -3711,9 +3711,9 @@ int main (int argc, char **argv)
         f++;
       }
     }
-    else if (!strcmp(argv[j],"--snip") && more)
+    else if (!strcmp(argv[j],"--strip") && more)
     {
-      snipMode (atoi(argv[++j]));
+      stripMode (atoi(argv[++j]));
       exit(0);
     }
     else if (!strcmp(argv[j], "-h") || !strcmp(argv[j], "--help"))
