@@ -328,15 +328,12 @@ struct modesMessage {
     int altitude, unit;
 };
 
-struct aircraft *interactiveReceiveData (struct modesMessage *mm);
-void modesReadFromClient (struct client *cli, char *sep,
-                          int (*handler)(struct client *));
-
-void interactiveShowData (long long now);
+struct aircraft *interactive_receive_data (struct modesMessage *mm);
+void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *));
 void modesExit (void);
-void modesSendRawOutput (struct modesMessage *mm);
-void modesSendSBSOutput (struct modesMessage *mm, struct aircraft *a);
-void useModesMessage (struct modesMessage *mm);
+void mode_send_raw_output (struct modesMessage *mm);
+void mode_send_SBS_output (struct modesMessage *mm, struct aircraft *a);
+void mode_user_message (struct modesMessage *mm);
 int  fixSingleBitErrors (uint8_t *msg, int bits);
 int  fixTwoBitsErrors (uint8_t *msg, int bits);
 void detectModeS (uint16_t *m, uint32_t mlen);
@@ -459,8 +456,8 @@ void crtdbug_init (void)
   _CrtMemCheckpoint (&last_state);
   atexit (crtdbug_exit);
 }
-#endif  // USE_VLD
-#endif  // _WIN32
+#endif  /* USE_VLD */
+#endif  /* _WIN32 */
 
 /* ============================= Utility functions ========================== */
 
@@ -500,7 +497,7 @@ void modesInitConfig (void)
   Modes.aggressive = 0;
   Modes.reader_thread = PTHREAD_NULL;
 #ifdef _WIN32
-  Modes.interactive_rows = 40; // set in 'console_init()' in '--interactive' mode
+  Modes.interactive_rows = 40; /* set in 'console_init()' in '--interactive' mode */
 #else
   Modes.interactive_rows = getTermRows();
 #endif
@@ -1982,7 +1979,7 @@ good_preamble:
 
       /* Pass data to the next layer
        */
-      useModesMessage (&mm);
+      mode_user_message (&mm);
     }
     else
     {
@@ -2016,7 +2013,7 @@ good_preamble:
  * Basically this function passes a raw message to the upper layers for
  * further processing and visualization.
  */
-void useModesMessage (struct modesMessage *mm)
+void mode_user_message (struct modesMessage *mm)
 {
   if (Modes.check_crc == 0 || mm->crcok)
   {
@@ -2024,10 +2021,10 @@ void useModesMessage (struct modesMessage *mm)
      */
     if (Modes.interactive || Modes.stat.http_requests > 0 || Modes.stat.sbs_connections > 0)
     {
-      struct aircraft *a = interactiveReceiveData (mm);
+      struct aircraft *a = interactive_receive_data (mm);
 
       if (a && Modes.stat.sbs_connections > 0)
-         modesSendSBSOutput (mm, a);     /* Feed SBS output clients. */
+         mode_send_SBS_output (mm, a);     /* Feed SBS output clients. */
     }
 
     /* In non-interactive way, display messages on standard output.
@@ -2042,7 +2039,7 @@ void useModesMessage (struct modesMessage *mm)
     /* Send data to connected clients.
      */
     if (Modes.net)
-       modesSendRawOutput (mm);
+       mode_send_raw_output (mm);
   }
 }
 
@@ -2234,7 +2231,7 @@ void decodeCPR (struct aircraft *a)
 /*
  * Receive new messages and populate the interactive mode with more info.
  */
-struct aircraft *interactiveReceiveData (struct modesMessage *mm)
+struct aircraft *interactive_receive_data (struct modesMessage *mm)
 {
   struct aircraft *a, *aux;
   uint32_t addr;
@@ -2331,7 +2328,7 @@ struct aircraft *interactiveReceiveData (struct modesMessage *mm)
 
 /* Show the currently captured interactive data on screen.
  */
-void interactiveShowData (long long now)
+void interactive_show_data (long long now)
 {
   static int spin_idx = 0;
   char spinner[] = "|/-\\";
@@ -2538,13 +2535,13 @@ char *aircraftsToJson (int *len)
 /*
  * Returns a 'struct client *' based in connection 'service'.
  */
-struct client *modesGetClient (int service)
+struct client *get_client (int service)
 {
   struct client *cli;
 
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service <= MODES_NET_SERVICE_HTTP);
 
-  for (cli = Modes.clients[service]; cli; cli = cli->next)
+  for (cli = Modes.clients[service]; cli && cli->conn; cli = cli->next)
   {
     int  cli_service = (int)cli->conn->fn_data;
     bool cli_accepted = cli->conn->is_accepted;
@@ -2614,41 +2611,28 @@ void free_all_clients (void)
  */
 int send_all_clients (int service, const void *msg, int len)
 {
-  struct mg_connection *conn;
-  struct mg_connection *_conn = handler_conn (service);
+  struct mg_connection *conn = handler_conn (service);
   struct client *cli, *cli_next;
   int    rc, found = 0;
-//int    service;
 
-#if 0
-  for (conn = Modes.mgr.conns; conn; conn = conn->next)
+  for (cli = Modes.clients[service]; cli; cli = cli_next)
   {
-    if (_conn != conn)
+    cli_next = cli->next;   /* Since 'free_client()' could 'free(cli->next)' */
+
+    if (cli->conn->fn_data != (void*)service)
        continue;
-#endif
 
-//  service = (int) conn->fn_data;
-
-    for (cli = Modes.clients[service]; cli; cli = cli_next)
-    {
-      cli_next = cli->next;   /* Since 'free_client()' could 'free(cli->next)' */
-
-      if (cli->conn->fn_data != (void*)service)
-         continue;
-
-      rc = mg_send (cli->conn, msg, len);
-      if (rc != len)          /* client gone, drop him */
-           free_client (cli, service);
-      else found++;
-      TRACE (DEBUG_NET, "Sent to client service '%s', rc: %d.\n", handler_descr(service), rc);
-    }
-//}
+    rc = mg_send (cli->conn, msg, len);
+    if (rc != len)          /* client gone, drop him */
+         free_client (cli, service);
+    else found++;
+    TRACE (DEBUG_NET, "Sent to client service '%s', rc: %d.\n", handler_descr(service), rc);
+  }
 
   if (!found)
-     TRACE (DEBUG_NET2, "No client found for service: '%s'\n", handler_descr((int)_conn->fn_data));
+     TRACE (DEBUG_NET2, "No client found for service: '%s'\n", handler_descr(service));
   return (found);
 }
-
 
 
 /* ============================= Networking =================================
@@ -2662,7 +2646,6 @@ int send_all_clients (int service, const void *msg, int len)
  *    handled via non-blocking I/O and manually pulling clients to see if
  *    they have something new to share with us when reading is needed.
  */
-
 struct net_service modesNetServices [MODES_NET_SERVICES_NUM] = {
                  { &Modes.ros,   "Raw TCP output",         MODES_NET_OUTPUT_RAW_PORT },
                  { &Modes.ris,   "Raw TCP input",          MODES_NET_INPUT_RAW_PORT },
@@ -2670,7 +2653,7 @@ struct net_service modesNetServices [MODES_NET_SERVICES_NUM] = {
                  { &Modes.http,  "HTTP server",            MODES_NET_HTTP_PORT }
                };
 
-/* Networking "stack" initialization.
+/* Mongoose event names.
  */
 const char *event_name (int ev)
 {
@@ -2825,7 +2808,7 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_d
     }
 
     /**
-     * \todo Check header for a "Upgrade: websocket" and call?
+     * \todo Check header for a "Upgrade: websocket" and call mg_ws_upgrade()?
      */
     if (!strncmp(hm->head.ptr, "GET /echo ", 11))
     {
@@ -2868,7 +2851,7 @@ static SOCKET _ptr2sock (void *ptr)
 }
 
 /*
- * The event handler for all network I/O.
+ * The event handler for ALL network I/O.
  */
 void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_data)
 {
@@ -2877,11 +2860,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
   int   service = (int) fn_data;     /* 'fn_data' is arbitrary user data */
 
   if (Modes.exit)
-  {
- // conn->send.len = 0;
- // conn->is_draining = 1;  /* Flush all connections ASAP */
-    return;
-  }
+     return;
 
   if (ev == MG_EV_POLL || ev == MG_EV_WRITE)  /* Ignore our own events */
      return;
@@ -2914,13 +2893,13 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
 
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
-      cli = modesGetClient (service);
-      modesReadFromClient (cli, "\n", decodeHexMessage);
+      cli = get_client (service);
+      read_from_client (cli, "\n", decodeHexMessage);
     }
   }
   else if (ev == MG_EV_CLOSE)
   {
-    if (modesGetClient(service))
+    if (get_client(service))
        -- (*handler_num_clients (service));
   }
 
@@ -2937,7 +2916,9 @@ void modesInitNet (void)
   char url [100];
 
   mg_mgr_init (&Modes.mgr);
-//mg_log_set (MG_NET_DEBUG);
+
+  if (Modes.debug & DEBUG_NET2)
+     mg_log_set (MG_NET_DEBUG);
 
   snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modesNetServices[MODES_NET_SERVICE_RAW_OUT].port);
   Modes.ros = mg_listen (&Modes.mgr, url, net_handler, (void*) MODES_NET_SERVICE_RAW_OUT);
@@ -2955,7 +2936,7 @@ void modesInitNet (void)
 /*
  * Write raw output to TCP clients.
  */
-void modesSendRawOutput (struct modesMessage *mm)
+void mode_send_raw_output (struct modesMessage *mm)
 {
   char msg[128], *p = msg;
   int  j;
@@ -2975,7 +2956,7 @@ void modesSendRawOutput (struct modesMessage *mm)
 /*
  * Write SBS output (BEAST protocol?) to TCP clients.
  */
-void modesSendSBSOutput (struct modesMessage *mm, struct aircraft *a)
+void mode_send_SBS_output (struct modesMessage *mm, struct aircraft *a)
 {
   char msg[256], *p = msg;
   int emergency = 0, ground = 0, alert = 0, spi = 0;
@@ -3115,7 +3096,7 @@ int decodeHexMessage (struct client *c)
     msg[j/2] = (high << 4) | low;
   }
   decodeModesMessage (&mm, msg);
-  useModesMessage (&mm);
+  mode_user_message (&mm);
   return (0);
 }
 
@@ -3245,7 +3226,7 @@ int handleHTTPRequest (struct client *c)
  * should close the connection with the client in case of non-recoverable
  * errors.
  */
-void modesReadFromClient (struct client *cli, char *sep, int (*handler)(struct client *))
+void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *))
 {
 #ifdef USE_MONGOOSE
    struct mg_iobuf msg = cli->conn->recv;
@@ -3334,7 +3315,7 @@ void sigWinchCallback (int sig)
 {
     signal (sig, SIG_IGN);
     Modes.interactive_rows = getTermRows();
-    interactiveShowData (mstime() / 1000);
+    interactive_show_data (mstime() / 1000);
     signal (sig, sigWinchCallback);
 }
 
@@ -3458,7 +3439,7 @@ void backgroundTasks (void)
 {
   long long now = mstime();
   int  refresh;
-  static long long start;  // start time
+  static long long start;  /* program start time */
 
   if (start == 0)
      start = now;
@@ -3475,7 +3456,7 @@ void backgroundTasks (void)
   if (refresh)
   {
     if (Modes.interactive)  /* Refresh screen when in interactive mode */
-       interactiveShowData (now/1000);
+       interactive_show_data (now/1000);
     Modes.last_update_ms = now;
   }
 }
