@@ -279,7 +279,7 @@ are aircrafts flying over your head, just run the program and check for signals.
 
 If however you don't have an RTLSDR device, or if in your area the presence
 of aircrafts is very limited, you may want to try it with the sample file under
-the **[testfiles](testsfiles/)** directory. Run it like this: <br>
+the **[testfiles](testfiles/)** directory. Run it like this: <br>
   ```
   dump1090 <other-options> --ifile testfiles/modes1.bin
   ```
