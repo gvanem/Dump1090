@@ -1,4 +1,4 @@
-/* Mode1090, a Mode S messages decoder for RTLSDR devices.
+/* Dump1090, a Mode S messages decoder for RTLSDR devices.
  *
  * Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
  *
@@ -1342,7 +1342,7 @@ void decodeModesMessage (struct modesMessage *mm, uint8_t *msg)
   mm->aa2 = msg[2];
   mm->aa3 = msg[3];
 
-  /* DF 17 type (assuming this is a DF17, otherwise not used)
+  /* DF17 type (assuming this is a DF17, otherwise not used)
    */
   mm->metype = msg[4] >> 3;   /* Extended squitter message type. */
   mm->mesub = msg[4] & 7;     /* Extended squitter message subtype. */
