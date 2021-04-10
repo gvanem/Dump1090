@@ -3,7 +3,7 @@
 #
 # By G. Vanem <gvanem@yahoo.no> 2021.
 #
-# Ref: https://github.com/antirez/dump1090.git
+# Ref: https://github.com/gvanem/Dump1090.git
 #
 TODAY     = $(shell date +%d-%B-%Y)
 THIS_FILE = $(firstword $(MAKEFILE_LIST))
@@ -30,7 +30,7 @@ USE_VLD ?= 0
 #
 # A 'USE_VLD = 1' together with this option can cause Stack Overflows.
 #
-USE_ASAN ?= 1
+USE_ASAN ?= 0
 
 #
 # Add Emscripted support for remote control of dump1090 (and via gmap.html?)
@@ -47,7 +47,7 @@ USE_EMSCRIPTEN ?= 0
 #
 # The 'wsock_trace.lib'library MUST be on '%LIBPATH'.
 #
-USE_WSOCK_TRACE ?= 1
+USE_WSOCK_TRACE ?= 0
 
 #
 # Options for .c-file preprocessing:
@@ -62,7 +62,6 @@ PYTHON ?= py -3
 #
 RTLSDR_ROOT   ?= f:/gv/dx-radio/Osmocom-SDR
 PTHREADS_ROOT ?= f:/MinGW32/src/pthreads-w32-3-0
-MONGOOSE_ROOT ?= f:/MinGW32/src/inet/Web/Mongoose
 VLD_ROOT      ?= f:/ProgramFiler/VisualLeakDetector
 
 c_to_obj = $(addprefix $(OBJ_DIR)/, $(notdir $(1:.c=.obj)))
@@ -131,7 +130,6 @@ endif
 
 ifeq ($(USE_ASAN),1)
   CFLAGS += -fsanitize=address
-  # LDFLAGS += -stack:10MByte
 
   ifeq ($(CC),clang-cl)
     CFLAGS  += -fsanitize-recover=address
@@ -149,7 +147,7 @@ BRIGHT_GREEN = \e[1;32m
 colour_msg = @echo -e "$(1)\e[0m"
 green_msg  = $(call colour_msg,$(BRIGHT_GREEN)$(strip $(1)))
 
-vpath %.c $(PTHREADS_ROOT) $(MONGOOSE_ROOT)
+vpath %.c $(PTHREADS_ROOT)
 
 #
 # What to build:
@@ -157,14 +155,16 @@ vpath %.c $(PTHREADS_ROOT) $(MONGOOSE_ROOT)
 TARGETS = dump1090.exe
 
 SOURCES = dump1090.c \
-          $(MONGOOSE_ROOT)/mongoose.c
+          mongoose.c
 
-CFLAGS += -I$(MONGOOSE_ROOT) \
-          -DUSE_MONGOOSE=1   \
+CFLAGS += -DUSE_MONGOOSE=1   \
           -DMG_IO_SIZE=2000  \
         # -DMG_ENABLE_LINES=1
 
 ifeq ($(USE_CRT_DEBUG),1)
+  #
+  # An amalgamated  version of Pthreads-W32:
+  #
   SOURCES += $(PTHREADS_ROOT)/pthread.c
 else
   EX_LIBS += $(PTHREADS_ROOT)/libpthreadVC3.lib
@@ -175,7 +175,7 @@ OBJECTS = $(call c_to_obj, $(SOURCES))
 GENERATED = dump1090_config.h
 
 all: $(OBJ_DIR) $(GENERATED) $(TARGETS)
-	$(call green_msg, Welcome to dump1090.)
+	$(call green_msg, Welcome to Dump1090.)
 
 $(OBJ_DIR):
 	- mkdir $(OBJ_DIR)
@@ -396,7 +396,6 @@ endef
 
 DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
 DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.$.obj: @' \
-              -e 's@$(MONGOOSE_ROOT)@$$(MONGOOSE_ROOT)@'    \
               -e 's@$(PTHREADS_ROOT)@$$(PTHREADS_ROOT)@'    \
               -e 's@$(RTLSDR_ROOT)@$$(RTLSDR_ROOT)@'
 
