@@ -6,3 +6,10 @@ link.args
 link.tmp
 objects
 t
+backup
+ASAN-report.txt
+Dump1090-overview.jpg
+dump1090-web.png
+MLAT-ADS-B-Reference-Guide.pdf
+gmap-orig.html
+go.bat
