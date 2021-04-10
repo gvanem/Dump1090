@@ -1,0 +1,7 @@
+dump1090.exe
+dump1090_config.h
+*.map
+*.pdb
+link.args
+link.tmp
+objects

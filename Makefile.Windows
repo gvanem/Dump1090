@@ -1,0 +1,408 @@
+#
+# GNU Makefile for dump1090 (MSVC / clang-cl).
+#
+# By G. Vanem <gvanem@yahoo.no> 2021.
+#
+# Ref: https://github.com/antirez/dump1090.git
+#
+TODAY     = $(shell date +%d-%B-%Y)
+THIS_FILE = $(firstword $(MAKEFILE_LIST))
+
+#
+# Choose your weapons:
+#
+# Use CRT debug-mode.
+#
+USE_CRT_DEBUG ?= 0
+
+#
+# Visual Leak Detector:
+#   https://kinddragon.github.io/vld/
+#
+USE_VLD ?= 0
+
+#
+# Enable "Addess Sanitazion".
+# This needs an up-to-date version of 'cl'.
+#
+# Does not work with 'USE_CRT_DEBUG = 1' and 'CC = clang-cl'.
+# But 'USE_CRT_DEBUG = 1' and 'CC = cl' works.
+#
+# A 'USE_VLD = 1' together with this option can cause Stack Overflows.
+#
+USE_ASAN ?= 1
+
+#
+# Add Emscripted support for remote control of dump1090 (and via gmap.html?)
+#
+# Ref:
+#  https://github.com/ggerganov/imtui/blob/master/examples/emscripten0/index-tmpl.html
+# for an example.
+#
+USE_EMSCRIPTEN ?= 0
+
+#
+# Use 'Wsock-tracing' library for network I/O:
+#  https://github.com/gvanem/wsock-trace
+#
+# The 'wsock_trace.lib'library MUST be on '%LIBPATH'.
+#
+USE_WSOCK_TRACE ?= 1
+
+#
+# Options for .c-file preprocessing:
+#
+USE_ASTYLE       ?= 1
+USE_CLANG_FORMAT ?= 0
+
+PYTHON ?= py -3
+
+#
+# Change the 'XX_ROOT' dirs to suite:
+#
+RTLSDR_ROOT   ?= f:/gv/dx-radio/Osmocom-SDR
+PTHREADS_ROOT ?= f:/MinGW32/src/pthreads-w32-3-0
+MONGOOSE_ROOT ?= f:/MinGW32/src/inet/Web/Mongoose
+VLD_ROOT      ?= f:/ProgramFiler/VisualLeakDetector
+
+c_to_obj = $(addprefix $(OBJ_DIR)/, $(notdir $(1:.c=.obj)))
+
+define Usage
+
+  Usage: "make -f $(THIS_FILE) [CC=cl | clang-cl] [all | clean | vclean | depend]")
+  Specify CC=cl       - use MSVC
+  Specify CC=clang-cl - use clang-cl
+endef
+
+#
+# Undefine any '%CL%' env-var
+#
+export CL=
+
+OBJ_DIR = objects
+
+ifeq ($(CC),cl)
+else ifeq ($(CC),clang-cl)
+else
+  $(error $(Usage))
+endif
+
+CFLAGS  = -nologo -Zi -W3
+LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib # -nodefaultlib:ws2_32.lib
+
+ifeq ($(USE_CRT_DEBUG),1)
+  CFLAGS += -MDd -D_DEBUG -GS -Oy- -RTCu -RTCs # -RTCc
+else
+  CFLAGS += -MD -GS- -Zo -Oy- # -Ox -Gs0
+endif
+
+ifeq ($(CC),clang-cl)
+  CFLAGS += -fms-compatibility -ferror-limit=5
+endif
+
+CFLAGS += -FI./dump1090_config.h -I. -I$(RTLSDR_ROOT)/include
+
+#
+# The flags are for Pthreads-W32:
+#
+CFLAGS += -I$(PTHREADS_ROOT) -D__PTW32_STATIC_LIB -DHAVE_CONFIG_H
+
+#
+# External libs needed:
+#
+EX_LIBS = $(RTLSDR_ROOT)/src/rtlsdr_imp.lib
+
+ifeq ($(USE_WSOCK_TRACE),1)
+  EX_LIBS += wsock_trace.lib
+else
+  EX_LIBS += ws2_32.lib
+endif
+
+ifeq ($(USE_VLD),1)
+  CFLAGS  += -DUSE_VLD  -DVLD_FORCE_ENABLE -I$(VLD_ROOT)/include
+  EX_LIBS += $(VLD_ROOT)/lib/Win32/vld.lib
+endif
+
+ifeq ($(USE_EMSCRIPTEN),1)
+  EMCC     = $(EMSCRIPTEN_ROOT)/bin/emcc
+  CFLAGS  += -DUSE_EMSCRIPTEN -I$(EMSCRIPTEN_ROOT)/include
+  EX_LIBS += $(EMSCRIPTEN_ROOT)/emscript.lib # ??
+endif
+
+ifeq ($(USE_ASAN),1)
+  CFLAGS += -fsanitize=address
+  # LDFLAGS += -stack:10MByte
+
+  ifeq ($(CC),clang-cl)
+    CFLAGS  += -fsanitize-recover=address
+    LDFLAGS += -inferasanlibs:no -libpath:$(realpath $(CLANG_32))/lib/clang/11.0.0/lib/windows
+    EX_LIBS += clang_rt.asan_dynamic-i386.lib \
+               clang_rt.asan_dynamic_runtime_thunk-i386.lib
+  endif
+endif
+
+#
+# This ESC code assumes you have an MSys/Cygwin 'echo.exe' with colour support.
+#
+BRIGHT_GREEN = \e[1;32m
+
+colour_msg = @echo -e "$(1)\e[0m"
+green_msg  = $(call colour_msg,$(BRIGHT_GREEN)$(strip $(1)))
+
+vpath %.c $(PTHREADS_ROOT) $(MONGOOSE_ROOT)
+
+#
+# What to build:
+#
+TARGETS = dump1090.exe
+
+SOURCES = dump1090.c \
+          $(MONGOOSE_ROOT)/mongoose.c
+
+CFLAGS += -I$(MONGOOSE_ROOT) \
+          -DUSE_MONGOOSE=1   \
+          -DMG_IO_SIZE=2000  \
+        # -DMG_ENABLE_LINES=1
+
+ifeq ($(USE_CRT_DEBUG),1)
+  SOURCES += $(PTHREADS_ROOT)/pthread.c
+else
+  EX_LIBS += $(PTHREADS_ROOT)/libpthreadVC3.lib
+endif
+
+OBJECTS = $(call c_to_obj, $(SOURCES))
+
+GENERATED = dump1090_config.h
+
+all: $(OBJ_DIR) $(GENERATED) $(TARGETS)
+	$(call green_msg, Welcome to dump1090.)
+
+$(OBJ_DIR):
+	- mkdir $(OBJ_DIR)
+
+dump1090_config.h: $(THIS_FILE)
+	$(call Generate, $@, //)
+	$(file >> $@,$(dump1090_config_h))
+
+dump1090.exe: $(OBJECTS)
+	$(call link_EXE, $@, $^ $(EX_LIBS))
+
+$(OBJ_DIR)/%.obj: %.c
+	$(CC) -c $(CFLAGS) -Fo$@ $<
+	@echo
+
+%.i: %.c cpp_filter.py $(GENERATED) FORCE
+	$(call C_preprocess, $@, $<)
+
+FORCE:
+
+cpp_filter.py: $(THIS_FILE)
+	$(call green_msg, Generating $@)
+	$(file >  $@,#!/usr/bin/env python)
+	$(file >> $@,#)
+	$(file >> $@,# DO NOT EDIT! This file was generated automatically)
+	$(file >> $@,# from $(realpath $<). Edit that file instead.)
+	$(file >> $@,#)
+	$(file >> $@,from __future__ import print_function)
+	$(file >> $@,if 1:)
+	$(file >> $@,$(cpp_filter_py))
+
+#
+# Sometimes a .exp / .lib file could be created.
+# '$(sort ..)' will create a unique list.
+#
+TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
+                      $(TARGETS:.exe=.pdb) \
+                      $(TARGETS:.exe=.exp) \
+                      $(TARGETS:.exe=.lib))
+
+OTHER_JUNK = $(GENERATED) link.tmp link.args vc1*.pdb cpp_filter.py dump1090_config.h
+
+clean:
+	- rm -f $(TARGETS_JUNK) $(OTHER_JUNK) $(OBJ_DIR)/*
+	- rmdir $(OBJ_DIR)
+
+vclean realclean: clean
+	rm -f $(TARGETS) .depend.Windows
+
+#
+# .obj -> .exe macro
+# arg1, $(1): The .exe file.
+# arg2, $(2): The .obj file(s), extras and libs.
+#
+define link_EXE
+  $(call green_msg, Linking $(1))
+  $(call make_resp_file, link.args, $(LDFLAGS) $(2))
+  link -out:$(strip $(1)) @link.args > link.tmp
+  @cat link.tmp >> $(1:.exe=.map)
+  @rm -f $(1:.exe=.exp)
+  @echo
+endef
+
+define Warning
+  $(1)
+  $(1) DO NOT EDIT! This file was automatically generated
+  $(1) from $(realpath $(THIS_FILE)) at $(TODAY).
+  $(1) Edit that file instead.
+  $(1)
+endef
+
+define Generate
+  $(call green_msg, Generating $(1))
+  $(file > $(1),$(call Warning,$(strip $(2))))
+endef
+
+#
+# Response file macro:
+#   arg1, $(1): The name of the response file
+#   arg2, $(2): The content for the response file.
+#
+define make_resp_file
+  $(file > $(1))
+  $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
+endef
+
+define dump1090_config_h
+  #ifndef DUMP1090_CONFIG_H
+  #define DUMP1090_CONFIG_H
+
+  /* Warning control:
+   */
+  #if defined(__clang__)
+    #pragma clang diagnostic ignored "-Wunused-value"
+    #pragma clang diagnostic ignored "-Wunused-variable"
+    #pragma clang diagnostic ignored "-Wmacro-redefined"
+    #pragma clang diagnostic ignored "-Wignored-pragma-optimize"
+  #else
+    #pragma warning (disable:4005)
+  #endif
+
+  #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
+  #define _CRT_SECURE_NO_WARNINGS         1
+  #define _CRT_SECURE_NO_DEPRECATE        1
+  #define _CRT_NONSTDC_NO_WARNINGS        1
+
+  #define _USE_MATH_DEFINES 1  /* To pull in 'M_PI' in <math.h> */
+
+  #define STDIN_FILENO   0
+  #define STDOUT_FILENO  1
+
+  #define mode_t         int
+  #define ssize_t        int
+
+  #define SIGPIPE  0
+  #define SIGWINCH 0
+
+  #if defined(_DEBUG)
+    #include <malloc.h>
+    #include <string.h>
+
+    #undef  _malloca          /* Avoid MSVC-9 <malloc.h>/<crtdbg.h> name-clash */
+    #define _CRTDBG_MAP_ALLOC
+    #include <crtdbg.h>
+  #endif
+
+  #if defined(USE_VLD)
+    /*
+     * Visual Leak Detector is mostly useful in a '_DEBUG' ('-MDd' or '-MTd') build.
+     * But including it for '_RELEASE' ('-MD' or '-MT') works too.
+     *
+     * Refs:
+     *   https://kinddragon.github.io/vld/
+     *   https://github.com/KindDragon/vld/wiki
+     */
+    #include <vld.h>
+  #endif
+
+  #endif /* DUMP1090_CONFIG_H */
+endef
+
+ifeq ($(USE_ASTYLE),1)
+  C_FORMATER = | astyle
+
+else ifeq ($(USE_CLANG_FORMAT),1)
+  C_FORMATER = | clang-format -style=Mozilla -assume-filename=c
+endif
+
+define C_preprocess
+  $(call green_msg, Preprocessing $(2))
+  $(file  > $(1),/* The result of preprocessing '$(strip $(2))':)
+  $(file >> $(1),   $(CC))
+  $(foreach f, -E $(CFLAGS), $(file >> $(1),    $(f)))
+  $(file >> $(1), ---------------------------------------------------------)
+  $(file >> $(1), Try compile this output.)
+  $(file >> $(1),*/)
+  $(CC) -E $(CFLAGS) $(2) | $(PYTHON) cpp_filter.py $(C_FORMATER) >> $(1)
+endef
+
+define cpp_filter_py
+  import sys, os
+
+  try:
+    import ntpath
+  except ImportError as e:
+    print ("Failed to import ntpath: %s" % e)
+    sys.exit(1)
+
+  def _win32_abspath (path):
+    path = ntpath.abspath (path)
+    return path.replace ('\\', '/')
+
+  def skip_cwd (s1, s2):
+    ''' Skip the leading part that is in common with s1 and s2
+    '''
+    i = 0
+    while i < len(s1) and s1[i] == s2[i]:
+       i += 1
+    return s2[i:]
+
+  cwd = _win32_abspath (os.getcwd()) + '/'
+
+  last_line  = '??'
+  last_fname = '??'
+  empty_lines = 0
+
+  while True:
+    line = sys.stdin.readline()
+    if not line:
+      break
+    if line.startswith('\n') or line.startswith('\r'):
+      empty_lines += 1
+      continue
+
+    if line.lstrip().startswith("#line"):
+      line = line.replace ("\\\\", "/")
+    fname = None
+    quote = line.find ('\"')
+
+    if line.startswith ("#line ") and quote > 0:
+      fname = _win32_abspath (line[quote:])
+      last_fname = fname
+
+    if line.strip() != '' and last_line != '':
+      if fname is None or fname != last_fname:
+        print (line, end="")
+
+      l2 = line.strip()
+      if l2 == '}' or l2 == '};':  # Print a newline after a functions or structs
+        print ("")
+
+    last_line = line
+
+  if empty_lines > 0:
+    sys.stderr.write ("Removed %d empty lines.\n" % empty_lines)
+
+endef
+
+DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
+DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.$.obj: @' \
+              -e 's@$(MONGOOSE_ROOT)@$$(MONGOOSE_ROOT)@'    \
+              -e 's@$(PTHREADS_ROOT)@$$(PTHREADS_ROOT)@'    \
+              -e 's@$(RTLSDR_ROOT)@$$(RTLSDR_ROOT)@'
+
+depend: $(GENERATED)
+	$(call Generate, .depend.Windows, #)
+	gcc $(DEP_CFLAGS) $(SOURCES) | sed $(DEP_REPLACE) >> .depend.Windows
+
+-include .depend.Windows
+
