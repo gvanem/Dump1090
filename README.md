@@ -221,7 +221,9 @@ If you are interested in a more serious antenna or ADS-B equipment, check the fo
 
   *  **[GnuRadio Mode-S/ADS-B](https://github.com/bistromath/gr-air-modes)**.
   *  **[Simple ADSB J-pole antenna](http://www.lll.lu/~edward/edward/adsb/antenna/ADSBantenna.html)**.
-  *  **[ADS-B Receiver MLAT](https://radarcape.com/)**.
+  *  **[ADS-B / MLAT](https://ieeexplore.ieee.org/document/9129436)**.
+       Multilateration; using a *Time Difference of Arrival* (TDOA) calculation
+       based on signals from several receivers (probably not cheap RTLSDRs).
 
 
 ## Aggressive mode
@@ -286,15 +288,12 @@ the **[testfiles](testfiles/)** directory. Run it like this: <br>
 
 ## What is `--strip` mode?
 
-It is just a simple filter that will take raw 8-bit IQ samples in input
-and will output a file missing all the parts where I and Q samples are
-lower than the specified <level> for more than 32 samples.
+A simple filter that will take raw 8-bit IQ samples on input and output a file
+missing the I/Q parts that were below the specified `--strip level`. And if
+those I/Q samples were below limit for at least 32 samples. <br>
+Can be used like: `type big.bin | dump1090 --strip 25 > small.bin`
 
-Use it like this: <br>
-   `cat big.bin | dump1090 --strip 25 > small.bin`
-
-I used it in order to create a small test file to include inside this
-program source code distribution.
+The `--snip` mode was used to create e.g. **[testfiles](testfiles/modes1.bin)**.
 
 ## Contributing
 
