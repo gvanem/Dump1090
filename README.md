@@ -1,10 +1,12 @@
 # Dump1090
 
-A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.
-Requires a RTLSDR USB-stick and Osmocom's **[librtlsdr](https://github.com/osmocom/rtl-sdr)**.
+A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<br>
+It requires a RTLSDR USB-stick and Osmocom's **[librtlsdr](https://github.com/osmocom/rtl-sdr)**.
 
 This Mode S decoder is based on the original *Dump1090* by **Salvatore Sanfilippo**
-which is **[here](https://github.com/antirez/dump1090.git)**.
+which is **[here](https://github.com/antirez/dump1090.git)**.<br>
+Most of the text below is written by him. I've mostly fixed the MarkDown and added some
+more references and screen-shots.
 
 **ADS-B** basics:
  * A YouTube **[video](https://www.youtube.com/watch?v=BDLFHdq540g&ab_channel=AP47TV)**
@@ -27,15 +29,14 @@ The main features of *Dump1090* are:
   checksum field using recently seen ICAO addresses.
 * Decode raw IQ samples from file (using the `--infile bin-file` command line option).
 * Interactive command-line-interface mode where aircrafts currently detected
-  are shown as a list refreshing as more data arrives. <br>
-  Planes that haven't been seen last 60 seconds are removed from the list
-  (option `--interactive-ttl timeout` to change).
+  are shown as a list refreshing as more data arrives. Planes that haven't been seen
+  last 60 seconds are removed from the list (option `--interactive-ttl sec` to change).
 * *CPR* coordinates decoding and track calculation from velocity.
-* TCP server streaming and receiving raw data to/from connected clients
-  (using options `--net` or `--net-only`).
+* TCP server streaming and receiving raw data to/from connected clients <br>
+  (options `--net` or `--net-only`).
 
 While from time to time I still add / fix stuff in my fork, I target
-minimalism of the implementation. <br>
+minimalism in this implementation. <br>
 However there is a [much more feature complete fork](https://github.com/MalcolmRobb/dump1090)
 available, developed by **Malcolm Robb**.
 
@@ -95,7 +96,8 @@ to your browser to **http://localhost:8080**, use this command:
   dump1090 --interactive --net
   ```
 
-  It will present live traffic to the Web-browser and **![console](dump1090-win-1.png)**.
+  It will present live traffic to the Web-browser and console:
+  **![interactive output](dump1090-win-1.png)**
 
 
 In interactive mode it is possible to have a less information dense but more
@@ -131,9 +133,9 @@ the `--infile` option with `-` as argument.
 gain, frequency, and so forth. <br>
 Full list of options use is shown using `dump1090 --help` or `dump1090 -h`.
 
-Using a syntax like `dump1090 --freq 1090.001M` is possible (for a
-cheap RTLSDR device with high frequency drift). For most devices, this is
-not needed.
+A syntax like `dump1090 --freq 1090.001M` is possible for cheap RTLSDR devices with
+high frequency drift. But for most devices, this is not needed (due to the
+*capture effect* of the signal itself?).
 
 Everything is not documented here ... obviously. For most users running
 `dump1090 --interactive` is probably best thing to do.
@@ -185,13 +187,13 @@ broadcasted to clients listening to port 30002.
 In general everything received from port 30001 is handled exactly like the
 normal traffic from RTL devices or from file when `--infile` is used.
 
-It is possible to use `dump1090` just as an *hub* (not on Windows though):
-as argument as in the following example:
+It is possible to use `dump1090` simply as an *hub* (not on Windows though)
+as in this example: <br>
     ```
     dump1090 --net-only --infile /dev/zero
     ```
 
-Or alternatively to see what's happening on the screen:
+Or alternatively to see what's happening on the screen: <br>
     ```
     dump1090 --net-only --interactive
     ```
@@ -256,9 +258,9 @@ To enable debug mode and check what combinations of packets you can
 log, use `dump1090 --help` to obtain a list of available debug flags.
 
 Debug mode includes an optional JavaScript output (`frames.js`) that is
-used to visualize packets using a web browser, you can use the file
-`tools/debug.html` to load the generated `frames.js` file.
-![Example](debug-frames.png).
+used to visualize packets using a web browser, you can use
+**[tools/debug.html](tools/debug.html)** to load and analyze the generated
+`frames.js` file:  ![Example](debug-frames.png).
 
 ## How this program work?
 
@@ -275,23 +277,21 @@ based on how the messages look graphically.
 If you have an RTLSDR device and you happen to be in an area where there
 are aircrafts flying over your head, just run the program and check for signals.
 
-However if you don't have an RTLSDR device, or if in your area the presence
+If however you don't have an RTLSDR device, or if in your area the presence
 of aircrafts is very limited, you may want to try it with the sample file under
-the `[testfiles](testsfiles/)` directory.
-
-Just run it like this:
+the **[testfiles](testsfiles/)** directory. Run it like this: <br>
   ```
-    dump1090 --ifile testfiles/modes1.bin
+  dump1090 <other-options> --ifile testfiles/modes1.bin
   ```
 
 ## What is `--strip` mode?
 
-It is just a simple filter that will get raw IQ 8 bit samples in input
-and will output a file missing all the parts of the file where I and Q
-are lower than the specified <level> for more than 32 samples.
+It is just a simple filter that will take raw 8-bit IQ samples in input
+and will output a file missing all the parts where I and Q samples are
+lower than the specified <level> for more than 32 samples.
 
 Use it like this: <br>
-   `cat big.bin | dump1090 --snip 25 > small.bin`
+   `cat big.bin | dump1090 --strip 25 > small.bin`
 
 I used it in order to create a small test file to include inside this
 program source code distribution.
