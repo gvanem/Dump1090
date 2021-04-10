@@ -1,58 +1,100 @@
 # Dump1090
 
-A simple ADS-B (Automatic Dependent Surveillance - Broadcast) receiver, decoder and web-server.
+A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.
 Depends on a RTLSDR USB-stick and librtlsdr.
 
-A Mode S decoder based on the original Dump1090 by Salvatore Sanfilippo.
+A Mode S decoder based on the original Dump1090 by **Salvatore Sanfilippo**
+which is **[here](https://github.com/antirez/dump1090.git)**.
 
-The main features are:
+A video exlaining the **ADS-B** basics and motivation behind it:
+  https://www.youtube.com/watch?v=BDLFHdq540g&ab_channel=AP47TV
 
-* Robust decoding of weak messages, with mode1090 many users observed
+A detailed technical description by Junzi Sun:
+  * **https://mode-s.org/decode/content/ads-b/1-basics.html**
+  * Or as a **[PDF](The-1090MHz-riddle.pdf)**.
+
+The main features of Dump1090 are:
+
+* Robust decoding of weak messages, with Dump1090 many users observed
   improved range compared to other popular decoders.
-* Network support: TCP30003 stream (MSG5...), Raw packets, HTTP.
-* Embedded HTTP server that displays the currently detected aircrafts on
-  Google Map.
+* Network support: TCP30003 stream (MSG5...), Raw packets, HTTP (with WebSockets coming soon?).
+* Embedded HTTP server that displays the currently detected aircrafts on OpenStreet Map.
 * Single bit errors correction using the 24 bit CRC.
-* Ability to decode DF11, DF17 messages.
-* Ability to decode DF formats like DF0, DF4, DF5, DF16, DF20 and DF21
-  where the checksum is xored with the ICAO address by brute forcing the
+* Ability to decode *DF11*, *DF17* messages (**Downlink Format**).
+* Ability to decode formats like *DF0*, *DF4*, *DF5*, *DF16*, *DF20* and *DF21*
+  where the checksum is *XORed* with the ICAO address by brute forcing the
   checksum field using recently seen ICAO addresses.
-* Decode raw IQ samples from file (using --ifile command line switch).
+* Decode raw IQ samples from file (using `--infile bin-file` command line switch).
 * Interactive command-line-interfae mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives.
-* CPR coordinates decoding and track calculation from velocity.
+* *CPR* coordinates decoding and track calculation from velocity.
 * TCP server streaming and receiving raw data to/from connected clients
   (using --net).
 
 While from time to time I still add / fix stuff in my fork, I target
 minimalism of the implementation. However there is a
 [much more feature complete fork](https://github.com/MalcolmRobb/dump1090)
-available, developed by MalcolmRobb.
+available, developed by Malcolm Robb.
 
-## Installation
+## Building
 
-  On Windows, type `make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
+  On Windows, type `make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).<br>
   On Linux, type `make` (untested by me).
 
 ## Normal usage
 
-To capture traffic directly from your RTL device and show the captured traffic
-on standard output, just run the program without options at all:
+To capture traffic directly from your RTL device (and soon a *SDRPlay* radio) and
+show the captured traffic on standard output, just run the program without options at all:
+  ```
+  dump1090
+  ```
 
-    `dump1090`
+  Example output:
+  ```
+    Tuned to 1090.000 MHz. Gain reported by device: AUTO.
+    *8d479e84580fd03d66d139c1cd17;
+    CRC: c1cd17 (ok)
+    DF 17: ADS-B message.
+      Capability     : 5 (Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is on airborne))
+      ICAO Address   : 479e84
+      Extended Squitter  Type: 11
+      Extended Squitter  Sub : 0
+      Extended Squitter  Name: Airborne Position (Baro Altitude)
+        F flag   : even
+        T flag   : non-UTC
+        Altitude : 2125 feet
+        Latitude : 7859 (not decoded)
+        Longitude: 53561 (not decoded)
+    ...
+   ```
 
-To just output hexadecimal messages:
+To only output hexadecimal messages:
+  ```
+   dump1090 --raw
+  ```
+  Example output:
 
-    `dump1090 --raw`
+```
+Tuned to 1090.000 MHz. Gain reported by device: AUTO.
+*8d47c1abea040830015c087c6a4b;
+*8d479e84990c5607200c8319b311;
+*8d479e84580fd04278cda6bd6d32;
+...
+```
 
 To run the program in interactive mode:
+    ```
+    dump1090 --interactive
+    ```
 
-    `dump1090 --interactive`
+To run the program in interactive mode, with networking support and connect
+to your browser at **http://localhost:8080**, use this command:
+  ```
+  dump1090 --interactive --net
+  ```
 
-To run the program in interactive mode, with networking support, and connect
-with your browser to **http://localhost:8080** to see live traffic:
+  It will present live traffic to the Web-browser and **[console](dump1090-win-1.png)**.
 
-    `dump1090 --interactive --net`
 
 In interactive mode it is possible to have a less information dense but more
 *arcade style* output, where the screen is refreshed every second displaying
@@ -62,27 +104,32 @@ altitude and flight number, extracted from the received Mode S packets.
 ## Using files as source of data
 
 To decode data from file, use:
+    ```
+    dump1090 --infile /path/to/binfile
+    ```
 
-    `dump1090 --ifile /path/to/binfile`
+The binary file should be created using `rtl_sdr` like this (or with another
+program that is able to output 8-bit unsigned IQ samples at 2Mhz sample rate):
+  ```
+  rtl_sdr -f 1090M -s 2000000 output.bin
+  ```
 
-The binary file should be created using `rtl_sdr` like this (or with any other
-program that is able to output 8-bit unsigned IQ samples at 2Mhz sample rate).
-
-    `rtl_sdr -f 1090000000 -s 2000000 -g 50 output.bin`
-
-In the example `rtl_sdr` a gain of 50 is used, simply you should use the highest
+In the above example, `rtl_sdr` with AUTO gain is used. Use `rtl_sdr -g 50` for a 50 dB gain.
+ simply you should use the highest
 gain availabe for your tuner. This is not needed when calling Dump1090 itself
 as it is able to select the highest gain supported automatically.
 
-It is possible to feed the program with data via standard input using
-the --ifile option with "-" as argument.
+It is possible to feed the program with data via *standard input* using
+the `--infile` option with `-` as argument.
 
 ## Additional options
 
 Dump1090 can be called with other command line options to set a different
-gain, frequency, and so forth. For a list of options use:
-
+gain, frequency, and so forth. For a list of options use: <br>
     `dump1090 --help` or `dump1090 -h`
+
+Using a syntax like `dump1090 --freq 1090.001M` is possible (for a RTL-receiver with
+high frequency drift).
 
 Everything is not documented here should be obvious, and for most users calling
 it without arguments at all is the best thing to do.
@@ -95,7 +142,7 @@ the checksum of the resulting message matches.
 
 This is indeed able to fix errors and works reliably in my experience,
 however if you are interested in very reliable data I suggest to use
-the --no-fix command line switch in order to disable error fixing.
+the `--no-fix` command line switch in order to disable error fixing.
 
 ## Performances and sensibility of detection
 
@@ -111,11 +158,11 @@ my free time (this is just an hobby project).
 ## Network server features
 
 By enabling the networking support with `--net`, Dump1090 starts listening
-for clients connections on port 30002 and 30001 (you can change both the
-ports if you want, see `--help` output).
+for clients connections on port 30002 and 30001 (you can change both ports if
+you like, see `--help` or `-h` output).
 
   * **Port 30002**  Connected clients are served with data ASAP as they arrive from the device
-    (or from file if --ifile is used) in the raw format similar to the following: <br>
+    (or from file if `--infile` is used) in the raw format similar to the following: <br>
     `*8D451E8B99019699C00B0A81F36E;` <br>
     Every entry is separated by a simple newline (LF character, hex `0x0A`).
 
@@ -132,21 +179,23 @@ It is important to note that what is received via port 30001 is also
 broadcasted to clients listening to port 30002.
 
 In general everything received from port 30001 is handled exactly like the
-normal traffic from RTL devices or from file when --ifile is used.
+normal traffic from RTL devices or from file when `--infile` is used.
 
-It is possible to use Dump1090 just as an hub using --ifile with /dev/zero
+It is possible to use Dump1090 just as an *hub* (not on Windows though):
 as argument as in the following example:
-
-    `dump1090 --net-only`
+    ```
+    dump1090 --net-only --infile /dev/zero
+    ```
 
 Or alternatively to see what's happening on the screen:
-
+    ```
     dump1090 --net-only --interactive
+    ```
 
 Then you can feed it from different data sources from the internet.
 
-  * **Port 30003**  Connected clients are served with messages in SBS1 (BaseStation) format,
-                    similar to: <br>
+  * **Port 30003**  Connected clients are served with messages in
+    **[SBS1 (BaseStation) format](http://woodair.net/sbs/article/barebones42_socket_data.htm)**, similar to: <br>
     ```
     MSG,4,,,738065,,,,,,,,420,179,,,0,,0,0,0,0
     MSG,3,,,738065,,,,,,,35000,,,34.81609,34.07810,,,0,0,0,0
@@ -159,24 +208,24 @@ Mode S messages are transmitted in the 1090 Mhz frequency. If you have a decent
 antenna you'll be able to pick up signals from aircrafts pretty far from your
 position, especially if you are outdoor and in a position with a good sky view.
 
-You can easily build a very cheap antenna following the istructions at:
+You can easily build a very cheap antenna following these
+**[instructions](http://antirez.com/news/46)**.
 
-    **http://antirez.com/news/46**
-
-With this trivial antenna I was able to pick up signals of aircrafts 200+ Km
+With this trivial antenna I was able to pick up signals of aircrafts 200+ km
 away from me.
 
-If you are interested in a more serious antenna check the following resources:
+If you are interested in a more serious antenna or ADS-B equipment, check the following resources:
 
-  * **http://gnuradio.org/data/grcon11/06-foster-adsb.pdf**
-  * **http://www.lll.lu/~edward/edward/adsb/antenna/ADSBantenna.html**
-  * **http://modesbeast.com/pix/adsb-ant-drawing.gif**
+  *  **[Gnuradio Mode-S/ADS-B](radio https://github.com/bistromath/gr-air-modes)**
+  *  **[Simple ADSB J-pole antenna](http://www.lll.lu/~edward/edward/adsb/antenna/ADSBantenna.html)**
+  *  **[ADS-B Receiver MLAT](https://radarcape.com/)**
+
 
 ## Aggressive mode
 
 With `--aggressive` it is possible to activate the *aggressive mode* that is a
 modified version of the Mode S packet detection and decoding. The aggresive mode uses
-more CPU usually (especially if there are many planes sending DF17 packets), but
+more CPU usually (especially if there are many planes sending *DF17* packets), but
 can detect a few more messages.
 
 The algorithm in aggressive mode is modified in the following ways:
@@ -184,7 +233,7 @@ The algorithm in aggressive mode is modified in the following ways:
 * Up to two demodulation errors are tolerated (adjacent entires in the magnitude
   vector with the same eight). Normally only messages without errors are
   checked.
-* It tries to fix DF17 messages trying every two bits combination.
+* It tries to fix *DF17* messages trying every two bits combination.
 
 The use of aggressive mdoe is only advised in places where there is low traffic
 in order to have a chance to capture some more messages.
@@ -203,7 +252,7 @@ Mode S peak was found. Some additional background noise is also added
 before the first peak to provide some context.
 
 To enable debug mode and check what combinations of packets you can
-log, use `mode1090 --help` to obtain a list of available debug flags.
+log, use `dump1090 --help` to obtain a list of available debug flags.
 
 Debug mode includes an optional javascript output that is used to visualize
 packets using a web browser, you can use the file debug.html under the
@@ -255,5 +304,5 @@ the source distribution.
 
 ## Credits
 
-Dump1090 was written by Salvatore Sanfilippo <antirez@gmail.com> and is
+Dump1090 was written by **[Salvatore Sanfilippo](<antirez@gmail.com>)** and is
 released under the BSD three clause license.
