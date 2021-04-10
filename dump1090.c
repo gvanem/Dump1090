@@ -2334,7 +2334,7 @@ struct aircraft *interactiveReceiveData (struct modesMessage *mm)
 void interactiveShowData (long long now)
 {
   static int spin_idx = 0;
-  char spinner[4] = "|/-\\";
+  char spinner[] = "|/-\\";
   struct aircraft *a = Modes.aircrafts;
   int count = 0;
 
@@ -3607,7 +3607,7 @@ int main (int argc, char **argv)
        Modes.dev_index = atoi (argv[++j]);
 
     else if (!strcmp(argv[j], "--gain") && more)
-        Modes.gain = (int) (10.0 * atof(argv[++j])); /* Gain is in tens of DBs */
+        Modes.gain = (int) (10.0 * atof(argv[++j]));   /* Gain is in tens of DBs */
 
     else if (!strcmp(argv[j], "--freq") && more)
         Modes.freq = (uint32_t) atoHz (argv[++j]);
