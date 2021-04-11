@@ -57,7 +57,7 @@
 #include <rtl-sdr.h>
 #include <mongoose.h>
 
-#define MG_NET_POLL_TIME  1000  /* milli-sec */
+#define MG_NET_POLL_TIME  500   /* milli-sec */
 #define MG_NET_DEBUG      "3"   /* LL_DEBUG */
 
 #define MODES_DEFAULT_RATE         2000000
@@ -174,12 +174,14 @@ static pthread_t PTHREAD_NULL;
 /* Structure used to describe a networking client.
  */
 struct client {
-    struct mg_connection *conn;             /* The connection of the client. */
+    struct mg_connection *conn;           /* Remember which connection the client is in */
+    int    service;                       /* This client's service membership */
+    int    accepted;                      /* Should always be 1 */
     u_long id;
     int    keepalive;
-    char   buf [MODES_CLIENT_BUF_SIZE+1];   /* Read buffer. */
-    int    buflen;                          /* Amount of data on buffer. */
-    struct client        *next;
+    char   buf [MODES_CLIENT_BUF_SIZE+1]; /* Read buffer. */
+    int    buflen;                        /* Amount of data on buffer. */
+    struct client *next;
 };
 
 /* Structure used to describe an aircraft in interactive mode.
@@ -217,10 +219,12 @@ struct statistics {
        long long two_bits_fix;
        long long out_of_phase;
        long long sbs_connections;
-       long long http_requests;
+       long long unique_aircrafts;
+       long long unrecognized_ME;
        long long clients_accepted;
        long long clients_removed;
-       long long unique_aircrafts;
+       long long http_requests;
+       long long http_websockets;
      };
 
 /* All program global state is in this structure.
@@ -330,18 +334,18 @@ struct modesMessage {
 
 struct aircraft *interactive_receive_data (struct modesMessage *mm);
 void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *));
-void modesExit (void);
+void modes_exit (void);
 void mode_send_raw_output (struct modesMessage *mm);
 void mode_send_SBS_output (struct modesMessage *mm, struct aircraft *a);
 void mode_user_message (struct modesMessage *mm);
 int  fixSingleBitErrors (uint8_t *msg, int bits);
 int  fixTwoBitsErrors (uint8_t *msg, int bits);
-void detectModeS (uint16_t *m, uint32_t mlen);
-int  decodeHexMessage (struct client *c);
+void detect_modeS (uint16_t *m, uint32_t mlen);
+int  decode_hex_message (struct client *c);
 int  modesMessageLenByType (int type);
 void computeMagnitudeVector (void);
 int  getTermRows (void);
-void backgroundTasks (void);
+void background_tasks (void);
 
 u_short handler_port (int service);
 const char *handler_descr (int service);
@@ -416,7 +420,7 @@ void crtdbug_init (void)
 {
   VLDSetReportOptions (VLD_OPT_REPORT_TO_STDOUT, NULL);  /* Force all reports to "stdout" in "ASCII" */
   VLDSetOptions (VLDGetOptions(), 100, 4);   /* Dump max 100 bytes data. And walk max 4 stack frames */
-  atexit (modesExit);
+  atexit (modes_exit);
 }
 
 #elif defined(_DEBUG)
@@ -426,7 +430,7 @@ void crtdbug_exit (void)
 {
   _CrtMemState new_state, diff_state;
 
-  modesExit();
+  modes_exit();
 
   _CrtMemCheckpoint (&new_state);
   if (!_CrtMemDifference(&diff_state, &last_state, &new_state))
@@ -691,8 +695,8 @@ void readFromDataFile (void)
      }
 
      computeMagnitudeVector();
-     detectModeS (Modes.magnitude, Modes.data_len/2);
-     backgroundTasks();
+     detect_modeS (Modes.magnitude, Modes.data_len/2);
+     background_tasks();
 
      /* seek the file again from the start
       * and re-play it if --loop was given.
@@ -732,7 +736,7 @@ void main_data_loop (void)
 {
   while (!Modes.exit)
   {
-    backgroundTasks();
+    background_tasks();
 
     if (!Modes.data_ready)
        continue;
@@ -750,7 +754,7 @@ void main_data_loop (void)
      * slow processors).
      */
     pthread_mutex_lock (&Modes.data_mutex);
-    detectModeS (Modes.magnitude, Modes.data_len/2);
+    detect_modeS (Modes.magnitude, Modes.data_len/2);
     pthread_mutex_unlock (&Modes.data_mutex);
   }
 }
@@ -1281,7 +1285,7 @@ const char *getMEDescription (int metype, int mesub)
 }
 
 /* Decode a raw Mode S message demodulated as a stream of bytes by
- * detectModeS(), and split it into fields populating a modesMessage
+ * detect_modeS(), and split it into fields populating a modesMessage
  * structure.
  */
 void decodeModesMessage (struct modesMessage *mm, uint8_t *msg)
@@ -1634,6 +1638,7 @@ void displayModesMessage (struct modesMessage *mm)
     else
     {
       printf ("    Unrecognized ME type: %d subtype: %d\n", mm->metype, mm->mesub);
+      Modes.stat.unrecognized_ME++;
     }
   }
   else
@@ -1741,7 +1746,7 @@ void applyPhaseCorrection (uint16_t *m)
  * size 'mlen' bytes. Every detected Mode S message is converted into a
  * stream of bits and passed to the function to display it.
  */
-void detectModeS (uint16_t *m, uint32_t mlen)
+void detect_modeS (uint16_t *m, uint32_t mlen)
 {
   uint8_t  bits[MODES_LONG_MSG_BITS];
   uint8_t  msg[MODES_LONG_MSG_BITS/2];
@@ -2465,7 +2470,7 @@ void stripMode (int level)
 /*
  * Return a malloced description of planes in json.
  */
-char *aircraftsToJson (int *len)
+char *aircrafts_to_json (int *len)
 {
   struct aircraft *a = Modes.aircrafts;
   int   l, buflen = 1024;        /* The initial buffer is incremented as needed. */
@@ -2481,7 +2486,9 @@ char *aircraftsToJson (int *len)
     int altitude = a->altitude;
     int speed = a->speed;
 
-    /* Convert units to metric if --metric was specified. */
+    /* Convert units to metric if --metric was specified.
+     * But option '--metric' has no effect on the Web-page yet.
+     */
     if (Modes.metric)
     {
       double altitudeM, speedKmH;
@@ -2541,12 +2548,9 @@ struct client *get_client (int service)
 
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service <= MODES_NET_SERVICE_HTTP);
 
-  for (cli = Modes.clients[service]; cli && cli->conn; cli = cli->next)
+  for (cli = Modes.clients[service]; cli; cli = cli->next)
   {
-    int  cli_service = (int)cli->conn->fn_data;
-    bool cli_accepted = cli->conn->is_accepted;
-
-    if (cli_service == service && cli_accepted)
+    if (cli->service == service && cli->accepted)
        return (cli);
   }
   return (NULL);
@@ -2558,8 +2562,8 @@ struct client *get_client (int service)
 void free_client (struct client *_cli, int service)
 {
   struct client *cli;
-  u_long cli_id = 0;
-  u_long serviceX = 0;
+  u_long cli_id = (u_long)-1;
+  int    cli_service = -1;
 
   for (cli = Modes.clients[service]; cli; cli = cli->next)
   {
@@ -2568,15 +2572,12 @@ void free_client (struct client *_cli, int service)
 
     LIST_DELETE (struct client, &Modes.clients[service], cli);
     Modes.stat.clients_removed++;
-    serviceX = (u_long) cli->conn->fn_data;
     cli_id = cli->id;
+    cli_service = cli->service;
     free (cli);
     break;
   }
-  /* To check for double frees; 'serviceX == 0xDDDDDDDD' is that case in '_DEBUG' mode
-   */
-  TRACE (DEBUG_NET, "Closing client %lu for service %lu (0x%08lX).\n",
-         cli_id, serviceX, serviceX);
+  TRACE (DEBUG_NET, "Closing client %lu for service %d/%d.\n", cli_id, service, cli_service);
 }
 
 /*
@@ -2619,7 +2620,7 @@ int send_all_clients (int service, const void *msg, int len)
   {
     cli_next = cli->next;   /* Since 'free_client()' could 'free(cli->next)' */
 
-    if (cli->conn->fn_data != (void*)service)
+    if (cli->service != service)
        continue;
 
     rc = mg_send (cli->conn, msg, len);
@@ -2734,6 +2735,7 @@ void websocket_handler (struct mg_connection *conn, int ev, void *ev_data, void 
   }
   else if (ev == MG_EV_WS_CTL)
   {
+    Modes.stat.http_websockets++;
   }
 }
 
@@ -2778,7 +2780,7 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_d
     if (!strncmp(hm->head.ptr, "GET /data.json ", 15))
     {
       int   data_len;
-      char *data = aircraftsToJson (&data_len);
+      char *data = aircrafts_to_json (&data_len);
       int   have_data = (data_len > 4);
 
       if (have_data)
@@ -2868,8 +2870,9 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
   if (ev == MG_EV_ACCEPT)
   {
     cli = calloc (sizeof(*cli), 1);
-    cli->conn = conn;      /* Keep a copy of the servicing connection */
-    cli->id = conn->id;
+    cli->conn    = conn;      /* Keep a copy of the servicing connection */
+    cli->service = (int) fn_data;
+    cli->id      = conn->id;
 
     LIST_ADD_HEAD (struct client, &Modes.clients[service], cli);
     ++ (*handler_num_clients (service));
@@ -2878,7 +2881,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
     remote = mg_ntoa (&conn->peer, remote_buf, sizeof(remote_buf));
 
     TRACE (DEBUG_NET, "New client %lu (service '%s') from %s:%u (socket %u).\n",
-           cli->conn->id, handler_descr(service), remote, ntohs(conn->peer.port), _ptr2sock(conn->fd));
+           cli->id, handler_descr(service), remote, ntohs(conn->peer.port), _ptr2sock(conn->fd));
 
     if (service == MODES_NET_SERVICE_SBS)
        Modes.stat.sbs_connections++;
@@ -2894,7 +2897,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
       cli = get_client (service);
-      read_from_client (cli, "\n", decodeHexMessage);
+      read_from_client (cli, "\n", decode_hex_message);
     }
   }
   else if (ev == MG_EV_CLOSE)
@@ -3056,7 +3059,7 @@ int hexDigitVal (int c)
  * no case where we want broken messages here to close the client
  * connection.
  */
-int decodeHexMessage (struct client *c)
+int decode_hex_message (struct client *c)
 {
   struct modesMessage mm;
   char *hex = c->buf;
@@ -3157,7 +3160,7 @@ int handleHTTPRequest (struct client *c)
    */
   if (strstr(url, "/data.json"))
   {
-    content = aircraftsToJson (&clen);
+    content = aircrafts_to_son (&clen);
     ctype = MODES_CONTENT_TYPE_JSON;
   }
   else
@@ -3228,7 +3231,7 @@ int handleHTTPRequest (struct client *c)
  */
 void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *))
 {
-#ifdef USE_MONGOOSE
+#ifdef USE_MONGOOSE   /** \todo */
    struct mg_iobuf msg = cli->conn->recv;
 
    memcpy (cli->buf, msg.buf, min(msg.len, sizeof(cli->buf)));  /* copy over before Mongoose discards this */
@@ -3435,7 +3438,7 @@ void show_help (const char *fmt, ...)
  * perform tasks we need to do continuously, like accepting new clients
  * from the net, refreshing the screen in interactive mode, and so forth.
  */
-void backgroundTasks (void)
+void background_tasks (void)
 {
   long long now = mstime();
   int  refresh;
@@ -3484,29 +3487,33 @@ static void sigintHandler (int sig)
 
 void show_statistics (void)
 {
-  printf ("%6lld valid preambles.\n", Modes.stat.valid_preamble);
-  printf ("%6lld demodulated again after phase correction.\n", Modes.stat.out_of_phase);
-  printf ("%6lld demodulated with zero errors.\n", Modes.stat.demodulated);
-  printf ("%6lld with good CRC.\n", Modes.stat.goodcrc);
-  printf ("%6lld with bad CRC.\n", Modes.stat.badcrc);
-  printf ("%6lld errors corrected.\n", Modes.stat.fixed);
-  printf ("%6lld single bit errors.\n", Modes.stat.single_bit_fix);
-  printf ("%6lld two bits errors.\n", Modes.stat.two_bits_fix);
-  printf ("%6lld total usable messages.\n", Modes.stat.goodcrc + Modes.stat.fixed);
-  printf ("%6lld unique aircrafts.\n", Modes.stat.unique_aircrafts);
+  puts ("Mode-S decoder statistics:");
+  printf ("  %6lld valid preambles.\n", Modes.stat.valid_preamble);
+  printf ("  %6lld demodulated again after phase correction.\n", Modes.stat.out_of_phase);
+  printf ("  %6lld demodulated with zero errors.\n", Modes.stat.demodulated);
+  printf ("  %6lld with good CRC.\n", Modes.stat.goodcrc);
+  printf ("  %6lld with bad CRC.\n", Modes.stat.badcrc);
+  printf ("  %6lld errors corrected.\n", Modes.stat.fixed);
+  printf ("  %6lld single bit errors.\n", Modes.stat.single_bit_fix);
+  printf ("  %6lld two bits errors.\n", Modes.stat.two_bits_fix);
+  printf ("  %6lld total usable messages.\n", Modes.stat.goodcrc + Modes.stat.fixed);
+  printf ("  %6lld unique aircrafts.\n", Modes.stat.unique_aircrafts);
+  printf ("  %6lld unrecognized ME types\n", Modes.stat.unrecognized_ME);
 
   if (Modes.net)
   {
-    printf ("%6lld HTTP requests.\n", Modes.stat.http_requests);
-    printf ("%6lld SBS connections.\n", Modes.stat.sbs_connections);
-    printf ("%6lld clients accepted.\n", Modes.stat.clients_accepted);
-    printf ("%6lld clients removed.\n", Modes.stat.clients_removed);
+    puts ("Network statistics:");
+    printf ("  %6lld HTTP requests received.\n", Modes.stat.http_requests);
+    printf ("  %6lld SBS connections.\n", Modes.stat.sbs_connections);
+    printf ("  %6lld client connections accepted.\n", Modes.stat.clients_accepted);
+    printf ("  %6lld client connections removed.\n", Modes.stat.clients_removed);
+    printf ("  %6lld HTTP/WebSocket upgrades.\n", Modes.stat.http_websockets);
     for (int service = MODES_NET_SERVICE_RAW_OUT; service <= MODES_NET_SERVICE_HTTP; service++)
-        printf ("%6u clients for %s now.\n", *handler_num_clients(service), handler_descr(service));
+        printf ("  %6u clients for %s now.\n", *handler_num_clients(service), handler_descr(service));
   }
 }
 
-void modesExit (void)
+void modes_exit (void)
 {
   int rc;
 
@@ -3514,9 +3521,10 @@ void modesExit (void)
   {
     free_all_clients();
     net_flushall();
-    if (Modes.mgr.conns)
+
+  //if (Modes.mgr.conns)
     {
-      mg_mgr_poll (&Modes.mgr, 0);
+    //mg_mgr_poll (&Modes.mgr, 0);
       mg_mgr_free (&Modes.mgr);
     }
     Modes.mgr.conns = NULL;
@@ -3538,7 +3546,7 @@ void modesExit (void)
   /* This should not hurt if we've not created the 'Modes.reader_thread'
    */
 #if defined(_WIN32) && defined(__PTW32_STATIC_LIB)
-  TRACE (DEBUG_GENERAL, "Cleaning up Pthreads-W32.\n");
+  TRACE (DEBUG_GENERAL, "Cleaning up Pthreads-W32.\n\n");
   Modes.reader_thread = PTHREAD_NULL;
   pthread_win32_thread_detach_np();
   pthread_win32_process_detach_np();
@@ -3753,7 +3761,7 @@ int main (int argc, char **argv)
 
   main_data_loop();
 
-  modesExit();
+  modes_exit();
   show_statistics();
 
   return (0);
