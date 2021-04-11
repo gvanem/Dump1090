@@ -16,6 +16,11 @@ THIS_FILE = $(firstword $(MAKEFILE_LIST))
 USE_CRT_DEBUG ?= 0
 
 #
+# Use only static RTLSDR and LIBUSB libraries for '$(call link_EXE ...)'.
+#
+USE_STATIC_LIBS ?= 1
+
+#
 # Visual Leak Detector:
 #   https://kinddragon.github.io/vld/
 #
@@ -62,6 +67,7 @@ PYTHON ?= py -3
 #
 RTLSDR_ROOT   ?= f:/gv/dx-radio/Osmocom-SDR
 PTHREADS_ROOT ?= f:/MinGW32/src/pthreads-w32-3-0
+LIBUSB_ROOT   ?= f:/MinGW32/src/USB/libusb
 VLD_ROOT      ?= f:/ProgramFiler/VisualLeakDetector
 
 c_to_obj = $(addprefix $(OBJ_DIR)/, $(notdir $(1:.c=.obj)))
@@ -109,7 +115,13 @@ CFLAGS += -I$(PTHREADS_ROOT) -D__PTW32_STATIC_LIB -DHAVE_CONFIG_H
 #
 # External libs needed:
 #
-EX_LIBS = $(RTLSDR_ROOT)/src/rtlsdr_imp.lib
+ifeq ($(USE_STATIC_LIBS),1)
+  CFLAGS += -Drtlsdr_STATIC
+  EX_LIBS = $(RTLSDR_ROOT)/src/rtlsdr.lib \
+            $(LIBUSB_ROOT)/libusb-1.0.lib
+else
+  EX_LIBS = $(RTLSDR_ROOT)/src/rtlsdr_imp.lib
+endif
 
 ifeq ($(USE_WSOCK_TRACE),1)
   EX_LIBS += wsock_trace.lib
