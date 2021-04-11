@@ -3,7 +3,7 @@
 A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<br>
 It requires a RTLSDR USB-stick and Osmocom's **[librtlsdr](https://github.com/osmocom/rtl-sdr)**.
 
-This Mode S decoder is based on the original *Dump1090* by **Salvatore Sanfilippo**
+This *Mode S* decoder is based on the original *Dump1090* by **Salvatore Sanfilippo**
 which is **[here](https://github.com/antirez/dump1090.git)**.<br>
 Most of the text below is written by him. I've mostly fixed the MarkDown and added some
 more references and screen-shots.
@@ -11,7 +11,7 @@ more references and screen-shots.
 **ADS-B** basics:
  * A YouTube **[video](https://www.youtube.com/watch?v=BDLFHdq540g&ab_channel=AP47TV)**
    explaining it's basics and motivation.
- * A detailed technical description by **[Junzi Sun](https://mode-s.org/decode/content/ads-b/1-basics.html)**.
+ * A detailed technical description by professor **[Junzi Sun](https://mode-s.org/decode/)**.
  * Or as a **[PDF](The-1090MHz-riddle.pdf)** in this repo.
 
 The main features of *Dump1090* are:
@@ -99,11 +99,10 @@ to your browser to **http://localhost:8080**, use this command:
   It will present live traffic to the Web-browser and console:
   **![interactive output](dump1090-win-1.png)**
 
-
-In interactive mode it is possible to have a less information dense but more
-*arcade style* output, where the screen is refreshed up to 4 times a second displaying
-all the recently seen aircrafts with some additional information such as
-altitude and flight number, extracted from the received Mode S packets.
+In this interactive mode there is a more compact output. Where the screen is refreshed
+up to 4 times per second displaying all the recently seen aircrafts with some additional
+information such as flight number, altitude, speed, heading and position. All items extracted
+from the received *Mode S* packets. Except the above *RSSI*, *Msgs* and last *Seen*.
 
 ## Using files as source of data
 
@@ -210,7 +209,7 @@ Then you can feed it from different data sources from the internet.
 
 ## Antenna
 
-Mode S messages are transmitted on the standard frequency of 1090 MHz. If you have a decent
+*Mode S* messages are transmitted on the standard frequency of 1090 MHz. If you have a decent
 antenna you'll be able to pick up signals from aircrafts pretty far from your
 position, especially if you are outdoor and in a position with a good sky view.
 
@@ -229,7 +228,7 @@ If you are interested in a more serious antenna or ADS-B equipment, check the fo
 ## Aggressive mode
 
 With `--aggressive` it is possible to activate the *aggressive mode* that is a
-modified version of the Mode S packet detection and decoding. The aggresive mode uses
+modified version of the *Mode S* packet detection and decoding. The aggresive mode uses
 more CPU usually (especially if there are many planes sending *DF17* packets), but
 can detect a few more messages.
 
@@ -253,7 +252,7 @@ representation, where the individial magnitude bars sampled at 2 MHz are
 displayed.
 
 An index shows the sample number, where 0 is the sample where the first
-Mode S peak was found. Some additional background noise is also added
+*Mode S* peak was found. Some additional background noise is also shown
 before the first peak to provide some context.
 
 To enable debug mode and check what combinations of packets you can
@@ -267,7 +266,7 @@ used to visualize packets using a web browser, you can use
 ## How this program work?
 
 The code is very documented and written in order to be easy to understand.
-For the diligent programmer with a Mode S specification on his hand, it
+For the diligent programmer with a *Mode S* specification at hand, it
 should be trivial to understand how it works.
 
 The algorithms I used were obtained basically looking at many messages
