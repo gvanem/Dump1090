@@ -5,8 +5,8 @@ It requires a RTLSDR USB-stick and Osmocom's **[librtlsdr](https://github.com/os
 
 This *Mode S* decoder is based on the original *Dump1090* by **Salvatore Sanfilippo**
 which is **[here](https://github.com/antirez/dump1090.git)**.<br>
-Most of the text below is written by him. I've mostly fixed the MarkDown and added some
-more references and screen-shots.
+Most of the text below is written by him. In this `README.md` file, I've mostly fixed the MarkDown
+and added some more references and screen-shots. But in the source-code I've done a lot of changes.
 
 **ADS-B** basics:
  * A YouTube **[video](https://www.youtube.com/watch?v=BDLFHdq540g&ab_channel=AP47TV)**
