@@ -31,7 +31,7 @@ The main features of *Dump1090* are:
 * Interactive command-line-interface mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives. Planes that haven't been seen
   last 60 seconds are removed from the list (option `--interactive-ttl sec` to change).
-* *CPR* coordinates decoding and track calculation from velocity.
+* *CPR* (**Compact Position Reporting**) coordinates decoding and track calculation from velocity.
 * TCP server streaming and receiving raw data to/from connected clients <br>
   (options `--net` or `--net-only`).
 
