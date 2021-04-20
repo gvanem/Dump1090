@@ -1,7 +1,6 @@
-/*
- * pthread.c
- *
- * Description:
+/**
+ * \file pthread.c
+ * \brief
  * This translation unit agregates pthreads-win32 translation units.
  * It is used for inline optimisation of the library,
  * maximising for speed at the expense of size.
