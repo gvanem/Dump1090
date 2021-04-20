@@ -1,6 +1,43 @@
 /**
- * \file dump1090.c
- * \brief Dump1090, a Mode S messages decoder for RTLSDR devices.
+ * \file    dump1090.c
+ * \ingroup Main
+ * \brief   Dump1090, a Mode S messages decoder for RTLSDR devices.
+ */
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <stdint.h>
+#include <errno.h>
+#include <math.h>
+#include <signal.h>
+#include <fcntl.h>
+#include <ctype.h>
+#include <assert.h>
+#include <sys/stat.h>
+#include <io.h>
+
+#include <rtl-sdr.h>
+#include <mongoose.h>
+
+/**
+ * \addtogroup Main      Main decoder
+ * \addtogroup Mongoose  Web server
+ *
+ * \mainpage Dump1090
+ *
+ * <h2>Introduction</h2>
+ *
+ * A simple ADS-B (<b>Automatic Dependent Surveillance - Broadcast</b>) receiver, decoder and web-server.
+ * It requires a <i>RTLSDR</i> USB-stick and Osmocom's <i>librtlsdr</i>.
+ *
+ * This <i>Mode S</i> decoder is based on the original Dump1090 by <i>Salvatore Sanfilippo</i>.
+ *
+ * Basic blocks:
+ * \image html dump1090-blocks.png
+ *
+ * Example Web-client page:
+ * \image html dump1090-web.png
  *
  * Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
  *
@@ -28,57 +65,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <stdint.h>
-#include <errno.h>
-#include <math.h>
-#include <signal.h>
-#include <fcntl.h>
-#include <ctype.h>
-#include <assert.h>
-#include <sys/stat.h>
-
-#ifdef _WIN32
-  #include <io.h>
-
-  #define usleep(usec) Sleep ((usec)/1000)
-#else
-  #include <unistd.h>
-  #include <sys/time.h>
-  #include <sys/ioctl.h>
-  #include <sys/select.h>
-#endif
-
-#include <rtl-sdr.h>
-#include <mongoose.h>
-
-/**
- * \addtogroup Main      Dump1090 main functions
- * \addtogroup Mongoose  Web server functions
- *
- * \mainpage Dump1090
- *
- * <h2>Introduction</h2>
- *
- * A simple ADS-B (<b>Automatic Dependent Surveillance - Broadcast</b>) receiver, decoder and web-server.
- * It requires a <i>RTLSDR</i> USB-stick and Osmocom's <i>librtlsdr</i>.
- *
- * This <i>Mode S</i> decoder is based on the original Dump1090 by <i>Salvatore Sanfilippo</i>.
- *
- * Basic blocks:
- * \image html dump1090-blocks.png
- *
- * Example Web-client page:
- * \image html dump1090-web.png
- *
- * <h2>More here later ...</h2>
- *
- * \ingroup  Main
  */
 
 #define MG_NET_POLL_TIME  500   /* milli-sec */
@@ -143,11 +129,21 @@
 
 #define ADS_B_ACRONYM  "ADS-B; Automatic Dependent Surveillance - Broadcast"
 
+/**
+ * \def MSEC_TIME()
+ * Returns a 64-bit tick-time value with 1 millisec granularity.
+ */
+#define MSEC_TIME() GetTickCount64()
+
+/**
+ * \struct net_service
+ * A structure defining a network listening service.
+ */
 struct net_service {
-    struct mg_connection **conn;
-    const char *descr;
-    unsigned    port;
-    unsigned    num_clients;
+    struct mg_connection **conn;  /**< A pointer to the returned Mongoose connection */
+    const char *descr;            /**< A textual description of this service */
+    unsigned    port;             /**< The listening port number */
+    unsigned    num_clients;      /**< Number of active clients connected to it */
   };
 
 #define GMAP_HTML          "gmap.html"  /* Our main server page */
@@ -300,7 +296,7 @@ struct global_data {
        struct mg_connection *ros;      /**< Raw output listening connection. */
        struct mg_connection *ris;      /**< Raw input listening connection. */
        struct mg_connection *http;     /**< HTTP listening connection. */
-       struct mg_mgr         mgr;      /**< The connection manager */
+       struct mg_mgr         mgr;      /**< Only one connection manager */
 
        /* Configuration
         */
@@ -395,17 +391,14 @@ void detect_modeS (uint16_t *m, uint32_t mlen);
 int  decode_hex_message (struct client *c);
 int  modeS_message_len_by_type (int type);
 void compute_magnitude_vector (void);
-int  get_term_rows (void);
 void background_tasks (void);
-void modes_exit (void);
+void modeS_exit (void);
 
-u_short               handler_port (int service); /* not used yet */
+u_short               handler_port (int service);  /**< not used yet */
 const char           *handler_descr (int service);
 struct mg_connection *handler_conn (int service);
 
-/* ========================= Console init for Windows =========================== */
-
-#if defined(_WIN32)
+/* ========================= WinCon code =========================== */
 
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE console_hnd = INVALID_HANDLE_VALUE;
@@ -459,7 +452,7 @@ void console_exit (void)
   console_hnd = INVALID_HANDLE_VALUE;
 }
 
-/* ============================= Win32 memory leak detectors ====================== */
+/* ============================= Memory leak detectors ====================== */
 
 #if defined(USE_VLD)
 void crtdbug_init (void)
@@ -506,21 +499,6 @@ void crtdbug_init (void)
   _CrtMemCheckpoint (&last_state);
 }
 #endif  /* USE_VLD */
-#endif  /* _WIN32 */
-
-/**
- * Return a 64-bit tick-time value with 1 millisec granularity.
- */
-static uint64_t mstime (void)
-{
-#ifdef _WIN32
-  return GetTickCount64();
-#else
-  struct timeval tv;
-  gettimeofday (&tv, NULL);
-  return (1000 * (uint64_t)tv.tv_sec + (tv.tv_usec / 1000));
-#endif
-}
 
 /**
  * Convert standard suffixes (k, M, G) to double
@@ -564,7 +542,7 @@ double ato_hertz (const char *Hertz)
 /**
  * Step 1: Initialize the program with default values.
  */
-void modes_init_config (const char *argv0)
+void modeS_init_config (const char *argv0)
 {
   Modes.who_am_I = argv0;
   Modes.gain = MODES_AUTO_GAIN;
@@ -584,19 +562,14 @@ void modes_init_config (const char *argv0)
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
   Modes.reader_thread = PTHREAD_NULL;
   Modes.strip_level = 0;
-
-#ifdef _WIN32
   Modes.interactive_rows = 40;  /* set in 'console_init()' in '--interactive' mode */
-#else
-  Modes.interactive_rows = get_term_rows();
-#endif
   Modes.loop = 0;
 }
 
 /**
  * Step 2: Allocate and initialize the needed buffers.
  */
-void modes_init (void)
+void modeS_init (void)
 {
   int i, q;
 
@@ -652,7 +625,7 @@ void modes_init (void)
 /**
  * Initialize the RTLSDR device.
  */
-int modes_init_RTLSDR (void)
+int modeS_init_RTLSDR (void)
 {
   int    j, device_count, ppm_error = 0;
   char   vendor[256], product[256], serial[256];
@@ -722,7 +695,7 @@ int modes_init_RTLSDR (void)
  * We then populate the data buffer. <br>
  * A Mutex is used to avoid race-condition with the decoding thread.
  */
-void rtlsdrCallback (uint8_t *buf, uint32_t len, void *ctx)
+void rtlsdr_callback (uint8_t *buf, uint32_t len, void *ctx)
 {
   MODES_NOTUSED (ctx);
 
@@ -761,7 +734,7 @@ int read_from_data_file (void)
        /* When --infile and --interactive are used together, slow down
         * playing at the natural rate of the RTLSDR received.
         */
-       usleep (5000);
+       Sleep (5);
      }
 
      /* Move the last part of the previous buffer, that was not processed,
@@ -817,7 +790,7 @@ void *data_thread_fn (void *arg)
   {
     TRACE (DEBUG_GENERAL, "Calling rtlsdr_read_async().\n");
 
-    rc = rtlsdr_read_async (Modes.dev, rtlsdrCallback, NULL,
+    rc = rtlsdr_read_async (Modes.dev, rtlsdr_callback, NULL,
                             MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
 
     TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d.\n", rc);
@@ -2171,7 +2144,7 @@ struct aircraft *create_aircraft (uint32_t addr)
 
   a->addr = addr;
   snprintf (a->hexaddr, sizeof(a->hexaddr), "%06X", (int)addr);
-  a->seen = mstime() / 1000;
+  a->seen = MSEC_TIME() / 1000;
   return (a);
 }
 
@@ -2391,7 +2364,7 @@ struct aircraft *interactive_receive_data (struct modeS_message *mm)
      * othewise with multiple aircrafts at the same time we have an
      * useless shuffle of positions on the screen.
      */
-    if (0 && Modes.aircrafts != a && (mstime()/1000 - a->seen) >= 1)
+    if (0 && Modes.aircrafts != a && (MSEC_TIME()/1000 - a->seen) >= 1)
     {
       aux = Modes.aircrafts;
       while (aux->next != a)
@@ -2407,7 +2380,7 @@ struct aircraft *interactive_receive_data (struct modeS_message *mm)
     }
   }
 
-  a->seen = mstime() / 1000;
+  a->seen = MSEC_TIME() / 1000;
   a->messages++;
 
   if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20)
@@ -2427,13 +2400,13 @@ struct aircraft *interactive_receive_data (struct modeS_message *mm)
       {
         a->odd_cprlat = mm->raw_latitude;
         a->odd_cprlon = mm->raw_longitude;
-        a->odd_cprtime = mstime();
+        a->odd_cprtime = MSEC_TIME();
       }
       else
       {
         a->even_cprlat = mm->raw_latitude;
         a->even_cprlon = mm->raw_longitude;
-        a->even_cprtime = mstime();
+        a->even_cprtime = MSEC_TIME();
       }
 
       /* If the two data is less than 10 seconds apart, compute the position.
@@ -2469,7 +2442,6 @@ void interactive_show_data (uint64_t now)
    */
   if (Modes.debug == 0 && !Modes.raw)
   {
-#ifdef _WIN32
     static int done = 0;
 
     if (!done)
@@ -2477,9 +2449,6 @@ void interactive_show_data (uint64_t now)
     done = 1;
     clrscr();
     gotoxy (1, 1);
-#else
-    printf ("\x1b[H\x1b[2J");  /* Clear the screen */
-#endif
   }
 
   printf ("ICAO   Flight   Sqwk   Altitude  Speed   Lat       Long      Track  Messages Seen %c\n"
@@ -3046,7 +3015,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
   }
 }
 
-void modes_init_net (void)
+void modeS_init_net (void)
 {
   char url [100];
 
@@ -3444,27 +3413,6 @@ void read_from_client (struct client *cli, char *sep, int (*handler)(struct clie
 #endif
 }
 
-/* ============================ Terminal handling  ========================== */
-
-#if !defined(_WIN32)
-void sigWinchCallback (int sig)
-{
-  signal (sig, SIG_IGN);
-  Modes.interactive_rows = get_term_rows();
-  interactive_show_data (mstime() / 1000);
-  signal (sig, sigWinchCallback);
-}
-
-/* Get the number of rows after the terminal changes size.
- */
-int get_term_rows (void)
-{
-  struct winsize w;
-  ioctl (STDOUT_FILENO, TIOCGWINSZ, &w);
-  return (w.ws_row);
-}
-#endif
-
 /* ================================ Main ==================================== */
 
 void show_help (const char *fmt, ...)
@@ -3479,8 +3427,9 @@ void show_help (const char *fmt, ...)
   }
   else
   {
-    /** \todo Add some version info (for Mongoose, librtsdr, libusb) and feature string depending on
-     * build options.
+    /**
+     * \todo Add some version info (for Mongoose, librtsdr, libusb) and feature
+     *       string depending on build options.
      */
     printf ("A 1090 MHz receiver (via RTLSDR), decoder and webserver for\n%s.\n",
             ADS_B_ACRONYM);
@@ -3526,18 +3475,20 @@ void show_help (const char *fmt, ...)
           MODES_NET_OUTPUT_RAW_PORT, MODES_NET_INPUT_RAW_PORT,
           MODES_NET_HTTP_PORT, MODES_NET_OUTPUT_SBS_PORT);
 
-  modes_exit();  /* free Pthread-W32 data */
+  modeS_exit();  /* free Pthread-W32 data */
   exit (1);
 }
 
-/*
- * This function is called a few times every second by main in order to
- * perform tasks we need to do continuously, like accepting new clients
- * from the net, refreshing the screen in interactive mode, and so forth.
+/**
+ * The background function is called a few times every second by
+ * `main_data_loop()` in order to perform tasks we need to do continuously.
+ *
+ * Like accepting new clients from the net, refreshing the screen in
+ * interactive mode, and so forth.
  */
 void background_tasks (void)
 {
-  uint64_t now = mstime();
+  uint64_t now = MSEC_TIME();
   int    refresh;
   static uint64_t start;  /* program start time */
 
@@ -3547,7 +3498,7 @@ void background_tasks (void)
   remove_stale_aircrafts ((int)(now/1000));
 
   if (Modes.net)
-     mg_mgr_poll (&Modes.mgr, MG_NET_POLL_TIME);
+     mg_mgr_poll (&Modes.mgr, MG_NET_POLL_TIME); /* Poll Mongoose for network events */
 
   if (Modes.exit)
      return;
@@ -3566,9 +3517,7 @@ static void sigintHandler (int sig)
   signal (sig, SIG_DFL);   /* reset signal handler - bit extra safety */
   Modes.exit = 1;          /* Signal to threads that we are done */
 
-#ifdef _WIN32
   console_exit();
-#endif
 
   fputs ("Caught SIGINT, shutting down..\n", stderr);
 
@@ -3611,7 +3560,7 @@ void show_statistics (void)
   }
 }
 
-void modes_exit (void)
+void modeS_exit (void)
 {
   int rc;
 
@@ -3638,7 +3587,7 @@ void modes_exit (void)
 
   /* This should not hurt if we've not created the 'Modes.reader_thread'
    */
-#if defined(_WIN32) && defined(__PTW32_STATIC_LIB)
+#if defined(__PTW32_STATIC_LIB)
   TRACE (DEBUG_GENERAL, "Cleaning up Pthreads-W32.\n\n");
   Modes.reader_thread = PTHREAD_NULL;
   pthread_win32_thread_detach_np();
@@ -3680,7 +3629,7 @@ int main (int argc, char **argv)
 #endif
 
   /* Set sane defaults. */
-  modes_init_config (argv[0]);
+  modeS_init_config (argv[0]);
 
   /* Parse the command line options */
   for (j = 1; j < argc; j++)
@@ -3800,28 +3749,21 @@ int main (int argc, char **argv)
                break;
           default:
                show_help ("Unknown debugging flag: %c\n", *f);
+               /* not reached */
                break;
         }
         f++;
       }
     }
     else
+    {
       show_help ("Unknown option '%s'.\n\n", argv[j]);
+      /* not reached */
+    }
   }
 
-#if !defined(_WIN32)
-  /*
-   * Setup for SIGWINCH for handling lines
-   */
-  if (Modes.interactive == 1)
-     signal (SIGWINCH, sigWinchCallback);
-#endif
-
-  /* Setup SIGINT for a graceful exit */
-  signal (SIGINT, sigintHandler);
-
-  /* Initialization */
-  modes_init();
+  signal (SIGINT, sigintHandler); /* Setup SIGINT for a graceful exit */
+  modeS_init();                   /* Initialization */
 
   if (Modes.net_only)
   {
@@ -3845,14 +3787,14 @@ int main (int argc, char **argv)
   }
   else
   {
-    rc = modes_init_RTLSDR();
+    rc = modeS_init_RTLSDR();
     TRACE (DEBUG_GENERAL, "rtlsdr_open(): rc: %d.\n", rc);
     if (rc)
        goto quit;
   }
 
   if (Modes.net)
-     modes_init_net();
+     modeS_init_net();
 
   if (Modes.infile)
      read_from_data_file();
@@ -3867,7 +3809,7 @@ int main (int argc, char **argv)
   main_data_loop();
 
 quit:
-  modes_exit();
+  modeS_exit();
   show_statistics();
   return (0);
 }
