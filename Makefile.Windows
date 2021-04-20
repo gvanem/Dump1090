@@ -1,12 +1,12 @@
 #
-# GNU Makefile for dump1090 (MSVC / clang-cl).
+# GNU Makefile for dump1090 (x86, MSVC or clang-cl).
 #
 # By G. Vanem <gvanem@yahoo.no> 2021.
 #
 # Ref: https://github.com/gvanem/Dump1090.git
 #
 TODAY     = $(shell date +%d-%B-%Y)
-THIS_FILE = $(firstword $(MAKEFILE_LIST))
+THIS_FILE = Makefile.Windows
 
 #
 # Choose your weapons:
@@ -14,11 +14,6 @@ THIS_FILE = $(firstword $(MAKEFILE_LIST))
 # Use CRT debug-mode.
 #
 USE_CRT_DEBUG ?= 0
-
-#
-# Use only static RTLSDR and LIBUSB libraries for '$(call link_EXE ...)'.
-#
-USE_STATIC_LIBS ?= 1
 
 #
 # Visual Leak Detector:
@@ -38,23 +33,6 @@ USE_VLD ?= 0
 USE_ASAN ?= 0
 
 #
-# Add Emscripted support for remote control of dump1090 (and via gmap.html?)
-#
-# Ref:
-#  https://github.com/ggerganov/imtui/blob/master/examples/emscripten0/index-tmpl.html
-# for an example.
-#
-USE_EMSCRIPTEN ?= 0
-
-#
-# Use 'Wsock-tracing' library for network I/O:
-#  https://github.com/gvanem/wsock-trace
-#
-# The 'wsock_trace.lib'library MUST be on '%LIBPATH'.
-#
-USE_WSOCK_TRACE ?= 0
-
-#
 # Options for .c-file preprocessing:
 #
 USE_ASTYLE       ?= 1
@@ -63,14 +41,12 @@ USE_CLANG_FORMAT ?= 0
 PYTHON ?= py -3
 
 #
-# Change the 'XX_ROOT' dirs to suite:
+# Change the 'x_ROOT' dirs to suite:
+# Only important if 'USE_VLD = 1' or 'USE_ASAN = 1'.
 #
-RTLSDR_ROOT   ?= f:/gv/dx-radio/Osmocom-SDR
-PTHREADS_ROOT ?= f:/MinGW32/src/pthreads-w32-3-0
-LIBUSB_ROOT   ?= f:/MinGW32/src/USB/libusb
 VLD_ROOT      ?= f:/ProgramFiler/VisualLeakDetector
-
-c_to_obj = $(addprefix $(OBJ_DIR)/, $(notdir $(1:.c=.obj)))
+CLANG_ROOT    ?= f:/ProgramFiler/LLVM-11-32bit
+CLANG_VERSION ?= 11.0.0
 
 define Usage
 
@@ -92,105 +68,88 @@ else
   $(error $(Usage))
 endif
 
-CFLAGS  = -nologo -Zi -W3
-LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib # -nodefaultlib:ws2_32.lib
+CFLAGS  = -nologo -Zi -W3 -DUSE_MONGOOSE=1 -DMG_IO_SIZE=2000
+LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib
 
 ifeq ($(USE_CRT_DEBUG),1)
-  CFLAGS += -MDd -D_DEBUG -GS -Oy- -RTCu -RTCs # -RTCc
+  CFLAGS += -MDd -GS -Oy- -RTCu -RTCs
 else
-  CFLAGS += -MD -GS- -Zo -Oy- # -Ox -Gs0
+  CFLAGS += -MD -GS- -Zo -Oy- -Ox -Gs0
 endif
 
 ifeq ($(CC),clang-cl)
   CFLAGS += -fms-compatibility -ferror-limit=5
 endif
 
-CFLAGS += -FI./dump1090_config.h -I. -I$(RTLSDR_ROOT)/include
+CFLAGS += -FI./dump1090_config.h -I. -I./externals
+
+#
+# Since 'rtlsdr' is used as a static library.
+#
+CFLAGS += -Drtlsdr_STATIC
 
 #
 # The flags are for Pthreads-W32:
 #
-CFLAGS += -I$(PTHREADS_ROOT) -D__PTW32_STATIC_LIB -DHAVE_CONFIG_H
+CFLAGS += -I./externals/pthreads -D__PTW32_STATIC_LIB -DHAVE_CONFIG_H
 
 #
-# External libs needed:
+# External static libraries needed:
 #
-ifeq ($(USE_STATIC_LIBS),1)
-  CFLAGS += -Drtlsdr_STATIC
-  EX_LIBS = $(RTLSDR_ROOT)/src/rtlsdr.lib \
-            $(LIBUSB_ROOT)/libusb-1.0.lib
-else
-  EX_LIBS = $(RTLSDR_ROOT)/src/rtlsdr_imp.lib
-endif
-
-ifeq ($(USE_WSOCK_TRACE),1)
-  EX_LIBS += wsock_trace.lib
-else
-  EX_LIBS += ws2_32.lib
-endif
+EX_LIBS = externals/rtlsdr.lib \
+          externals/libusb-1.0.lib
 
 ifeq ($(USE_VLD),1)
-  CFLAGS  += -DUSE_VLD  -DVLD_FORCE_ENABLE -I$(VLD_ROOT)/include
-  EX_LIBS += $(VLD_ROOT)/lib/Win32/vld.lib
-endif
+  CFLAGS += -DUSE_VLD          \
+            -DVLD_FORCE_ENABLE \
+            -I$(VLD_ROOT)/include
 
-ifeq ($(USE_EMSCRIPTEN),1)
-  EMCC     = $(EMSCRIPTEN_ROOT)/bin/emcc
-  CFLAGS  += -DUSE_EMSCRIPTEN -I$(EMSCRIPTEN_ROOT)/include
-  EX_LIBS += $(EMSCRIPTEN_ROOT)/emscript.lib # ??
+  EX_LIBS += $(VLD_ROOT)/lib/Win32/vld.lib
 endif
 
 ifeq ($(USE_ASAN),1)
   CFLAGS += -fsanitize=address
 
   ifeq ($(CC),clang-cl)
-    CFLAGS  += -fsanitize-recover=address
-    LDFLAGS += -inferasanlibs:no -libpath:$(realpath $(CLANG_32))/lib/clang/11.0.0/lib/windows
+    LDFLAGS += -inferasanlibs:no \
+               -libpath:$(CLANG_ROOT)/lib/clang/$(CLANG_VERSION)/lib/windows
+
     EX_LIBS += clang_rt.asan_dynamic-i386.lib \
                clang_rt.asan_dynamic_runtime_thunk-i386.lib
   endif
 endif
 
+EX_LIBS += ws2_32.lib
+
 #
-# This ESC code assumes you have an MSys/Cygwin 'echo.exe' with colour support.
+# This assumes you have an MSys/Cygwin 'echo.exe' with colour support.
 #
 BRIGHT_GREEN = \e[1;32m
+green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
 
-colour_msg = @echo -e "$(1)\e[0m"
-green_msg  = $(call colour_msg,$(BRIGHT_GREEN)$(strip $(1)))
-
-vpath %.c $(PTHREADS_ROOT)
+vpath %.c externals externals/pthreads
 
 #
 # What to build:
 #
 TARGETS = dump1090.exe
 
-SOURCES = dump1090.c \
-          mongoose.c
+#
+# Use the amalgamated version of Pthreads-W32:
+#
+SOURCES = externals/pthreads/pthread.c \
+          externals/mongoose.c         \
+          dump1090.c
 
-CFLAGS += -DUSE_MONGOOSE=1   \
-          -DMG_IO_SIZE=2000  \
-        # -DMG_ENABLE_LINES=1
-
-ifeq ($(USE_CRT_DEBUG),1)
-  #
-  # An amalgamated  version of Pthreads-W32:
-  #
-  SOURCES += $(PTHREADS_ROOT)/pthread.c
-else
-  EX_LIBS += $(PTHREADS_ROOT)/libpthreadVC3.lib
-endif
-
-OBJECTS = $(call c_to_obj, $(SOURCES))
+OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
 
 GENERATED = dump1090_config.h
 
 all: $(OBJ_DIR) $(GENERATED) $(TARGETS)
 	$(call green_msg, Welcome to Dump1090.)
 
-$(OBJ_DIR):
-	- mkdir $(OBJ_DIR)
+$(OBJ_DIR) doxy-docs:
+	- mkdir $@
 
 dump1090_config.h: $(THIS_FILE)
 	$(call Generate, $@, //)
@@ -202,6 +161,21 @@ dump1090.exe: $(OBJECTS)
 $(OBJ_DIR)/%.obj: %.c
 	$(CC) -c $(CFLAGS) -Fo$@ $<
 	@echo
+
+docs: doxy-docs Doxyfile
+	cd $< ; doxygen ../Doxyfile 2> ../doxygen.log
+	$(call green_msg, Doxygen generated docs done. Look in 'doxygen.log' for details.\n)
+	cd $< ; hhc index.hhp
+	$(call green_msg, Dump1090.chm generation done.)
+
+docs_clean:
+	rm -f Doxyfile doxygen.log
+	rm -fR doxy-docs/*
+	- rmdir doxy-docs
+
+Doxyfile: $(THIS_FILE)
+	$(call Generate, $@, #)
+	$(file >> $@,$(dump1090_Doxyfile))
 
 %.i: %.c cpp_filter.py $(GENERATED) FORCE
 	$(call C_preprocess, $@, $<)
@@ -220,7 +194,6 @@ cpp_filter.py: $(THIS_FILE)
 	$(file >> $@,$(cpp_filter_py))
 
 #
-# Sometimes a .exp / .lib file could be created.
 # '$(sort ..)' will create a unique list.
 #
 TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
@@ -228,10 +201,11 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
                       $(TARGETS:.exe=.exp) \
                       $(TARGETS:.exe=.lib))
 
-OTHER_JUNK = $(GENERATED) link.tmp link.args vc1*.pdb cpp_filter.py dump1090_config.h
+OTHER_JUNK = $(GENERATED) link.tmp link.args vc1*.pdb cpp_filter.py \
+             dump1090_config.h
 
-clean:
-	- rm -f $(TARGETS_JUNK) $(OTHER_JUNK) $(OBJ_DIR)/*
+clean: docs_clean
+	rm -f $(TARGETS_JUNK) $(OTHER_JUNK) $(OBJ_DIR)/*
 	- rmdir $(OBJ_DIR)
 
 vclean realclean: clean
@@ -267,7 +241,7 @@ endef
 #
 # Response file macro:
 #   arg1, $(1): The name of the response file
-#   arg2, $(2): The content for the response file.
+#   arg2, $(2): it's contents (one word per line)
 #
 define make_resp_file
   $(file > $(1))
@@ -295,15 +269,7 @@ define dump1090_config_h
   #define _CRT_NONSTDC_NO_WARNINGS        1
 
   #define _USE_MATH_DEFINES 1  /* To pull in 'M_PI' in <math.h> */
-
-  #define STDIN_FILENO   0
-  #define STDOUT_FILENO  1
-
-  #define mode_t         int
-  #define ssize_t        int
-
-  #define SIGPIPE  0
-  #define SIGWINCH 0
+  #define STDIN_FILENO      0
 
   #if defined(_DEBUG)
     #include <malloc.h>
@@ -327,6 +293,28 @@ define dump1090_config_h
   #endif
 
   #endif /* DUMP1090_CONFIG_H */
+endef
+
+define dump1090_Doxyfile
+  PROJECT_NAME          = "Dump1090"
+  PROJECT_LOGO          = # to-do
+  STRIP_FROM_PATH       = $(realpath .)/
+  OPTIMIZE_OUTPUT_FOR_C = yes
+  FORCE_LOCAL_INCLUDES  = yes
+  QUIET                 = yes
+  PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1 USE_MONGOOSE:=1
+  INPUT                 = ../dump1090.c ../externals/mongoose.c ../externals/mongoose.h
+  EXAMPLE_PATH          = ..
+  IMAGE_PATH            = ..
+  SOURCE_BROWSER        = yes
+  CALL_GRAPH            = yes
+  CALLER_GRAPH          = yes
+  HAVE_DOT              = yes
+  OUTPUT_DIRECTORY      = $(realpath .)/doxy-docs
+  HTML_OUTPUT           = .
+  GENERATE_HTMLHELP     = yes
+  SEARCHENGINE          = no
+  CHM_FILE              = dump1090.chm
 endef
 
 ifeq ($(USE_ASTYLE),1)
@@ -407,9 +395,7 @@ define cpp_filter_py
 endef
 
 DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
-DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.$.obj: @' \
-              -e 's@$(PTHREADS_ROOT)@$$(PTHREADS_ROOT)@'    \
-              -e 's@$(RTLSDR_ROOT)@$$(RTLSDR_ROOT)@'
+DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.$.obj: @'
 
 depend: $(GENERATED)
 	$(call Generate, .depend.Windows, #)
