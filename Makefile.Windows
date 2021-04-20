@@ -162,18 +162,18 @@ $(OBJ_DIR)/%.obj: %.c
 	$(CC) -c $(CFLAGS) -Fo$@ $<
 	@echo
 
-docs: doxy-docs Doxyfile
-	cd $< ; doxygen ../Doxyfile 2> ../doxygen.log
-	$(call green_msg, Doxygen generated docs done. Look in 'doxygen.log' for details.\n)
-	cd $< ; hhc index.hhp
-	$(call green_msg, Dump1090.chm generation done.)
+docs: doxy-docs doxy-docs/Doxyfile
+	cd $< ; doxygen Doxyfile 2> doxygen.log
+	$(call green_msg, Doxygen generated docs done. Look in 'doxy-docs/doxygen.log' for details.\n)
+	- (cd $< ; hhc index.hhp)
+	$(call green_msg, dump1090.chm generation done.)
+	cp --update doxy-docs/dump1090.chm .
 
 docs_clean:
-	rm -f Doxyfile doxygen.log
 	rm -fR doxy-docs/*
 	- rmdir doxy-docs
 
-Doxyfile: $(THIS_FILE)
+doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call Generate, $@, #)
 	$(file >> $@,$(dump1090_Doxyfile))
 
@@ -303,9 +303,13 @@ define dump1090_Doxyfile
   FORCE_LOCAL_INCLUDES  = yes
   QUIET                 = yes
   PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1 USE_MONGOOSE:=1
-  INPUT                 = ../dump1090.c ../externals/mongoose.c ../externals/mongoose.h
+  INPUT                 = ../dump1090.c           \
+                          ../externals/mongoose.c \
+                          ../externals/mongoose.h \
+                          ../externals/pthreads/pthread.c
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = ..
+  INLINE_SIMPLE_STRUCTS = yes
   SOURCE_BROWSER        = yes
   CALL_GRAPH            = yes
   CALLER_GRAPH          = yes
@@ -313,6 +317,7 @@ define dump1090_Doxyfile
   OUTPUT_DIRECTORY      = $(realpath .)/doxy-docs
   HTML_OUTPUT           = .
   GENERATE_HTMLHELP     = yes
+  GENERATE_LATEX        = no
   SEARCHENGINE          = no
   CHM_FILE              = dump1090.chm
 endef

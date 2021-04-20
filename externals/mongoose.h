@@ -15,8 +15,9 @@
 // Alternatively, you can license this software under a commercial
 // license, as set out in <https://www.cesanta.com/license>.
 
-//! \file mongoose.h
-//! \brief Embedded web server and multi-protocol networking library
+//! \file    mongoose.h
+//! \ingroup Mongoose
+//! \brief   Embedded web server and multi-protocol networking library
 
 #pragma once
 #define MG_VERSION "7.3"

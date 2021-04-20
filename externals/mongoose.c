@@ -15,8 +15,9 @@
 // Alternatively, you can license this software under a commercial
 // license, as set out in <https://www.cesanta.com/license>.
 
-//! \file mongoose.c
-//! \brief Embedded web server and multi-protocol networking library
+//! \file    mongoose.c
+//! \ingroup Mongoose
+//! \brief   Embedded web server and multi-protocol networking library
 
 #include "mongoose.h"
 
