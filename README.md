@@ -97,7 +97,7 @@ to your browser to **http://localhost:8080**, use this command:
   ```
 
   It will present live traffic to the Web-browser and console:
-  **![interactive output](dump1090-win-1.png)**
+  **![interactive output](dump1090-win.png)**
 
 In this interactive mode there is a more compact output. Where the screen is refreshed
 up to 4 times per second displaying all the recently seen aircrafts with some additional
