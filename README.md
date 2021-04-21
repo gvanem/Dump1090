@@ -186,18 +186,11 @@ broadcasted to clients listening to port 30002.
 In general everything received from port 30001 is handled exactly like the
 normal traffic from RTL devices or from file when `--infile` is used.
 
-It is possible to use `dump1090` simply as an *hub* (not on Windows though)
-as in this example: <br>
-    ```
-    dump1090 --net-only --infile /dev/zero
-    ```
-
-Or alternatively to see what's happening on the screen: <br>
+If your feed *Dump1090* with data from the internet, one can use this command to
+see on the console what's happening: <br>
     ```
     dump1090 --net-only --interactive
     ```
-
-Then you can feed it from different data sources from the internet.
 
   * **Port 30003** connected clients are served with messages in
     **[SBS1 (BaseStation) format](http://woodair.net/sbs/article/barebones42_socket_data.htm)**, similar to: <br>
@@ -263,11 +256,11 @@ used to visualize packets using a web browser, you can use
 **[tools/debug.html](tools/debug.html)** to load and analyze the generated
 `frames.js` file:  ![Example](debug-frames.png).
 
-## How this program work?
+## How this program works?
 
 The code is very documented and written in order to be easy to understand.
-For the diligent programmer with a *Mode S* specification at hand, it
-should be trivial to understand how it works.
+For the diligent programmer with a *Mode S*<br>
+specification at hand, it should be trivial to understand how it works.
 
 The algorithms I used were obtained basically looking at many messages
 as displayed using a throw-away SDL program, and trying to model the algorithm
