@@ -13,6 +13,7 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <ctype.h>
+#include <limits.h>
 #include <assert.h>
 #include <sys/stat.h>
 #include <io.h>
@@ -26,18 +27,24 @@
  *
  * \mainpage Dump1090
  *
- * <h2>Introduction</h2>
+ * # Introduction
  *
- * A simple ADS-B (<b>Automatic Dependent Surveillance - Broadcast</b>) receiver, decoder and web-server.
- * It requires a <i>RTLSDR</i> USB-stick and Osmocom's <i>librtlsdr</i>.
+ * A simple ADS-B (**Automatic Dependent Surveillance - Broadcast**) receiver, decoder and web-server. <br>
+ * It requires a *RTLSDR* USB-stick and a USB-driver installed using the *Automatic Driver Installer*
+ * [**Zadig**](https://zadig.akeo.ie/).
  *
- * This <i>Mode S</i> decoder is based on the original Dump1090 by <i>Salvatore Sanfilippo</i>.
+ * The code for Osmocom's [**librtlsdr**](https://osmocom.org/projects/rtl-sdr/wiki) is built into this program.
+ * Hence no dependency on *RTLSDR.DLL*.
  *
- * Basic blocks:
+ * This *Mode S* decoder is based on the Dump1090 by *Salvatore Sanfilippo*.
+ *
+ * ### Basic block-diagram:
  * \image html dump1090-blocks.png
  *
- * Example Web-client page:
+ * ### Example Web-client page:
  * \image html dump1090-web.png
+ *
+ * ### More here later ...
  *
  * Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
  *
@@ -46,7 +53,7 @@
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- *
+ * ```
  *  *  Redistributions of source code must retain the above copyright
  *     notice, this list of conditions and the following disclaimer.
  *
@@ -65,6 +72,7 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * ```
  */
 
 #define MG_NET_POLL_TIME  500   /* milli-sec */
@@ -146,8 +154,9 @@ struct net_service {
     unsigned    num_clients;      /**< Number of active clients connected to it */
   };
 
-#define GMAP_HTML          "gmap.html"  /* Our main server page */
+#define GMAP_HTML          "gmap.html"  /* Our default main server page */
 
+#define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define MODES_NOTUSED(V)   ((void)V)
 #define TWO_PI             (2 * M_PI)
 
@@ -240,7 +249,7 @@ struct aircraft {
        uint64_t even_CPR_time;  /**< Tick-time for reception of an even CPR message */
        double   lat, lon;       /**< Coordinates obtained from decoded CPR data. */
 
-       struct aircraft *next; /* Next aircraft in our linked list. */
+       struct aircraft *next;   /**< Next aircraft in our linked list. */
      };
 
 /**
@@ -271,27 +280,30 @@ struct statistics {
  * All program global state is in this structure.
  */
 struct global_data {
-       const char     *who_am_I;       /**< The full name of this program */
-       pthread_t       reader_thread;  /**< Device reader thread ID */
-       pthread_mutex_t data_mutex;     /**< Mutex to synchronize buffer access. */
-       uint8_t        *data;           /**< Raw IQ samples buffer */
-       uint16_t       *magnitude;      /**< Magnitude vector */
-       uint16_t       *magnitude_lut;  /**< I/Q -> Magnitude lookup table. */
-       uint32_t        data_len;       /**< Buffer length. */
-       int             fd;             /**< `--infile` option file descriptor. */
-       int             data_ready;     /**< Data ready to be processed. */
-       uint32_t       *ICAO_cache;     /**< Recently seen ICAO addresses. */
-       int             exit;           /**< Exit from the main loop when true. */
+       char            who_am_I [MG_PATH_MAX];    /**< The full name of this program */
+       char            where_am_I [MG_PATH_MAX];  /**< The directory of this program */
+       pthread_t       reader_thread;             /**< Device reader thread ID */
+       pthread_mutex_t data_mutex;                /**< Mutex to synchronize buffer access. */
+       uint8_t        *data;                      /**< Raw IQ samples buffer */
+       uint32_t        data_len;                  /**< Length of raw IQ buffer. */
+       uint16_t       *magnitude;                 /**< Magnitude vector */
+       uint16_t       *magnitude_lut;             /**< I/Q -> Magnitude lookup table. */
+       int             fd;                        /**< `--infile` option file descriptor. */
+       int             data_ready;                /**< Data ready to be processed. */
+       uint32_t       *ICAO_cache;                /**< Recently seen ICAO addresses. */
+       int             exit;                      /**< Exit from the main loop when true. */
 
        /* RTLSDR device index and variables
         */
-       int             dev_index;
-       int             gain;
-       rtlsdr_dev_t   *dev;
-       uint32_t        freq;
-       uint32_t        sample_rate;
-
-       /* Networking; lists of clients per service.
+       int             dev_index;      /**< The index of the RTLSDR device used */
+       int             gain;           /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
+       rtlsdr_dev_t   *dev;            /**< The librtlsdr handle from `rtlsdr_open()` */
+       uint32_t        freq;           /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
+       uint32_t        sample_rate;    /**< The sample-rate. Default is MODES_DEFAULT_RATE. <br>
+                                         *  \note This cannot be used yet since the code assumes a
+                                         *        pulse-widths of 0.5 usec based on a fixed rate of 2 MS/s.
+                                         */
+       /** Lists of clients for each network service
         */
        struct client        *clients [MODES_NET_SERVICES_NUM];
        struct mg_connection *sbsos;    /**< SBS output listening connection. */
@@ -302,20 +314,22 @@ struct global_data {
 
        /* Configuration
         */
-       char *infile;                   /**< Input form file, --infile option. */
-       int   loop;                     /**< Read input file again and again. */
-       int   fix_errors;               /**< Single bit error correction if true. */
-       int   check_crc;                /**< Only display messages with good CRC. */
-       int   raw;                      /**< Raw output format. */
-       int   debug;                    /**< Debugging mode. */
-       int   net;                      /**< Enable networking. */
-       int   net_only;                 /**< Enable just networking. */
-       int   interactive;              /**< Interactive mode */
-       int   interactive_rows;         /**< Interactive mode: max number of rows. */
-       int   interactive_ttl;          /**< Interactive mode: TTL before deletion. */
-       int   only_addr;                /**< Print only ICAO addresses. */
-       int   metric;                   /**< Use metric units. */
-       int   aggressive;               /**< Aggressive detection algorithm. */
+       const char *infile;                 /**< Input IQ samples from file with option `--infile file`. */
+       uint64_t    loops;                  /**< Read input file in a loop. */
+       int         fix_errors;             /**< Single bit error correction if true. */
+       int         check_crc;              /**< Only display messages with good CRC. */
+       int         raw;                    /**< Raw output format. */
+       int         debug;                  /**< Debugging mode. */
+       int         net;                    /**< Enable networking. */
+       int         net_only;               /**< Enable just networking. */
+       int         interactive;            /**< Interactive mode */
+       int         interactive_rows;       /**< Interactive mode: max number of rows. */
+       int         interactive_ttl;        /**< Interactive mode: TTL before deletion. */
+       int         only_addr;              /**< Print only ICAO addresses. */
+       int         metric;                 /**< Use metric units. */
+       int         aggressive;             /**< Aggressive detection algorithm. */
+       char        web_page [MG_PATH_MAX]; /**< The base-name of the web-page to server for HTTP clients */
+       char        web_root [MG_PATH_MAX]; /**< And it's directory */
 
        /* For '--strip X' mode
         */
@@ -563,11 +577,47 @@ double ato_hertz (const char *Hertz)
 }
 
 /**
+ * Strip drive-letter, directory and suffix from a filename.
+ */
+char *basename (const char *fname)
+{
+  const char *base = fname;
+
+  if (fname && *fname)
+  {
+    if (fname[0] && fname[1] == ':')
+    {
+      fname += 2;
+      base = fname;
+    }
+    while (*fname)
+    {
+      if (IS_SLASH(*fname))
+         base = fname + 1;
+      fname++;
+    }
+  }
+  return (char*) base;
+}
+
+/**
  * Step 1: Initialize the program with default values.
  */
-void modeS_init_config (const char *argv0)
+void modeS_init_config (void)
 {
-  Modes.who_am_I = argv0;
+  char *p;
+
+  GetModuleFileName (NULL, Modes.where_am_I, sizeof(Modes.where_am_I));
+  p = strrchr (Modes.where_am_I, '\0');
+  if (!strnicmp(p-4, ".exe", 4))
+  {
+    p = strrchr (Modes.where_am_I, '\\');
+    strncpy (Modes.who_am_I, p+1, sizeof(Modes.who_am_I));
+    p[1] = '\0';  /* Ensure 'Modes.where_am_I' has a trailing '\\' */
+  }
+  else
+    strncpy (Modes.who_am_I, "??", sizeof(Modes.who_am_I));
+
   Modes.gain = MODES_AUTO_GAIN;
   Modes.dev_index = 0;
   Modes.sample_rate = MODES_DEFAULT_RATE;
@@ -586,7 +636,9 @@ void modeS_init_config (const char *argv0)
   Modes.reader_thread = PTHREAD_NULL;
   Modes.strip_level = 0;
   Modes.interactive_rows = 0;  /* set in `console_init()` in `--interactive` mode */
-  Modes.loop = 0;
+  Modes.loops = 0;
+  strcpy (Modes.web_page, basename(GMAP_HTML));
+  strcpy (Modes.web_root, Modes.where_am_I);
 }
 
 /**
@@ -595,6 +647,35 @@ void modeS_init_config (const char *argv0)
 int modeS_init (void)
 {
   int i, q;
+
+  if (Modes.net)
+  {
+    struct stat st;
+    char *base = basename (Modes.web_page);
+    char  full_name [MG_PATH_MAX];
+
+    if (base > Modes.web_page)
+    {
+      strncpy (Modes.web_root, Modes.web_page, base - Modes.web_page - 1);
+      strncpy (Modes.web_page, base, sizeof(Modes.web_page) - 1);
+    }
+
+    snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.web_root, Modes.web_page);
+
+    TRACE (DEBUG_NET, "full_name: '%s'\n   web_root: '%s'\n   web_page: '%s'\n",
+           full_name, Modes.web_root, Modes.web_page);
+
+    if (stat(full_name, &st) != 0)
+    {
+      fprintf (stderr, "Web-page '%s' does not exist.\n", full_name);
+      return (1);
+    }
+    if (((st.st_mode) & _S_IFMT) != _S_IFREG)
+    {
+      fprintf (stderr, "Web-page '%s' is not a regular file.\n", full_name);
+      return (1);
+    }
+  }
 
   pthread_mutex_init (&Modes.data_mutex, NULL);
 
@@ -663,7 +744,7 @@ int modeS_init (void)
  */
 int modeS_init_RTLSDR (void)
 {
-  int    j, device_count, ppm_error = 0;
+  int    j, rc, device_count, ppm_error = 0;
   char   vendor[256], product[256], serial[256];
   double gain;
 
@@ -682,9 +763,16 @@ int modeS_init_RTLSDR (void)
              (j == Modes.dev_index) ? "(currently selected)" : "");
   }
 
-  if (rtlsdr_open(&Modes.dev, Modes.dev_index) < 0)
+  rc = rtlsdr_open (&Modes.dev, Modes.dev_index);
+  if (rc < 0)
   {
-    fprintf (stderr, "Error opening the RTLSDR device: %s.\n", strerror(errno));
+    const char * WINAPI libusb_error_name (int errcode);
+    const char *err_str;
+
+    if (rc == -1)             /* Normally due to ENOMEM */
+         err_str = strerror (errno);
+    else err_str = libusb_error_name (rc);
+    fprintf (stderr, "Error opening the RTLSDR device: %s.\n", err_str);
     return (1);
   }
 
@@ -760,6 +848,12 @@ void rtlsdr_callback (uint8_t *buf, uint32_t len, void *ctx)
  */
 int read_from_data_file (void)
 {
+  if (Modes.loops > 0 && Modes.fd == STDIN_FILENO)
+  {
+    fprintf (stderr, "Option `--loop <N>` not supported for `stdin`.\n");
+    Modes.loops = 0;
+  }
+
   do
   {
      int nread, toread;
@@ -770,7 +864,7 @@ int read_from_data_file (void)
        /* When --infile and --interactive are used together, slow down
         * playing at the natural rate of the RTLSDR received.
         */
-       Sleep (5);
+       Sleep (1000);
      }
 
      /* Move the last part of the previous buffer, that was not processed,
@@ -801,11 +895,15 @@ int read_from_data_file (void)
      detect_modeS (Modes.magnitude, Modes.data_len/2);
      background_tasks();
 
+     if (Modes.exit || Modes.fd == STDIN_FILENO)
+        break;
+
      /* seek the file again from the start
       * and re-play it if --loop was given.
       */
-     if (!Modes.loop || Modes.exit || Modes.fd == STDIN_FILENO ||
-         lseek(Modes.fd, 0, SEEK_SET) == -1)
+     if (Modes.loops > 0)
+        Modes.loops--;
+     if (Modes.loops == 0 || lseek(Modes.fd, 0, SEEK_SET) == -1)
         break;
   }
   while (1);
@@ -980,7 +1078,7 @@ void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t *m, ui
  * \param in  m      the original magnitude vector
  * \param in  offset the offset where the message starts
  *
- * The function also produces the Javascript file used by debug.html to
+ * The function also produces the Javascript file used by `debug.html` to
  * display packets in a graphical format if the Javascript output was
  * enabled.
  */
@@ -2219,6 +2317,19 @@ struct aircraft *find_aircraft (uint32_t addr)
 }
 
 /**
+ * Return the number of aircrafts we have now.
+ */
+int num_aircrafts (void)
+{
+  struct aircraft *a = Modes.aircrafts;
+  int    num;
+
+  for (num = 0; a; num++)
+      a = a->next;
+  return (num);
+}
+
+/**
  * Helper function for decoding the **CPR** (*Compact Position Reporting*). <br>
  * Always positive MOD operation, used for CPR decoding.
  */
@@ -2490,24 +2601,31 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
 
 /**
  * Show the currently captured aircraft information on screen.
+ * \param in now     the currect tick-timer
+ * \param in next_a  the next aircraft to be removed. We print this in RED
+ *                   colour here to make this clearer.
  */
 void interactive_show_data (uint64_t now, const struct aircraft *next_a)
 {
   static int spin_idx = 0;
-  char spinner[] = "|/-\\";
+  static int old_count = -1;
+  int    count = 0;
+  char   spinner[] = "|/-\\";
   struct aircraft *a = Modes.aircrafts;
-  int count = 0;
 
   /* Unless debug or raw-mode is active, clear the screen to remove old info.
+   * But only if current number of aircrafts is less than last time. This is to
+   * avoid an annoying blinking of the console.
    */
   if (Modes.debug == 0 && !Modes.raw)
   {
-    clrscr();
+    if (old_count = -1 || old_count > num_aircrafts())
+       clrscr();
     gotoxy (1, 1);
   }
 
   setcolor (COLOR_WHITE);
-  printf ("ICAO   Flight   Sqwk    Altitude  Speed   Lat       Long     Heading  Messages Seen %c\n"
+  printf ("ICAO   Flight   Sqwk   Altitude  Speed    Lat       Long     Heading  Messages Seen %c\n"
           "-------------------------------------------------------------------------------------\n",
           spinner[spin_idx++ % 4]);
   setcolor (0);
@@ -2551,16 +2669,18 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
     if (next_a)
        setcolor (COLOR_RED);
 
-    printf ("%-6s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %d sec  \n",
+    printf ("%-6s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %2d sec  \n",
             a->hexaddr, a->flight, squawk, alt_buf, speed_buf,
             lat_buf, lon_buf, a->heading, a->messages, (int)(now - a->seen));
 
     if (next_a)
        setcolor (0);
+    next_a = NULL;
 
     a = a->next;
     count++;
   }
+  old_count = count;
 }
 
 /**
@@ -2625,13 +2745,19 @@ void free_all_aircrafts (void)
 }
 
 /**
- * Get raw IQ samples and filter everything that is < than the specified level
- * for more than 256 samples in order to reduce example file size.
+ * Read raw IQ samples from `stdin` and filter everything that is lower than the
+ * specified level for more than 256 samples in order to reduce
+ * example file size.
+ *
+ * Will print to `stdout` in BINARY-mode.
  */
 int strip_mode (int level)
 {
   int i, q;
   uint64_t c = 0;
+
+  setmode (fileno(stdin), O_BINARY);
+  setmode (fileno(stdout), O_BINARY);
 
   while ((i = getchar()) != EOF && (q = getchar()) != EOF)
   {
@@ -2783,16 +2909,16 @@ void free_all_clients (void)
   }
 }
 
-/*
- * Iterate over all the listening connections and send a 'msg' to
- * all clients in the specified 'service'.
+/**
+ * Iterate over all the listening connections and send a `msg` to
+ * all clients in the specified `service`.
  *
  * There can only be 1 service that matches this. But this
  * service can have many clients.
  *
- * Note:
+ * \note
  *  This function is not used for sending HTTP(S) data.
- *  That is done by feeding 'data.json' to the client .html page.
+ *  That is done by feeding `data.json` to the client `Modes.web_page` page.
  */
 int send_all_clients (int service, const void *msg, int len)
 {
@@ -2819,17 +2945,14 @@ int send_all_clients (int service, const void *msg, int len)
 }
 
 /**
- * \note Here we disregard any kind of good coding practice in favor of
- *       extreme simplicity, that is:
+ * Handlers for the network services.
  *
- * 1) We only rely on the kernel buffers for our I/O without any kind of
- *    user space buffering.
- * 2) We don't register any kind of event handler, from time to time a
- *    function gets called and we accept new connections. All the rest is
- *    handled via non-blocking I/O and manually pulling clients to see if
- *    they have something new to share with us when reading is needed.
+ * We use Mongoose for handling all the server and low-level network I/O. <br>
+ * We register event-handlers that gets called on important network events.
+ *
+ * Keep the data for our 4 network services in this structure.
  */
-struct net_service modesNetServices [MODES_NET_SERVICES_NUM] = {
+struct net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
                  { &Modes.ros,   "Raw TCP output",         MODES_NET_OUTPUT_RAW_PORT },
                  { &Modes.ris,   "Raw TCP input",          MODES_NET_INPUT_RAW_PORT },
                  { &Modes.sbsos, "Basestation TCP output", MODES_NET_OUTPUT_SBS_PORT },
@@ -2854,25 +2977,25 @@ const char *event_name (int ev)
 struct mg_connection *handler_conn (int service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service <= MODES_NET_SERVICE_HTTP);
-  return (*modesNetServices [service].conn);
+  return (*modeS_net_services [service].conn);
 }
 
 unsigned *handler_num_clients (int service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service <= MODES_NET_SERVICE_HTTP);
-  return (&modesNetServices [service].num_clients);
+  return (&modeS_net_services [service].num_clients);
 }
 
 const char *handler_descr (int service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service <= MODES_NET_SERVICE_HTTP);
-  return (modesNetServices [service].descr);
+  return (modeS_net_services [service].descr);
 }
 
 u_short handler_port (int service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service <= MODES_NET_SERVICE_HTTP);
-  return (modesNetServices [service].port);
+  return (modeS_net_services [service].port);
 }
 
 void net_flushall (void)
@@ -2941,10 +3064,10 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
 
     Modes.stat.http_requests++;
 
-    if (strncmp(hm->head.ptr, "GET /data.json ", 15))  /* avoid the chatty Json traffic */
+    if (strncmp(hm->head.ptr, "GET /data.json ", 15))
        TRACE (DEBUG_NET, "HTTP header: '%.20s'...\n\n", hm->head.ptr);
 
-    /* Redirect a 'GET /' to a 'GET /' + GMAP_HTML
+    /* Redirect a 'GET /' to a 'GET /' + 'web_page'
      */
     if (!strncmp(hm->head.ptr, "GET / ", 6))
     {
@@ -2957,7 +3080,7 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
         cli->keep_alive = 1;
         Modes.stat.http_keep_alive++;
       }
-      snprintf (redirect, sizeof(redirect), "Location: %s\r\n%s", GMAP_HTML, keep_alive);
+      snprintf (redirect, sizeof(redirect), "Location: %s\r\n%s", Modes.web_page, keep_alive);
       mg_http_reply (conn, 303, redirect, "");
       TRACE (DEBUG_NET, "Redirecting client %lu: '%s'...\n\n", conn->id, redirect);
       return;
@@ -3004,9 +3127,9 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
     }
 #endif
 
-    uri_len = snprintf (expected_uri, sizeof(expected_uri), "GET /%s", GMAP_HTML);
+    uri_len = snprintf (expected_uri, sizeof(expected_uri), "GET /%s", Modes.web_page);
 
-    /* For now we do expect only this
+    /* For now we do expect only a "'GET /`Modes.web_page`"
      */
     if (strncmp(hm->head.ptr, expected_uri, uri_len))
     {
@@ -3017,12 +3140,18 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
       return;
     }
 
-    /* Generate a C-array from 'GMAP_HTML' and use 'mg_http_reply()' directly?
-     */
-    mg_http_serve_file (conn, hm, GMAP_HTML, "text/html",
+#if 0
+    mg_http_serve_file (conn, hm, Modes.web_page, "text/html",
                         (cli && cli->keep_alive) ? "Connection: keep-alive\r\n" : NULL);
+#else
+    struct mg_http_serve_opts opts = { Modes.web_root, NULL, NULL };
 
-    TRACE (DEBUG_NET, "Serving HTTP client %lu with \"%s\".\n", conn->id, GMAP_HTML);
+    if (cli && cli->keep_alive)
+       opts.extra_headers = "Connection: keep-alive\r\n";
+    mg_http_serve_dir (conn, hm, &opts);
+#endif
+
+    TRACE (DEBUG_NET, "Serving HTTP client %lu with \"%s\".\n", conn->id, Modes.web_page);
   }
 }
 
@@ -3110,22 +3239,22 @@ int modeS_init_net (void)
   if (Modes.debug & DEBUG_NET2)
      mg_log_set (MG_NET_DEBUG);
 
-  snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modesNetServices[MODES_NET_SERVICE_RAW_OUT].port);
+  snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modeS_net_services[MODES_NET_SERVICE_RAW_OUT].port);
   Modes.ros = mg_listen (&Modes.mgr, url, net_handler, (void*) MODES_NET_SERVICE_RAW_OUT);
   if (!Modes.ros)
      return (1);
 
-  snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modesNetServices[MODES_NET_SERVICE_RAW_IN].port);
+  snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modeS_net_services[MODES_NET_SERVICE_RAW_IN].port);
   Modes.ris = mg_listen (&Modes.mgr, url, net_handler, (void*) MODES_NET_SERVICE_RAW_IN);
   if (!Modes.ris)
      return (1);
 
-  snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modesNetServices[MODES_NET_SERVICE_SBS].port);
+  snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modeS_net_services[MODES_NET_SERVICE_SBS].port);
   Modes.sbsos = mg_listen (&Modes.mgr, url, net_handler, (void*) MODES_NET_SERVICE_SBS);
   if (!Modes.sbsos)
      return (1);
 
-  snprintf (url, sizeof(url), "http://0.0.0.0:%u", modesNetServices[MODES_NET_SERVICE_HTTP].port);
+  snprintf (url, sizeof(url), "http://0.0.0.0:%u", modeS_net_services[MODES_NET_SERVICE_HTTP].port);
   Modes.http = mg_http_listen (&Modes.mgr, url, net_handler, (void*) MODES_NET_SERVICE_HTTP);
   if (!Modes.http)
      return (1);
@@ -3538,11 +3667,11 @@ void show_help (const char *fmt, ...)
           "  --device-index <index>   Select RTL device (default: 0).\n"
           "  --freq <hz>              Set frequency (default: %u MHz).\n"
           "  --gain <db>              Set gain (default: AUTO)\n"
-          "  --infile <filename>      Read data from file (use '-' for stdin).\n"
+          "  --infile <filename>      Read data from file (use `-' for stdin).\n"
           "  --interactive            Interactive mode refreshing data on screen.\n"
           "  --interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
           "  --interactive-ttl <sec>  Remove from list if idle for <sec> (default: %u).\n"
-          "  --loop                   With --infile, read the same file in a loop.\n"
+          "  --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
           "  --metric                 Use metric units (meters, km/h, ...).\n"
           "  --net                    Enable networking.\n"
           "  --net-only               Enable just networking, no RTL device or file used.\n"
@@ -3550,10 +3679,11 @@ void show_help (const char *fmt, ...)
           "  --net-ri-port <port>     TCP listening port for raw input (default: %u).\n"
           "  --net-http-port <port>   HTTP server port (default: %u).\n"
           "  --net-sbs-port <port>    TCP listening port for BaseStation format output (default: %u).\n"
+          "  --web-page <file>        The Web-page to server for HTTP clients (default: `%s').\n"
           "  --no-fix                 Disable single-bits error correction using CRC.\n"
           "  --no-crc-check           Disable messages with broken CRC (discouraged).\n"
           "  --onlyaddr               Show only ICAO addresses (testing purposes).\n"
-          "  --samplerate <hz>        Set sample-rate (default: %uMS/s).\n"
+          "  --samplerate <Hz>        Set sample-rate (default: %uMS/s).\n"
           "  --raw                    Show only messages with raw hex values.\n"
           "  --strip <level>          Strip IQ file removing samples below level.\n"
           "  -h, --help               Show this help.\n"
@@ -3565,12 +3695,12 @@ void show_help (const char *fmt, ...)
           "                    p = Log frames with bad preamble.\n"
           "                    n = Log network debugging information.\n"
           "                    N = a bit more network information than flag 'n'.\n"
-          "                    j = Log frames to frames.js, loadable by debug.html.\n"
+          "                    j = Log frames to frames.js, loadable by `debug.html'.\n"
           "                    G = Log general debugging info.\n",
           Modes.who_am_I,
           (uint32_t)(MODES_DEFAULT_FREQ / 1000000), MODES_ICAO_CACHE_TTL,
           MODES_NET_OUTPUT_RAW_PORT, MODES_NET_INPUT_RAW_PORT,
-          MODES_NET_HTTP_PORT, MODES_NET_OUTPUT_SBS_PORT, MODES_DEFAULT_RATE/1000000);
+          MODES_NET_HTTP_PORT, MODES_NET_OUTPUT_SBS_PORT, GMAP_HTML, MODES_DEFAULT_RATE/1000000);
 
   modeS_exit();  /* free Pthread-W32 data */
   exit (1);
@@ -3731,7 +3861,7 @@ int main (int argc, char **argv)
 #endif
 
   /* Set sane defaults. */
-  modeS_init_config (argv[0]);
+  modeS_init_config();
 
   /* Parse the command line options */
   for (j = 1; j < argc; j++)
@@ -3751,7 +3881,7 @@ int main (int argc, char **argv)
         Modes.infile = argv[++j];
 
     else if (!strcmp(argv[j], "--loop"))
-        Modes.loop = 1;
+        Modes.loops = (more && isdigit(*argv[j+1])) ? _atoi64 (argv[++j]) : LLONG_MAX;
 
     else if (!strcmp(argv[j], "--no-fix"))
         Modes.fix_errors = 0;
@@ -3772,16 +3902,19 @@ int main (int argc, char **argv)
         Modes.net = Modes.net_only = 1;
 
     else if (!strcmp(argv[j], "--net-ro-port") && more)
-        modesNetServices [MODES_NET_SERVICE_RAW_OUT].port = atoi (argv[++j]);
+        modeS_net_services [MODES_NET_SERVICE_RAW_OUT].port = atoi (argv[++j]);
 
     else if (!strcmp(argv[j], "--net-ri-port") && more)
-        modesNetServices [MODES_NET_SERVICE_RAW_IN].port = atoi (argv[++j]);
+        modeS_net_services [MODES_NET_SERVICE_RAW_IN].port = atoi (argv[++j]);
 
     else if (!strcmp(argv[j], "--net-http-port") && more)
-        modesNetServices [MODES_NET_SERVICE_HTTP].port = atoi (argv[++j]);
+        modeS_net_services [MODES_NET_SERVICE_HTTP].port = atoi (argv[++j]);
 
     else if (!strcmp(argv[j], "--net-sbs-port") && more)
-        modesNetServices [MODES_NET_SERVICE_SBS].port = atoi (argv[++j]);
+        modeS_net_services [MODES_NET_SERVICE_SBS].port = atoi (argv[++j]);
+
+    else if (!strcmp(argv[j], "--web-page") && more)
+        strncpy (Modes.web_page, argv[++j], sizeof(Modes.web_page)-1);
 
     else if (!strcmp(argv[j], "--onlyaddr"))
         Modes.only_addr = 1;
@@ -3906,8 +4039,10 @@ int main (int argc, char **argv)
   }
 
   if (Modes.infile)
-     rc = read_from_data_file();
-  else
+  {
+    rc = read_from_data_file();
+  }
+  else if (Modes.strip_level == 0)
   {
     /* Create the thread that will read the data from the device and the network.
      */
