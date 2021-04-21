@@ -77,15 +77,15 @@
 #define MODES_AUTO_GAIN            -100         /* Use automatic gain. */
 #define MODES_MAX_GAIN             999999       /* Use max available gain. */
 
-#define MODES_PREAMBLE_US             8       /* microseconds */
+#define MODES_PREAMBLE_US             8         /* microseconds */
 #define MODES_LONG_MSG_BITS         112
 #define MODES_SHORT_MSG_BITS         56
-#define MODES_FULL_LEN             (MODES_PREAMBLE_US+MODES_LONG_MSG_BITS)
-#define MODES_LONG_MSG_BYTES       (112/8)
-#define MODES_SHORT_MSG_BYTES      (56/8)
+#define MODES_FULL_LEN             (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS)
+#define MODES_LONG_MSG_BYTES       (MODES_LONG_MSG_BITS / 8)
+#define MODES_SHORT_MSG_BYTES      (MODES_SHORT_MSG_BITS / 8)
 
 #define MODES_ICAO_CACHE_LEN       1024   /* Power of two required. */
-#define MODES_ICAO_CACHE_TTL         60   /* Time to live of cached addresses. */
+#define MODES_ICAO_CACHE_TTL         60   /* Time to live of cached addresses (sec). */
 #define MODES_UNIT_FEET               0
 #define MODES_UNIT_METERS             1
 
@@ -106,7 +106,7 @@
  * When debug is set to DEBUG_NOPREAMBLE, the first sample must be
  * at least greater than a given level for us to dump the signal.
  */
-#define DEBUG_NOPREAMBLE_LEVEL    25
+#define DEBUG_NOPREAMBLE_LEVEL         25
 
 #define MODES_INTERACTIVE_REFRESH_TIME 250   /* Milliseconds */
 #define MODES_INTERACTIVE_ROWS          15   /* Rows on screen */
@@ -219,24 +219,26 @@ struct client {
  * Structure used to describe an aircraft in interactive mode.
  */
 struct aircraft {
-       uint32_t addr;           /* ICAO address */
-       char     hexaddr [7];    /* Printable ICAO address */
-       char     flight [9];     /* Flight number */
-       int      altitude;       /* Altitude */
-       int      speed;          /* Velocity computed from EW and NS components. */
-       int      track;          /* Angle of flight. */
-       time_t   seen;           /* Time at which the last packet was received. */
-       long     messages;       /* Number of Mode S messages received. */
+       uint32_t addr;           /**< ICAO address */
+       char     hexaddr [7];    /**< Printable ICAO address */
+       char     flight [9];     /**< Flight number */
+       int      altitude;       /**< Altitude */
+       uint32_t speed;          /**< Velocity computed from EW and NS components. */
+       int      heading;        /**< Horizontal angle of flight. */
+       time_t   seen;           /**< Time at which the last packet was received. */
+       long     messages;       /**< Number of Mode S messages received. */
+       int      identity;       /**< 13 bits identity (Squawk). */
 
        /* Encoded latitude and longitude as extracted by odd and even
         * CPR encoded messages.
         */
-       int      odd_cprlat;
-       int      odd_cprlon;
-       int      even_cprlat;
-       int      even_cprlon;
-       double   lat, lon;    /* Coordinated obtained from CPR encoded data. */
-       uint64_t odd_cprtime, even_cprtime;
+       int      odd_CPR_lat;    /**< Encoded odd CPR latitude */
+       int      odd_CPR_lon;    /**< Encoded odd CPR longitude */
+       int      even_CPR_lat;   /**< Encoded even CPR latitude */
+       int      even_CPR_lon;   /**< Encoded even CPR longitude */
+       uint64_t odd_CPR_time;   /**< Tick-time for reception of an odd CPR message */
+       uint64_t even_CPR_time;  /**< Tick-time for reception of an even CPR message */
+       double   lat, lon;       /**< Coordinates obtained from decoded CPR data. */
 
        struct aircraft *next; /* Next aircraft in our linked list. */
      };
@@ -248,13 +250,13 @@ struct aircraft {
 struct statistics {
        uint64_t valid_preamble;
        uint64_t demodulated;
-       uint64_t goodcrc;
-       uint64_t badcrc;
+       uint64_t good_CRC;
+       uint64_t bad_CRC;
        uint64_t fixed;
        uint64_t single_bit_fix;
        uint64_t two_bits_fix;
        uint64_t out_of_phase;
-       uint64_t sbs_connections;
+       uint64_t SBS_connections;
        uint64_t unique_aircrafts;
        uint64_t unrecognized_ME;
        uint64_t clients_accepted;
@@ -274,11 +276,11 @@ struct global_data {
        pthread_mutex_t data_mutex;     /**< Mutex to synchronize buffer access. */
        uint8_t        *data;           /**< Raw IQ samples buffer */
        uint16_t       *magnitude;      /**< Magnitude vector */
+       uint16_t       *magnitude_lut;  /**< I/Q -> Magnitude lookup table. */
        uint32_t        data_len;       /**< Buffer length. */
        int             fd;             /**< `--infile` option file descriptor. */
        int             data_ready;     /**< Data ready to be processed. */
-       uint32_t       *icao_cache;     /**< Recently seen ICAO addresses. */
-       uint16_t       *maglut;         /**< I/Q -> Magnitude lookup table. */
+       uint32_t       *ICAO_cache;     /**< Recently seen ICAO addresses. */
        int             exit;           /**< Exit from the main loop when true. */
 
        /* RTLSDR device index and variables
@@ -311,7 +313,7 @@ struct global_data {
        int   interactive;              /**< Interactive mode */
        int   interactive_rows;         /**< Interactive mode: max number of rows. */
        int   interactive_ttl;          /**< Interactive mode: TTL before deletion. */
-       int   onlyaddr;                 /**< Print only ICAO addresses. */
+       int   only_addr;                /**< Print only ICAO addresses. */
        int   metric;                   /**< Use metric units. */
        int   aggressive;               /**< Aggressive detection algorithm. */
 
@@ -319,7 +321,8 @@ struct global_data {
         */
        int strip_level;
 
-       /* Interactive mode */
+       /* Interactive mode
+        */
        struct aircraft *aircrafts;     /**< Linked list of active aircrafts */
        uint64_t last_update_ms;        /**< Last screen update in milliseconds */
 
@@ -334,12 +337,12 @@ struct global_data Modes;
  */
 struct modeS_message {
     uint8_t  msg [MODES_LONG_MSG_BYTES]; /**< Binary message. */
-    int      msgbits;                    /**< Number of bits in message */
-    int      msgtype;                    /**< Downlink format # */
-    int      crcok;                      /**< True if CRC was valid */
-    uint32_t crc;                        /**< Message CRC */
-    int      errorbit;                   /**< Bit corrected. -1 if no bit corrected. */
-    int      aa1, aa2, aa3;              /**< ICAO Address bytes 1 2 and 3 */
+    int      msg_bits;                   /**< Number of bits in message */
+    int      msg_type;                   /**< Downlink format # */
+    int      CRC_ok;                     /**< True if CRC was valid */
+    uint32_t CRC;                        /**< Message CRC */
+    int      error_bit;                  /**< Bit corrected. -1 if no bit corrected. */
+    int      AA1, AA2, AA3;              /**< ICAO Address bytes 1, 2 and 3 */
     int      phase_corrected;            /**< True if phase correction was applied. */
 
     /** DF11
@@ -348,20 +351,20 @@ struct modeS_message {
 
     /** DF 17
      */
-    int  metype;                 /**< Extended squitter message type. */
-    int  mesub;                  /**< Extended squitter message subtype. */
+    int  ME_type;                /**< Extended squitter message type. */
+    int  ME_subtype;             /**< Extended squitter message subtype. */
     int  heading_is_valid;
-    int  heading;
+    int  heading;                /**< Horizontal angle of flight. */
     int  aircraft_type;
-    int  fflag;                  /**< 1 = Odd, 0 = Even CPR message. */
-    int  tflag;                  /**< UTC synchronized? */
+    int  odd_flag;               /**< 1 = Odd, 0 = Even CPR message. */
+    int  UTC_flag;               /**< UTC synchronized? */
     int  raw_latitude;           /**< Non decoded latitude */
     int  raw_longitude;          /**< Non decoded longitude */
     char flight [9];             /**< 8 chars flight number. */
-    int  ew_dir;                 /**< 0 = East, 1 = West. */
-    int  ew_velocity;            /**< E/W velocity. */
-    int  ns_dir;                 /**< 0 = North, 1 = South. */
-    int  ns_velocity;            /**< N/S velocity. */
+    int  EW_dir;                 /**< 0 = East, 1 = West. */
+    int  EW_velocity;            /**< E/W velocity. */
+    int  NS_dir;                 /**< 0 = North, 1 = South. */
+    int  NS_velocity;            /**< N/S velocity. */
     int  vert_rate_source;       /**< Vertical rate source. */
     int  vert_rate_sign;         /**< Vertical rate sign. */
     int  vert_rate;              /**< Vertical rate. */
@@ -369,9 +372,9 @@ struct modeS_message {
 
     /** DF4, DF5, DF20, DF21
      */
-    int fs;                      /**< Flight status for DF4,5,20,21 */
-    int dr;                      /**< Request extraction of downlink request. */
-    int um;                      /**< Request extraction of downlink request. */
+    int flight_status;           /**< Flight status for DF4, 5, 20 and 21 */
+    int DR_status;               /**< Request extraction of downlink request. */
+    int UM_status;               /**< Request extraction of downlink request. */
     int identity;                /**< 13 bits identity (Squawk). */
 
     /** Fields used by multiple message types.
@@ -379,11 +382,11 @@ struct modeS_message {
     int altitude, unit;
 };
 
-struct aircraft *interactive_receive_data (struct modeS_message *mm);
+struct aircraft *interactive_receive_data (const struct modeS_message *mm);
 void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *));
-void mode_send_raw_output (struct modeS_message *mm);
-void mode_send_SBS_output (struct modeS_message *mm, struct aircraft *a);
-void mode_user_message (struct modeS_message *mm);
+void mode_send_raw_output (const struct modeS_message *mm);
+void mode_send_SBS_output (const struct modeS_message *mm, struct aircraft *a);
+void mode_user_message (const struct modeS_message *mm);
 
 int  fix_single_bit_errors (uint8_t *msg, int bits);
 int  fix_two_bits_errors (uint8_t *msg, int bits);
@@ -393,16 +396,18 @@ int  modeS_message_len_by_type (int type);
 void compute_magnitude_vector (void);
 void background_tasks (void);
 void modeS_exit (void);
+void sigint_handler (int sig);
 
 u_short               handler_port (int service);  /**< not used yet */
 const char           *handler_descr (int service);
 struct mg_connection *handler_conn (int service);
 
-/* ========================= WinCon code =========================== */
-
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE console_hnd = INVALID_HANDLE_VALUE;
 static DWORD  console_mode = 0;
+
+#define COLOR_RED   12
+#define COLOR_WHITE 15
 
 static void gotoxy (int x, int y)
 {
@@ -431,28 +436,46 @@ static void clrscr (void)
   }
 }
 
-void console_init (void)
+void setcolor (int color)
+{
+  WORD attr;
+
+  if (console_hnd == INVALID_HANDLE_VALUE)
+     return;
+
+  attr = console_info.wAttributes;
+  if (color > 0)
+  {
+    attr &= ~7;
+    attr |= color;
+  }
+  SetConsoleTextAttribute (console_hnd, attr);
+}
+
+int console_init (void)
 {
   console_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
   if (console_hnd == INVALID_HANDLE_VALUE)
-     return;
+     return (1);
 
   GetConsoleScreenBufferInfo (console_hnd, &console_info);
   GetConsoleMode (console_hnd, &console_mode);
   if (console_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)
      SetConsoleMode (console_hnd, console_mode | DISABLE_NEWLINE_AUTO_RETURN);
-  Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
+
+  if (Modes.interactive_rows == 0)  /* Option `--interactive-rows` not used */
+     Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
+  return (0);
 }
 
 void console_exit (void)
 {
   gotoxy (1, Modes.interactive_rows);
+  setcolor (0);
   if (console_hnd != INVALID_HANDLE_VALUE)
      SetConsoleMode (console_hnd, console_mode);
   console_hnd = INVALID_HANDLE_VALUE;
 }
-
-/* ============================= Memory leak detectors ====================== */
 
 #if defined(USE_VLD)
 void crtdbug_init (void)
@@ -503,9 +526,9 @@ void crtdbug_init (void)
 /**
  * Convert standard suffixes (k, M, G) to double
  *
- * \param Hertz a string to be parsed
- * \return double
- * \note Taken from Osmo-SDR's 'convenience.c' and modified.
+ * \param in Hertz   a string to be parsed
+ * \retval the fereuency as a `double`
+ * \note Taken from Osmo-SDR's `convenience.c` and modified.
  */
 double ato_hertz (const char *Hertz)
 {
@@ -555,71 +578,84 @@ void modeS_init_config (const char *argv0)
   Modes.raw = 0;
   Modes.net = 0;
   Modes.net_only = 0;
-  Modes.onlyaddr = 0;
+  Modes.only_addr = 0;
   Modes.debug = 0;
   Modes.aggressive = 0;
   Modes.interactive = 0;
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
   Modes.reader_thread = PTHREAD_NULL;
   Modes.strip_level = 0;
-  Modes.interactive_rows = 40;  /* set in 'console_init()' in '--interactive' mode */
+  Modes.interactive_rows = 0;  /* set in `console_init()` in `--interactive` mode */
   Modes.loop = 0;
 }
 
 /**
  * Step 2: Allocate and initialize the needed buffers.
  */
-void modeS_init (void)
+int modeS_init (void)
 {
   int i, q;
 
   pthread_mutex_init (&Modes.data_mutex, NULL);
 
-  /**
-   * We add a full message minus a final bit to the length, so that we
+  /* Setup SIGINT for a graceful exit
+   */
+  signal (SIGINT, sigint_handler);
+
+  /* We add a full message minus a final bit to the length, so that we
    * can carry the remaining part of the buffer that we can't process
    * in the message detection loop, back at the start of the next data
    * to process. This way we are able to also detect messages crossing
    * two reads.
    */
-  Modes.data_len = MODES_DATA_LEN + (MODES_FULL_LEN-1)*4;
+  Modes.data_len = MODES_DATA_LEN + 4*(MODES_FULL_LEN-1);
   Modes.data_ready = 0;
 
   /**
    * Allocate the ICAO address cache. We use two uint32_t for every
    * entry because it's a addr / timestamp pair for every entry.
    */
-  Modes.icao_cache = calloc (sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2, 1);
+  Modes.ICAO_cache = calloc (sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2, 1);
   Modes.aircrafts = NULL;
   Modes.last_update_ms = 0;
 
   Modes.data = malloc (Modes.data_len);
-  Modes.magnitude = malloc (Modes.data_len*2);
+  Modes.magnitude = malloc (2*Modes.data_len);
 
-  if (!Modes.data || !Modes.magnitude)
+  if (!Modes.ICAO_cache || !Modes.data || !Modes.magnitude)
   {
     fprintf (stderr, "Out of memory allocating data buffer.\n");
-    exit (1);
+    return (1);
   }
   memset (Modes.data, 127, Modes.data_len);
 
-  /**
-   * Populate the I/Q -> Magnitude lookup table. It is used because
+  /* Populate the I/Q -> Magnitude lookup table. It is used because
    * sqrt() or round() may be expensive and may vary a lot depending on
-   * the libc used.
+   * the CRT used.
    *
    * We scale to 0-255 range multiplying by 1.4 in order to ensure that
    * every different I/Q pair will result in a different magnitude value,
    * not losing any resolution.
    */
-  Modes.maglut = malloc (sizeof(*Modes.maglut) * 129 * 129);
+  Modes.magnitude_lut = malloc (sizeof(*Modes.magnitude_lut) * 129 * 129);
+  if (!Modes.magnitude_lut)
+  {
+    fprintf (stderr, "Out of memory allocating `Modes.magnitude_lut`.\n");
+    return (1);
+  }
+
+  memset (&Modes.stat, '\0', sizeof(Modes.stat));
+  Modes.exit = 0;
+
   for (i = 0; i <= 128; i++)
   {
     for (q = 0; q <= 128; q++)
-        Modes.maglut [i*129+q] = (uint16_t) round (360 * sqrt(i*i + q*q));
+        Modes.magnitude_lut [i*129+q] = (uint16_t) round (360 * sqrt(i*i + q*q));
   }
-  memset (&Modes.stat, '\0', sizeof(Modes.stat));
-  Modes.exit = 0;
+
+  if (Modes.debug == 0 && !Modes.raw && Modes.interactive)
+     return console_init();
+  return (0);
 }
 
 /**
@@ -707,13 +743,13 @@ void rtlsdr_callback (uint8_t *buf, uint32_t len, void *ctx)
      len = MODES_DATA_LEN;
 
   /* Move the last part of the previous buffer, that was not processed,
-   * on the start of the new buffer.
+   * to the start of the new buffer.
    */
-  memcpy (Modes.data, Modes.data+MODES_DATA_LEN, (MODES_FULL_LEN-1)*4);
+  memcpy (Modes.data, Modes.data+MODES_DATA_LEN, 4*(MODES_FULL_LEN-1));
 
   /* Read the new data.
    */
-  memcpy (Modes.data+(MODES_FULL_LEN-1)*4, buf, len);
+  memcpy (Modes.data + 4*(MODES_FULL_LEN-1), buf, len);
   Modes.data_ready = 1;
   pthread_mutex_unlock (&Modes.data_mutex);
 }
@@ -740,9 +776,9 @@ int read_from_data_file (void)
      /* Move the last part of the previous buffer, that was not processed,
       * on the start of the new buffer.
       */
-     memcpy (Modes.data, Modes.data+MODES_DATA_LEN, 4*(MODES_FULL_LEN-1));
+     memcpy (Modes.data, Modes.data + MODES_DATA_LEN, 4*(MODES_FULL_LEN-1));
      toread = MODES_DATA_LEN;
-     p = Modes.data + (MODES_FULL_LEN-1) * 4;
+     p = Modes.data + 4*(MODES_FULL_LEN-1);
 
      while (toread)
      {
@@ -816,7 +852,7 @@ void main_data_loop (void)
     compute_magnitude_vector();
 
     /* Signal to the other thread that we processed the available data
-     * and we want more (useful for --infile).
+     * and we want more.
      */
     Modes.data_ready = 0;
 
@@ -830,8 +866,6 @@ void main_data_loop (void)
     pthread_mutex_unlock (&Modes.data_mutex);
   }
 }
-
-/* ============================== Debugging ================================= */
 
 /**
  * Helper function for `dump_magnitude_vector()`.
@@ -876,7 +910,7 @@ void dump_magnitude_bar (int index, int magnitude)
     printf ("[%.2d] |%-66s %d\n", index, buf, magnitude);
 }
 
-/*
+/**
  * Display an *ASCII-art* alike graphical representation of the undecoded
  * message as a magnitude signal.
  *
@@ -890,7 +924,7 @@ void dump_magnitude_vector (const uint16_t *m, uint32_t offset)
 {
   uint32_t padding = 5;  /* Show a few samples before the actual start. */
   uint32_t start = (offset < padding) ? 0 : offset-padding;
-  uint32_t end = offset + (MODES_PREAMBLE_US*2)+(MODES_SHORT_MSG_BITS*2) - 1;
+  uint32_t end = offset + (2*MODES_PREAMBLE_US) + (2*MODES_SHORT_MSG_BITS) - 1;
   uint32_t j;
 
   for (j = start; j <= end; j++)
@@ -911,7 +945,7 @@ void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t *m, ui
 
   if (fixable != -1)
   {
-    fix1 = fixable & 0xff;
+    fix1 = fixable & 0xFF;
     if (fixable > 255)
        fix2 = fixable >> 8;
   }
@@ -929,11 +963,11 @@ void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t *m, ui
     if (j != end)
        fprintf (fp, ",");
   }
-  fprintf (fp,"], \"fix1\": %d, \"fix2\": %d, \"bits\": %d, \"hex\": \"",
-           fix1, fix2, modeS_message_len_by_type (msg[0] >> 3));
+  fprintf (fp, "], \"fix1\": %d, \"fix2\": %d, \"bits\": %d, \"hex\": \"",
+           fix1, fix2, modeS_message_len_by_type(msg[0] >> 3));
   for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
       fprintf (fp, "\\x%02x", msg[j]);
-  fprintf (fp,"\"});\n");
+  fprintf (fp, "\"});\n");
   fclose (fp);
 }
 
@@ -953,16 +987,16 @@ void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t *m, ui
 void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint32_t offset)
 {
   int j;
-  int msgtype = msg[0]>>3;
+  int msg_type = msg[0] >> 3;
   int fixable = -1;
 
-  if (msgtype == 11 || msgtype == 17)
+  if (msg_type == 11 || msg_type == 17)
   {
-    int msgbits = (msgtype == 11) ? MODES_SHORT_MSG_BITS :
-                                    MODES_LONG_MSG_BITS;
-    fixable = fix_single_bit_errors (msg, msgbits);
+    int msg_bits = (msg_type == 11) ? MODES_SHORT_MSG_BITS :
+                                      MODES_LONG_MSG_BITS;
+    fixable = fix_single_bit_errors (msg, msg_bits);
     if (fixable == -1)
-       fixable = fix_two_bits_errors (msg, msgbits);
+       fixable = fix_two_bits_errors (msg, msg_bits);
   }
 
   if (Modes.debug & DEBUG_JS)
@@ -978,12 +1012,10 @@ void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint3
     if (j == MODES_SHORT_MSG_BYTES-1)
        printf (" ... ");
   }
-  printf (" (DF %d, Fixable: %d)\n", msgtype, fixable);
+  printf (" (DF %d, Fixable: %d)\n", msg_type, fixable);
   dump_magnitude_vector (m, offset);
   printf ("---\n\n");
 }
-
-/* ===================== Mode S detection and decoding  ===================== */
 
 /**
  * Parity table for MODE S Messages. s<br>
@@ -1005,22 +1037,22 @@ void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint3
  * the CRC *XORed* with the sender address as they are replies to interrogations,
  * but a casual listener can't split the address from the checksum.
  */
-uint32_t modeS_checksum_table[112] = {
-         0x3935ea, 0x1c9af5, 0xf1b77e, 0x78dbbf, 0xc397db, 0x9e31e9, 0xb0e2f0, 0x587178,
-         0x2c38bc, 0x161c5e, 0x0b0e2f, 0xfa7d13, 0x82c48d, 0xbe9842, 0x5f4c21, 0xd05c14,
-         0x682e0a, 0x341705, 0xe5f186, 0x72f8c3, 0xc68665, 0x9cb936, 0x4e5c9b, 0xd8d449,
-         0x939020, 0x49c810, 0x24e408, 0x127204, 0x093902, 0x049c81, 0xfdb444, 0x7eda22,
-         0x3f6d11, 0xe04c8c, 0x702646, 0x381323, 0xe3f395, 0x8e03ce, 0x4701e7, 0xdc7af7,
-         0x91c77f, 0xb719bb, 0xa476d9, 0xadc168, 0x56e0b4, 0x2b705a, 0x15b82d, 0xf52612,
-         0x7a9309, 0xc2b380, 0x6159c0, 0x30ace0, 0x185670, 0x0c2b38, 0x06159c, 0x030ace,
-         0x018567, 0xff38b7, 0x80665f, 0xbfc92b, 0xa01e91, 0xaff54c, 0x57faa6, 0x2bfd53,
-         0xea04ad, 0x8af852, 0x457c29, 0xdd4410, 0x6ea208, 0x375104, 0x1ba882, 0x0dd441,
-         0xf91024, 0x7c8812, 0x3e4409, 0xe0d800, 0x706c00, 0x383600, 0x1c1b00, 0x0e0d80,
-         0x0706c0, 0x038360, 0x01c1b0, 0x00e0d8, 0x00706c, 0x003836, 0x001c1b, 0xfff409,
-         0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
-         0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
-         0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
-       };
+const uint32_t modeS_checksum_table[112] = {
+               0x3935EA, 0x1C9AF5, 0xF1B77E, 0x78DBBF, 0xC397DB, 0x9E31E9, 0xB0E2F0, 0x587178,
+               0x2C38BC, 0x161C5E, 0x0B0E2F, 0xFA7D13, 0x82C48D, 0xBE9842, 0x5F4C21, 0xD05C14,
+               0x682E0A, 0x341705, 0xE5F186, 0x72F8C3, 0xC68665, 0x9CB936, 0x4E5C9B, 0xD8D449,
+               0x939020, 0x49C810, 0x24E408, 0x127204, 0x093902, 0x049C81, 0xFDB444, 0x7EDA22,
+               0x3F6D11, 0xE04C8C, 0x702646, 0x381323, 0xE3F395, 0x8E03CE, 0x4701E7, 0xDC7AF7,
+               0x91C77F, 0xB719BB, 0xA476D9, 0xADC168, 0x56E0B4, 0x2B705A, 0x15B82D, 0xF52612,
+               0x7A9309, 0xC2B380, 0x6159C0, 0x30ACE0, 0x185670, 0x0C2B38, 0x06159C, 0x030ACE,
+               0x018567, 0xFF38B7, 0x80665F, 0xBFC92B, 0xA01E91, 0xAFF54C, 0x57FAA6, 0x2BFD53,
+               0xEA04AD, 0x8AF852, 0x457C29, 0xDD4410, 0x6EA208, 0x375104, 0x1BA882, 0x0DD441,
+               0xF91024, 0x7C8812, 0x3E4409, 0xE0D800, 0x706C00, 0x383600, 0x1C1B00, 0x0E0D80,
+               0x0706C0, 0x038360, 0x01C1B0, 0x00E0D8, 0x00706C, 0x003836, 0x001C1B, 0xFFF409,
+               0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
+               0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
+               0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
+             };
 
 uint32_t modeS_checksum (uint8_t *msg, int bits)
 {
@@ -1049,7 +1081,7 @@ int modeS_message_len_by_type (int type)
 {
   if (type == 16 || type == 17 || type == 19 || type == 20 || type == 21)
      return MODES_LONG_MSG_BITS;
-  return MODES_SHORT_MSG_BITS;
+  return (MODES_SHORT_MSG_BITS);
 }
 
 /**
@@ -1089,7 +1121,9 @@ int fix_single_bit_errors (uint8_t *msg, int bits)
   return (-1);
 }
 
-/* Similar to fix_single_bit_errors() but try every possible two bit combination.
+/**
+ * Similar to `fix_single_bit_errors()` but try every possible two bit combination.
+ *
  * This is very slow and should be tried only against DF17 messages that
  * don't pass the checksum, and only in Aggressive Mode.
  */
@@ -1139,120 +1173,126 @@ int fix_two_bits_errors (uint8_t *msg, int bits)
   return (-1);
 }
 
-/* Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
+/**
+ * Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
  * elements, that is assumed to be a power of two.
  */
-uint32_t ICAOCacheHashAddress (uint32_t a)
+uint32_t ICAO_cache_hash_address (uint32_t a)
 {
   /* The following three rounds will make sure that every bit affects
    * every output bit with ~ 50% of probability.
    */
-  a = ((a >> 16) ^ a) * 0x45d9f3b;
-  a = ((a >> 16) ^ a) * 0x45d9f3b;
+  a = ((a >> 16) ^ a) * 0x45D9F3B;
+  a = ((a >> 16) ^ a) * 0x45D9F3B;
   a = ((a >> 16) ^ a);
   return (a & (MODES_ICAO_CACHE_LEN-1));
 }
 
-/* Add the specified entry to the cache of recently seen ICAO addresses.
+/**
+ * Add the specified entry to the cache of recently seen ICAO addresses.
+ *
  * Note that we also add a timestamp so that we can make sure that the
- * entry is only valid for MODES_ICAO_CACHE_TTL seconds.
+ * entry is only valid for `MODES_ICAO_CACHE_TTL` seconds.
  */
-void addRecentlySeenICAOAddr (uint32_t addr)
+void ICAO_cache_add_address (uint32_t addr)
 {
-  uint32_t h = ICAOCacheHashAddress (addr);
+  uint32_t h = ICAO_cache_hash_address (addr);
 
-  Modes.icao_cache [h*2] = addr;
-  Modes.icao_cache [h*2+1] = (uint32_t) time (NULL);
+  Modes.ICAO_cache [h*2] = addr;
+  Modes.ICAO_cache [h*2+1] = (uint32_t) time (NULL);
 }
 
-/* Returns 1 if the specified ICAO address was seen in a DF format with
+/**
+ * Returns 1 if the specified ICAO address was seen in a DF format with
  * proper checksum (not XORed with address) no more than
- * MODES_ICAO_CACHE_TTL seconds ago. Otherwise returns 0.
+ * `MODES_ICAO_CACHE_TTL` seconds ago. Otherwise returns 0.
  */
-int ICAOAddressWasRecentlySeen (uint32_t addr)
+int ICAO_address_recently_seen (uint32_t addr)
 {
-  uint32_t h = ICAOCacheHashAddress (addr);
-  uint32_t a = Modes.icao_cache [h*2];
-  uint32_t t = Modes.icao_cache [h*2+1];
+  uint32_t h = ICAO_cache_hash_address (addr);
+  uint32_t a = Modes.ICAO_cache [h*2];
+  uint32_t t = Modes.ICAO_cache [h*2+1];
   time_t   now = time (NULL);
 
   return (a && a == addr && (now - t) <= MODES_ICAO_CACHE_TTL);
 }
 
-/*
+/**
  * If the message type has the checksum XORed with the ICAO address, try to
  * brute force it using a list of recently seen ICAO addresses.
  *
  * Do this in a brute-force fashion by XORing the predicted CRC with
  * the address XOR checksum field in the message. This will recover the
- * address: if we found it in our cache, we can assume the message is ok.
+ * address: if we found it in our cache, we can assume the message is okay.
  *
- * This function expects `mm->msgtype` and `mm->msgbits` to be correctly
+ * This function expects `mm->msg_type` and `mm->msg_bits` to be correctly
  * populated by the caller.
  *
  * On success the correct ICAO address is stored in the `modeS_message`
- * structure in the `aa3`, `aa2`, and `aa1` fiedls.
+ * structure in the `AA3`, `AA2`, and `AA1` fields.
  *
- * If the function successfully recovers a message with a correct checksum
- * it returns 1. Otherwise 0 is returned.
+ * \retval 1 successfully recovered a message with a correct checksum.
+ * \retval 0 failed to recover a message with a correct checksum.
  */
-int bruteForceAP (uint8_t *msg, struct modeS_message *mm)
+int brute_force_AP (uint8_t *msg, struct modeS_message *mm)
 {
   uint8_t aux [MODES_LONG_MSG_BYTES];
-  int     msgtype = mm->msgtype;
-  int     msgbits = mm->msgbits;
+  int     msg_type = mm->msg_type;
+  int     msg_bits = mm->msg_bits;
 
-  if (msgtype == 0 ||         /* Short air surveillance */
-      msgtype == 4 ||         /* Surveillance, altitude reply */
-      msgtype == 5 ||         /* Surveillance, identity reply */
-      msgtype == 16 ||        /* Long Air-Air survillance */
-      msgtype == 20 ||        /* Comm-A, altitude request */
-      msgtype == 21 ||        /* Comm-A, identity request */
-      msgtype == 24)          /* Comm-C ELM */
+  if (msg_type == 0 ||         /* Short air surveillance */
+      msg_type == 4 ||         /* Surveillance, altitude reply */
+      msg_type == 5 ||         /* Surveillance, identity reply */
+      msg_type == 16 ||        /* Long Air-Air survillance */
+      msg_type == 20 ||        /* Comm-A, altitude request */
+      msg_type == 21 ||        /* Comm-A, identity request */
+      msg_type == 24)          /* Comm-C ELM */
   {
     uint32_t addr;
     uint32_t crc;
-    int      lastbyte = (msgbits/8)-1;
+    int      last_byte = (msg_bits / 8) - 1;
 
     /* Work on a copy. */
-    memcpy (aux, msg, msgbits/8);
+    memcpy (aux, msg, msg_bits/8);
 
     /* Compute the CRC of the message and XOR it with the AP field
      * so that we recover the address, because:
      *
      * (ADDR xor CRC) xor CRC = ADDR.
      */
-    crc = modeS_checksum (aux, msgbits);
-    aux [lastbyte] ^= crc & 0xff;
-    aux [lastbyte-1] ^= (crc >> 8) & 0xff;
-    aux [lastbyte-2] ^= (crc >> 16) & 0xff;
+    crc = modeS_checksum (aux, msg_bits);
+    aux [last_byte] ^= crc & 0xFF;
+    aux [last_byte-1] ^= (crc >> 8) & 0xFF;
+    aux [last_byte-2] ^= (crc >> 16) & 0xFF;
 
     /* If the obtained address exists in our cache we consider
      * the message valid.
      */
-    addr = aux[lastbyte] |
-           (aux[lastbyte-1] << 8) |
-           (aux[lastbyte-2] << 16);
-    if (ICAOAddressWasRecentlySeen(addr))
+    addr = aux[last_byte] |
+           (aux[last_byte-1] << 8) |
+           (aux[last_byte-2] << 16);
+    if (ICAO_address_recently_seen(addr))
     {
-      mm->aa1 = aux [lastbyte-2];
-      mm->aa2 = aux [lastbyte-1];
-      mm->aa3 = aux [lastbyte];
+      mm->AA1 = aux [last_byte-2];
+      mm->AA2 = aux [last_byte-1];
+      mm->AA3 = aux [last_byte];
       return (1);
     }
   }
   return (0);
 }
 
-/*
+/**
  * Decode the 13 bit AC altitude field (in DF 20 and others).
- * Returns the altitude, and set 'unit' to either MODES_UNIT_METERS
- * or MDOES_UNIT_FEETS.
+ *
+ * \param in  msg   the raw message to work with.
+ * \param out unit  set to either `MODES_UNIT_METERS` or `MDOES_UNIT_FEETS`.
+ * \retval the altitude.
  */
-int decodeAC13Field (uint8_t *msg, int *unit)
+int decode_AC13_field (const uint8_t *msg, int *unit)
 {
-  int m_bit = msg[3] & (1<<6);
-  int q_bit = msg[3] & (1<<4);
+  int m_bit = msg[3] & (1 << 6);
+  int q_bit = msg[3] & (1 << 4);
 
   if (!m_bit)
   {
@@ -1261,15 +1301,15 @@ int decodeAC13Field (uint8_t *msg, int *unit)
     {
       /* N is the 11 bit integer resulting from the removal of bit Q and M
        */
-      int n = ((msg[2]&31)<<6) |
-              ((msg[3]&0x80)>>2) |
-              ((msg[3]&0x20)>>1) |
-               (msg[3]&15);
+      int n = ((msg[2] & 31) << 6)   |
+              ((msg[3] & 0x80) >> 2) |
+              ((msg[3] & 0x20) >> 1) |
+               (msg[3] & 15);
 
-      /* The final altitude is due to the resulting number multiplied
+      /** The final altitude is due to the resulting number multiplied
        * by 25, minus 1000.
        */
-      return n*25-1000;
+      return (25*n - 1000);
     }
     else
     {
@@ -1279,7 +1319,8 @@ int decodeAC13Field (uint8_t *msg, int *unit)
   else
   {
     *unit = MODES_UNIT_METERS;
-    /** \todo Implement altitude when meter unit is selected. */
+    /**\todo Implement altitude when meter unit is selected.
+     */
   }
   return (0);
 }
@@ -1288,7 +1329,7 @@ int decodeAC13Field (uint8_t *msg, int *unit)
  * Decode the 12 bit AC altitude field (in DF 17 and others).
  * Returns the altitude or 0 if it can't be decoded.
  */
-int decodeAC12Field (uint8_t *msg, int *unit)
+int decode_AC12_field (uint8_t *msg, int *unit)
 {
   int q_bit = msg[5] & 1;
 
@@ -1297,7 +1338,7 @@ int decodeAC12Field (uint8_t *msg, int *unit)
     /* N is the 11 bit integer resulting from the removal of bit Q
      */
     *unit = MODES_UNIT_FEET;
-    int n = ((msg[5]>>1)<<4) | ((msg[6]&0xF0) >> 4);
+    int n = ((msg[5] >> 1) << 4) | ((msg[6] & 0xF0) >> 4);
 
     /* The final altitude is due to the resulting number multiplied
      * by 25, minus 1000.
@@ -1307,10 +1348,10 @@ int decodeAC12Field (uint8_t *msg, int *unit)
   return (0);
 }
 
-/*
+/**
  * Capability table.
  */
-const char *ca_str[8] = {
+const char *capability_str[8] = {
     /* 0 */ "Level 1 (Survillance Only)",
     /* 1 */ "Level 2 (DF0,4,5,11)",
     /* 2 */ "Level 3 (DF0,4,5,11,20,21)",
@@ -1321,9 +1362,10 @@ const char *ca_str[8] = {
     /* 7 */ "Level 7 ???"
 };
 
-/* Flight status table.
+/**
+ * Flight status table.
  */
-const char *fs_str[8] = {
+const char *flight_status_str[8] = {
     /* 0 */ "Normal, Airborne",
     /* 1 */ "Normal, On the ground",
     /* 2 */ "ALERT,  Airborne",
@@ -1334,44 +1376,52 @@ const char *fs_str[8] = {
     /* 7 */ "Value 7 is not assigned"
 };
 
-const char *getMEDescription (int metype, int mesub)
+const char *get_ME_description (const struct modeS_message *mm)
 {
-  const char *mename = "Unknown";
+  if (mm->ME_type >= 1 && mm->ME_type <= 4)
+     return ("Aircraft Identification and Category");
 
-  if (metype >= 1 && metype <= 4)
-     mename = "Aircraft Identification and Category";
-  else if (metype >= 5 && metype <= 8)
-     mename = "Surface Position";
-  else if (metype >= 9 && metype <= 18)
-     mename = "Airborne Position (Baro Altitude)";
-  else if (metype == 19 && mesub >=1 && mesub <= 4)
-     mename = "Airborne Velocity";
-  else if (metype >= 20 && metype <= 22)
-     mename = "Airborne Position (GNSS Height)";
-  else if (metype == 23 && mesub == 0)
-     mename = "Test Message";
-  else if (metype == 24 && mesub == 1)
-     mename = "Surface System Status";
-  else if (metype == 28 && mesub == 1)
-     mename = "Extended Squitter Aircraft Status (Emergency)";
-  else if (metype == 28 && mesub == 2)
-     mename = "Extended Squitter Aircraft Status (1090ES TCAS RA)";
-  else if (metype == 29 && (mesub == 0 || mesub == 1))
-     mename = "Target State and Status Message";
-  else if (metype == 31 && (mesub == 0 || mesub == 1))
-     mename = "Aircraft Operational Status Message";
-  return (mename);
+  if (mm->ME_type >= 5 && mm->ME_type <= 8)
+     return ("Surface Position");
+
+  if (mm->ME_type >= 9 && mm->ME_type <= 18)
+     return ("Airborne Position (Baro Altitude)");
+
+  if (mm->ME_type == 19 && mm->ME_subtype >=1 && mm->ME_subtype <= 4)
+     return ("Airborne Velocity");
+
+  if (mm->ME_type >= 20 && mm->ME_type <= 22)
+     return ("Airborne Position (GNSS Height)");
+
+  if (mm->ME_type == 23 && mm->ME_subtype == 0)
+     return ("Test Message");
+
+  if (mm->ME_type == 24 && mm->ME_subtype == 1)
+     return ("Surface System Status");
+
+  if (mm->ME_type == 28 && mm->ME_subtype == 1)
+     return ("Extended Squitter Aircraft Status (Emergency)");
+
+  if (mm->ME_type == 28 && mm->ME_subtype == 2)
+     return ("Extended Squitter Aircraft Status (1090ES TCAS RA)");
+
+  if (mm->ME_type == 29 && (mm->ME_subtype == 0 || mm->ME_subtype == 1))
+     return ("Target State and Status Message");
+
+  if (mm->ME_type == 31 && (mm->ME_subtype == 0 || mm->ME_subtype == 1))
+     return ("Aircraft Operational Status Message");
+
+  return ("Unknown");
 }
 
 /**
- * Decode a raw Mode S message demodulated as a stream of bytes by
- * `detect_modeS()`, and split it into fields populating a `modeS_message`
- * structure.
+ * Decode a raw Mode S message demodulated as a stream of bytes by `detect_modeS()`. <br>
+ * And split it into fields populating a `modeS_message` structure.
  */
 void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
 {
   uint32_t crc2;   /* Computed CRC, used to verify the message CRC. */
-  char    *ais_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
+  char    *AIS_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
 
   /* Work on our local copy
    */
@@ -1380,62 +1430,62 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
 
   /* Get the message type ASAP as other operations depend on this
    */
-  mm->msgtype = msg[0] >> 3;    /* Downlink Format */
-  mm->msgbits = modeS_message_len_by_type (mm->msgtype);
+  mm->msg_type = msg[0] >> 3;    /* Downlink Format */
+  mm->msg_bits = modeS_message_len_by_type (mm->msg_type);
 
   /* CRC is always the last three bytes.
    */
-  mm->crc = ((uint32_t)msg[(mm->msgbits/8)-3] << 16) |
-            ((uint32_t)msg[(mm->msgbits/8)-2] << 8) |
-             (uint32_t)msg[(mm->msgbits/8)-1];
-  crc2 = modeS_checksum (msg, mm->msgbits);
+  mm->CRC = ((uint32_t)msg[(mm->msg_bits/8)-3] << 16) |
+            ((uint32_t)msg[(mm->msg_bits/8)-2] << 8) |
+             (uint32_t)msg[(mm->msg_bits/8)-1];
+  crc2 = modeS_checksum (msg, mm->msg_bits);
 
   /* Check CRC and fix single bit errors using the CRC when
    * possible (DF 11 and 17).
    */
-  mm->errorbit = -1;  /* No error */
-  mm->crcok = (mm->crc == crc2);
+  mm->error_bit = -1;    /* No error */
+  mm->CRC_ok = (mm->CRC == crc2);
 
-  if (!mm->crcok && Modes.fix_errors && (mm->msgtype == 11 || mm->msgtype == 17))
+  if (!mm->CRC_ok && Modes.fix_errors && (mm->msg_type == 11 || mm->msg_type == 17))
   {
-    mm->errorbit = fix_single_bit_errors (msg, mm->msgbits);
-    if (mm->errorbit != -1)
+    mm->error_bit = fix_single_bit_errors (msg, mm->msg_bits);
+    if (mm->error_bit != -1)
     {
-      mm->crc = modeS_checksum (msg, mm->msgbits);
-      mm->crcok = 1;
+      mm->CRC = modeS_checksum (msg, mm->msg_bits);
+      mm->CRC_ok = 1;
     }
-    else if (Modes.aggressive && mm->msgtype == 17 && (mm->errorbit = fix_two_bits_errors(msg, mm->msgbits)) != -1)
+    else if (Modes.aggressive && mm->msg_type == 17 && (mm->error_bit = fix_two_bits_errors(msg, mm->msg_bits)) != -1)
     {
-      mm->crc = modeS_checksum (msg, mm->msgbits);
-      mm->crcok = 1;
+      mm->CRC = modeS_checksum (msg, mm->msg_bits);
+      mm->CRC_ok = 1;
     }
   }
 
-  /* Note that most of the other computation happens *after* we fix
-   * the single bit errors, otherwise we would need to recompute the
-   * fields again.
+  /* Note: most of the other computation happens **after** we fix the single bit errors.
+   * Otherwise we would need to recompute the fields again.
    */
   mm->ca = msg[0] & 7;        /* Responder capabilities. */
 
   /* ICAO address
    */
-  mm->aa1 = msg[1];
-  mm->aa2 = msg[2];
-  mm->aa3 = msg[3];
+  mm->AA1 = msg[1];
+  mm->AA2 = msg[2];
+  mm->AA3 = msg[3];
 
   /* DF17 type (assuming this is a DF17, otherwise not used)
    */
-  mm->metype = msg[4] >> 3;   /* Extended squitter message type. */
-  mm->mesub = msg[4] & 7;     /* Extended squitter message subtype. */
+  mm->ME_type = msg[4] >> 3;     /* Extended squitter message type. */
+  mm->ME_subtype = msg[4] & 7;       /* Extended squitter message subtype. */
 
   /* Fields for DF4,5,20,21
    */
-  mm->fs = msg[0] & 7;           /* Flight status for DF4,5,20,21 */
-  mm->dr = msg[1] >> 3 & 31;     /* Request extraction of downlink request. */
-  mm->um = ((msg[1] & 7) << 3) | /* Request extraction of downlink request. */
-            msg[2] >> 5;
+  mm->flight_status = msg[0] & 7;         /* Flight status for DF4,5,20,21 */
+  mm->DR_status = msg[1] >> 3 & 31;       /* Request extraction of downlink request. */
+  mm->UM_status = ((msg[1] & 7) << 3) |   /* Request extraction of downlink request. */
+                  (msg[2] >> 5);
 
-  /* In the squawk (identity) field bits are interleaved like that
+  /*
+   * In the squawk (identity) field bits are interleaved like this:
    * (message bit 20 to bit 32):
    *
    * C1-A1-C2-A2-C4-A4-ZERO-B1-D1-B2-D2-B4-D4
@@ -1444,10 +1494,10 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
    * from 0 to 7.
    *
    * The actual meaning is just 4 octal numbers, but we convert it
-   * into a base ten number tha happens to represent the four
-   * octal numbers.
+   * into a base ten number that happens to represent the four octal numbers.
    *
-   * For more info: http://en.wikipedia.org/wiki/Gillham_code */
+   * For more info: http://en.wikipedia.org/wiki/Gillham_code
+   */
   {
     int a, b, c, d;
 
@@ -1467,101 +1517,98 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
   }
 
   /* DF 11 & 17: try to populate our ICAO addresses whitelist.
-   * DFs with an AP field (xored addr and crc), try to decode it.
+   * DFs with an AP field (XORed addr and CRC), try to decode it.
    */
-  if (mm->msgtype != 11 && mm->msgtype != 17)
+  if (mm->msg_type != 11 && mm->msg_type != 17)
   {
     /* Check if we can check the checksum for the Downlink Formats where
-     * the checksum is xored with the aircraft ICAO address. We try to
+     * the checksum is XORed with the aircraft ICAO address. We try to
      * brute force it using a list of recently seen aircraft addresses.
      */
-    if (bruteForceAP(msg, mm))
+    if (brute_force_AP(msg, mm))
     {
-      /* We recovered the message, mark the checksum as valid. */
-      mm->crcok = 1;
+      /* We recovered the message, mark the checksum as valid.
+       */
+      mm->CRC_ok = 1;
     }
     else
-        mm->crcok = 0;
+      mm->CRC_ok = 0;
   }
   else
   {
-    /* If this is DF 11 or DF 17 and the checksum was ok,
-     * we can add this address to the list of recently seen
-     * addresses.
+    /* If this is DF 11 or DF 17 and the checksum was ok, we can add this address to the list
+     * of recently seen addresses.
      */
-    if (mm->crcok && mm->errorbit == -1)
+    if (mm->CRC_ok && mm->error_bit == -1)
     {
-      uint32_t addr = (mm->aa1 << 16) | (mm->aa2 << 8) | mm->aa3;
-      addRecentlySeenICAOAddr (addr);
+      uint32_t addr = (mm->AA1 << 16) | (mm->AA2 << 8) | mm->AA3;
+      ICAO_cache_add_address (addr);
     }
   }
 
   /* Decode 13 bit altitude for DF0, DF4, DF16, DF20
    */
-  if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 16 || mm->msgtype == 20)
-     mm->altitude = decodeAC13Field (msg, &mm->unit);
+  if (mm->msg_type == 0 || mm->msg_type == 4 || mm->msg_type == 16 || mm->msg_type == 20)
+     mm->altitude = decode_AC13_field (msg, &mm->unit);
 
-  /* Decode extended squitter specific stuff.
+  /** Decode extended squitter specific stuff.
    */
-  if (mm->msgtype == 17)
+  if (mm->msg_type == 17)
   {
     /* Decode the extended squitter message.
      */
-    if (mm->metype >= 1 && mm->metype <= 4)
+    if (mm->ME_type >= 1 && mm->ME_type <= 4)
     {
       /* Aircraft Identification and Category
        */
-      mm->aircraft_type = mm->metype-1;
-      mm->flight[0] = ais_charset[msg[5]>>2];
-      mm->flight[1] = ais_charset[((msg[5]&3)<<4)|(msg[6]>>4)];
-      mm->flight[2] = ais_charset[((msg[6]&15)<<2)|(msg[7]>>6)];
-      mm->flight[3] = ais_charset[msg[7]&63];
-      mm->flight[4] = ais_charset[msg[8]>>2];
-      mm->flight[5] = ais_charset[((msg[8]&3)<<4)|(msg[9]>>4)];
-      mm->flight[6] = ais_charset[((msg[9]&15)<<2)|(msg[10]>>6)];
-      mm->flight[7] = ais_charset[msg[10]&63];
+      mm->aircraft_type = mm->ME_type - 1;
+      mm->flight[0] = AIS_charset [msg[5] >> 2];
+      mm->flight[1] = AIS_charset [((msg[5] & 3) << 4) | (msg[6] >> 4)];
+      mm->flight[2] = AIS_charset [((msg[6] & 15) <<2 ) | (msg[7] >> 6)];
+      mm->flight[3] = AIS_charset [msg[7] & 63];
+      mm->flight[4] = AIS_charset [msg[8] >> 2];
+      mm->flight[5] = AIS_charset [((msg[8] & 3) << 4) | (msg[9] >> 4)];
+      mm->flight[6] = AIS_charset [((msg[9] & 15) << 2) | (msg[10] >> 6)];
+      mm->flight[7] = AIS_charset [msg[10] & 63];
       mm->flight[8] = '\0';
     }
-    else if (mm->metype >= 9 && mm->metype <= 18)
+    else if (mm->ME_type >= 9 && mm->ME_type <= 18)
     {
-      /* Airborne position Message */
-      mm->fflag = msg[6] & (1<<2);
-      mm->tflag = msg[6] & (1<<3);
-      mm->altitude = decodeAC12Field (msg, &mm->unit);
-      mm->raw_latitude = ((msg[6] & 3) << 15) |
-                          (msg[7] << 7) |
-                          (msg[8] >> 1);
-      mm->raw_longitude = ((msg[8]&1) << 16) |
-                           (msg[9] << 8) |
-                           msg[10];
+      /* Airborne position Message
+       */
+      mm->odd_flag = msg[6] & (1 << 2);
+      mm->UTC_flag = msg[6] & (1 << 3);
+      mm->altitude = decode_AC12_field (msg, &mm->unit);
+      mm->raw_latitude = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
+      mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | msg[10];
     }
-    else if (mm->metype == 19 && mm->mesub >= 1 && mm->mesub <= 4)
+    else if (mm->ME_type == 19 && mm->ME_subtype >= 1 && mm->ME_subtype <= 4)
     {
       /* Airborne Velocity Message
        */
-      if (mm->mesub == 1 || mm->mesub == 2)
+      if (mm->ME_subtype == 1 || mm->ME_subtype == 2)
       {
-        mm->ew_dir           = (msg[5] & 4) >> 2;
-        mm->ew_velocity      = ((msg[5] & 3) << 8) | msg[6];
-        mm->ns_dir           = (msg[7] & 0x80) >> 7;
-        mm->ns_velocity      = ((msg[7] & 0x7F) << 3) | ((msg[8] & 0xE0) >> 5);
+        mm->EW_dir           = (msg[5] & 4) >> 2;
+        mm->EW_velocity      = ((msg[5] & 3) << 8) | msg[6];
+        mm->NS_dir           = (msg[7] & 0x80) >> 7;
+        mm->NS_velocity      = ((msg[7] & 0x7F) << 3) | ((msg[8] & 0xE0) >> 5);
         mm->vert_rate_source = (msg[8] & 0x10) >> 4;
         mm->vert_rate_sign   = (msg[8] & 0x08) >> 3;
         mm->vert_rate        = ((msg[8] & 7) << 6) | ((msg[9] & 0xFC) >> 2);
 
         /* Compute velocity and angle from the two speed components.
          */
-        mm->velocity = (int) hypot (mm->ns_velocity, mm->ew_velocity);
+        mm->velocity = (int) hypot (mm->NS_velocity, mm->EW_velocity);   /* hypot(x,y) == sqrt(x*x+y*y) */
 
         if (mm->velocity)
         {
-          int ewv = mm->ew_velocity;
-          int nsv = mm->ns_velocity;
+          int ewv = mm->EW_velocity;
+          int nsv = mm->NS_velocity;
           double heading;
 
-          if (mm->ew_dir)
+          if (mm->EW_dir)
              ewv *= -1;
-          if (mm->ns_dir)
+          if (mm->NS_dir)
              nsv *= -1;
           heading = atan2 (ewv, nsv);
 
@@ -1569,7 +1616,7 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
            */
           mm->heading = (int) (heading * 360 / TWO_PI);
 
-          /* We don't want negative values but a 0-360 scale.
+          /* We don't want negative values but a [0 .. 360> scale.
            */
           if (mm->heading < 0)
              mm->heading += 360;
@@ -1577,7 +1624,7 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
         else
           mm->heading = 0;
       }
-      else if (mm->mesub == 3 || mm->mesub == 4)
+      else if (mm->ME_subtype == 3 || mm->ME_subtype == 4)
       {
         mm->heading_is_valid = msg[5] & (1 << 2);
         mm->heading = (int) (360.0/128) * (((msg[5] & 3) << 5) | (msg[6] >> 3));
@@ -1591,22 +1638,22 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
  * This function gets a decoded Mode S Message and prints it on the screen
  * in a human readable format.
  */
-void display_modeS_message (struct modeS_message *mm)
+void display_modeS_message (const struct modeS_message *mm)
 {
   int j;
 
   /* Handle only addresses mode first.
    */
-  if (Modes.onlyaddr)
+  if (Modes.only_addr)
   {
-    printf ("%02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+    printf ("%02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
     return;
   }
 
   /* Show the raw message.
    */
   printf ("*");
-  for (j = 0; j < mm->msgbits/8; j++)
+  for (j = 0; j < mm->msg_bits/8; j++)
       printf ("%02x", mm->msg[j]);
   printf (";\n");
 
@@ -1616,64 +1663,64 @@ void display_modeS_message (struct modeS_message *mm)
     return;           /* Enough for --raw mode */
   }
 
-  printf ("CRC: %06x (%s)\n", (int)mm->crc, mm->crcok ? "ok" : "wrong");
-  if (mm->errorbit != -1)
-     printf ("Single bit error fixed, bit %d\n", mm->errorbit);
+  printf ("CRC: %06x (%s)\n", (int)mm->CRC, mm->CRC_ok ? "ok" : "wrong");
+  if (mm->error_bit != -1)
+     printf ("Single bit error fixed, bit %d\n", mm->error_bit);
 
-  if (mm->msgtype == 0)
+  if (mm->msg_type == 0)
   {
     /* DF 0 */
     printf ("DF 0: Short Air-Air Surveillance.\n");
     printf ("  Altitude       : %d %s\n", mm->altitude, mm->unit == MODES_UNIT_METERS ? "meters" : "feet");
-    printf ("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+    printf ("  ICAO Address   : %02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
   }
-  else if (mm->msgtype == 4 || mm->msgtype == 20)
+  else if (mm->msg_type == 4 || mm->msg_type == 20)
   {
-    printf ("DF %d: %s, Altitude Reply.\n", mm->msgtype, mm->msgtype == 4 ? "Surveillance" : "Comm-B");
-    printf ("  Flight Status  : %s\n", fs_str[mm->fs]);
-    printf ("  DR             : %d\n", mm->dr);
-    printf ("  UM             : %d\n", mm->um);
+    printf ("DF %d: %s, Altitude Reply.\n", mm->msg_type, mm->msg_type == 4 ? "Surveillance" : "Comm-B");
+    printf ("  Flight Status  : %s\n", flight_status_str [mm->flight_status]);
+    printf ("  DR             : %d\n", mm->DR_status);
+    printf ("  UM             : %d\n", mm->UM_status);
     printf ("  Altitude       : %d %s\n", mm->altitude, mm->unit == MODES_UNIT_METERS ? "meters" : "feet");
-    printf ("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+    printf ("  ICAO Address   : %02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
 
-    if (mm->msgtype == 20)
+    if (mm->msg_type == 20)
     {
       /** \todo 56 bits DF20 MB additional field. */
     }
   }
-  else if (mm->msgtype == 5 || mm->msgtype == 21)
+  else if (mm->msg_type == 5 || mm->msg_type == 21)
   {
-    printf ("DF %d: %s, Identity Reply.\n", mm->msgtype, mm->msgtype == 5 ? "Surveillance" : "Comm-B");
-    printf ("  Flight Status  : %s\n", fs_str[mm->fs]);
-    printf ("  DR             : %d\n", mm->dr);
-    printf ("  UM             : %d\n", mm->um);
+    printf ("DF %d: %s, Identity Reply.\n", mm->msg_type, mm->msg_type == 5 ? "Surveillance" : "Comm-B");
+    printf ("  Flight Status  : %s\n", flight_status_str [mm->flight_status]);
+    printf ("  DR             : %d\n", mm->DR_status);
+    printf ("  UM             : %d\n", mm->UM_status);
     printf ("  Squawk         : %d\n", mm->identity);
-    printf ("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+    printf ("  ICAO Address   : %02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
 
-    if (mm->msgtype == 21)
+    if (mm->msg_type == 21)
     {
       /** \todo 56 bits DF21 MB additional field. */
     }
   }
-  else if (mm->msgtype == 11)
+  else if (mm->msg_type == 11)
   {
     /* DF 11 */
     printf ("DF 11: All Call Reply.\n");
-    printf ("  Capability  : %s\n", ca_str[mm->ca]);
-    printf ("  ICAO Address: %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+    printf ("  Capability  : %s\n", capability_str[mm->ca]);
+    printf ("  ICAO Address: %02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
   }
-  else if (mm->msgtype == 17)
+  else if (mm->msg_type == 17)
   {
     /* DF 17 */
     printf ("DF 17: ADS-B message.\n");
-    printf ("  Capability     : %d (%s)\n", mm->ca, ca_str[mm->ca]);
-    printf ("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
-    printf ("  Extended Squitter  Type: %d\n", mm->metype);
-    printf ("  Extended Squitter  Sub : %d\n", mm->mesub);
-    printf ("  Extended Squitter  Name: %s\n", getMEDescription(mm->metype,mm->mesub));
+    printf ("  Capability     : %d (%s)\n", mm->ca, capability_str[mm->ca]);
+    printf ("  ICAO Address   : %02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
+    printf ("  Extended Squitter  Type: %d\n", mm->ME_type);
+    printf ("  Extended Squitter  Sub : %d\n", mm->ME_subtype);
+    printf ("  Extended Squitter  Name: %s\n", get_ME_description(mm));
 
     /* Decode the extended squitter message. */
-    if (mm->metype >= 1 && mm->metype <= 4)
+    if (mm->ME_type >= 1 && mm->ME_type <= 4)
     {
       /* Aircraft identification. */
       const char *ac_type_str[4] = {
@@ -1685,28 +1732,28 @@ void display_modeS_message (struct modeS_message *mm)
       printf ("    Aircraft Type  : %s\n", ac_type_str[mm->aircraft_type]);
       printf ("    Identification : %s\n", mm->flight);
     }
-    else if (mm->metype >= 9 && mm->metype <= 18)
+    else if (mm->ME_type >= 9 && mm->ME_type <= 18)
     {
-      printf ("    F flag   : %s\n", mm->fflag ? "odd" : "even");
-      printf ("    T flag   : %s\n", mm->tflag ? "UTC" : "non-UTC");
+      printf ("    F flag   : %s\n", mm->odd_flag ? "odd" : "even");
+      printf ("    T flag   : %s\n", mm->UTC_flag ? "UTC" : "non-UTC");
       printf ("    Altitude : %d feet\n", mm->altitude);
       printf ("    Latitude : %d (not decoded)\n", mm->raw_latitude);
       printf ("    Longitude: %d (not decoded)\n", mm->raw_longitude);
     }
-    else if (mm->metype == 19 && mm->mesub >= 1 && mm->mesub <= 4)
+    else if (mm->ME_type == 19 && mm->ME_subtype >= 1 && mm->ME_subtype <= 4)
     {
-      if (mm->mesub == 1 || mm->mesub == 2)
+      if (mm->ME_subtype == 1 || mm->ME_subtype == 2)
       {
         /* Velocity */
-        printf ("    EW direction      : %d\n", mm->ew_dir);
-        printf ("    EW velocity       : %d\n", mm->ew_velocity);
-        printf ("    NS direction      : %d\n", mm->ns_dir);
-        printf ("    NS velocity       : %d\n", mm->ns_velocity);
+        printf ("    EW direction      : %d\n", mm->EW_dir);
+        printf ("    EW velocity       : %d\n", mm->EW_velocity);
+        printf ("    NS direction      : %d\n", mm->NS_dir);
+        printf ("    NS velocity       : %d\n", mm->NS_velocity);
         printf ("    Vertical rate src : %d\n", mm->vert_rate_source);
         printf ("    Vertical rate sign: %d\n", mm->vert_rate_sign);
         printf ("    Vertical rate     : %d\n", mm->vert_rate);
       }
-      else if (mm->mesub == 3 || mm->mesub == 4)
+      else if (mm->ME_subtype == 3 || mm->ME_subtype == 4)
       {
         printf ("    Heading status: %d", mm->heading_is_valid);
         printf ("    Heading: %d", mm->heading);
@@ -1714,14 +1761,14 @@ void display_modeS_message (struct modeS_message *mm)
     }
     else
     {
-      printf ("    Unrecognized ME type: %d subtype: %d\n", mm->metype, mm->mesub);
+      printf ("    Unrecognized ME type: %d subtype: %d\n", mm->ME_type, mm->ME_subtype);
       Modes.stat.unrecognized_ME++;
     }
   }
   else
   {
     if (Modes.check_crc)
-       printf ("DF %d with good CRC received (decoding still not implemented).\n", mm->msgtype);
+       printf ("DF %d with good CRC received (decoding still not implemented).\n", mm->msg_type);
   }
 }
 
@@ -1735,7 +1782,7 @@ void compute_magnitude_vector (void)
   uint32_t  j;
   const uint8_t *p = Modes.data;
 
-  /* Compute the magnitudo vector. It's just SQRT(I^2 + Q^2), but
+  /* Compute the magnitudo vector. It's just `sqrt(I^2 + Q^2)`, but
    * we rescale to the 0-255 range to exploit the full resolution.
    */
   for (j = 0; j < Modes.data_len; j += 2)
@@ -1747,7 +1794,7 @@ void compute_magnitude_vector (void)
        i = -i;
     if (q < 0)
        q = -q;
-    m [j / 2] = Modes.maglut [129*i + q];
+    m [j / 2] = Modes.magnitude_lut [129*i + q];
   }
 }
 
@@ -1783,15 +1830,15 @@ int detect_out_of_phase (const uint16_t *m)
  * correctly decoded for out of phase messages:
  *
  * When messages are out of phase there is more uncertainty in
- * sequences of the same bit multiple times, since 11111 will be
+ * sequences of the same bit multiple times, since `11111` will be
  * transmitted as continuously altering magnitude (high, low, high, low...)
  *
  * However because the message is out of phase some part of the high
  * is mixed in the low part, so that it is hard to distinguish if it is
  * a zero or a one.
  *
- * However when the message is out of phase passing from 0 to 1 or from
- * 1 to 0 happens in a very recognizable way, for instance in the 0 -> 1
+ * However when the message is out of phase passing from `0` to `1` or from
+ * `1` to `0` happens in a very recognizable way, for instance in the `0 -> 1`
  * transition, magnitude goes low, high, high, low, and one of of the
  * two middle samples the high will be *very* high as part of the previous
  * or next high signal will be mixed there.
@@ -1807,7 +1854,7 @@ void apply_phase_correction (uint16_t *m)
   int j;
 
   m += 16; /* Skip preamble. */
-  for (j = 0; j < (MODES_LONG_MSG_BITS-1)*2; j += 2)
+  for (j = 0; j < 2*(MODES_LONG_MSG_BITS-1); j += 2)
   {
     if (m[j] > m[j+1])
     {
@@ -1829,9 +1876,9 @@ void apply_phase_correction (uint16_t *m)
  */
 void detect_modeS (uint16_t *m, uint32_t mlen)
 {
-  uint8_t  bits[MODES_LONG_MSG_BITS];
-  uint8_t  msg[MODES_LONG_MSG_BITS/2];
-  uint16_t aux[MODES_LONG_MSG_BITS*2];
+  uint8_t  bits [MODES_LONG_MSG_BITS];
+  uint8_t  msg [MODES_LONG_MSG_BITS/2];
+  uint16_t aux [MODES_LONG_MSG_BITS*2];
   uint32_t j;
   int      use_correction = 0;
 
@@ -1843,8 +1890,8 @@ void detect_modeS (uint16_t *m, uint32_t mlen)
    * 3.5 - 4   usec: third impulse.
    * 4.5 - 5   usec: last impulse.
    *
-   * Since we are sampling at 2 Mhz every sample in our magnitude vector
-   * is 0.5 usec, so the preamble will look like this, assuming there is
+   * If we are sampling at 2 MHz, every sample in our magnitude vector
+   * is 0.5 usec. So the preamble will look like this, assuming there is
    * an impulse at offset 0 in the array:
    *
    * 0   -----------------
@@ -1858,7 +1905,7 @@ void detect_modeS (uint16_t *m, uint32_t mlen)
    * 8   --
    * 9   -------------------
    */
-  for (j = 0; j < mlen - MODES_FULL_LEN*2; j++)
+  for (j = 0; j < mlen - 2*MODES_FULL_LEN; j++)
   {
     int low, high, delta, i, errors;
     int good_message = 0;
@@ -1934,24 +1981,25 @@ good_preamble:
      * size. We'll check the actual message type later.
      */
     errors = 0;
-    for (i = 0; i < MODES_LONG_MSG_BITS*2; i += 2)
+    for (i = 0; i < 2*MODES_LONG_MSG_BITS; i += 2)
     {
-      low = m[j+i+MODES_PREAMBLE_US*2];
-      high = m[j+i+MODES_PREAMBLE_US*2+1];
-      delta = low-high;
-      if (delta < 0) delta = -delta;
+      low   = m [j + i + 2*MODES_PREAMBLE_US];
+      high  = m [j + i + 2*MODES_PREAMBLE_US + 1];
+      delta = low - high;
+      if (delta < 0)
+         delta = -delta;
 
       if (i > 0 && delta < 256)
          bits[i/2] = bits[i/2-1];
 
       else if (low == high)
       {
-        /* Checking if two adiacent samples have the same magnitude
+        /* Checking if two adjacent samples have the same magnitude
          * is an effective way to detect if it's just random noise
          * that was detected as a valid preamble.
          */
-        bits[i/2] = 2; /* error */
-        if (i < MODES_SHORT_MSG_BITS*2)
+        bits[i/2] = 2;    /* error */
+        if (i < 2*MODES_SHORT_MSG_BITS)
            errors++;
       }
       else if (low > high)
@@ -1985,18 +2033,18 @@ good_preamble:
                   bits[i+7];
     }
 
-    int msgtype = msg[0] >> 3;
-    int msglen = modeS_message_len_by_type (msgtype) / 8;
+    int msg_type = msg[0] >> 3;
+    int msg_len = modeS_message_len_by_type (msg_type) / 8;
 
     /* Last check, high and low bits are different enough in magnitude
      * to mark this as real message and not just noise? */
     delta = 0;
-    for (i = 0; i < msglen*8*2; i += 2)
+    for (i = 0; i < 8 * 2 * msg_len; i += 2)
     {
-      delta += abs (m[j+i+MODES_PREAMBLE_US*2] -
-                    m[j+i+MODES_PREAMBLE_US*2+1]);
+      delta += abs (m[j + i + 2*MODES_PREAMBLE_US] -
+                    m[j + i + 2*MODES_PREAMBLE_US + 1]);
     }
-    delta /= msglen*4;
+    delta /= 4 * msg_len;
 
     /* Filter for an average delta of three is small enough to let almost
      * every kind of message to pass, but high enough to filter some
@@ -2021,21 +2069,21 @@ good_preamble:
       decode_modeS_message (&mm, msg);
 
       /* Update statistics. */
-      if (mm.crcok || use_correction)
+      if (mm.CRC_ok || use_correction)
       {
         if (errors == 0)
            Modes.stat.demodulated++;
-        if (mm.errorbit == -1)
+        if (mm.error_bit == -1)
         {
-          if (mm.crcok)
-               Modes.stat.goodcrc++;
-          else Modes.stat.badcrc++;
+          if (mm.CRC_ok)
+               Modes.stat.good_CRC++;
+          else Modes.stat.bad_CRC++;
         }
         else
         {
-          Modes.stat.badcrc++;
+          Modes.stat.bad_CRC++;
           Modes.stat.fixed++;
-          if (mm.errorbit < MODES_LONG_MSG_BITS)
+          if (mm.error_bit < MODES_LONG_MSG_BITS)
                Modes.stat.single_bit_fix++;
           else Modes.stat.two_bits_fix++;
         }
@@ -2047,17 +2095,19 @@ good_preamble:
       {
         if (Modes.debug & DEBUG_DEMOD)
            dump_raw_message ("Demodulated with 0 errors", msg, m, j);
-        else if (Modes.debug & DEBUG_BADCRC && mm.msgtype == 17 && (!mm.crcok || mm.errorbit != -1))
+
+        else if (Modes.debug & DEBUG_BADCRC && mm.msg_type == 17 && (!mm.CRC_ok || mm.error_bit != -1))
            dump_raw_message ("Decoded with bad CRC", msg, m, j);
-        else if (Modes.debug & DEBUG_GOODCRC && mm.crcok && mm.errorbit == -1)
+
+        else if (Modes.debug & DEBUG_GOODCRC && mm.CRC_ok && mm.error_bit == -1)
            dump_raw_message ("Decoded with good CRC", msg, m, j);
       }
 
       /* Skip this message if we are sure it's fine.
        */
-      if (mm.crcok)
+      if (mm.CRC_ok)
       {
-        j += (MODES_PREAMBLE_US+(msglen*8))*2;
+        j += 2 * (MODES_PREAMBLE_US + (8 * msg_len));
         good_message = 1;
         if (use_correction)
            mm.phase_corrected = 1;
@@ -2099,17 +2149,17 @@ good_preamble:
  * Basically this function passes a raw message to the upper layers for
  * further processing and visualization.
  */
-void mode_user_message (struct modeS_message *mm)
+void mode_user_message (const struct modeS_message *mm)
 {
-  if (Modes.check_crc == 0 || mm->crcok)
+  if (Modes.check_crc == 0 || mm->CRC_ok)
   {
     /* Track aircrafts in interactive mode or if we have some HTTP clients.
      */
-    if (Modes.interactive || Modes.stat.http_requests > 0 || Modes.stat.sbs_connections > 0)
+    if (Modes.interactive || Modes.stat.http_requests > 0 || Modes.stat.SBS_connections > 0)
     {
       struct aircraft *a = interactive_receive_data (mm);
 
-      if (a && Modes.stat.sbs_connections > 0)
+      if (a && Modes.stat.SBS_connections > 0)
          mode_send_SBS_output (mm, a);     /* Feed SBS output clients. */
     }
 
@@ -2118,7 +2168,7 @@ void mode_user_message (struct modeS_message *mm)
     if (!Modes.interactive)
     {
       display_modeS_message (mm);
-      if (!Modes.raw && !Modes.onlyaddr)
+      if (!Modes.raw && !Modes.only_addr)
          printf ("\n");
     }
 
@@ -2129,22 +2179,23 @@ void mode_user_message (struct modeS_message *mm)
   }
 }
 
-/* ========================= Interactive mode =============================== */
-
 /**
  * Create a new dynamic aircraft structure.<br>
  * Store the printable hex-address as 6 digits since an ICAO address should never
  * contain more than 24 bits.
  *
- * \param addr  the specific ICAO address.
+ * \param in addr  the specific ICAO address.
  */
 struct aircraft *create_aircraft (uint32_t addr)
 {
   struct aircraft *a = calloc (sizeof(*a), 1);
 
-  a->addr = addr;
-  snprintf (a->hexaddr, sizeof(a->hexaddr), "%06X", (int)addr);
-  a->seen = MSEC_TIME() / 1000;
+  if (a)
+  {
+    a->addr = addr;
+    snprintf (a->hexaddr, sizeof(a->hexaddr), "%06X", (int)addr);
+    a->seen = MSEC_TIME() / 1000;
+  }
   return (a);
 }
 
@@ -2152,7 +2203,7 @@ struct aircraft *create_aircraft (uint32_t addr)
  * Return the aircraft with the specified ICAO address, or NULL if no aircraft
  * exists with this ICAO address.
  *
- * \param addr  the specific ICAO address.
+ * \param in addr  the specific ICAO address.
  */
 struct aircraft *find_aircraft (uint32_t addr)
 {
@@ -2283,10 +2334,10 @@ void decode_CPR (struct aircraft *a)
 {
   const double AirDlat0 = 360.0 / 60;
   const double AirDlat1 = 360.0 / 59;
-  double lat0 = a->even_cprlat;
-  double lat1 = a->odd_cprlat;
-  double lon0 = a->even_cprlon;
-  double lon1 = a->odd_cprlon;
+  double lat0 = a->even_CPR_lat;
+  double lat1 = a->odd_CPR_lat;
+  double lon0 = a->even_CPR_lon;
+  double lon1 = a->odd_CPR_lon;
 
   /* Compute the Latitude Index "j"
    */
@@ -2306,7 +2357,7 @@ void decode_CPR (struct aircraft *a)
 
   /* Compute ni and the longitude index m
    */
-  if (a->even_cprtime > a->odd_cprtime)
+  if (a->even_CPR_time > a->odd_CPR_time)
   {
     /* Use even packet */
     int ni = CPR_N_func (rlat0, 0);
@@ -2331,15 +2382,15 @@ void decode_CPR (struct aircraft *a)
 /**
  * Receive new messages and populate the interactive mode with more info.
  */
-struct aircraft *interactive_receive_data (struct modeS_message *mm)
+struct aircraft *interactive_receive_data (const struct modeS_message *mm)
 {
   struct aircraft *a, *aux;
   uint32_t addr;
 
-  if (Modes.check_crc && mm->crcok == 0)
+  if (Modes.check_crc && mm->CRC_ok == 0)
      return (NULL);
 
-  addr = (mm->aa1 << 16) | (mm->aa2 << 8) | mm->aa3;
+  addr = (mm->AA1 << 16) | (mm->AA2 << 8) | mm->AA3;
 
   /* Loookup our aircraft or create a new one.
    */
@@ -2347,6 +2398,8 @@ struct aircraft *interactive_receive_data (struct modeS_message *mm)
   if (!a)
   {
     a = create_aircraft (addr);
+    if (!a)
+       return (NULL);  /* Not fatal; there could be available memory later */
     a->next = Modes.aircrafts;
     Modes.aircrafts = a;
 
@@ -2383,55 +2436,62 @@ struct aircraft *interactive_receive_data (struct modeS_message *mm)
   a->seen = MSEC_TIME() / 1000;
   a->messages++;
 
-  if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20)
+  if (mm->msg_type == 5 || mm->msg_type == 21)
+  {
+    if (mm->identity)
+         a->identity = mm->identity;       /* Set thee Squawk code. */
+    else a->identity = 0;
+  }
+
+  if (mm->msg_type == 0 || mm->msg_type == 4 || mm->msg_type == 20)
   {
     a->altitude = mm->altitude;
   }
-  else if (mm->msgtype == 17)
+  else if (mm->msg_type == 17)
   {
-    if (mm->metype >= 1 && mm->metype <= 4)
+    if (mm->ME_type >= 1 && mm->ME_type <= 4)
     {
       memcpy (a->flight, mm->flight, sizeof(a->flight));
     }
-    else if (mm->metype >= 9 && mm->metype <= 18)
+    else if (mm->ME_type >= 9 && mm->ME_type <= 18)
     {
       a->altitude = mm->altitude;
-      if (mm->fflag)
+      if (mm->odd_flag)
       {
-        a->odd_cprlat = mm->raw_latitude;
-        a->odd_cprlon = mm->raw_longitude;
-        a->odd_cprtime = MSEC_TIME();
+        a->odd_CPR_lat  = mm->raw_latitude;
+        a->odd_CPR_lon  = mm->raw_longitude;
+        a->odd_CPR_time = MSEC_TIME();
       }
       else
       {
-        a->even_cprlat = mm->raw_latitude;
-        a->even_cprlon = mm->raw_longitude;
-        a->even_cprtime = MSEC_TIME();
+        a->even_CPR_lat  = mm->raw_latitude;
+        a->even_CPR_lon  = mm->raw_longitude;
+        a->even_CPR_time = MSEC_TIME();
       }
 
-      /* If the two data is less than 10 seconds apart, compute the position.
+      /* If the two reports are less than 10 seconds apart, compute the position.
        */
-      int64_t t_diff = (int64_t) (a->even_cprtime - a->odd_cprtime);
+      int64_t t_diff = (int64_t) (a->even_CPR_time - a->odd_CPR_time);
 
       if (llabs(t_diff) <= 10000)
          decode_CPR (a);
     }
-    else if (mm->metype == 19)
+    else if (mm->ME_type == 19)
     {
-      if (mm->mesub == 1 || mm->mesub == 2)
+      if (mm->ME_subtype == 1 || mm->ME_subtype == 2)
       {
-        a->speed = mm->velocity;
-        a->track = mm->heading;
+        a->speed   = mm->velocity;
+        a->heading = mm->heading;
       }
     }
   }
-  return a;
+  return (a);
 }
 
 /**
  * Show the currently captured aircraft information on screen.
  */
-void interactive_show_data (uint64_t now)
+void interactive_show_data (uint64_t now, const struct aircraft *next_a)
 {
   static int spin_idx = 0;
   char spinner[] = "|/-\\";
@@ -2442,29 +2502,25 @@ void interactive_show_data (uint64_t now)
    */
   if (Modes.debug == 0 && !Modes.raw)
   {
-    static int done = 0;
-
-    if (!done)
-       console_init();
-    done = 1;
     clrscr();
     gotoxy (1, 1);
   }
 
-  printf ("ICAO   Flight   Sqwk   Altitude  Speed   Lat       Long      Track  Messages Seen %c\n"
-          "------------------------------------------------------------------------------------\n",
+  setcolor (COLOR_WHITE);
+  printf ("ICAO   Flight   Sqwk    Altitude  Speed   Lat       Long     Heading  Messages Seen %c\n"
+          "-------------------------------------------------------------------------------------\n",
           spinner[spin_idx++ % 4]);
+  setcolor (0);
 
   while (a && count < Modes.interactive_rows && !Modes.exit)
   {
     int  altitude = a->altitude;
     int  speed = a->speed;
-    char squawk[6] = "-";
-
-#if 0   /** \todo Show the Squawk code in interactive mode */
-    if (mm->identity)
-       snprintf (squawk, 5, "%d", mm->identity);
-#endif
+    char alt_buf [10] = "  - ";
+    char squawk [6] = "  - ";
+    char lat_buf [10] = "  - ";
+    char lon_buf [10] = "  - ";
+    char speed_buf [8] = " - ";
 
     /* Convert units to metric if --metric was specified. */
     if (Modes.metric)
@@ -2477,9 +2533,31 @@ void interactive_show_data (uint64_t now)
       speed     = (int) speedKmH;
     }
 
-    printf ("%-6s %-8s %-5s  %-9d %-7d %-7.03f   %-7.03f   %-3d    %-8ld %d sec  \n",
-            a->hexaddr, a->flight, squawk, altitude, speed,
-            a->lat, a->lon, a->track, a->messages, (int)(now - a->seen));
+    if (altitude)
+       snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
+
+    if (a->identity)
+       snprintf (squawk, 5, "%05d", a->identity);
+
+    if (a->lat)
+       snprintf (lat_buf, sizeof(lat_buf), "%.03f", a->lat);
+
+    if (a->lon)
+       snprintf (lon_buf, sizeof(lon_buf), "%.03f", a->lon);
+
+    if (a->speed)
+       snprintf (speed_buf, sizeof(speed_buf), "%d", a->speed);
+
+    if (next_a)
+       setcolor (COLOR_RED);
+
+    printf ("%-6s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %d sec  \n",
+            a->hexaddr, a->flight, squawk, alt_buf, speed_buf,
+            lat_buf, lon_buf, a->heading, a->messages, (int)(now - a->seen));
+
+    if (next_a)
+       setcolor (0);
+
     a = a->next;
     count++;
   }
@@ -2488,11 +2566,17 @@ void interactive_show_data (uint64_t now)
 /**
  * When in interactive mode, if we don't receive new nessages within
  * `MODES_INTERACTIVE_TTL` seconds, we remove the aircraft from the list.
+ *
+ * \retval return a pointer to the aircraft that is to be removed
+ *         on the next call to this function. So we can write this
+ *         aircraft information in red.
  */
-void remove_stale_aircrafts (int sec_now)
+const struct aircraft *remove_stale_aircrafts (uint64_t now)
 {
   struct aircraft *a = Modes.aircrafts;
   struct aircraft *prev = NULL;
+  const struct aircraft *rc = NULL;
+  uint32_t sec_now = (int) (now / 1000);
 
   while (a)
   {
@@ -2511,10 +2595,13 @@ void remove_stale_aircrafts (int sec_now)
     }
     else
     {
+      if (sec_now - a->seen >= (Modes.interactive_ttl + MODES_INTERACTIVE_REFRESH_TIME/1000))
+         rc = a;
       prev = a;
       a = a->next;
     }
   }
+  return (rc);
 }
 
 /**
@@ -2537,13 +2624,11 @@ void free_all_aircrafts (void)
   }
 }
 
-/* ============================== Strip mode ================================= */
-
 /**
  * Get raw IQ samples and filter everything that is < than the specified level
  * for more than 256 samples in order to reduce example file size.
  */
-void strip_mode (int level)
+int strip_mode (int level)
 {
   int i, q;
   uint64_t c = 0;
@@ -2562,6 +2647,7 @@ void strip_mode (int level)
     putchar (i);
     putchar (q);
   }
+  return (0);
 }
 
 /**
@@ -2603,7 +2689,7 @@ char *aircrafts_to_json (int *len, int *num_planes)
                     "{\"hex\":\"%s\", \"flight\":\"%s\", \"lat\":%f, "
                     "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
                     "\"speed\":%d},\n",
-                    a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->track, a->speed);
+                    a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->heading, a->speed);
       p += l;
       buflen -= l;
       num++;
@@ -2732,10 +2818,9 @@ int send_all_clients (int service, const void *msg, int len)
   return (found);
 }
 
-
-/* ============================= Networking =================================
- * Note: here we disregard any kind of good coding practice in favor of
- * extreme simplicity, that is:
+/**
+ * \note Here we disregard any kind of good coding practice in favor of
+ *       extreme simplicity, that is:
  *
  * 1) We only rely on the kernel buffers for our I/O without any kind of
  *    user space buffering.
@@ -2891,6 +2976,7 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
        */
       mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
       free (data);
+
 #if 0
       if (!cli->keep_alive)
          cli->is_closing = 1;
@@ -2985,7 +3071,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
            cli->id, handler_descr(service), remote, ntohs(conn->peer.port), _ptr2sock(conn->fd));
 
     if (service == MODES_NET_SERVICE_SBS)
-       Modes.stat.sbs_connections++;
+       Modes.stat.SBS_connections++;
   }
   else if (ev == MG_EV_READ)
   {
@@ -3015,7 +3101,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
   }
 }
 
-void modeS_init_net (void)
+int modeS_init_net (void)
 {
   char url [100];
 
@@ -3026,27 +3112,36 @@ void modeS_init_net (void)
 
   snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modesNetServices[MODES_NET_SERVICE_RAW_OUT].port);
   Modes.ros = mg_listen (&Modes.mgr, url, net_handler, (void*) MODES_NET_SERVICE_RAW_OUT);
+  if (!Modes.ros)
+     return (1);
 
   snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modesNetServices[MODES_NET_SERVICE_RAW_IN].port);
   Modes.ris = mg_listen (&Modes.mgr, url, net_handler, (void*) MODES_NET_SERVICE_RAW_IN);
+  if (!Modes.ris)
+     return (1);
 
   snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modesNetServices[MODES_NET_SERVICE_SBS].port);
   Modes.sbsos = mg_listen (&Modes.mgr, url, net_handler, (void*) MODES_NET_SERVICE_SBS);
+  if (!Modes.sbsos)
+     return (1);
 
   snprintf (url, sizeof(url), "http://0.0.0.0:%u", modesNetServices[MODES_NET_SERVICE_HTTP].port);
   Modes.http = mg_http_listen (&Modes.mgr, url, net_handler, (void*) MODES_NET_SERVICE_HTTP);
+  if (!Modes.http)
+     return (1);
+  return (0);
 }
 
-/*
+/**
  * Write raw output to TCP clients.
  */
-void mode_send_raw_output (struct modeS_message *mm)
+void mode_send_raw_output (const struct modeS_message *mm)
 {
   char msg[128], *p = msg;
   int  j;
 
   *p++ = '*';
-  for (j = 0; j < mm->msgbits/8; j++)
+  for (j = 0; j < mm->msg_bits/8; j++)
   {
     sprintf (p, "%02X", mm->msg[j]);
     p += 2;
@@ -3057,15 +3152,15 @@ void mode_send_raw_output (struct modeS_message *mm)
   send_all_clients (MODES_NET_SERVICE_RAW_OUT, msg, p - msg);
 }
 
-/*
+/**
  * Write SBS output to TCP clients (Base Station format).
  */
-void mode_send_SBS_output (struct modeS_message *mm, struct aircraft *a)
+void mode_send_SBS_output (const struct modeS_message *mm, struct aircraft *a)
 {
   char msg[256], *p = msg;
   int emergency = 0, ground = 0, alert = 0, spi = 0;
 
-  if (mm->msgtype == 4 || mm->msgtype == 5 || mm->msgtype == 21)
+  if (mm->msg_type == 4 || mm->msg_type == 5 || mm->msg_type == 21)
   {
     /**\note
      * identity is calculated/kept in base10 but is actually
@@ -3073,58 +3168,58 @@ void mode_send_SBS_output (struct modeS_message *mm, struct aircraft *a)
      */
     if (mm->identity == 7500 || mm->identity == 7600 || mm->identity == 7700)
        emergency = -1;
-    if (mm->fs == 1 || mm->fs == 3)
+    if (mm->flight_status == 1 || mm->flight_status == 3)
        ground = -1;
-    if (mm->fs == 2 || mm->fs == 3 || mm->fs == 4)
+    if (mm->flight_status == 2 || mm->flight_status == 3 || mm->flight_status == 4)
        alert = -1;
-    if (mm->fs == 4 || mm->fs == 5)
+    if (mm->flight_status == 4 || mm->flight_status == 5)
        spi = -1;
   }
 
-  if (mm->msgtype == 0)
+  if (mm->msg_type == 0)
   {
     p += sprintf (p, "MSG,5,,,%02X%02X%02X,,,,,,,%d,,,,,,,,,,",
-                  mm->aa1, mm->aa2, mm->aa3, mm->altitude);
+                  mm->AA1, mm->AA2, mm->AA3, mm->altitude);
   }
-  else if (mm->msgtype == 4)
+  else if (mm->msg_type == 4)
   {
     p += sprintf (p, "MSG,5,,,%02X%02X%02X,,,,,,,%d,,,,,,,%d,%d,%d,%d",
-                  mm->aa1, mm->aa2, mm->aa3, mm->altitude, alert, emergency, spi, ground);
+                  mm->AA1, mm->AA2, mm->AA3, mm->altitude, alert, emergency, spi, ground);
   }
-  else if (mm->msgtype == 5)
+  else if (mm->msg_type == 5)
   {
     p += sprintf (p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%d,%d,%d,%d,%d",
-                  mm->aa1, mm->aa2, mm->aa3, mm->identity, alert, emergency, spi, ground);
+                  mm->AA1, mm->AA2, mm->AA3, mm->identity, alert, emergency, spi, ground);
   }
-  else if (mm->msgtype == 11)
+  else if (mm->msg_type == 11)
   {
     p += sprintf (p, "MSG,8,,,%02X%02X%02X,,,,,,,,,,,,,,,,,",
-                  mm->aa1, mm->aa2, mm->aa3);
+                  mm->AA1, mm->AA2, mm->AA3);
   }
-  else if (mm->msgtype == 17 && mm->metype == 4)
+  else if (mm->msg_type == 17 && mm->ME_type == 4)
   {
     p += sprintf (p, "MSG,1,,,%02X%02X%02X,,,,,,%s,,,,,,,,0,0,0,0",
-                  mm->aa1, mm->aa2, mm->aa3, mm->flight);
+                  mm->AA1, mm->AA2, mm->AA3, mm->flight);
   }
-  else if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18)
+  else if (mm->msg_type == 17 && mm->ME_type >= 9 && mm->ME_type <= 18)
   {
     if (a->lat == 0 && a->lon == 0)
          p += sprintf (p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,,,,,0,0,0,0",
-                       mm->aa1, mm->aa2, mm->aa3, mm->altitude);
+                       mm->AA1, mm->AA2, mm->AA3, mm->altitude);
     else p += sprintf (p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
-                       mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+                       mm->AA1, mm->AA2, mm->AA3, mm->altitude, a->lat, a->lon);
   }
-  else if (mm->msgtype == 17 && mm->metype == 19 && mm->mesub == 1)
+  else if (mm->msg_type == 17 && mm->ME_type == 19 && mm->ME_subtype == 1)
   {
-    int vr = (mm->vert_rate_sign==0?1:-1) * (mm->vert_rate-1) * 64;
+    int vr = (mm->vert_rate_sign==0 ? 1 : -1) * 64 * (mm->vert_rate - 1);
 
     p += sprintf (p, "MSG,4,,,%02X%02X%02X,,,,,,,,%d,%d,,,%i,,0,0,0,0",
-                  mm->aa1, mm->aa2, mm->aa3, a->speed, a->track, vr);
+                  mm->AA1, mm->AA2, mm->AA3, a->speed, a->heading, vr);
   }
-  else if (mm->msgtype == 21)
+  else if (mm->msg_type == 21)
   {
     p += sprintf (p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%d,%d,%d,%d,%d",
-                  mm->aa1, mm->aa2, mm->aa3, mm->identity, alert, emergency, spi, ground);
+                  mm->AA1, mm->AA2, mm->AA3, mm->identity, alert, emergency, spi, ground);
   }
   else
     return;
@@ -3133,10 +3228,11 @@ void mode_send_SBS_output (struct modeS_message *mm, struct aircraft *a)
   send_all_clients (MODES_NET_SERVICE_SBS, msg, p - msg);
 }
 
-/* Turn an hex digit into its 4 bit decimal value.
+/**
+ * Turn an hex digit into its 4 bit decimal value.
  * Returns -1 if the digit is not in the 0-F range.
  */
-int hexDigitVal (int c)
+int hex_digit_val (int c)
 {
   c = tolower (c);
   if (c >= '0' && c <= '9')
@@ -3146,7 +3242,7 @@ int hexDigitVal (int c)
   return (-1);
 }
 
-/*
+/**
  * This function decodes a string representing a Mode S message in
  * raw hex format like: *8D4B969699155600E87406F5B69F;
  * The string is supposed to be at the start of the client buffer
@@ -3193,8 +3289,8 @@ int decode_hex_message (struct client *c)
 
   for (j = 0; j < l; j += 2)
   {
-    int high = hexDigitVal (hex[j]);
-    int low = hexDigitVal (hex[j+1]);
+    int high = hex_digit_val (hex[j]);
+    int low  = hex_digit_val (hex[j+1]);
 
     if (high == -1 || low == -1)
        return (0);
@@ -3413,8 +3509,9 @@ void read_from_client (struct client *cli, char *sep, int (*handler)(struct clie
 #endif
 }
 
-/* ================================ Main ==================================== */
-
+/**
+ * Show the program usage
+ */
 void show_help (const char *fmt, ...)
 {
   if (fmt)
@@ -3431,7 +3528,7 @@ void show_help (const char *fmt, ...)
      * \todo Add some version info (for Mongoose, librtsdr, libusb) and feature
      *       string depending on build options.
      */
-    printf ("A 1090 MHz receiver (via RTLSDR), decoder and webserver for\n%s.\n",
+    printf ("A 1090 MHz receiver, decoder and web-server for\n%s.\n",
             ADS_B_ACRONYM);
   }
 
@@ -3439,7 +3536,7 @@ void show_help (const char *fmt, ...)
           "  --aggressive             More CPU for more messages (two bits fixes, ...).\n"
           "  --debug <flags>          Debug mode; see below for details.\n"
           "  --device-index <index>   Select RTL device (default: 0).\n"
-          "  --freq <hz>              Set frequency (default: %u Mhz).\n"
+          "  --freq <hz>              Set frequency (default: %u MHz).\n"
           "  --gain <db>              Set gain (default: AUTO)\n"
           "  --infile <filename>      Read data from file (use '-' for stdin).\n"
           "  --interactive            Interactive mode refreshing data on screen.\n"
@@ -3456,7 +3553,7 @@ void show_help (const char *fmt, ...)
           "  --no-fix                 Disable single-bits error correction using CRC.\n"
           "  --no-crc-check           Disable messages with broken CRC (discouraged).\n"
           "  --onlyaddr               Show only ICAO addresses (testing purposes).\n"
-          "  --rate <hz>              Set sample-rate (default: 2MS/s).\n"
+          "  --samplerate <hz>        Set sample-rate (default: %uMS/s).\n"
           "  --raw                    Show only messages with raw hex values.\n"
           "  --strip <level>          Strip IQ file removing samples below level.\n"
           "  -h, --help               Show this help.\n"
@@ -3473,7 +3570,7 @@ void show_help (const char *fmt, ...)
           Modes.who_am_I,
           (uint32_t)(MODES_DEFAULT_FREQ / 1000000), MODES_ICAO_CACHE_TTL,
           MODES_NET_OUTPUT_RAW_PORT, MODES_NET_INPUT_RAW_PORT,
-          MODES_NET_HTTP_PORT, MODES_NET_OUTPUT_SBS_PORT);
+          MODES_NET_HTTP_PORT, MODES_NET_OUTPUT_SBS_PORT, MODES_DEFAULT_RATE/1000000);
 
   modeS_exit();  /* free Pthread-W32 data */
   exit (1);
@@ -3491,11 +3588,12 @@ void background_tasks (void)
   uint64_t now = MSEC_TIME();
   int    refresh;
   static uint64_t start;  /* program start time */
+  const struct aircraft *next_a;
 
   if (start == 0)
      start = now;
 
-  remove_stale_aircrafts ((int)(now/1000));
+  next_a = remove_stale_aircrafts (now);
 
   if (Modes.net)
      mg_mgr_poll (&Modes.mgr, MG_NET_POLL_TIME); /* Poll Mongoose for network events */
@@ -3507,12 +3605,16 @@ void background_tasks (void)
   if (refresh)
   {
     if (Modes.interactive)  /* Refresh screen when in interactive mode */
-       interactive_show_data (now/1000);
+       interactive_show_data (now/1000, next_a);
     Modes.last_update_ms = now;
   }
 }
 
-static void sigintHandler (int sig)
+/**
+ * The handler called in a `SIGINT`. <br>
+ * I.e. user presses `^C`.
+ */
+void sigint_handler (int sig)
 {
   signal (sig, SIG_DFL);   /* reset signal handler - bit extra safety */
   Modes.exit = 1;          /* Signal to threads that we are done */
@@ -3535,22 +3637,22 @@ void show_statistics (void)
 {
   puts ("Mode-S decoder statistics:");
   printf (" %8llu valid preambles.\n", Modes.stat.valid_preamble);
-  printf (" %8llu demodulated again after phase correction.\n", Modes.stat.out_of_phase);
+  printf (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
   printf (" %8llu demodulated with zero errors.\n", Modes.stat.demodulated);
-  printf (" %8llu with good CRC.\n", Modes.stat.goodcrc);
-  printf (" %8llu with bad CRC.\n", Modes.stat.badcrc);
+  printf (" %8llu with CRC okay.\n", Modes.stat.good_CRC);
+  printf (" %8llu with CRC failure.\n", Modes.stat.bad_CRC);
   printf (" %8llu errors corrected.\n", Modes.stat.fixed);
-  printf (" %8llu single bit errors.\n", Modes.stat.single_bit_fix);
-  printf (" %8llu two bits errors.\n", Modes.stat.two_bits_fix);
-  printf (" %8llu total usable messages.\n", Modes.stat.goodcrc + Modes.stat.fixed);
+  printf (" %8llu 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
+  printf (" %8llu 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
+  printf (" %8llu total usable messages.\n", Modes.stat.good_CRC + Modes.stat.fixed);
   printf (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
-  printf (" %8llu unrecognized ME types\n", Modes.stat.unrecognized_ME);
+  printf (" %8llu unrecognized ME types.\n", Modes.stat.unrecognized_ME);
 
   if (Modes.net)
   {
     puts ("Network statistics:");
     printf (" %8llu HTTP requests received.\n", Modes.stat.http_requests);
-    printf (" %8llu SBS connections.\n", Modes.stat.sbs_connections);
+    printf (" %8llu SBS connections.\n", Modes.stat.SBS_connections);
     printf (" %8llu client connections accepted.\n", Modes.stat.clients_accepted);
     printf (" %8llu client connection \"keep-alive\".\n", Modes.stat.http_keep_alive);
     printf (" %8llu client connections removed.\n", Modes.stat.clients_removed);
@@ -3596,8 +3698,8 @@ void modeS_exit (void)
 
   free_all_aircrafts();
 
-  if (Modes.maglut)
-     free (Modes.maglut);
+  if (Modes.magnitude_lut)
+     free (Modes.magnitude_lut);
 
   if (Modes.magnitude)
      free (Modes.magnitude);
@@ -3605,15 +3707,15 @@ void modeS_exit (void)
   if (Modes.data)
      free (Modes.data);
 
-  if (Modes.icao_cache)
-     free (Modes.icao_cache);
+  if (Modes.ICAO_cache)
+     free (Modes.ICAO_cache);
 
    if (Modes.data_mutex)
       pthread_mutex_destroy (&Modes.data_mutex);
 
   Modes.data = NULL;
-  Modes.magnitude = Modes.maglut = NULL;
-  Modes.icao_cache = NULL;
+  Modes.magnitude = Modes.magnitude_lut = NULL;
+  Modes.ICAO_cache = NULL;
 
 #if defined(_MSC_VER) && (defined(_DEBUG) || defined(USE_VLD))
   crtdbug_exit();
@@ -3646,7 +3748,7 @@ int main (int argc, char **argv)
         Modes.freq = (uint32_t) ato_hertz (argv[++j]);
 
     else if (!strcmp(argv[j], "--infile") && more)
-        Modes.infile = strdup (argv[++j]);
+        Modes.infile = argv[++j];
 
     else if (!strcmp(argv[j], "--loop"))
         Modes.loop = 1;
@@ -3660,7 +3762,7 @@ int main (int argc, char **argv)
     else if (!strcmp(argv[j], "--raw"))
         Modes.raw = 1;
 
-    else if (!strcmp(argv[j], "--rate") && more)
+    else if (!strcmp(argv[j], "--samplerate") && more)
         Modes.sample_rate = (uint32_t) ato_hertz (argv[++j]);
 
     else if (!strcmp(argv[j], "--net"))
@@ -3682,7 +3784,7 @@ int main (int argc, char **argv)
         modesNetServices [MODES_NET_SERVICE_SBS].port = atoi (argv[++j]);
 
     else if (!strcmp(argv[j], "--onlyaddr"))
-        Modes.onlyaddr = 1;
+        Modes.only_addr = 1;
 
     else if (!strcmp(argv[j], "--metric"))
         Modes.metric = 1;
@@ -3762,8 +3864,9 @@ int main (int argc, char **argv)
     }
   }
 
-  signal (SIGINT, sigintHandler); /* Setup SIGINT for a graceful exit */
-  modeS_init();                   /* Initialization */
+  rc = modeS_init();        /* Initialization */
+  if (rc)
+     goto quit;
 
   if (Modes.net_only)
   {
@@ -3771,17 +3874,18 @@ int main (int argc, char **argv)
   }
   else if (Modes.strip_level)
   {
-    strip_mode (Modes.strip_level);
+    rc = strip_mode (Modes.strip_level);
   }
   else if (Modes.infile)
   {
+    rc = 1;
     if (Modes.infile[0] == '-' && Modes.infile[1] == '\0')
     {
       Modes.fd = STDIN_FILENO;
     }
-    else if ((Modes.fd = open (Modes.infile, O_RDONLY)) == -1)
+    else if ((Modes.fd = open(Modes.infile, O_RDONLY)) == -1)
     {
-      perror ("Opening in-data file");
+      fprintf (stderr, "Error opening `%s`: %s\n", Modes.infile, strerror(errno));
       goto quit;
     }
   }
@@ -3794,22 +3898,27 @@ int main (int argc, char **argv)
   }
 
   if (Modes.net)
-     modeS_init_net();
+  {
+    rc = modeS_init_net();
+    TRACE (DEBUG_GENERAL, "modeS_init_net(): rc: %d.\n", rc);
+    if (rc)
+       goto quit;
+  }
 
   if (Modes.infile)
-     read_from_data_file();
+     rc = read_from_data_file();
   else
   {
     /* Create the thread that will read the data from the device and the network.
      */
     rc = pthread_create (&Modes.reader_thread, NULL, data_thread_fn, NULL);
     TRACE (DEBUG_GENERAL, "pthread_create(): rc: %d.\n", rc);
+    main_data_loop();
   }
-
-  main_data_loop();
 
 quit:
   modeS_exit();
-  show_statistics();
+  if (rc == 0)
+     show_statistics();
   return (0);
 }
