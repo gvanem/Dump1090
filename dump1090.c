@@ -134,8 +134,10 @@
 
 #define MODES_CONTENT_TYPE_HTML   "text/html;charset=utf-8"
 #define MODES_CONTENT_TYPE_JSON   "application/json;charset=utf-8"
+#define GET_DATA_JSON_1           "GET /data.json "
+#define GET_DATA_JSON_2           "GET /dump1090//data.json "
 
-#define ADS_B_ACRONYM  "ADS-B; Automatic Dependent Surveillance - Broadcast"
+#define ADS_B_ACRONYM             "ADS-B; Automatic Dependent Surveillance - Broadcast"
 
 /**
  * \def MSEC_TIME()
@@ -154,7 +156,7 @@ struct net_service {
     unsigned    num_clients;      /**< Number of active clients connected to it */
   };
 
-#define GMAP_HTML          "gmap.html"  /* Our default main server page */
+#define GMAP_HTML          "web_root/gmap.html"  /* Our default main server page */
 
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define MODES_NOTUSED(V)   ((void)V)
@@ -280,37 +282,39 @@ struct statistics {
  * All program global state is in this structure.
  */
 struct global_data {
-       char            who_am_I [MG_PATH_MAX];    /**< The full name of this program */
-       char            where_am_I [MG_PATH_MAX];  /**< The directory of this program */
-       pthread_t       reader_thread;             /**< Device reader thread ID */
-       pthread_mutex_t data_mutex;                /**< Mutex to synchronize buffer access. */
-       uint8_t        *data;                      /**< Raw IQ samples buffer */
-       uint32_t        data_len;                  /**< Length of raw IQ buffer. */
-       uint16_t       *magnitude;                 /**< Magnitude vector */
-       uint16_t       *magnitude_lut;             /**< I/Q -> Magnitude lookup table. */
-       int             fd;                        /**< `--infile` option file descriptor. */
-       int             data_ready;                /**< Data ready to be processed. */
-       uint32_t       *ICAO_cache;                /**< Recently seen ICAO addresses. */
-       int             exit;                      /**< Exit from the main loop when true. */
+       char              who_am_I [MG_PATH_MAX];   /**< The full name of this program */
+       char              where_am_I [MG_PATH_MAX]; /**< The directory of this program with a trailing `\\` */
+       pthread_t         reader_thread;            /**< Device reader thread ID */
+       pthread_mutex_t   data_mutex;               /**< Mutex to synchronize buffer access. */
+       uint8_t          *data;                     /**< Raw IQ samples buffer */
+       uint32_t          data_len;                 /**< Length of raw IQ buffer. */
+       uint16_t         *magnitude;                /**< Magnitude vector */
+       uint16_t         *magnitude_lut;            /**< I/Q -> Magnitude lookup table. */
+       int               fd;                       /**< `--infile` option file descriptor. */
+       int               data_ready;               /**< Data ready to be processed. */
+       uint32_t         *ICAO_cache;               /**< Recently seen ICAO addresses. */
+       int               exit;                     /**< Exit from the main loop when true. */
+       struct statistics stat;                     /**< Decoding and network statistics */
+       struct aircraft  *aircrafts;                /**< Linked list of active aircrafts */
+       uint64_t last_update_ms;                    /**< Last screen update in milliseconds */
 
-       /* RTLSDR device index and variables
-        */
-       int             dev_index;      /**< The index of the RTLSDR device used */
-       int             gain;           /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
-       rtlsdr_dev_t   *dev;            /**< The librtlsdr handle from `rtlsdr_open()` */
-       uint32_t        freq;           /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
-       uint32_t        sample_rate;    /**< The sample-rate. Default is MODES_DEFAULT_RATE. <br>
-                                         *  \note This cannot be used yet since the code assumes a
-                                         *        pulse-widths of 0.5 usec based on a fixed rate of 2 MS/s.
-                                         */
+       int               dev_index;                /**< The index of the RTLSDR device used */
+       int               gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
+       rtlsdr_dev_t     *dev;                      /**< The librtlsdr handle from `rtlsdr_open()` */
+       uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
+       uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE. <br>
+                                                     *  \note This cannot be used yet since the code assumes a
+                                                     *        pulse-widths of 0.5 usec based on a fixed rate of 2 MS/s.
+                                                     */
+
        /** Lists of clients for each network service
         */
        struct client        *clients [MODES_NET_SERVICES_NUM];
-       struct mg_connection *sbsos;    /**< SBS output listening connection. */
-       struct mg_connection *ros;      /**< Raw output listening connection. */
-       struct mg_connection *ris;      /**< Raw input listening connection. */
-       struct mg_connection *http;     /**< HTTP listening connection. */
-       struct mg_mgr         mgr;      /**< Only one connection manager */
+       struct mg_connection *sbsos;       /**< SBS output listening connection. */
+       struct mg_connection *ros;         /**< Raw output listening connection. */
+       struct mg_connection *ris;         /**< Raw input listening connection. */
+       struct mg_connection *http;        /**< HTTP listening connection. */
+       struct mg_mgr         mgr;         /**< Only one connection manager */
 
        /* Configuration
         */
@@ -330,17 +334,7 @@ struct global_data {
        int         aggressive;             /**< Aggressive detection algorithm. */
        char        web_page [MG_PATH_MAX]; /**< The base-name of the web-page to server for HTTP clients */
        char        web_root [MG_PATH_MAX]; /**< And it's directory */
-
-       /* For '--strip X' mode
-        */
-       int strip_level;
-
-       /* Interactive mode
-        */
-       struct aircraft *aircrafts;     /**< Linked list of active aircrafts */
-       uint64_t last_update_ms;        /**< Last screen update in milliseconds */
-
-       struct statistics stat;         /**< decoding and network statistics */
+       int         strip_level;            /**< For '--strip X' mode */
      };
 
 struct global_data Modes;
@@ -601,6 +595,25 @@ char *basename (const char *fname)
 }
 
 /**
+ * Return TRUE if string `s1` starts with `s2`.
+ *
+ * Ignore casing of boith strings.
+ * And drop leading blanks in `s1` first.
+ */
+bool str_startswith (const char *s1, const char *s2)
+{
+  size_t s1_len = strlen (s1);
+  size_t s2_len = strlen (s2);
+
+  if (s2_len > s1_len)
+     return (FALSE);
+
+  if (!strncmp(s1, s2, s2_len))
+     return (true);
+  return (false);
+}
+
+/**
  * Step 1: Initialize the program with default values.
  */
 void modeS_init_config (void)
@@ -618,6 +631,10 @@ void modeS_init_config (void)
   else
     strncpy (Modes.who_am_I, "??", sizeof(Modes.who_am_I));
 
+  strcpy (Modes.web_page, basename(GMAP_HTML));
+  strcpy (Modes.web_root, Modes.where_am_I);
+  strcat (Modes.web_root, "web_root");
+
   Modes.gain = MODES_AUTO_GAIN;
   Modes.dev_index = 0;
   Modes.sample_rate = MODES_DEFAULT_RATE;
@@ -630,6 +647,7 @@ void modeS_init_config (void)
   Modes.net_only = 0;
   Modes.only_addr = 0;
   Modes.debug = 0;
+  Modes.exit = 0;
   Modes.aggressive = 0;
   Modes.interactive = 0;
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
@@ -637,8 +655,8 @@ void modeS_init_config (void)
   Modes.strip_level = 0;
   Modes.interactive_rows = 0;  /* set in `console_init()` in `--interactive` mode */
   Modes.loops = 0;
-  strcpy (Modes.web_page, basename(GMAP_HTML));
-  strcpy (Modes.web_root, Modes.where_am_I);
+  Modes.aircrafts = NULL;
+  Modes.last_update_ms = 0;
 }
 
 /**
@@ -662,7 +680,7 @@ int modeS_init (void)
 
     snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.web_root, Modes.web_page);
 
-    TRACE (DEBUG_NET, "full_name: '%s'\n   web_root: '%s'\n   web_page: '%s'\n",
+    TRACE (DEBUG_NET, "full_name: '%s'\n     web_root: '%s'\n     web_page: '%s'\n",
            full_name, Modes.web_root, Modes.web_page);
 
     if (stat(full_name, &st) != 0)
@@ -697,9 +715,6 @@ int modeS_init (void)
    * entry because it's a addr / timestamp pair for every entry.
    */
   Modes.ICAO_cache = calloc (sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2, 1);
-  Modes.aircrafts = NULL;
-  Modes.last_update_ms = 0;
-
   Modes.data = malloc (Modes.data_len);
   Modes.magnitude = malloc (2*Modes.data_len);
 
@@ -708,6 +723,7 @@ int modeS_init (void)
     fprintf (stderr, "Out of memory allocating data buffer.\n");
     return (1);
   }
+
   memset (Modes.data, 127, Modes.data_len);
 
   /* Populate the I/Q -> Magnitude lookup table. It is used because
@@ -726,7 +742,6 @@ int modeS_init (void)
   }
 
   memset (&Modes.stat, '\0', sizeof(Modes.stat));
-  Modes.exit = 0;
 
   for (i = 0; i <= 128; i++)
   {
@@ -3056,25 +3071,27 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
    */
   struct client          *cli = &dummy;
   struct mg_http_message *hm = ev_data;
-  int   uri_len;
 
   if (ev == MG_EV_HTTP_MSG || ev == MG_EV_HTTP_CHUNK)
   {
-    char expected_uri [10+MG_PATH_MAX];
+    bool data_json = str_startswith (hm->head.ptr, GET_DATA_JSON_1) ||
+                     str_startswith (hm->head.ptr, GET_DATA_JSON_2);
 
     Modes.stat.http_requests++;
 
-    if (strncmp(hm->head.ptr, "GET /data.json ", 15))
+    /* Do not trace these '/data.json' requests since it would be too much
+     */
+    if (!data_json)
        TRACE (DEBUG_NET, "HTTP header: '%.20s'...\n\n", hm->head.ptr);
 
     /* Redirect a 'GET /' to a 'GET /' + 'web_page'
      */
-    if (!strncmp(hm->head.ptr, "GET / ", 6))
+    if (str_startswith(hm->head.ptr, "GET / "))
     {
       char  redirect [10+MG_PATH_MAX];
       const char *keep_alive = "";
 
-      if (!strnicmp("HTTP/1.1", hm->proto.ptr, 8))
+      if (str_startswith(hm->proto.ptr, "HTTP/1.1"))
       {
         keep_alive = "Connection: keep-alive\r\n";
         cli->keep_alive = 1;
@@ -3086,7 +3103,7 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
       return;
     }
 
-    if (!strncmp(hm->head.ptr, "GET /data.json ", 15))
+    if (data_json)
     {
       int   data_len, num_planes;
       char *data = aircrafts_to_json (&data_len, &num_planes);
@@ -3111,7 +3128,7 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
     /**
      * \todo send the 'favicon.ico' as a C-array.
      */
-    if (!strncmp(hm->head.ptr, "GET /favicon.ico", 16))
+    if (str_startswith(hm->head.ptr, "GET /favicon.ico"))
     {
       TRACE (DEBUG_NET, "404 Not found ('/favicon.ico') to client %lu.\n", conn->id);
       return;
@@ -3120,25 +3137,12 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
     /**
      * \todo Check header for a "Upgrade: websocket" and call mg_ws_upgrade()?
      */
-    if (!strncmp(hm->head.ptr, "GET /echo ", 11))
+    if (str_startswith(hm->head.ptr, "GET /echo "))
     {
       mg_ws_upgrade (conn);
       return;
     }
 #endif
-
-    uri_len = snprintf (expected_uri, sizeof(expected_uri), "GET /%s", Modes.web_page);
-
-    /* For now we do expect only a "'GET /`Modes.web_page`"
-     */
-    if (strncmp(hm->head.ptr, expected_uri, uri_len))
-    {
-      int len = strchr (hm->head.ptr+4, ' ') - hm->head.ptr;
-
-      mg_http_reply (conn, 404, "", "Not found\n");
-      TRACE (DEBUG_NET, "404 Not found ('%.*s') to client %lu.\n", len, hm->head.ptr+4, conn->id);
-      return;
-    }
 
 #if 0
     mg_http_serve_file (conn, hm, Modes.web_page, "text/html",
@@ -3151,7 +3155,7 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
     mg_http_serve_dir (conn, hm, &opts);
 #endif
 
-    TRACE (DEBUG_NET, "Serving HTTP client %lu with \"%s\".\n", conn->id, Modes.web_page);
+    TRACE (DEBUG_NET, "Serving HTTP client %lu with \"%s\\%s\".\n", conn->id, Modes.web_root, Modes.web_page);
   }
 }
 
