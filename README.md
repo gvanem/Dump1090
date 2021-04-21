@@ -285,7 +285,7 @@ missing the I/Q parts that were below the specified `--strip level`. And if
 those I/Q samples were below limit for at least 32 samples. <br>
 Can be used like: `type big.bin | dump1090 --strip 25 > small.bin`
 
-The `--snip` mode was used to create e.g. **[testfiles](testfiles/modes1.bin)**.
+The `--strip` mode was used to create e.g. **[testfiles/modes1.bin](testfiles/modes1.bin)**.
 
 ## Contributing
 
