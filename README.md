@@ -14,7 +14,7 @@ and added some more references and screen-shots. But in the source-code I've don
  * A detailed technical description by professor **[Junzi Sun](https://mode-s.org/decode/)**.
  * Or as a **[PDF](The-1090MHz-riddle.pdf)** in this repo.
 
-The main features of *Dump1090* are:
+**The main features** of *Dump1090* are:
 
 * Robust decoding of weak messages, with *Dump1090* many users observed
   improved range compared to other popular decoders.
@@ -43,7 +43,6 @@ available, developed by **Malcolm Robb**.
 ## Building
 
   On Windows, type `make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).<br>
-  On Linux, type `make` (untested by me).
 
 ## Normal usage
 
