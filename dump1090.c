@@ -137,9 +137,6 @@
 #define MODES_CONTENT_TYPE_JSON   "application/json;charset=utf-8"
 #define MODES_CONTENT_TYPE_JS     "application/javascript;charset=utf-8"
 
-#define GET_DATA_JSON_1           "GET /data.json "
-#define GET_DATA_JSON_2           "GET /dump1090//data.json "
-
 #define ADS_B_ACRONYM             "ADS-B; Automatic Dependent Surveillance - Broadcast"
 
 /**
@@ -159,7 +156,7 @@ struct net_service {
     unsigned    num_clients;      /**< Number of active clients connected to it */
   };
 
-#define GMAP_HTML          "web_root/gmap.html"  /* Our default main server page */
+#define GMAP_HTML          "web_root/gmap.html"  /* Our default main server page relative to 'Mode.where_am_I' */
 
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define MODES_NOTUSED(V)   ((void)V)
@@ -287,7 +284,7 @@ struct statistics {
  */
 struct global_data {
        char              who_am_I [MG_PATH_MAX];   /**< The full name of this program */
-       char              where_am_I [MG_PATH_MAX]; /**< The directory of this program with a trailing `\\` */
+       char              where_am_I [MG_PATH_MAX]; /**< The current directory with a trailing `\\` */
        pthread_t         reader_thread;            /**< Device reader thread ID */
        pthread_mutex_t   data_mutex;               /**< Mutex to synchronize buffer access. */
        uint8_t          *data;                     /**< Raw IQ samples buffer */
@@ -599,6 +596,61 @@ char *basename (const char *fname)
 }
 
 /**
+ * Return the directory part of a filename in a static buffer.
+ */
+char *dirname (const char *fname)
+{
+  const char *p = fname;
+  const char *slash = NULL;
+  size_t      dirlen;
+  static char dir [MG_PATH_MAX];
+
+  if (!fname)
+     return (NULL);
+
+  if (fname[0] && fname[1] == ':')
+  {
+    slash = fname + 1;
+    p += 2;
+  }
+
+  /* Find the rightmost slash.
+   */
+  while (*p)
+  {
+    if (IS_SLASH(*p))
+       slash = p;
+    p++;
+  }
+
+  if (slash == NULL)
+  {
+    fname = ".";
+    dirlen = 1;
+  }
+  else
+  {
+    /* Remove any trailing slashes.
+     */
+    while (slash > fname && (IS_SLASH(slash[-1])))
+        slash--;
+
+    /* How long is the directory we will return?
+     */
+    dirlen = slash - fname + (slash == fname || slash[-1] == ':');
+    if (*slash == ':' && dirlen == 1)
+       dirlen += 2;
+  }
+
+  strncpy (dir, fname, dirlen);
+
+  if (slash && *slash == ':' && dirlen == 3)
+     dir[2] = '.';      /* for "x:foo" return "x:." */
+  dir[dirlen] = '\0';
+  return (dir);
+}
+
+/**
  * Return TRUE if string `s1` starts with `s2`.
  *
  * Ignore casing of boith strings.
@@ -622,22 +674,12 @@ bool str_startswith (const char *s1, const char *s2)
  */
 void modeS_init_config (void)
 {
-  char *p;
-
-  GetModuleFileName (NULL, Modes.where_am_I, sizeof(Modes.where_am_I));
-  p = strrchr (Modes.where_am_I, '\0');
-  if (!strnicmp(p-4, ".exe", 4))
-  {
-    p = strrchr (Modes.where_am_I, '\\');
-    strncpy (Modes.who_am_I, p+1, sizeof(Modes.who_am_I));
-    p[1] = '\0';  /* Ensure 'Modes.where_am_I' has a trailing '\\' */
-  }
-  else
-    strncpy (Modes.who_am_I, "??", sizeof(Modes.who_am_I));
+  GetCurrentDirectoryA (sizeof(Modes.where_am_I), Modes.where_am_I);
+  GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
 
   strcpy (Modes.web_page, basename(GMAP_HTML));
   strcpy (Modes.web_root, Modes.where_am_I);
-  strcat (Modes.web_root, "web_root");
+  strcat (Modes.web_root, "\\web_root");
 
   Modes.gain = MODES_AUTO_GAIN;
   Modes.dev_index = 0;
@@ -673,19 +715,10 @@ int modeS_init (void)
   if (Modes.net)
   {
     struct stat st;
-    char *base = basename (Modes.web_page);
-    char  full_name [MG_PATH_MAX];
+    char   full_name [MG_PATH_MAX];
 
-    if (base > Modes.web_page)
-    {
-      strncpy (Modes.web_root, Modes.web_page, base - Modes.web_page - 1);
-      strncpy (Modes.web_page, base, sizeof(Modes.web_page) - 1);
-    }
-
-    snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.web_root, Modes.web_page);
-
-    TRACE (DEBUG_NET, "full_name: '%s'\n     web_root: '%s'\n     web_page: '%s'\n",
-           full_name, Modes.web_root, Modes.web_page);
+    snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.web_root, basename(Modes.web_page));
+    TRACE (DEBUG_NET, "Full web-page: '%s'\n", full_name);
 
     if (stat(full_name, &st) != 0)
     {
@@ -3089,12 +3122,12 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
   struct mg_http_message   *hm = ev_data;
   struct mg_http_serve_opts opts;
   bool   data_json;
+  const char *keep_alive = "";
 
   if (ev != MG_EV_HTTP_MSG && ev != MG_EV_HTTP_CHUNK)
      return;
 
-  data_json = str_startswith (hm->head.ptr, GET_DATA_JSON_1) ||
-              str_startswith (hm->head.ptr, GET_DATA_JSON_2);
+  data_json = str_startswith (hm->head.ptr, "GET /data.json ");
 
   Modes.stat.http_requests++;
 
@@ -3108,7 +3141,6 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
   if (str_startswith(hm->head.ptr, "GET / "))
   {
     char  redirect [10+MG_PATH_MAX];
-    const char *keep_alive = "";
 
     if (str_startswith(hm->proto.ptr, "HTTP/1.1"))
     {
@@ -3117,7 +3149,7 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
       if (cli)
          cli->keep_alive = 1;
     }
-    snprintf (redirect, sizeof(redirect), "Location: %s\r\n%s", Modes.web_page, keep_alive);
+    snprintf (redirect, sizeof(redirect), "Location: %s\r\n%s", basename(Modes.web_page), keep_alive);
     mg_http_reply (conn, 303, redirect, "");
     TRACE (DEBUG_NET, "Redirecting client %lu: '%s'...\n\n", conn->id, redirect);
     return;
@@ -3173,7 +3205,7 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
   memset (&opts, '\0', sizeof(opts));
   opts.root_dir = Modes.web_root;
 
-  if (cli && cli->keep_alive)
+  // if (cli && cli->keep_alive)
   {
     opts.extra_headers = "Connection: keep-alive\r\n";
     Modes.stat.http_keep_alive_sent++;
@@ -3948,7 +3980,10 @@ int main (int argc, char **argv)
         modeS_net_services [MODES_NET_SERVICE_SBS].port = atoi (argv[++j]);
 
     else if (!strcmp(argv[j], "--web-page") && more)
-        strncpy (Modes.web_page, argv[++j], sizeof(Modes.web_page)-1);
+    {
+      strncpy (Modes.web_root, dirname(argv[++j]), sizeof(Modes.web_root)-1);
+      strncpy (Modes.web_page, basename(argv[j]), sizeof(Modes.web_page)-1);
+    }
 
     else if (!strcmp(argv[j], "--onlyaddr"))
         Modes.only_addr = 1;
