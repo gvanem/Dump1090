@@ -1,5 +1,7 @@
 # Dump1090
 
+[![MSBuild](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml/badge.svg?branch=main)](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml)
+
 A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<br>
 It requires a RTLSDR USB-stick and Osmocom's **[librtlsdr](https://github.com/osmocom/rtl-sdr)**.
 
