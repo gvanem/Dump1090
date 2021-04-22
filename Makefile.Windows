@@ -171,6 +171,7 @@ docs: doxy-docs doxy-docs/Doxyfile
 
 docs_clean:
 	rm -fR doxy-docs/*
+	rm -f dump1090.chm dump1090.chw
 	- rmdir doxy-docs
 
 doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
