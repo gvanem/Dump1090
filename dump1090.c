@@ -132,8 +132,11 @@
 #define MODES_NET_SERVICE_HTTP    3
 #define MODES_NET_SERVICES_NUM    4
 
+#define MODES_CONTENT_TYPE_CSS    "text/css;charset=utf-8"
 #define MODES_CONTENT_TYPE_HTML   "text/html;charset=utf-8"
 #define MODES_CONTENT_TYPE_JSON   "application/json;charset=utf-8"
+#define MODES_CONTENT_TYPE_JS     "application/javascript;charset=utf-8"
+
 #define GET_DATA_JSON_1           "GET /data.json "
 #define GET_DATA_JSON_2           "GET /dump1090//data.json "
 
@@ -219,7 +222,7 @@ struct client {
     int                   service;                       /**< This client's service membership */
     int                   accepted;                      /**< Should always be 1 */
     uint32_t              id;                            /**< A copy of `conn->id` */
-    int                   keep_alive;                    /**< Client request contains "HTTP/1.1\r\n ... Connection: keep-alive" */
+    int                   keep_alive;                    /**< Client request contains "Connection: keep-alive" */
     char                  buf [MODES_CLIENT_BUF_SIZE+1]; /**< Read buffer. */
     int                   buflen;                        /**< Amount of data on buffer. */
     struct client        *next;
@@ -273,7 +276,8 @@ struct statistics {
        uint64_t clients_accepted;
        uint64_t clients_removed;
        uint64_t http_requests;
-       uint64_t http_keep_alive;
+       uint64_t http_keep_alive_recv;
+       uint64_t http_keep_alive_sent;
        uint64_t http_websockets;
      };
 
@@ -2884,6 +2888,23 @@ struct client *get_client (int service)
 }
 
 /**
+ * Returns a 'struct client *' based in connection 'service' and 'conn_id'.
+ */
+struct client *get_client_id (int service, uint32_t conn_id)
+{
+  struct client *cli;
+
+  assert (service >= MODES_NET_SERVICE_RAW_OUT && service <= MODES_NET_SERVICE_HTTP);
+
+  for (cli = Modes.clients[service]; cli; cli = cli->next)
+  {
+    if (cli->service == service && cli->id == conn_id && cli->accepted)
+       return (cli);
+  }
+  return (NULL);
+}
+
+/**
  * Free a specific '_client'.
  */
 void free_client (struct client *_cli, int service)
@@ -3064,99 +3085,103 @@ void websocket_handler (struct mg_connection *conn, int ev, void *ev_data, int s
  */
 void http_handler (struct mg_connection *conn, int ev, void *ev_data, int service)
 {
-  static struct client dummy;
+  struct client            *cli = get_client_id (service, conn->id);
+  struct mg_http_message   *hm = ev_data;
+  struct mg_http_serve_opts opts;
+  bool   data_json;
+
+  if (ev != MG_EV_HTTP_MSG && ev != MG_EV_HTTP_CHUNK)
+     return;
+
+  data_json = str_startswith (hm->head.ptr, GET_DATA_JSON_1) ||
+              str_startswith (hm->head.ptr, GET_DATA_JSON_2);
+
+  Modes.stat.http_requests++;
+
+  /* Do not trace these '/data.json' requests since it would be too much
+   */
+  if (!data_json)
+     TRACE (DEBUG_NET, "HTTP header: '%.20s'...\n\n", hm->head.ptr);
+
+  /* Redirect a 'GET /' to a 'GET /' + 'web_page'
+   */
+  if (str_startswith(hm->head.ptr, "GET / "))
+  {
+    char  redirect [10+MG_PATH_MAX];
+    const char *keep_alive = "";
+
+    if (str_startswith(hm->proto.ptr, "HTTP/1.1"))
+    {
+      keep_alive = "Connection: keep-alive\r\n";
+      Modes.stat.http_keep_alive_sent++;
+      if (cli)
+         cli->keep_alive = 1;
+    }
+    snprintf (redirect, sizeof(redirect), "Location: %s\r\n%s", Modes.web_page, keep_alive);
+    mg_http_reply (conn, 303, redirect, "");
+    TRACE (DEBUG_NET, "Redirecting client %lu: '%s'...\n\n", conn->id, redirect);
+    return;
+  }
+
+  if (data_json)
+  {
+    int   data_len, num_planes;
+    char *data = aircrafts_to_json (&data_len, &num_planes);
+
+    if (num_planes >= 1)
+       TRACE (DEBUG_NET, "Feeding client %lu with \"data.json\", num_planes: %d.\n", conn->id, num_planes);
+
+    /* This is rather inefficient way to pump data over to the client.
+     * Better use a WebSocket instead.
+     */
+    mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
+    free (data);
+
+#if 0
+    if (!cli->keep_alive)
+       cli->is_closing = 1;
+#endif
+    return;
+  }
+
+#if 0
+  /**
+   * \todo send the 'favicon.ico' as a C-array.
+   */
+  if (str_startswith(hm->head.ptr, "GET /favicon.ico"))
+  {
+    TRACE (DEBUG_NET, "404 Not found ('/favicon.ico') to client %lu.\n", conn->id);
+    return;
+  }
 
   /**
-   *\todo find the correct client; `cli = get_client(service)`
+   * \todo Check header for a "Upgrade: websocket" and call mg_ws_upgrade()?
    */
-  struct client          *cli = &dummy;
-  struct mg_http_message *hm = ev_data;
-
-  if (ev == MG_EV_HTTP_MSG || ev == MG_EV_HTTP_CHUNK)
+  if (str_startswith(hm->head.ptr, "GET /echo "))
   {
-    bool data_json = str_startswith (hm->head.ptr, GET_DATA_JSON_1) ||
-                     str_startswith (hm->head.ptr, GET_DATA_JSON_2);
-
-    Modes.stat.http_requests++;
-
-    /* Do not trace these '/data.json' requests since it would be too much
-     */
-    if (!data_json)
-       TRACE (DEBUG_NET, "HTTP header: '%.20s'...\n\n", hm->head.ptr);
-
-    /* Redirect a 'GET /' to a 'GET /' + 'web_page'
-     */
-    if (str_startswith(hm->head.ptr, "GET / "))
-    {
-      char  redirect [10+MG_PATH_MAX];
-      const char *keep_alive = "";
-
-      if (str_startswith(hm->proto.ptr, "HTTP/1.1"))
-      {
-        keep_alive = "Connection: keep-alive\r\n";
-        cli->keep_alive = 1;
-        Modes.stat.http_keep_alive++;
-      }
-      snprintf (redirect, sizeof(redirect), "Location: %s\r\n%s", Modes.web_page, keep_alive);
-      mg_http_reply (conn, 303, redirect, "");
-      TRACE (DEBUG_NET, "Redirecting client %lu: '%s'...\n\n", conn->id, redirect);
-      return;
-    }
-
-    if (data_json)
-    {
-      int   data_len, num_planes;
-      char *data = aircrafts_to_json (&data_len, &num_planes);
-
-      if (num_planes >= 1)
-         TRACE (DEBUG_NET, "Feeding client %lu with \"data.json\", num_planes: %d.\n", conn->id, num_planes);
-
-      /* This is rather inefficient way to pump data over to the client.
-       * Better use a WebSocket instead.
-       */
-      mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
-      free (data);
-
-#if 0
-      if (!cli->keep_alive)
-         cli->is_closing = 1;
-#endif
-      return;
-    }
-
-#if 0
-    /**
-     * \todo send the 'favicon.ico' as a C-array.
-     */
-    if (str_startswith(hm->head.ptr, "GET /favicon.ico"))
-    {
-      TRACE (DEBUG_NET, "404 Not found ('/favicon.ico') to client %lu.\n", conn->id);
-      return;
-    }
-
-    /**
-     * \todo Check header for a "Upgrade: websocket" and call mg_ws_upgrade()?
-     */
-    if (str_startswith(hm->head.ptr, "GET /echo "))
-    {
-      mg_ws_upgrade (conn);
-      return;
-    }
-#endif
-
-#if 0
-    mg_http_serve_file (conn, hm, Modes.web_page, "text/html",
-                        (cli && cli->keep_alive) ? "Connection: keep-alive\r\n" : NULL);
-#else
-    struct mg_http_serve_opts opts = { Modes.web_root, NULL, NULL };
-
-    if (cli && cli->keep_alive)
-       opts.extra_headers = "Connection: keep-alive\r\n";
-    mg_http_serve_dir (conn, hm, &opts);
-#endif
-
-    TRACE (DEBUG_NET, "Serving HTTP client %lu with \"%s\\%s\".\n", conn->id, Modes.web_root, Modes.web_page);
+    mg_ws_upgrade (conn);
+    return;
   }
+#endif
+
+#if 0
+  strncpy (uri_file, hm->head.ptr + strlen("GET / "), len);
+
+  mg_http_serve_file (conn, hm, uri_file, "text/html",
+                      (cli && cli->keep_alive) ? "Connection: keep-alive\r\n" : NULL);
+#else
+  memset (&opts, '\0', sizeof(opts));
+  opts.root_dir = Modes.web_root;
+
+  if (cli && cli->keep_alive)
+  {
+    opts.extra_headers = "Connection: keep-alive\r\n";
+    Modes.stat.http_keep_alive_sent++;
+  }
+  mg_http_serve_dir (conn, hm, &opts);
+#endif
+
+  TRACE (DEBUG_NET, "Serving HTTP client %lu with \"%s\\%s\".\n", conn->id, Modes.web_root, Modes.web_page);
 }
 
 /*
@@ -3217,7 +3242,8 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
       cli = get_client (service);
-      read_from_client (cli, "\n", decode_hex_message);
+      if (cli)
+         read_from_client (cli, "\n", decode_hex_message);
     }
   }
   else if (ev == MG_EV_CLOSE)
@@ -3270,14 +3296,16 @@ int modeS_init_net (void)
  */
 void mode_send_raw_output (const struct modeS_message *mm)
 {
-  char msg[128], *p = msg;
-  int  j;
+  char   msg[128], *p = msg;
+  static char hex[] = "0123456789abcdef";
+  int    i;
 
   *p++ = '*';
-  for (j = 0; j < mm->msg_bits/8; j++)
+  for (i = 0; i < mm->msg_bits/8; i++)
   {
-    sprintf (p, "%02X", mm->msg[j]);
-    p += 2;
+    char b = mm->msg[i];
+    *p++ = hex [b >> 4];
+    *p++ = hex [b & 0x0F];
   }
   *p++ = ';';
   *p++ = '\n';
@@ -3291,7 +3319,7 @@ void mode_send_raw_output (const struct modeS_message *mm)
 void mode_send_SBS_output (const struct modeS_message *mm, struct aircraft *a)
 {
   char msg[256], *p = msg;
-  int emergency = 0, ground = 0, alert = 0, spi = 0;
+  int  emergency = 0, ground = 0, alert = 0, spi = 0;
 
   if (mm->msg_type == 4 || mm->msg_type == 5 || mm->msg_type == 21)
   {
@@ -3344,7 +3372,7 @@ void mode_send_SBS_output (const struct modeS_message *mm, struct aircraft *a)
   }
   else if (mm->msg_type == 17 && mm->ME_type == 19 && mm->ME_subtype == 1)
   {
-    int vr = (mm->vert_rate_sign==0 ? 1 : -1) * 64 * (mm->vert_rate - 1);
+    int vr = (mm->vert_rate_sign == 0 ? 1 : -1) * 64 * (mm->vert_rate - 1);
 
     p += sprintf (p, "MSG,4,,,%02X%02X%02X,,,,,,,,%d,%d,,,%i,,0,0,0,0",
                   mm->AA1, mm->AA2, mm->AA3, a->speed, a->heading, vr);
@@ -3377,9 +3405,10 @@ int hex_digit_val (int c)
 
 /**
  * This function decodes a string representing a Mode S message in
- * raw hex format like: *8D4B969699155600E87406F5B69F;
+ * raw hex format like: `*8D4B969699155600E87406F5B69F;`
+ *
  * The string is supposed to be at the start of the client buffer
- * and null-terminated.
+ * and NUL-terminated.
  *
  * The message is passed to the higher level layers, so it feeds
  * the selected screen output, the network output and so forth.
@@ -3788,8 +3817,9 @@ void show_statistics (void)
     printf (" %8llu HTTP requests received.\n", Modes.stat.http_requests);
     printf (" %8llu SBS connections.\n", Modes.stat.SBS_connections);
     printf (" %8llu client connections accepted.\n", Modes.stat.clients_accepted);
-    printf (" %8llu client connection \"keep-alive\".\n", Modes.stat.http_keep_alive);
     printf (" %8llu client connections removed.\n", Modes.stat.clients_removed);
+    printf (" %8llu client connection \"keep-alive\".\n", Modes.stat.http_keep_alive_recv);
+    printf (" %8llu server connection \"keep-alive\".\n", Modes.stat.http_keep_alive_sent);
     printf (" %8llu HTTP/WebSocket upgrades.\n", Modes.stat.http_websockets);
     for (int service = MODES_NET_SERVICE_RAW_OUT; service <= MODES_NET_SERVICE_HTTP; service++)
         printf (" %8u clients for %s now.\n", *handler_num_clients(service), handler_descr(service));
