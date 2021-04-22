@@ -16,3 +16,5 @@ doxy-docs
 Debug/
 Release/
 .vs/
+Dump1090.vcxproj.filters
+Dump1090.vcxproj.user
