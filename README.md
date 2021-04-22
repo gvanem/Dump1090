@@ -44,7 +44,10 @@ available, developed by **Malcolm Robb**.
 
 ## Building
 
-  On Windows, type `make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).<br>
+  Using GNU-make, type `make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).<br>
+  Or using Visual Studio:
+  * from the command-line, type `msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
+  * or open `Dump1090.sln` from inside the Visual Studio IDE (`devenv.exe`) and build it there.
 
 ## Normal usage
 
