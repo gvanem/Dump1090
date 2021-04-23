@@ -681,6 +681,7 @@ void modeS_init_config (void)
   strcpy (Modes.web_root, Modes.where_am_I);
   strcat (Modes.web_root, "\\web_root");
 
+  memset (&Modes.stat, '\0', sizeof(Modes.stat));
   Modes.gain = MODES_AUTO_GAIN;
   Modes.dev_index = 0;
   Modes.sample_rate = MODES_DEFAULT_RATE;
@@ -710,7 +711,7 @@ void modeS_init_config (void)
  */
 int modeS_init (void)
 {
-  int i, q;
+  int i, q, rc;
 
   if (Modes.net)
   {
@@ -732,7 +733,12 @@ int modeS_init (void)
     }
   }
 
-  pthread_mutex_init (&Modes.data_mutex, NULL);
+  rc = pthread_mutex_init (&Modes.data_mutex, NULL);
+  if (rc)
+  {
+    fprintf (stderr, "Failed to create mutex: %s.\n", strerror(rc));
+    return (1);
+  }
 
   /* Setup SIGINT for a graceful exit
    */
@@ -777,8 +783,6 @@ int modeS_init (void)
     fprintf (stderr, "Out of memory allocating `Modes.magnitude_lut`.\n");
     return (1);
   }
-
-  memset (&Modes.stat, '\0', sizeof(Modes.stat));
 
   for (i = 0; i <= 128; i++)
   {
