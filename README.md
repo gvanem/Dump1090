@@ -44,18 +44,20 @@ available, developed by **Malcolm Robb**.
 
 ## Building
 
-  * Using GNU-make, type:<br>
+  * Using GNU-make, type:
     * `c:\dev\Dump1090> make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
-  * Or using Visual Studio:
-    *  type: `c:\dev\Dump1090> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
-    * Or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`.
+  * Or using Visual Studio tools:
+    * `c:\dev\Dump1090> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
+    * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`.
+
+  (assuming you have downloaded this package to `c:\dev\Dump1090`).
 
 ## Normal usage
 
 To capture traffic directly from your RTLSDR device (and soon a *SDRPlay* radio) and
 show the captured traffic on standard output, just run the program without options at all:
   ```
-  dump1090
+  c:\dev\Dump1090> dump1090
   ```
 
   Example output:
@@ -79,7 +81,7 @@ show the captured traffic on standard output, just run the program without optio
 
 To only output hexadecimal messages:
   ```
-   dump1090 --raw
+  c:\dev\Dump1090> dump1090 --raw
   ```
   Example output:
   ```
@@ -92,13 +94,13 @@ To only output hexadecimal messages:
 
 To run the program in interactive mode:
     ```
-    dump1090 --interactive
+    c:\dev\Dump1090> dump1090 --interactive
     ```
 
 To run the program in interactive mode, with networking support and connecting
 to your browser to **http://localhost:8080**, use this command:
   ```
-  dump1090 --interactive --net
+  c:\dev\Dump1090> dump1090 --interactive --net
   ```
 
   It will present live traffic to the Web-browser and console:
@@ -107,19 +109,19 @@ to your browser to **http://localhost:8080**, use this command:
 In this interactive mode there is a more compact output. Where the screen is refreshed
 up to 4 times per second displaying all the recently seen aircrafts with some additional
 information such as flight number, altitude, speed, heading and position. All items extracted
-from the received *Mode S* packets. Except the above *RSSI*, *Msgs* and last *Seen*.
+from the received *Mode S* packets. Except the above *Messages* and last *Seen*.
 
 ## Using files as source of data
 
 To decode data from file, use:
-    ```
-    dump1090 --infile /path/to/binfile
-    ```
+  ```
+  c:\dev\Dump1090> dump1090 --infile /path/to/binfile
+  ```
 
 The binary file should be created using `rtl_sdr` like this (or with another
 program that is able to output 8-bit unsigned IQ samples at 2 MHz sample rate):
   ```
-  rtl_sdr -f 1090M -s 2000000 output.bin
+  c:\dev\OsmoCom> rtl_sdr -f 1090M -s 2000000 output.bin
   ```
 
 In the above example, `rtl_sdr` with AUTO gain is used. Use `rtl_sdr -g 50` for a 50 dB gain.
@@ -193,9 +195,9 @@ normal traffic from RTL devices or from file when `--infile` is used.
 
 If your feed *Dump1090* with data from the internet, one can use this command to
 see on the console what's happening: <br>
-    ```
-    dump1090 --net-only --interactive
-    ```
+  ```
+  c:\dev\Dump1090> dump1090 --net-only --interactive
+  ```
 
   * **Port 30003** connected clients are served with messages in
     **[SBS1 (BaseStation) format](http://woodair.net/sbs/article/barebones42_socket_data.htm)**, similar to: <br>
@@ -280,7 +282,7 @@ If however you don't have an RTLSDR device, or if in your area the presence
 of aircrafts is very limited, you may want to try it with the sample file under
 the **[testfiles](testfiles/)** directory. Run it like this: <br>
   ```
-  dump1090 <other-options> --ifile testfiles/modes1.bin
+  c:\dev\Dump1090> dump1090 <other-options> --ifile testfiles/modes1.bin
   ```
 
 ## What is `--strip` mode?
