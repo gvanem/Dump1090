@@ -3,6 +3,7 @@
 <html>
   <head>
     <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+    <title> Dump1090 Web-server</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
           integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A=="
@@ -255,7 +256,7 @@
         }
         html += '</tbody></table>';
 
-        document.getElementById('planes_table').innerHTML = html;
+        document.getElementById ('planes_table').innerHTML = html;
 
         if (SpecialSquawk) {
           $('#SpecialSquawkWarning').css('display', 'inline');
@@ -265,16 +266,16 @@
         }
 
         // Click event for table
-        $('#planes_table').find('tr').click( function(){
-          var hex = $(this).find('td:first').text();
+        $('#planes_table').find ('tr').click (function() {
+          var hex = $(this).find ('td:first').text();
           if (hex != "ICAO") {
-            selectPlaneByHex(hex);
+            selectPlaneByHex (hex);
             refreshTableInfo();
             refreshSelected();
           }
         });
 
-        sortTable("tableinfo");
+        sortTable ("tableinfo");
       }
 
       /* TODO: compare with this
@@ -358,7 +359,7 @@
       }
 
       function WebSocketTest() {
-          var i = document.getElementById('ws_test');
+          var i = document.getElementById ('ws_test');
           if (have_wsocket)   // server have WebSocket
                i.innerHTML = 'WebSocket supported';
           else i.innerHTML = 'No WebSocket support';
