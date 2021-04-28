@@ -139,6 +139,7 @@ TARGETS = dump1090.exe
 #
 SOURCES = externals/pthreads/pthread.c \
           externals/mongoose.c         \
+          csv.c                        \
           dump1090.c
 
 OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
