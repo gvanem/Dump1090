@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <math.h>
+#include <malloc.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <ctype.h>
@@ -83,7 +84,6 @@
 #define MODES_ASYNC_BUF_NUMBER     12
 #define MODES_DATA_LEN             (16*16384)   /* 256k */
 #define MODES_AUTO_GAIN            -100         /* Use automatic gain. */
-#define MODES_MAX_GAIN             999999       /* Use max available gain. */
 
 #define MODES_PREAMBLE_US             8         /* microseconds */
 #define MODES_LONG_MSG_BITS         112
@@ -136,6 +136,7 @@
 #define MODES_CONTENT_TYPE_HTML   "text/html;charset=utf-8"
 #define MODES_CONTENT_TYPE_JSON   "application/json;charset=utf-8"
 #define MODES_CONTENT_TYPE_JS     "application/javascript;charset=utf-8"
+#define MODES_CONTENT_TYPE_PNG    "image/png"
 
 #define ADS_B_ACRONYM             "ADS-B; Automatic Dependent Surveillance - Broadcast"
 
@@ -156,8 +157,15 @@ struct net_service {
     unsigned    num_clients;      /**< Number of active clients connected to it */
   };
 
-#define GMAP_HTML          "web_root/gmap.html"  /* Our default main server page relative to 'Mode.where_am_I' */
+/**
+ * \def GMAP_HTML
+ * Our default main server page relative to `Mode.where_am_I`.
+ */
+#define GMAP_HTML    "web_root/gmap.html"
 
+/**
+ * Various helper macros.
+ */
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define MODES_NOTUSED(V)   ((void)V)
 #define TWO_PI             (2 * M_PI)
@@ -217,8 +225,8 @@ static pthread_t PTHREAD_NULL;
 struct client {
     struct mg_connection *conn;                          /**< Remember which connection the client is in */
     int                   service;                       /**< This client's service membership */
-    int                   accepted;                      /**< Should always be 1 */
     uint32_t              id;                            /**< A copy of `conn->id` */
+    struct mg_addr        addr;                          /**< A copy of `conn->peer` */
     int                   keep_alive;                    /**< Client request contains "Connection: keep-alive" */
     char                  buf [MODES_CLIENT_BUF_SIZE+1]; /**< Read buffer. */
     int                   buflen;                        /**< Amount of data on buffer. */
@@ -267,15 +275,20 @@ struct statistics {
        uint64_t single_bit_fix;
        uint64_t two_bits_fix;
        uint64_t out_of_phase;
-       uint64_t SBS_connections;
        uint64_t unique_aircrafts;
        uint64_t unrecognized_ME;
-       uint64_t clients_accepted;
-       uint64_t clients_removed;
-       uint64_t http_requests;
-       uint64_t http_keep_alive_recv;
-       uint64_t http_keep_alive_sent;
-       uint64_t http_websockets;
+
+       /* Network statistics:
+        */
+       uint64_t cli_removed  [MODES_NET_SERVICES_NUM];
+       uint64_t cli_accepted [MODES_NET_SERVICES_NUM];
+       uint64_t cli_unknown [MODES_NET_SERVICES_NUM];
+       uint64_t bytes_sent [MODES_NET_SERVICES_NUM];
+       uint64_t bytes_recv [MODES_NET_SERVICES_NUM];
+       uint64_t HTTP_get_requests;
+       uint64_t HTTP_keep_alive_recv;
+       uint64_t HTTP_keep_alive_sent;
+       uint64_t HTTP_websockets;
      };
 
 /**
@@ -292,20 +305,20 @@ struct global_data {
        uint16_t         *magnitude;                /**< Magnitude vector */
        uint16_t         *magnitude_lut;            /**< I/Q -> Magnitude lookup table. */
        int               fd;                       /**< `--infile` option file descriptor. */
-       int               data_ready;               /**< Data ready to be processed. */
+       volatile int      exit;                     /**< Exit from the main loop when true. */
+       volatile int      data_ready;               /**< Data ready to be processed. */
        uint32_t         *ICAO_cache;               /**< Recently seen ICAO addresses. */
-       int               exit;                     /**< Exit from the main loop when true. */
        struct statistics stat;                     /**< Decoding and network statistics */
        struct aircraft  *aircrafts;                /**< Linked list of active aircrafts */
-       uint64_t last_update_ms;                    /**< Last screen update in milliseconds */
+       uint64_t          last_update_ms;           /**< Last screen update in milliseconds */
 
        int               dev_index;                /**< The index of the RTLSDR device used */
        int               gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
-       rtlsdr_dev_t     *dev;                      /**< The librtlsdr handle from `rtlsdr_open()` */
+       rtlsdr_dev_t     *dev;                      /**< The RTLSDR handle from `rtlsdr_open()` */
        uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
        uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE. <br>
                                                      *  \note This cannot be used yet since the code assumes a
-                                                     *        pulse-widths of 0.5 usec based on a fixed rate of 2 MS/s.
+                                                     *        pulse-width of 0.5 usec based on a fixed rate of 2 MS/s.
                                                      */
 
        /** Lists of clients for each network service
@@ -393,9 +406,9 @@ struct modeS_message {
 
 struct aircraft *interactive_receive_data (const struct modeS_message *mm);
 void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *));
-void mode_send_raw_output (const struct modeS_message *mm);
-void mode_send_SBS_output (const struct modeS_message *mm, struct aircraft *a);
-void mode_user_message (const struct modeS_message *mm);
+void modeS_send_raw_output (const struct modeS_message *mm);
+void modeS_send_SBS_output (const struct modeS_message *mm, struct aircraft *a);
+void modeS_user_message (const struct modeS_message *mm);
 
 int  fix_single_bit_errors (uint8_t *msg, int bits);
 int  fix_two_bits_errors (uint8_t *msg, int bits);
@@ -407,7 +420,7 @@ void background_tasks (void);
 void modeS_exit (void);
 void sigint_handler (int sig);
 
-u_short               handler_port (int service);  /**< not used yet */
+u_short               handler_port (int service);
 const char           *handler_descr (int service);
 struct mg_connection *handler_conn (int service);
 
@@ -415,8 +428,9 @@ static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE console_hnd = INVALID_HANDLE_VALUE;
 static DWORD  console_mode = 0;
 
-#define COLOR_RED   12
-#define COLOR_WHITE 15
+#define COLOUR_GREEN  10  /* bright green; FOREGROUND_INTENSITY + 2 */
+#define COLOUR_RED    12  /* bright red;   FOREGROUND_INTENSITY + 4 */
+#define COLOUR_WHITE  15  /* bright white; FOREGROUND_INTENSITY + 7 */
 
 static void gotoxy (int x, int y)
 {
@@ -596,7 +610,8 @@ char *basename (const char *fname)
 }
 
 /**
- * Return the directory part of a filename in a static buffer.
+ * Return the directory part of a filename.
+ * A static buffer is returned so make a copy of this ASAP.
  */
 char *dirname (const char *fname)
 {
@@ -670,6 +685,76 @@ bool str_startswith (const char *s1, const char *s2)
 }
 
 /**
+ * Return a string describing an error-code from RTLSDR
+ *
+ * This can be from `librtlsdr` itself or from `libusb`.
+ */
+const char *get_rtlsdr_libusb_error (int err)
+{
+  extern const char *WINAPI libusb_error_name (int);
+
+  if (err >= 0)
+     return ("No error");
+  if (err == -ENOMEM)
+     return strerror (-err);
+  return libusb_error_name (err);
+}
+
+void verbose_gain_set (rtlsdr_dev_t *dev, int gain)
+{
+  int r = rtlsdr_set_tuner_gain_mode(dev, 1);
+
+  if (r < 0)
+  {
+    fprintf(stderr, "WARNING: Failed to enable manual gain.\n");
+    return;
+  }
+  r = rtlsdr_set_tuner_gain (dev, gain);
+  if (r)
+       fprintf (stderr, "WARNING: Failed to set tuner gain.\n");
+  else fprintf (stderr, "Tuner gain set to %0.2f dB.\n", gain/10.0);
+}
+
+void verbose_auto_gain (rtlsdr_dev_t *dev)
+{
+  int r = rtlsdr_set_tuner_gain_mode (dev, 0);
+
+  if (r != 0)
+       fprintf (stderr, "WARNING: Failed to enable automatic gain.\n");
+  else fprintf (stderr, "Tuner gain set to automatic.\n");
+}
+
+int nearest_gain (rtlsdr_dev_t *dev, int target_gain)
+{
+  int  i, r, err1, err2, count, nearest;
+  int *gains;
+
+  r = rtlsdr_set_tuner_gain_mode (dev, 1);
+  if (r < 0)
+  {
+    fprintf (stderr, "WARNING: Failed to enable manual gain.\n");
+    return (r);
+  }
+
+  count = rtlsdr_get_tuner_gains (dev, NULL);
+  if (count <= 0)
+     return (0);
+
+  gains = alloca (sizeof(int) * count);
+  count = rtlsdr_get_tuner_gains (dev, gains);
+  nearest = gains[0];
+  for (i = 0; i < count; i++)
+  {
+    err1 = abs (target_gain - nearest);
+    err2 = abs (target_gain - gains[i]);
+    if (err2 < err1)
+       nearest = gains[i];
+  }
+  return (nearest);
+}
+
+
+/**
  * Step 1: Initialize the program with default values.
  */
 void modeS_init_config (void)
@@ -678,7 +763,7 @@ void modeS_init_config (void)
   GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
 
   strcpy (Modes.web_page, basename(GMAP_HTML));
-  strcpy (Modes.web_root, Modes.where_am_I);
+  strcpy (Modes.web_root, dirname(Modes.who_am_I));
   strcat (Modes.web_root, "\\web_root");
 
   memset (&Modes.stat, '\0', sizeof(Modes.stat));
@@ -707,7 +792,11 @@ void modeS_init_config (void)
 }
 
 /**
- * Step 2: Allocate and initialize the needed buffers.
+ * Step 2:
+ *  \li In `--net` mode, check the precence of the Web-page.
+ *  \li Initialize the `Modes.data_mutex`.
+ *  \li Setup a SIGINT handler for a clean exit.
+ *  \li Allocate and initialize the needed buffers.
  */
 int modeS_init (void)
 {
@@ -719,16 +808,16 @@ int modeS_init (void)
     char   full_name [MG_PATH_MAX];
 
     snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.web_root, basename(Modes.web_page));
-    TRACE (DEBUG_NET, "Full web-page: '%s'\n", full_name);
+    TRACE (DEBUG_NET, "Full web-page: \"%s\"\n", full_name);
 
     if (stat(full_name, &st) != 0)
     {
-      fprintf (stderr, "Web-page '%s' does not exist.\n", full_name);
+      fprintf (stderr, "Web-page \"%s\" does not exist.\n", full_name);
       return (1);
     }
     if (((st.st_mode) & _S_IFMT) != _S_IFREG)
     {
-      fprintf (stderr, "Web-page '%s' is not a regular file.\n", full_name);
+      fprintf (stderr, "Web-page \"%s\" is not a regular file.\n", full_name);
       return (1);
     }
   }
@@ -740,8 +829,6 @@ int modeS_init (void)
     return (1);
   }
 
-  /* Setup SIGINT for a graceful exit
-   */
   signal (SIGINT, sigint_handler);
 
   /* We add a full message minus a final bit to the length, so that we
@@ -796,11 +883,11 @@ int modeS_init (void)
 }
 
 /**
- * Initialize the RTLSDR device.
+ * Step 3: Initialize the RTLSDR device.
  */
 int modeS_init_RTLSDR (void)
 {
-  int    j, rc, device_count, ppm_error = 0;
+  int    i, rc, device_count, ppm_error = 0;
   char   vendor[256], product[256], serial[256];
   double gain;
 
@@ -812,47 +899,29 @@ int modeS_init_RTLSDR (void)
   }
 
   fprintf (stderr, "Found %d device(s):\n", device_count);
-  for (j = 0; j < device_count; j++)
+  for (i = 0; i < device_count; i++)
   {
-    rtlsdr_get_device_usb_strings (j, vendor, product, serial);
-    fprintf (stderr, "%d: %s, %s, SN: %s %s\n", j, vendor, product, serial,
-             (j == Modes.dev_index) ? "(currently selected)" : "");
+    rtlsdr_get_device_usb_strings (i, vendor, product, serial);
+    fprintf (stderr, "%d: %s, %s, SN: %s %s\n", i, vendor, product, serial,
+             (i == Modes.dev_index) ? "(currently selected)" : "");
   }
 
   rc = rtlsdr_open (&Modes.dev, Modes.dev_index);
   if (rc < 0)
   {
-    const char * WINAPI libusb_error_name (int errcode);
-    const char *err_str;
-
-    if (rc == -1)             /* Normally due to ENOMEM */
-         err_str = strerror (errno);
-    else err_str = libusb_error_name (rc);
-    fprintf (stderr, "Error opening the RTLSDR device: %s.\n", err_str);
+    fprintf (stderr, "Error opening the RTLSDR device: %s.\n", get_rtlsdr_libusb_error(rc));
     return (1);
   }
 
   /* Set gain, frequency, sample rate, and reset the device.
    */
-  rtlsdr_set_tuner_gain_mode (Modes.dev, (Modes.gain == MODES_AUTO_GAIN) ? 0 : 1);
-
-  if (Modes.gain != MODES_AUTO_GAIN)
-  {
-    if (Modes.gain == MODES_MAX_GAIN)
-    {
-      /* Find the maximum gain available. */
-      int numgains;
-      int gains [100];
-
-      numgains = rtlsdr_get_tuner_gains (Modes.dev, gains);
-      Modes.gain = gains [numgains-1];
-      fprintf (stderr, "Max available gain is: %.2f dB.\n", Modes.gain/10.0);
-    }
-    rtlsdr_set_tuner_gain (Modes.dev, Modes.gain);
-    fprintf (stderr, "Setting gain to: %.2f dB.\n", Modes.gain/10.0);
-  }
+  if (Modes.gain == MODES_AUTO_GAIN)
+     verbose_auto_gain (Modes.dev);
   else
-    fprintf (stderr, "Using automatic gain control.\n");
+  {
+    Modes.gain = nearest_gain (Modes.dev, Modes.gain);
+    verbose_gain_set (Modes.dev, Modes.gain);
+  }
 
   rtlsdr_set_freq_correction (Modes.dev, ppm_error);
   rtlsdr_set_agc_mode (Modes.dev, 1);
@@ -982,8 +1051,8 @@ void *data_thread_fn (void *arg)
 
     rc = rtlsdr_read_async (Modes.dev, rtlsdr_callback, NULL,
                             MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
-
-    TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d.\n", rc);
+    TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
+           rc, get_rtlsdr_libusb_error(rc));
   }
 
   pthread_exit (NULL);
@@ -1208,19 +1277,19 @@ const uint32_t modeS_checksum_table[112] = {
                0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
              };
 
-uint32_t modeS_checksum (uint8_t *msg, int bits)
+uint32_t modeS_checksum (const uint8_t *msg, int bits)
 {
   uint32_t crc = 0;
-  int      offset = (bits == 112) ? 0 : (112-56);
+  int      offset = (bits == 112) ? 0 : (112 - 56);
   int      j;
 
   for (j = 0; j < bits; j++)
   {
     int byte = j / 8;
-    int bit = j % 8;
-    int bitmask = 1 << (7-bit);
+    int bit  = j % 8;
+    int bitmask = 1 << (7 - bit);
 
-    /* If bit is set, xor with corresponding table entry. */
+    /* If bit is set, XOR with corresponding table entry. */
     if (msg[byte] & bitmask)
        crc ^= modeS_checksum_table [j + offset];
   }
@@ -2269,7 +2338,7 @@ good_preamble:
 
       /* Pass data to the next layer
        */
-      mode_user_message (&mm);
+      modeS_user_message (&mm);
     }
     else
     {
@@ -2303,18 +2372,20 @@ good_preamble:
  * Basically this function passes a raw message to the upper layers for
  * further processing and visualization.
  */
-void mode_user_message (const struct modeS_message *mm)
+void modeS_user_message (const struct modeS_message *mm)
 {
   if (Modes.check_crc == 0 || mm->CRC_ok)
   {
-    /* Track aircrafts in interactive mode or if we have some HTTP clients.
+    /* Track aircrafts in interactive mode or if we have some HTTP / SBS clients.
      */
-    if (Modes.interactive || Modes.stat.http_requests > 0 || Modes.stat.SBS_connections > 0)
+    uint64_t num_clients = Modes.stat.cli_accepted [MODES_NET_SERVICE_HTTP] +
+                           Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS];
+    if (Modes.interactive || num_clients > 0)
     {
       struct aircraft *a = interactive_receive_data (mm);
 
-      if (a && Modes.stat.SBS_connections > 0)
-         mode_send_SBS_output (mm, a);     /* Feed SBS output clients. */
+      if (a && Modes.stat.cli_accepted[MODES_NET_SERVICE_SBS] > 0)
+         modeS_send_SBS_output (mm, a);     /* Feed SBS output clients. */
     }
 
     /* In non-interactive way, display messages on standard output.
@@ -2329,7 +2400,7 @@ void mode_user_message (const struct modeS_message *mm)
     /* Send data to connected clients.
      */
     if (Modes.net)
-       mode_send_raw_output (mm);
+       modeS_send_raw_output (mm);
   }
 }
 
@@ -2581,7 +2652,7 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
      *
      * However move it on head only if at least one second elapsed
      * since the aircraft that is currently on head sent a message,
-     * othewise with multiple aircrafts at the same time we have an
+     * otherwise with multiple aircrafts at the same time we have an
      * useless shuffle of positions on the screen.
      */
     if (0 && Modes.aircrafts != a && (MSEC_TIME()/1000 - a->seen) >= 1)
@@ -2675,12 +2746,12 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
    */
   if (Modes.debug == 0 && !Modes.raw)
   {
-    if (old_count = -1 || old_count > num_aircrafts())
+    if (old_count == -1 || old_count > num_aircrafts())
        clrscr();
     gotoxy (1, 1);
   }
 
-  setcolor (COLOR_WHITE);
+  setcolor (COLOUR_WHITE);
   printf ("ICAO   Flight   Sqwk   Altitude  Speed    Lat       Long     Heading  Messages Seen %c\n"
           "-------------------------------------------------------------------------------------\n",
           spinner[spin_idx++ % 4]);
@@ -2723,7 +2794,7 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
        snprintf (speed_buf, sizeof(speed_buf), "%d", a->speed);
 
     if (next_a)
-       setcolor (COLOR_RED);
+       setcolor (COLOUR_RED);
 
     printf ("%-6s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %2d sec  \n",
             a->hexaddr, a->flight, squawk, alt_buf, speed_buf,
@@ -2741,11 +2812,11 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
 
 /**
  * When in interactive mode, if we don't receive new nessages within
- * `MODES_INTERACTIVE_TTL` seconds, we remove the aircraft from the list.
+ * `Modes.interactive_ttl` seconds, we remove the aircraft from the list.
  *
  * \retval return a pointer to the aircraft that is to be removed
  *         on the next call to this function. So we can write this
- *         aircraft information in red.
+ *         aircraft information in red colour.
  */
 const struct aircraft *remove_stale_aircrafts (uint64_t now)
 {
@@ -2908,9 +2979,9 @@ char *aircrafts_to_json (int *len, int *num_planes)
 }
 
 /**
- * Returns a 'struct client *' based in connection 'service'.
+ * Returns a 'struct client *' based on the remote 'addr' and 'service'.
  */
-struct client *get_client (int service)
+struct client *get_client_addr (const struct mg_addr *addr, int service)
 {
   struct client *cli;
 
@@ -2918,26 +2989,10 @@ struct client *get_client (int service)
 
   for (cli = Modes.clients[service]; cli; cli = cli->next)
   {
-    if (cli->service == service && cli->accepted)
+    if (cli->service == service && !memcmp(&cli->addr, addr, sizeof(cli->addr)))
        return (cli);
   }
-  return (NULL);
-}
-
-/**
- * Returns a 'struct client *' based in connection 'service' and 'conn_id'.
- */
-struct client *get_client_id (int service, uint32_t conn_id)
-{
-  struct client *cli;
-
-  assert (service >= MODES_NET_SERVICE_RAW_OUT && service <= MODES_NET_SERVICE_HTTP);
-
-  for (cli = Modes.clients[service]; cli; cli = cli->next)
-  {
-    if (cli->service == service && cli->id == conn_id && cli->accepted)
-       return (cli);
-  }
+  Modes.stat.cli_unknown [service]++;   /* Should never happen */
   return (NULL);
 }
 
@@ -2949,13 +3004,15 @@ void free_client (struct client *_cli, int service)
   struct client *cli;
   uint32_t cli_id = (uint32_t)-1;
 
+  assert (_cli);
+
   for (cli = Modes.clients[service]; cli; cli = cli->next)
   {
     if (cli != _cli)
        continue;
 
     LIST_DELETE (struct client, &Modes.clients[service], cli);
-    Modes.stat.clients_removed++;
+    Modes.stat.cli_removed [service]++;
     cli_id = cli->id;
     free (cli);
     break;
@@ -2966,9 +3023,9 @@ void free_client (struct client *_cli, int service)
 /*
  * Free all clients in all services.
  */
-void free_all_clients (void)
+unsigned free_all_clients (void)
 {
-  int service;
+  int service, num = 0;
 
   for (service = MODES_NET_SERVICE_RAW_OUT; service <= MODES_NET_SERVICE_HTTP; service++)
   {
@@ -2978,8 +3035,10 @@ void free_all_clients (void)
     {
       cli_next = cli->next;
       free_client (cli, service);
+      num++;
     }
   }
+  return (num);
 }
 
 /**
@@ -2990,10 +3049,9 @@ void free_all_clients (void)
  * service can have many clients.
  *
  * \note
- *  This function is not used for sending HTTP(S) data.
- *  That is done by feeding `data.json` to the client `Modes.web_page` page.
+ *  This function is not used for sending HTTP data.
  */
-int send_all_clients (int service, const void *msg, int len)
+int send_all_clients (int service, const void *msg, size_t len)
 {
   struct mg_connection *conn = handler_conn (service);
   struct client *cli, *cli_next;
@@ -3007,13 +3065,13 @@ int send_all_clients (int service, const void *msg, int len)
        continue;
 
     rc = mg_send (cli->conn, msg, len);
-    if (rc != len)          /* client gone, drop him */
-         free_client (cli, service);
+    if (rc != len)
+         free_client (cli, service);    /* write failed; assume client is gone */
     else found++;
-    TRACE (DEBUG_NET, "Sent to client service '%s', rc: %d.\n", handler_descr(service), rc);
+    TRACE (DEBUG_NET, "Sent to client service \"%s\", rc: %d.\n", handler_descr(service), rc);
   }
   if (found == 0)
-     TRACE (DEBUG_NET2, "No client found for service: '%s'\n", handler_descr(service));
+     TRACE (DEBUG_NET2, "No client found for service: \"%s\"\n", handler_descr(service));
   return (found);
 }
 
@@ -3043,8 +3101,12 @@ const char *event_name (int ev)
           ev == MG_EV_READ       ? "MG_EV_READ" :
           ev == MG_EV_WRITE      ? "MG_EV_WRITE" :
           ev == MG_EV_CLOSE      ? "MG_EV_CLOSE" :
+          ev == MG_EV_ERROR      ? "MG_EV_ERROR" :
           ev == MG_EV_HTTP_MSG   ? "MG_EV_HTTP_MSG" :
-          ev == MG_EV_HTTP_CHUNK ? "MG_EV_HTTP_CHUNK" : "?");
+          ev == MG_EV_HTTP_CHUNK ? "MG_EV_HTTP_CHUNK" :
+          ev == MG_EV_WS_OPEN    ? "MG_EV_WS_OPEN" :
+          ev == MG_EV_WS_MSG     ? "MG_EV_WS_MSG" :
+          ev == MG_EV_WS_CTL     ? "MG_EV_WS_CTL" : "?");
 }
 
 struct mg_connection *handler_conn (int service)
@@ -3099,63 +3161,87 @@ void net_flushall (void)
 
 /**
  * \todo
- * The event handler for WebSocket traffic.
+ * The event handler for WebSocket control messages.
  */
-void websocket_handler (struct mg_connection *conn, int ev, void *ev_data, int service)
+void websocket_ctrl_handler (struct mg_connection *conn, const char *remote, int ev, void *ev_data)
 {
   struct mg_ws_message *ws = ev_data;
 
-  if (ev == MG_EV_WS_OPEN)
-  {
-  }
-  else if (ev == MG_EV_WS_MSG)
+  TRACE (DEBUG_NET, "Web-socket event %s from client at %s has %d bytes for us.\n",
+         event_name(ev), remote, conn->recv.len);
+
+  if (ev == MG_EV_WS_MSG)
   {
   }
   else if (ev == MG_EV_WS_CTL)
   {
-    Modes.stat.http_websockets++;
+    Modes.stat.HTTP_websockets++;
   }
+}
+
+/**
+ * Return true if event is a WebSocket control event.
+ * \note A `MG_EV_WS_OPEN` is handled like a `MG_EV_HTTP_*` event.
+ */
+bool is_websocket_ctrl_event (int ev)
+{
+  return (ev == MG_EV_WS_MSG || ev == MG_EV_WS_CTL);
 }
 
 /**
  * The event handler for HTTP traffic.
  */
-void http_handler (struct mg_connection *conn, int ev, void *ev_data, int service)
+void http_handler (struct mg_connection *conn, const char *remote, int ev, void *ev_data)
 {
-  struct client            *cli = get_client_id (service, conn->id);
-  struct mg_http_message   *hm = ev_data;
-  struct mg_http_serve_opts opts;
+  struct mg_http_message *hm = ev_data;
+  struct client          *cli;
   bool   data_json;
+  const char *content;
+  const char *uri;
   const char *keep_alive = "";
+  const char *ext;
+  char  *request, *end;
 
-  if (ev != MG_EV_HTTP_MSG && ev != MG_EV_HTTP_CHUNK)
+  if ((ev != MG_EV_HTTP_MSG && ev != MG_EV_HTTP_CHUNK) || strncmp(hm->head.ptr, "GET /", 5))
      return;
 
-  data_json = str_startswith (hm->head.ptr, "GET /data.json ");
+  Modes.stat.HTTP_get_requests++;
+  request = strncpy (alloca(hm->head.len+1), hm->head.ptr, hm->head.len);
 
-  Modes.stat.http_requests++;
+  uri = request + strlen("GET ");
+  end = strchr (uri, ' ');
+  if (!end)
+  {
+    TRACE (DEBUG_NET, "Bad request from %s: '%.20s'...\n\n", remote, hm->head.ptr);
+    conn->is_closing = 1;
+    return;
+  }
+
+  *end = '\0';
+  data_json = (stricmp(request, "GET /data.json") == 0);
+
+  cli = get_client_addr (&conn->peer, MODES_NET_SERVICE_HTTP);
 
   /* Do not trace these '/data.json' requests since it would be too much
    */
   if (!data_json)
-     TRACE (DEBUG_NET, "HTTP header: '%.20s'...\n\n", hm->head.ptr);
+     TRACE (DEBUG_NET, "'%s' from client %lu (cli: 0x%p) at %s.\n", request, conn->id, cli, remote);
 
   /* Redirect a 'GET /' to a 'GET /' + 'web_page'
    */
-  if (str_startswith(hm->head.ptr, "GET / "))
+  if (!strcmp(request, "GET /"))
   {
-    char  redirect [10+MG_PATH_MAX];
+    char redirect [10+MG_PATH_MAX];
 
     if (str_startswith(hm->proto.ptr, "HTTP/1.1"))
     {
       keep_alive = "Connection: keep-alive\r\n";
-      Modes.stat.http_keep_alive_sent++;
-      if (cli)
-         cli->keep_alive = 1;
+      Modes.stat.HTTP_keep_alive_recv++;
+      cli->keep_alive = 1;
     }
     snprintf (redirect, sizeof(redirect), "Location: %s\r\n%s", basename(Modes.web_page), keep_alive);
     mg_http_reply (conn, 303, redirect, "");
-    TRACE (DEBUG_NET, "Redirecting client %lu: '%s'...\n\n", conn->id, redirect);
+    TRACE (DEBUG_NET, "Redirecting client %lu (cli: 0x%p): \"%s\"...\n\n", conn->id, cli, redirect);
     return;
   }
 
@@ -3165,63 +3251,76 @@ void http_handler (struct mg_connection *conn, int ev, void *ev_data, int servic
     char *data = aircrafts_to_json (&data_len, &num_planes);
 
     if (num_planes >= 1)
-       TRACE (DEBUG_NET, "Feeding client %lu with \"data.json\", num_planes: %d.\n", conn->id, num_planes);
+       TRACE (DEBUG_NET2, "Feeding client %lu (cli: 0x%p) with \"%s\", num_planes: %d.\n",
+              conn->id, cli, uri, num_planes);
 
     /* This is rather inefficient way to pump data over to the client.
      * Better use a WebSocket instead.
      */
     mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
     free (data);
-
-#if 0
-    if (!cli->keep_alive)
-       cli->is_closing = 1;
-#endif
-    return;
-  }
-
-#if 0
-  /**
-   * \todo send the 'favicon.ico' as a C-array.
-   */
-  if (str_startswith(hm->head.ptr, "GET /favicon.ico"))
-  {
-    TRACE (DEBUG_NET, "404 Not found ('/favicon.ico') to client %lu.\n", conn->id);
     return;
   }
 
   /**
    * \todo Check header for a "Upgrade: websocket" and call mg_ws_upgrade()?
    */
-  if (str_startswith(hm->head.ptr, "GET /echo "))
+  if (!stricmp(request, "GET /echo"))
   {
-    mg_ws_upgrade (conn);
+    TRACE (DEBUG_NET, "Got Web-socket echo:\n'%.*s'.\n", hm->head.len, hm->head.ptr);
+    mg_ws_upgrade (conn, hm, "WS test");
     return;
   }
-#endif
 
-#if 0
-  strncpy (uri_file, hm->head.ptr + strlen("GET / "), len);
-
-  mg_http_serve_file (conn, hm, uri_file, "text/html",
-                      (cli && cli->keep_alive) ? "Connection: keep-alive\r\n" : NULL);
-#else
-  memset (&opts, '\0', sizeof(opts));
-  opts.root_dir = Modes.web_root;
-
-  // if (cli && cli->keep_alive)
+  ext = strrchr (uri, '.');
+  if (ext)
   {
-    opts.extra_headers = "Connection: keep-alive\r\n";
-    Modes.stat.http_keep_alive_sent++;
-  }
-  mg_http_serve_dir (conn, hm, &opts);
-#endif
+    char file [MG_PATH_MAX];
 
-  TRACE (DEBUG_NET, "Serving HTTP client %lu with \"%s\\%s\".\n", conn->id, Modes.web_root, Modes.web_page);
+    if (!stricmp(ext, ".html"))
+       content = MODES_CONTENT_TYPE_HTML;
+    else if (!stricmp(ext, ".css"))
+       content = MODES_CONTENT_TYPE_CSS;
+    else if (!stricmp(ext, ".js"))
+       content = MODES_CONTENT_TYPE_JS;
+    else if (!stricmp(ext, ".json"))
+       content = MODES_CONTENT_TYPE_JSON;
+    else if (!stricmp(ext, ".png"))
+       content = MODES_CONTENT_TYPE_PNG;
+
+    if (!stricmp(request, "GET /favicon.png"))
+    {
+      static const uint8_t favicon_array[] = {     /* generated array from a 'favicon.png' */
+             #include "favicon.c"
+           };
+
+      TRACE (DEBUG_NET, "Sending \"favicon.png\" to cli: %lu.\n", conn->id);
+      mg_printf (conn,
+                 "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
+                 "Content-Length: %zu\r\n%s\r\n",
+                 content, sizeof(favicon_array), cli->keep_alive ? "Connection: keep-alive\r\n" : "");
+      mg_send (conn, favicon_array, sizeof(favicon_array));
+    }
+    else
+    {
+      snprintf (file, sizeof(file), "%s\\%s", Modes.web_root, uri+1);
+      mg_http_serve_file (conn, hm, file, content,
+                          cli->keep_alive ? "Connection: keep-alive\r\n" : "");
+    }
+    if (cli->keep_alive)
+       Modes.stat.HTTP_keep_alive_sent++;
+
+    TRACE (DEBUG_NET, "Serving HTTP client %lu (cli: 0x%p) with \"%s\".\n", conn->id, cli, uri);
+    return;
+  }
+
+  mg_http_reply (conn, 404, "", "Not found\n");
+  TRACE (DEBUG_NET, "HTTP 404 for URI: \"%s\".\n", uri);
 }
 
-/*
- * A hack for 'struct mg_connection::fd' == 'void *' in mongoose.h.
+/**
+ * A hack to get the socket-fd from a
+ * `struct mg_connection::fd` in mongoose.h.
  */
 static SOCKET _ptr2sock (void *ptr)
 {
@@ -3233,7 +3332,7 @@ static SOCKET _ptr2sock (void *ptr)
   return (u.s);
 }
 
-/*
+/**
  * The event handler for ALL network I/O.
  */
 void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_data)
@@ -3245,65 +3344,69 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
   if (Modes.exit)
      return;
 
-  if (ev == MG_EV_POLL || ev == MG_EV_WRITE)  /* Ignore our own events */
+  if (ev == MG_EV_POLL || ev == MG_EV_ERROR)  /* Ignore these events */
      return;
+
+  if (ev == MG_EV_WRITE)
+  {
+    Modes.stat.bytes_sent[service] += *(const int*) ev_data;
+    return;
+  }
+
+  remote = mg_straddr (conn, remote_buf, sizeof(remote_buf));
 
   if (ev == MG_EV_ACCEPT)
   {
     cli = calloc (sizeof(*cli), 1);
     cli->conn    = conn;      /* Keep a copy of the servicing connection */
-    cli->service = (int) fn_data;
+    cli->service = service;
     cli->id      = conn->id;
+    cli->addr    = conn->peer;
 
     LIST_ADD_HEAD (struct client, &Modes.clients[service], cli);
     ++ (*handler_num_clients (service));
-    Modes.stat.clients_accepted++;
+    Modes.stat.cli_accepted [service]++;
 
-    remote = mg_ntoa (&conn->peer, remote_buf, sizeof(remote_buf));
-
-    TRACE (DEBUG_NET, "New client %u (service '%s') from %s:%u (socket %u).\n",
-           cli->id, handler_descr(service), remote, ntohs(conn->peer.port), _ptr2sock(conn->fd));
-
-    if (service == MODES_NET_SERVICE_SBS)
-       Modes.stat.SBS_connections++;
+    TRACE (DEBUG_NET, "New client %u (service \"%s\") from %s (socket %u).\n",
+           cli->id, handler_descr(service), remote, _ptr2sock(conn->fd));
   }
   else if (ev == MG_EV_READ)
   {
-#if 0
-    remote = mg_ntoa (&conn->peer, remote_buf, sizeof(remote_buf));
-    TRACE (DEBUG_NET, "Client %lu at %s:%u has %d bytes for us.\n",
-           conn->id, remote, ntohs(conn->peer.port), conn->recv.len);
-#endif
+    const struct mg_str *data = (const struct mg_str*) ev_data;
+
+    Modes.stat.bytes_recv [service] += data->len;
 
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
-      cli = get_client (service);
-      if (cli)
-         read_from_client (cli, "\n", decode_hex_message);
+      cli = get_client_addr (&conn->peer, service);
+      read_from_client (cli, "\n", decode_hex_message);
     }
   }
   else if (ev == MG_EV_CLOSE)
   {
-    if (get_client(service))
-       -- (*handler_num_clients (service));
+    cli = get_client_addr (&conn->peer, service);
+    TRACE (DEBUG_NET, "Freeing client %u for service %s.\n", cli->id, handler_descr(service));
+    free_client (cli, service);
+    -- (*handler_num_clients (service));
   }
 
   if (service == MODES_NET_SERVICE_HTTP)
   {
-    if (conn->is_websocket)
-         websocket_handler (conn, ev, ev_data, service);
-    else http_handler (conn, ev, ev_data, service);
+    if (conn->is_websocket && is_websocket_ctrl_event(ev))
+       websocket_ctrl_handler (conn, remote, ev, ev_data);
+    http_handler (conn, remote, ev, ev_data);
   }
 }
 
+/**
+ * Initialize the Mongoose network manager and
+ * start the 4 listening network services.
+ */
 int modeS_init_net (void)
 {
-  char url [100];
+  char url [50];
 
   mg_mgr_init (&Modes.mgr);
-
-  if (Modes.debug & DEBUG_NET2)
-     mg_log_set (MG_NET_DEBUG);
 
   snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modeS_net_services[MODES_NET_SERVICE_RAW_OUT].port);
   Modes.ros = mg_listen (&Modes.mgr, url, net_handler, (void*) MODES_NET_SERVICE_RAW_OUT);
@@ -3330,19 +3433,30 @@ int modeS_init_net (void)
 /**
  * Write raw output to TCP clients.
  */
-void mode_send_raw_output (const struct modeS_message *mm)
+void modeS_send_raw_output (const struct modeS_message *mm)
 {
-  char   msg[128], *p = msg;
-  static char hex[] = "0123456789abcdef";
+  char  msg [10 + MODES_LONG_MSG_BYTES];
+  char *p = msg;
+
+//TRACE (DEBUG_GENERAL, "sizeof(msg): %u, mm->msg_bits: %u\n", sizeof(msg), mm->msg_bits);
+
+#if 1
+  *p++ = '*';
+  mg_hex (&mm->msg, mm->msg_bits/8, p);
+  p = strchr (p, '\0');
+#else
+  static char hex[] = "0123456789abcdef--";
   int    i;
 
   *p++ = '*';
   for (i = 0; i < mm->msg_bits/8; i++)
   {
-    char b = mm->msg[i];
-    *p++ = hex [b >> 4];
-    *p++ = hex [b & 0x0F];
+    uint8_t byte = mm->msg[i];
+    *p++ = hex [byte >> 4];
+    *p++ = hex [byte & 0x0F];
   }
+#endif
+
   *p++ = ';';
   *p++ = '\n';
 
@@ -3352,7 +3466,7 @@ void mode_send_raw_output (const struct modeS_message *mm)
 /**
  * Write SBS output to TCP clients (Base Station format).
  */
-void mode_send_SBS_output (const struct modeS_message *mm, struct aircraft *a)
+void modeS_send_SBS_output (const struct modeS_message *mm, struct aircraft *a)
 {
   char msg[256], *p = msg;
   int  emergency = 0, ground = 0, alert = 0, spi = 0;
@@ -3495,7 +3609,7 @@ int decode_hex_message (struct client *c)
     msg[j/2] = (high << 4) | low;
   }
   decode_modeS_message (&mm, msg);
-  mode_user_message (&mm);
+  modeS_user_message (&mm);
   return (0);
 }
 
@@ -3606,7 +3720,7 @@ int handleHTTPRequest (struct client *c)
     return (1);
   }
   free (content);
-  Modes.stat.http_requests++;
+  Modes.stat.HTTP_get_requests++;
   return (!keepalive);
 }
 #endif  /* USE_MONGOOSE */
@@ -3616,10 +3730,10 @@ int handleHTTPRequest (struct client *c)
  * messages from the net.
  *
  * The message is supposed to be separated by the next message by the
- * separator 'sep', that is a null-terminated C string.
+ * separator 'sep', that is a NUL-terminated C string.
  *
  * Every full message received is decoded and passed to the higher layers
- * calling the function 'handler'.
+ * calling the function `handler`.
  *
  * The hander returns 0 on success, or 1 to signal this function we
  * should close the connection with the client in case of non-recoverable
@@ -3628,9 +3742,11 @@ int handleHTTPRequest (struct client *c)
 void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *))
 {
 #ifdef USE_MONGOOSE   /** \todo */
-   struct mg_iobuf msg = cli->conn->recv;
+   const struct mg_iobuf *msg = &cli->conn->recv;
 
-   memcpy (cli->buf, msg.buf, min(msg.len, sizeof(cli->buf)));  /* copy over before Mongoose discards this */
+   /* copy over before Mongoose discards this
+    */
+   memcpy (cli->buf, msg->buf, min(msg->len, sizeof(cli->buf)));
 
 #else
   while (1)
@@ -3746,9 +3862,9 @@ void show_help (const char *fmt, ...)
           "  --net-only               Enable just networking, no RTL device or file used.\n"
           "  --net-ro-port <port>     TCP listening port for raw output (default: %u).\n"
           "  --net-ri-port <port>     TCP listening port for raw input (default: %u).\n"
-          "  --net-http-port <port>   HTTP server port (default: %u).\n"
           "  --net-sbs-port <port>    TCP listening port for BaseStation format output (default: %u).\n"
-          "  --web-page <file>        The Web-page to server for HTTP clients (default: `%s').\n"
+          "  --net-http-port <port>   HTTP server port (default: %u).\n"
+          "  --web-page <file>        The Web-page to server for HTTP clients (default: \"%s\").\n"
           "  --no-fix                 Disable single-bits error correction using CRC.\n"
           "  --no-crc-check           Disable messages with broken CRC (discouraged).\n"
           "  --onlyaddr               Show only ICAO addresses (testing purposes).\n"
@@ -3769,7 +3885,7 @@ void show_help (const char *fmt, ...)
           Modes.who_am_I,
           (uint32_t)(MODES_DEFAULT_FREQ / 1000000), MODES_ICAO_CACHE_TTL,
           MODES_NET_OUTPUT_RAW_PORT, MODES_NET_INPUT_RAW_PORT,
-          MODES_NET_HTTP_PORT, MODES_NET_OUTPUT_SBS_PORT, GMAP_HTML, MODES_DEFAULT_RATE/1000000);
+          MODES_NET_OUTPUT_SBS_PORT, MODES_NET_HTTP_PORT, GMAP_HTML, MODES_DEFAULT_RATE/1000000);
 
   modeS_exit();  /* free Pthread-W32 data */
   exit (1);
@@ -3824,9 +3940,10 @@ void sigint_handler (int sig)
 
   if (Modes.dev)
   {
-    pthread_mutex_lock (&Modes.data_mutex);
+    int rc;
 
-    int rc = rtlsdr_cancel_async (Modes.dev);
+    pthread_mutex_lock (&Modes.data_mutex);
+    rc = rtlsdr_cancel_async (Modes.dev);
     TRACE (DEBUG_GENERAL, "rtlsdr_cancel_async(): rc: %d.\n", rc);
     pthread_mutex_unlock (&Modes.data_mutex);
   }
@@ -3834,44 +3951,59 @@ void sigint_handler (int sig)
 
 void show_statistics (void)
 {
-  puts ("Mode-S decoder statistics:");
+  puts ("Decoder statistics:");
   printf (" %8llu valid preambles.\n", Modes.stat.valid_preamble);
   printf (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
   printf (" %8llu demodulated with zero errors.\n", Modes.stat.demodulated);
   printf (" %8llu with CRC okay.\n", Modes.stat.good_CRC);
   printf (" %8llu with CRC failure.\n", Modes.stat.bad_CRC);
   printf (" %8llu errors corrected.\n", Modes.stat.fixed);
-  printf (" %8llu 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
-  printf (" %8llu 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
+  printf (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
+  printf (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
   printf (" %8llu total usable messages.\n", Modes.stat.good_CRC + Modes.stat.fixed);
   printf (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
   printf (" %8llu unrecognized ME types.\n", Modes.stat.unrecognized_ME);
 
   if (Modes.net)
   {
-    puts ("Network statistics:");
-    printf (" %8llu HTTP requests received.\n", Modes.stat.http_requests);
-    printf (" %8llu SBS connections.\n", Modes.stat.SBS_connections);
-    printf (" %8llu client connections accepted.\n", Modes.stat.clients_accepted);
-    printf (" %8llu client connections removed.\n", Modes.stat.clients_removed);
-    printf (" %8llu client connection \"keep-alive\".\n", Modes.stat.http_keep_alive_recv);
-    printf (" %8llu server connection \"keep-alive\".\n", Modes.stat.http_keep_alive_sent);
-    printf (" %8llu HTTP/WebSocket upgrades.\n", Modes.stat.http_websockets);
-    for (int service = MODES_NET_SERVICE_RAW_OUT; service <= MODES_NET_SERVICE_HTTP; service++)
-        printf (" %8u clients for %s now.\n", *handler_num_clients(service), handler_descr(service));
+    int s;
+
+    puts ("\nNetwork statistics:");
+    for (s = MODES_NET_SERVICE_RAW_OUT; s <= MODES_NET_SERVICE_HTTP; s++)
+    {
+      printf ("  %s (port %u):\n", handler_descr(s), handler_port(s));
+      if (s == MODES_NET_SERVICE_HTTP)
+      {
+        printf ("    %8llu HTTP GET requests received.\n", Modes.stat.HTTP_get_requests);
+        printf ("    %8llu HTTP/WebSocket upgrades.\n", Modes.stat.HTTP_websockets);
+        printf ("    %8llu server connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_sent);
+        printf ("    %8llu client connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_recv);
+      }
+      printf ("    %8llu client connections accepted.\n", Modes.stat.cli_accepted[s]);
+      printf ("    %8llu client connections removed.\n", Modes.stat.cli_removed[s]);
+      printf ("    %8llu client connections unknown.\n", Modes.stat.cli_unknown[s]);
+      printf ("    %8llu bytes sent.\n", Modes.stat.bytes_sent[s]);
+      printf ("    %8llu bytes recv.\n", Modes.stat.bytes_recv[s]);
+      printf ("    %8u clients now.\n", *handler_num_clients(s));
+    }
   }
 }
 
+/**
+ * Our exit function. Free all resources here.
+ */
 void modeS_exit (void)
 {
   int rc;
 
   if (Modes.net)
   {
-    free_all_clients();
+    unsigned num = free_all_clients();
     net_flushall();
     mg_mgr_free (&Modes.mgr);
     Modes.mgr.conns = NULL;
+    if (num > 0)
+       Sleep (100);
   }
 
   if (Modes.dev)
@@ -3895,6 +4027,9 @@ void modeS_exit (void)
   pthread_win32_thread_detach_np();
   pthread_win32_process_detach_np();
 #endif
+
+  if (Modes.fd > STDIN_FILENO)
+     close (Modes.fd);
 
   free_all_aircrafts();
 
@@ -3922,6 +4057,9 @@ void modeS_exit (void)
 #endif
 }
 
+/**
+ * Our main entry.
+ */
 int main (int argc, char **argv)
 {
   int j, rc;
@@ -4065,7 +4203,7 @@ int main (int argc, char **argv)
     }
     else
     {
-      show_help ("Unknown option '%s'.\n\n", argv[j]);
+      show_help ("Unknown option \"%s\".\n\n", argv[j]);
       /* not reached */
     }
   }
