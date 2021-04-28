@@ -44,9 +44,9 @@ PYTHON ?= py -3
 # Change the 'x_ROOT' dirs to suite:
 # Only important if 'USE_VLD = 1' or 'USE_ASAN = 1'.
 #
-VLD_ROOT      ?= f:/ProgramFiler/VisualLeakDetector
-CLANG_ROOT    ?= f:/ProgramFiler/LLVM-11-32bit
-CLANG_VERSION ?= 11.0.0
+VLD_ROOT   ?= f:/ProgramFiler/VisualLeakDetector
+CLANG_ROOT ?= f:/ProgramFiler/LLVM-11-32bit
+CLANG_VER  ?= 11.0.0
 
 define Usage
 
@@ -68,7 +68,7 @@ else
   $(error $(Usage))
 endif
 
-CFLAGS  = -nologo -Zi -W3 -DUSE_MONGOOSE=1 -DMG_IO_SIZE=2000
+CFLAGS  = -nologo -Zi -W3 -DUSE_MONGOOSE=1
 LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib
 
 ifeq ($(USE_CRT_DEBUG),1)
@@ -307,6 +307,7 @@ define dump1090_Doxyfile
   INPUT                 = ../dump1090.c           \
                           ../externals/mongoose.c \
                           ../externals/mongoose.h \
+                          ../externals/rtl-sdr.h  \
                           ../externals/pthreads/pthread.c
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = ..

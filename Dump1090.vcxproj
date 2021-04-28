@@ -78,7 +78,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;MG_IO_SIZE=2000;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
+      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>.;./externals;./externals/pthreads</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
@@ -96,7 +96,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;MG_IO_SIZE=2000;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
+      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>.;./externals;./externals/pthreads</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
@@ -116,7 +116,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>.;./externals;./externals/pthreads</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;MG_IO_SIZE=2000;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
+      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
       <AdditionalOptions>-wd4005 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -126,7 +126,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>.;./externals;./externals/pthreads</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;MG_IO_SIZE=2000;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
+      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
       <AdditionalOptions>-wd4005 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
