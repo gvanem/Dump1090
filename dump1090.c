@@ -21,6 +21,7 @@
 
 #include <rtl-sdr.h>
 #include <mongoose.h>
+#include "csv.h"
 
 /**
  * \addtogroup Main      Main decoder
@@ -139,6 +140,7 @@
 #define MODES_CONTENT_TYPE_PNG    "image/png"
 
 #define ADS_B_ACRONYM             "ADS-B; Automatic Dependent Surveillance - Broadcast"
+#define AIRCRAFT_CSV              "aircraftDatabase.csv"
 
 /**
  * \def MSEC_TIME()
@@ -169,6 +171,7 @@ struct net_service {
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define MODES_NOTUSED(V)   ((void)V)
 #define TWO_PI             (2 * M_PI)
+#define DIM(array)         (sizeof(array) / sizeof(array[0]))
 
 /**
  * \def SAFE_COND_SIGNAL(cond, mutex)
@@ -234,6 +237,16 @@ struct client {
 };
 
 /**
+ * \struct aircraft_CSV
+ * Describes an aircraft from a .CSV-file.
+ */
+struct aircraft_CSV {
+       uint32_t addr;
+       char     reg_num [10];
+       struct aircraft_CSV *next;
+     };
+
+/**
  * \struct aircraft
  * Structure used to describe an aircraft in interactive mode.
  */
@@ -259,7 +272,8 @@ struct aircraft {
        uint64_t even_CPR_time;  /**< Tick-time for reception of an even CPR message */
        double   lat, lon;       /**< Coordinates obtained from decoded CPR data. */
 
-       struct aircraft *next;   /**< Next aircraft in our linked list. */
+       const struct aircraft_CSV *CSV;  /**< A pointer to a CSV record (or NULL). */
+       struct aircraft           *next; /**< Next aircraft in our linked list. */
      };
 
 /**
@@ -330,7 +344,7 @@ struct global_data {
        struct mg_connection *http;        /**< HTTP listening connection. */
        struct mg_mgr         mgr;         /**< Only one connection manager */
 
-       /* Configuration
+       /** Configuration
         */
        const char *infile;                 /**< Input IQ samples from file with option `--infile file`. */
        uint64_t    loops;                  /**< Read input file in a loop. */
@@ -349,6 +363,12 @@ struct global_data {
        char        web_page [MG_PATH_MAX]; /**< The base-name of the web-page to server for HTTP clients */
        char        web_root [MG_PATH_MAX]; /**< And it's directory */
        int         strip_level;            /**< For '--strip X' mode */
+
+       /** For parsing a `AIRCRAFT_CSV` file:
+        */
+       struct CSV_context   csv_ctx;
+       struct aircraft_CSV *aircraft_data;
+       unsigned             aircraft_num_CSV;
      };
 
 struct global_data Modes;
@@ -753,6 +773,94 @@ int nearest_gain (rtlsdr_dev_t *dev, int target_gain)
   return (nearest);
 }
 
+/**
+ * Add an aircraft record to the `Modes.aircraft_list`.
+ */
+int aircraft_CSV_add_entry (struct aircraft_CSV *rec)
+{
+  struct aircraft_CSV *copy = malloc (sizeof(*copy));
+
+  if (!copy)
+     return (0);
+
+  memcpy (copy, rec, sizeof(*copy));
+  LIST_ADD_HEAD (struct aircraft_CSV, &Modes.aircraft_data, copy);
+  Modes.aircraft_num_CSV++;
+  return (1);
+}
+
+const struct aircraft_CSV *aircraft_CSV_lookup_entry (uint32_t addr)
+{
+  struct aircraft_CSV *a = Modes.aircraft_data;
+
+  while (a)
+  {
+    if (a->addr == addr)
+       return (a);
+    a = a->next;
+  }
+  return (NULL);
+}
+
+void aircraft_CSV_test (void)
+{
+  const struct aircraft_CSV *a_CSV;
+  const char  *reg_num;
+  int   i;
+  static const struct aircraft_CSV a_tests[] = {
+               { 0xaa3487, "N757F"  },  /* 5 random records from `AIRCRAFT_CSV` */
+               { 0x800737, "VT-ANQ" },
+               { 0xab34de, "N821DA" },
+               { 0x800737, "VT-ANQ" },
+               { 0xa713d8, "N555UZ" }
+             };
+
+  for (i = 0; i < DIM(a_tests); i++)
+  {
+    a_CSV = aircraft_CSV_lookup_entry (a_tests[i].addr);
+    reg_num = "?";
+    if (a_CSV && a_CSV->reg_num[0])
+       reg_num = a_CSV->reg_num;
+    printf ("addr: %06X, reg-num: '%s'\n", a_tests[i].addr, reg_num);
+  }
+}
+
+/**
+ * The CSV callback to add a record to the `aircraft_entries` smart-list.
+ *
+ * \param[in]  ctx   the CSV context structure.
+ * \param[in]  value the value for this CSV field in record `ctx->rec_num`.
+ *
+ * Match the fields for a record like this:
+ * ```
+ * "icao24","registration","manufacturericao","manufacturername","model","typecode","serialnumber","linenumber",
+ * "icaoaircrafttype","operator","operatorcallsign","operatoricao","operatoriata","owner","testreg","registered",
+ * "reguntil","status","built","firstflightdate","seatconfiguration","engines","modes","adsb","acars","notes",
+ * "categoryDescription"
+ * ```
+ *
+ * 27 fields!
+ */
+int aircraft_CSV_parse (struct CSV_context *ctx, const char *value)
+{
+  static struct aircraft_CSV rec = { 0, "" };
+  int    rc = 1;
+
+  if (ctx->field_num == 0)
+  {
+    rec.addr = mg_unhexn (value, 6);
+  }
+  else if (ctx->field_num == 1)
+  {
+    strncpy (rec.reg_num, value, sizeof(rec.reg_num));
+  }
+  else if (ctx->field_num == ctx->num_fields -1)
+  {
+    rc = aircraft_CSV_add_entry (&rec);
+    memset (&rec, '\0', sizeof(rec));    /* Ready for a new record. */
+  }
+  return (rc);
+}
 
 /**
  * Step 1: Initialize the program with default values.
@@ -797,16 +905,16 @@ void modeS_init_config (void)
  *  \li Initialize the `Modes.data_mutex`.
  *  \li Setup a SIGINT handler for a clean exit.
  *  \li Allocate and initialize the needed buffers.
+ *  \li Open and parse the `AIRCRAFT_CSV` file.
  */
 int modeS_init (void)
 {
-  int i, q, rc;
+  struct stat st;
+  char   full_name [MG_PATH_MAX];
+  int    i, q, rc;
 
   if (Modes.net)
   {
-    struct stat st;
-    char   full_name [MG_PATH_MAX];
-
     snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.web_root, basename(Modes.web_page));
     TRACE (DEBUG_NET, "Full web-page: \"%s\"\n", full_name);
 
@@ -875,6 +983,23 @@ int modeS_init (void)
   {
     for (q = 0; q <= 128; q++)
         Modes.magnitude_lut [i*129+q] = (uint16_t) round (360 * sqrt(i*i + q*q));
+  }
+
+  snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.where_am_I, basename(AIRCRAFT_CSV));
+  if (stat(full_name, &st) != 0)
+     fprintf (stderr, "Aircraft database \"%s\" does not exist.\n", full_name);
+  else
+  {
+    memset (&Modes.csv_ctx, '\0', sizeof(Modes.csv_ctx));
+    Modes.csv_ctx.file_name  = full_name;
+    Modes.csv_ctx.delimiter  = ',';
+    Modes.csv_ctx.callback   = aircraft_CSV_parse;
+    Modes.csv_ctx.line_size  = 2000;
+    Modes.csv_ctx.num_fields = 27;
+    CSV_open_and_parse_file (&Modes.csv_ctx);
+    TRACE (DEBUG_GENERAL, "Parsed %u records from: \"%s\"\n", Modes.aircraft_num_CSV, full_name);
+    if (Modes.aircraft_num_CSV > 0 && Modes.debug)
+       aircraft_CSV_test();
   }
 
   if (Modes.debug == 0 && !Modes.raw && Modes.interactive)
@@ -2411,7 +2536,7 @@ void modeS_user_message (const struct modeS_message *mm)
  *
  * \param in addr  the specific ICAO address.
  */
-struct aircraft *create_aircraft (uint32_t addr)
+struct aircraft *aircraft_create (uint32_t addr)
 {
   struct aircraft *a = calloc (sizeof(*a), 1);
 
@@ -2420,6 +2545,7 @@ struct aircraft *create_aircraft (uint32_t addr)
     a->addr = addr;
     snprintf (a->hexaddr, sizeof(a->hexaddr), "%06X", (int)addr);
     a->seen = MSEC_TIME() / 1000;
+    a->CSV = aircraft_CSV_lookup_entry (addr);
   }
   return (a);
 }
@@ -2430,7 +2556,7 @@ struct aircraft *create_aircraft (uint32_t addr)
  *
  * \param in addr  the specific ICAO address.
  */
-struct aircraft *find_aircraft (uint32_t addr)
+struct aircraft *aircraft_find (uint32_t addr)
 {
   struct aircraft *a = Modes.aircrafts;
 
@@ -2446,7 +2572,7 @@ struct aircraft *find_aircraft (uint32_t addr)
 /**
  * Return the number of aircrafts we have now.
  */
-int num_aircrafts (void)
+int aircraft_numbers (void)
 {
   struct aircraft *a = Modes.aircrafts;
   int    num;
@@ -2632,10 +2758,10 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
 
   /* Loookup our aircraft or create a new one.
    */
-  a = find_aircraft (addr);
+  a = aircraft_find (addr);
   if (!a)
   {
-    a = create_aircraft (addr);
+    a = aircraft_create (addr);
     if (!a)
        return (NULL);  /* Not fatal; there could be available memory later */
     a->next = Modes.aircrafts;
@@ -2746,7 +2872,7 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
    */
   if (Modes.debug == 0 && !Modes.raw)
   {
-    if (old_count == -1 || old_count > num_aircrafts())
+    if (old_count == -1 || old_count > aircraft_numbers())
        clrscr();
     gotoxy (1, 1);
   }
@@ -2759,13 +2885,14 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
 
   while (a && count < Modes.interactive_rows && !Modes.exit)
   {
-    int  altitude = a->altitude;
-    int  speed = a->speed;
-    char alt_buf [10] = "  - ";
-    char squawk [6] = "  - ";
-    char lat_buf [10] = "  - ";
-    char lon_buf [10] = "  - ";
-    char speed_buf [8] = " - ";
+    int   altitude = a->altitude;
+    int   speed = a->speed;
+    char  alt_buf [10] = "  - ";
+    char  squawk [6] = "  - ";
+    char  lat_buf [10] = "  - ";
+    char  lon_buf [10] = "  - ";
+    char  speed_buf [8] = " - ";
+    const char *reg_num = "";
 
     /* Convert units to metric if --metric was specified. */
     if (Modes.metric)
@@ -2793,12 +2920,15 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
     if (a->speed)
        snprintf (speed_buf, sizeof(speed_buf), "%d", a->speed);
 
+    if (a->CSV && a->CSV->reg_num[0])
+       reg_num = a->CSV->reg_num;
+
     if (next_a)
        setcolor (COLOUR_RED);
 
-    printf ("%-6s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %2d sec  \n",
+    printf ("%-6s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %2d sec  %s\n",
             a->hexaddr, a->flight, squawk, alt_buf, speed_buf,
-            lat_buf, lon_buf, a->heading, a->messages, (int)(now - a->seen));
+            lat_buf, lon_buf, a->heading, a->messages, (int)(now - a->seen), reg_num);
 
     if (next_a)
        setcolor (0);
@@ -3438,25 +3568,9 @@ void modeS_send_raw_output (const struct modeS_message *mm)
   char  msg [10 + MODES_LONG_MSG_BYTES];
   char *p = msg;
 
-//TRACE (DEBUG_GENERAL, "sizeof(msg): %u, mm->msg_bits: %u\n", sizeof(msg), mm->msg_bits);
-
-#if 1
   *p++ = '*';
   mg_hex (&mm->msg, mm->msg_bits/8, p);
   p = strchr (p, '\0');
-#else
-  static char hex[] = "0123456789abcdef--";
-  int    i;
-
-  *p++ = '*';
-  for (i = 0; i < mm->msg_bits/8; i++)
-  {
-    uint8_t byte = mm->msg[i];
-    *p++ = hex [byte >> 4];
-    *p++ = hex [byte & 0x0F];
-  }
-#endif
-
   *p++ = ';';
   *p++ = '\n';
 
@@ -3682,7 +3796,7 @@ int handleHTTPRequest (struct client *c)
     {
       content = malloc (sbuf.st_size);
       if (read(fd, content, sbuf.st_size) == -1)
-        snprintf (content, sbuf.st_size, "Error reading from file: %s", strerror(errno));
+         snprintf (content, sbuf.st_size, "Error reading from file: %s", strerror(errno));
 
       clen = sbuf.st_size;
     }
