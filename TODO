@@ -1,4 +1,4 @@
-TODO
+## TODO items
 
 * Extract more information from captured Mode S messages.
 * Improve the web interface gmap.html.
@@ -9,3 +9,5 @@ TODO
   - show debug info and parsed messages. Use EmScripten to push it?
   - a toggle for 3D view. Use LuaJIT + Anima + EmScripten to push it?
 * UAT; Universal Access Transceiver for 978 MHz datalink.
+* Kerberos SDR; Directional Finding Feature:
+   ref: https://github.com/rfjohnso/kerberossdr/tree/PyQt5
