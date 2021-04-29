@@ -38,15 +38,12 @@ typedef struct CSV_context {
         unsigned    rec_num;
         unsigned    rec_max;
         unsigned    line_size;
-        unsigned    comment_lines;
-        unsigned    empty_lines;
-        unsigned    parse_errors;
         char       *parse_buf, *parse_ptr;
         csv_state_t state_func;
         CSV_STATE   state;
         int         c_in;
       } CSV_context;
 
-unsigned CSV_open_and_parse_file (struct CSV_context *ctx);
+int CSV_open_and_parse_file (struct CSV_context *ctx);
 
 #endif /* _CSV_H */

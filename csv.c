@@ -45,17 +45,12 @@ static void state_normal (struct CSV_context *ctx)
          break;
     case '\n':
          if (ctx->field_num > 0)     /* If field == 0, ignore empty lines */
-              ctx->state = STATE_STOP;
-         else ctx->empty_lines++;
+            ctx->state = STATE_STOP;
          break;
     case '#':
          if (ctx->field_num == 0)    /* If field == 0, ignore comment lines */
-         {
-           ctx->state = STATE_COMMENT;
-           ctx->comment_lines++;
-         }
-         else
-           PUTC (ctx->c_in);
+              ctx->state = STATE_COMMENT;
+         else PUTC (ctx->c_in);
          break;
     default:
          PUTC (ctx->c_in);
@@ -144,7 +139,6 @@ static const char *CSV_get_next_field (struct CSV_context *ctx)
 {
   char     *ret;
   CSV_STATE new_state = STATE_ILLEGAL;
-  CSV_STATE old_state = STATE_ILLEGAL;
 
   ctx->parse_ptr = ctx->parse_buf;
 
@@ -152,7 +146,7 @@ static const char *CSV_get_next_field (struct CSV_context *ctx)
   {
     ctx->c_in = fgetc (ctx->file);
 
-    old_state = ctx->state;  (*ctx->state_func) (ctx);
+    (*ctx->state_func) (ctx);
     new_state = ctx->state;
 
     /* Set new state for this context. (Or stay in same state).
@@ -211,22 +205,14 @@ static int CSV_parse_file (struct CSV_context *ctx)
 
     val = CSV_get_next_field (ctx);
     if (!val)
-       goto quit;
+       return (0);
 
     rc = (*ctx->callback) (ctx, val);
     if (!rc)
        break;
   }
-
   ctx->rec_num++;
   return (ctx->field_num == ctx->num_fields);
-
-quit:
-  if (ctx->state == STATE_EOF)
-     return (0);
-
-  ctx->parse_errors++;
-  return (0);
 }
 
 /**
@@ -235,42 +221,43 @@ quit:
  *
  * \param[in]  ctx  the CSV context to work with.
  * \retval     1 if the members are okay.
+ * \retval    -1 if some members are not okay etc.
  */
 static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
 {
-  if (ctx->num_fields == 0)
-     return (0);
+  if (ctx->num_fields == 0 || !ctx->callback || !ctx->file_name)
+  {
+    errno = EINVAL;
+    return (-1);
+  }
 
   if (!ctx->delimiter)
      ctx->delimiter = ',';
 
   if (strchr("#\"\r\n", ctx->delimiter))
-    return (0);
+  {
+    errno = EINVAL;
+    return (-1);
+  }
 
   if (ctx->rec_max == 0)
      ctx->rec_max = UINT_MAX;
-
-  if (!ctx->callback)
-     return (0);
-
-  if (!ctx->file_name)
-     return (0);
 
   if (ctx->line_size == 0)
      ctx->line_size = DEFAULT_BUF_SIZE;
 
   ctx->parse_buf = malloc (ctx->line_size+1);
   if (!ctx->parse_buf)
-     return (0);
+     return (-1);
 
   ctx->file = fopen (ctx->file_name, "rt");
   if (!ctx->file)
   {
     free (ctx->parse_buf);
-    return (0);
+    return (-1);
   }
 
-  setvbuf (ctx->file, NULL, _IOFBF, 2*ctx->line_size);
+  setvbuf (ctx->file, NULL, _IOFBF, 100*ctx->line_size);
   ctx->state_func = state_illegal;
   ctx->state      = STATE_ILLEGAL;
   ctx->rec_num    = 0;
@@ -280,10 +267,10 @@ static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
 /**
  * Open and parse a CSV-file.
  */
-unsigned CSV_open_and_parse_file (struct CSV_context *ctx)
+int CSV_open_and_parse_file (struct CSV_context *ctx)
 {
-  if (!CSV_check_and_fill_ctx(ctx))
-     return (0);
+  if (CSV_check_and_fill_ctx(ctx) < 0)
+     return (-1);
 
   while (1)
   {
