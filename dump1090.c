@@ -26,6 +26,7 @@
 /**
  * \addtogroup Main      Main decoder
  * \addtogroup Mongoose  Web server
+ * \addtogroup Misc      Support functions
  *
  * \mainpage Dump1090
  *
@@ -110,6 +111,7 @@
 #define DEBUG_GENERAL    (1 << 6)
 #define DEBUG_NET        (1 << 7)
 #define DEBUG_NET2       (1 << 8)
+#define DEBUG_GENERAL2   (1 << 9)
 
 /**
  * When debug is set to DEBUG_NOPREAMBLE, the first sample must be
@@ -161,7 +163,7 @@ struct net_service {
 
 /**
  * \def GMAP_HTML
- * Our default main server page relative to `Mode.where_am_I`.
+ * Our default main server page relative to `Mode.who_am_I`.
  */
 #define GMAP_HTML    "web_root/gmap.html"
 
@@ -172,6 +174,7 @@ struct net_service {
 #define MODES_NOTUSED(V)   ((void)V)
 #define TWO_PI             (2 * M_PI)
 #define DIM(array)         (sizeof(array) / sizeof(array[0]))
+#define ONE_MBYTE          (1024*1024)
 
 /**
  * \def SAFE_COND_SIGNAL(cond, mutex)
@@ -243,7 +246,7 @@ struct client {
 struct aircraft_CSV {
        uint32_t addr;
        char     reg_num [10];
-       struct aircraft_CSV *next;
+       char     manufact [30];
      };
 
 /**
@@ -290,6 +293,7 @@ struct statistics {
        uint64_t two_bits_fix;
        uint64_t out_of_phase;
        uint64_t unique_aircrafts;
+       uint64_t unique_aircrafts_CSV;
        uint64_t unrecognized_ME;
 
        /* Network statistics:
@@ -310,25 +314,27 @@ struct statistics {
  * All program global state is in this structure.
  */
 struct global_data {
-       char              who_am_I [MG_PATH_MAX];   /**< The full name of this program */
-       char              where_am_I [MG_PATH_MAX]; /**< The current directory with a trailing `\\` */
-       pthread_t         reader_thread;            /**< Device reader thread ID */
+       char              who_am_I [MG_PATH_MAX];   /**< The full name of this program. */
+       char              where_am_I [MG_PATH_MAX]; /**< The current directory (no trailing `\\`. not used). */
+       pthread_t         reader_thread;            /**< Device reader thread ID. */
        pthread_mutex_t   data_mutex;               /**< Mutex to synchronize buffer access. */
-       uint8_t          *data;                     /**< Raw IQ samples buffer */
+       uint8_t          *data;                     /**< Raw IQ samples buffer. */
        uint32_t          data_len;                 /**< Length of raw IQ buffer. */
-       uint16_t         *magnitude;                /**< Magnitude vector */
+       uint16_t         *magnitude;                /**< Magnitude vector. */
        uint16_t         *magnitude_lut;            /**< I/Q -> Magnitude lookup table. */
        int               fd;                       /**< `--infile` option file descriptor. */
        volatile int      exit;                     /**< Exit from the main loop when true. */
        volatile int      data_ready;               /**< Data ready to be processed. */
        uint32_t         *ICAO_cache;               /**< Recently seen ICAO addresses. */
-       struct statistics stat;                     /**< Decoding and network statistics */
-       struct aircraft  *aircrafts;                /**< Linked list of active aircrafts */
-       uint64_t          last_update_ms;           /**< Last screen update in milliseconds */
+       struct statistics stat;                     /**< Decoding and network statistics. */
+       struct aircraft  *aircrafts;                /**< Linked list of active aircrafts. */
+       uint64_t          last_update_ms;           /**< Last screen update in milliseconds. */
 
        int               dev_index;                /**< The index of the RTLSDR device used */
        int               gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
-       rtlsdr_dev_t     *dev;                      /**< The RTLSDR handle from `rtlsdr_open()` */
+       rtlsdr_dev_t     *dev;                      /**< The RTLSDR handle from `rtlsdr_open()`. */
+       int               ppm_error;                /**< Set RTLSDR frequency correction. */
+       int               bias_tee;                 /**< Set RTLSDR bias-T voltage on coax input. */
        uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
        uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE. <br>
                                                      *  \note This cannot be used yet since the code assumes a
@@ -338,37 +344,38 @@ struct global_data {
        /** Lists of clients for each network service
         */
        struct client        *clients [MODES_NET_SERVICES_NUM];
-       struct mg_connection *sbsos;       /**< SBS output listening connection. */
-       struct mg_connection *ros;         /**< Raw output listening connection. */
-       struct mg_connection *ris;         /**< Raw input listening connection. */
-       struct mg_connection *http;        /**< HTTP listening connection. */
-       struct mg_mgr         mgr;         /**< Only one connection manager */
+       struct mg_connection *sbsos;           /**< SBS output listening connection. */
+       struct mg_connection *ros;             /**< Raw output listening connection. */
+       struct mg_connection *ris;             /**< Raw input listening connection. */
+       struct mg_connection *http;            /**< HTTP listening connection. */
+       struct mg_mgr         mgr;             /**< Only one connection manager */
 
        /** Configuration
         */
-       const char *infile;                 /**< Input IQ samples from file with option `--infile file`. */
-       uint64_t    loops;                  /**< Read input file in a loop. */
-       int         fix_errors;             /**< Single bit error correction if true. */
-       int         check_crc;              /**< Only display messages with good CRC. */
-       int         raw;                    /**< Raw output format. */
-       int         debug;                  /**< Debugging mode. */
-       int         net;                    /**< Enable networking. */
-       int         net_only;               /**< Enable just networking. */
-       int         interactive;            /**< Interactive mode */
-       int         interactive_rows;       /**< Interactive mode: max number of rows. */
-       int         interactive_ttl;        /**< Interactive mode: TTL before deletion. */
-       int         only_addr;              /**< Print only ICAO addresses. */
-       int         metric;                 /**< Use metric units. */
-       int         aggressive;             /**< Aggressive detection algorithm. */
-       char        web_page [MG_PATH_MAX]; /**< The base-name of the web-page to server for HTTP clients */
-       char        web_root [MG_PATH_MAX]; /**< And it's directory */
-       int         strip_level;            /**< For '--strip X' mode */
+       const char *infile;                    /**< Input IQ samples from file with option `--infile file`. */
+       uint64_t    loops;                     /**< Read input file in a loop. */
+       int         fix_errors;                /**< Single bit error correction if true. */
+       int         check_crc;                 /**< Only display messages with good CRC. */
+       int         raw;                       /**< Raw output format. */
+       int         debug;                     /**< Debugging mode. */
+       int         net;                       /**< Enable networking. */
+       int         net_only;                  /**< Enable just networking. */
+       int         interactive;               /**< Interactive mode */
+       int         interactive_rows;          /**< Interactive mode: max number of rows. */
+       int         interactive_ttl;           /**< Interactive mode: TTL before deletion. */
+       int         only_addr;                 /**< Print only ICAO addresses. */
+       int         metric;                    /**< Use metric units. */
+       int         aggressive;                /**< Aggressive detection algorithm. */
+       char        web_page [MG_PATH_MAX];    /**< The base-name of the web-page to server for HTTP clients */
+       char        web_root [MG_PATH_MAX];    /**< And it's directory */
+       char        aircraft_db [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file */
+       int         strip_level;               /**< For '--strip X' mode */
 
-       /** For parsing a `AIRCRAFT_CSV` file:
+       /** For parsing a `Modes.aircraft_db` file:
         */
        struct CSV_context   csv_ctx;
-       struct aircraft_CSV *aircraft_data;
-       unsigned             aircraft_num_CSV;
+       struct aircraft_CSV *aircraft_list;
+       uint32_t             aircraft_num_CSV;
      };
 
 struct global_data Modes;
@@ -676,7 +683,6 @@ char *dirname (const char *fname)
     if (*slash == ':' && dirlen == 1)
        dirlen += 2;
   }
-
   strncpy (dir, fname, dirlen);
 
   if (slash && *slash == ':' && dirlen == 3)
@@ -720,9 +726,12 @@ const char *get_rtlsdr_libusb_error (int err)
   return libusb_error_name (err);
 }
 
+/**
+ * Set the RTLSDR gain verbosively.
+ */
 void verbose_gain_set (rtlsdr_dev_t *dev, int gain)
 {
-  int r = rtlsdr_set_tuner_gain_mode(dev, 1);
+  int r = rtlsdr_set_tuner_gain_mode (dev, 1);
 
   if (r < 0)
   {
@@ -735,103 +744,213 @@ void verbose_gain_set (rtlsdr_dev_t *dev, int gain)
   else fprintf (stderr, "Tuner gain set to %0.2f dB.\n", gain/10.0);
 }
 
-void verbose_auto_gain (rtlsdr_dev_t *dev)
+/**
+ * Set the RTLSDR gain verbosively to AUTO.
+ */
+void verbose_gain_auto (rtlsdr_dev_t *dev)
 {
   int r = rtlsdr_set_tuner_gain_mode (dev, 0);
 
-  if (r != 0)
+  if (r)
        fprintf (stderr, "WARNING: Failed to enable automatic gain.\n");
   else fprintf (stderr, "Tuner gain set to automatic.\n");
 }
 
-int nearest_gain (rtlsdr_dev_t *dev, int target_gain)
+/**
+ * Set the RTLSDR gain verbosively to the nearest available
+ * gain value given in `*target_gain`.
+ */
+void nearest_gain (rtlsdr_dev_t *dev, int *target_gain)
 {
-  int  i, r, err1, err2, count, nearest;
-  int *gains;
+  int *gains, gain_in;
+  int  i, err1, err2, count, nearest, r = rtlsdr_set_tuner_gain_mode (dev, 1);
 
-  r = rtlsdr_set_tuner_gain_mode (dev, 1);
-  if (r < 0)
+  if (r)
   {
     fprintf (stderr, "WARNING: Failed to enable manual gain.\n");
-    return (r);
+    return;
   }
 
   count = rtlsdr_get_tuner_gains (dev, NULL);
   if (count <= 0)
-     return (0);
+     return;
 
   gains = alloca (sizeof(int) * count);
   count = rtlsdr_get_tuner_gains (dev, gains);
   nearest = gains[0];
+  gain_in = *target_gain;
   for (i = 0; i < count; i++)
   {
-    err1 = abs (target_gain - nearest);
-    err2 = abs (target_gain - gains[i]);
+    err1 = abs (gain_in - nearest);
+    err2 = abs (gain_in - gains[i]);
     if (err2 < err1)
        nearest = gains[i];
   }
-  return (nearest);
+  *target_gain = nearest;
 }
 
 /**
- * Add an aircraft record to the `Modes.aircraft_list`.
+ * Enable RTLSDR direct sampling mode (not used yet).
  */
-int aircraft_CSV_add_entry (struct aircraft_CSV *rec)
+void verbose_direct_sampling (rtlsdr_dev_t *dev, int on)
 {
-  struct aircraft_CSV *copy = malloc (sizeof(*copy));
+  int r = rtlsdr_set_direct_sampling (dev, on);
+
+  if (r)
+  {
+    fprintf (stderr, "WARNING: Failed to set direct sampling mode.\n");
+    return;
+  }
+  if (on == 0)
+     fprintf (stderr, "Direct sampling mode disabled.\n");
+  else if (on == 1)
+    fprintf (stderr, "Enabled direct sampling mode, input 1/I.\n");
+  else if (on == 2)
+    fprintf (stderr, "Enabled direct sampling mode, input 2/Q.\n");
+}
+
+/**
+ * Set RTLSDR PPM error-correction.
+ */
+void verbose_ppm_set (rtlsdr_dev_t *dev, int ppm_error)
+{
+  int r;
+
+  if (ppm_error == 0)
+     return;
+
+  r = rtlsdr_set_freq_correction (dev, ppm_error);
+  if (r < 0)
+       fprintf (stderr, "WARNING: Failed to set ppm error.\n");
+  else fprintf (stderr, "Tuner error set to %i ppm.\n", ppm_error);
+}
+
+/**
+ * Set RTLSDR Bias-T
+ */
+void verbose_bias_tee (rtlsdr_dev_t *dev, int bias_t)
+{
+  int r = rtlsdr_set_bias_tee (dev, bias_t);
+
+  if (bias_t)
+  {
+    if (r)
+         fprintf (stderr, "Failed to activate bias-T.\n");
+    else fprintf (stderr, "Activated bias-T on GPIO PIN 0\n");
+  }
+}
+
+/**
+ * Add an aircraft record to `Modes.aircraft_list`.
+ */
+int aircraft_CSV_add_entry (const struct aircraft_CSV *rec)
+{
+  static struct aircraft_CSV *copy = NULL;
+  static struct aircraft_CSV *dest = NULL;
+  static struct aircraft_CSV *hi_end;
+
+  /* Not a valid ICAO address. Parse error?
+   */
+  if (rec->addr == 0 || rec->addr > 0xFFFFFF)
+     return (1);
+
+  if (!copy)
+  {
+    copy = dest = malloc (ONE_MBYTE);  /* initial buffer */
+    hi_end = copy + (ONE_MBYTE / sizeof(*rec));
+  }
+  else if (dest == hi_end - 1)
+  {
+    size_t new_num = 10000 + Modes.aircraft_num_CSV;
+
+    copy   = realloc (Modes.aircraft_list, sizeof(*rec) * new_num);
+    dest   = copy + Modes.aircraft_num_CSV;
+    hi_end = copy + new_num;
+  }
 
   if (!copy)
      return (0);
 
-  memcpy (copy, rec, sizeof(*copy));
-  LIST_ADD_HEAD (struct aircraft_CSV, &Modes.aircraft_data, copy);
+  Modes.aircraft_list = copy;
+  assert (dest < hi_end);
+  memcpy (dest, rec, sizeof(*rec));
   Modes.aircraft_num_CSV++;
+  dest = copy + Modes.aircraft_num_CSV;
   return (1);
 }
 
-const struct aircraft_CSV *aircraft_CSV_lookup_entry (uint32_t addr)
+/**
+ * The compare function for `qsort()` and `bsearch()`.
+ */
+int aircraft_CSV_compare_on_addr (const void *_a, const void *_b)
 {
-  struct aircraft_CSV *a = Modes.aircraft_data;
+  const struct aircraft_CSV *a = (const struct aircraft_CSV*) _a;
+  const struct aircraft_CSV *b = (const struct aircraft_CSV*) _b;
 
-  while (a)
-  {
-    if (a->addr == addr)
-       return (a);
-    a = a->next;
-  }
-  return (NULL);
-}
-
-void aircraft_CSV_test (void)
-{
-  const struct aircraft_CSV *a_CSV;
-  const char  *reg_num;
-  int   i;
-  static const struct aircraft_CSV a_tests[] = {
-               { 0xaa3487, "N757F"  },  /* 5 random records from `AIRCRAFT_CSV` */
-               { 0x800737, "VT-ANQ" },
-               { 0xab34de, "N821DA" },
-               { 0x800737, "VT-ANQ" },
-               { 0xa713d8, "N555UZ" }
-             };
-
-  for (i = 0; i < DIM(a_tests); i++)
-  {
-    a_CSV = aircraft_CSV_lookup_entry (a_tests[i].addr);
-    reg_num = "?";
-    if (a_CSV && a_CSV->reg_num[0])
-       reg_num = a_CSV->reg_num;
-    printf ("addr: %06X, reg-num: '%s'\n", a_tests[i].addr, reg_num);
-  }
+  if (a->addr < b->addr)
+     return (-1);
+  if (a->addr > b->addr)
+     return (1);
+  return (0);
 }
 
 /**
- * The CSV callback to add a record to the `aircraft_entries` smart-list.
+ * Do a binary search for an aircraft in `Modes.aircraft_list`.
+ */
+const struct aircraft_CSV *aircraft_CSV_lookup_entry (uint32_t addr)
+{
+  struct aircraft_CSV key = { addr, "" };
+  return bsearch (&key, Modes.aircraft_list, Modes.aircraft_num_CSV,
+                  sizeof(*Modes.aircraft_list), aircraft_CSV_compare_on_addr);
+}
+
+/**
+ * If `Modes.debug != 0`, do a simple test on the `Modes.aircraft_list`.
+ */
+void aircraft_CSV_test (void)
+{
+  const struct aircraft_CSV *a_CSV;
+  const char  *reg_num, *manufact;
+  unsigned     i, num_ok;
+  static const struct aircraft_CSV a_tests[] = {
+               { 0xAA3487, "N757F",  "Raytheon Aircraft Company" },
+               { 0x800737, "VT-ANQ", "Boeing" },
+               { 0xAB34DE, "N821DA", "Beech"  },
+               { 0x800737, "VT-ANQ", "Boeing" },
+               { 0xA713D8, "N555UZ", "Cessna" }
+             };
+#if 0
+  for (i = 0; i < min(100, Modes.aircraft_num_CSV); i++)
+  {
+    a_CSV = Modes.aircraft_list + i;
+    fprintf (stderr, "  addr: %06X, reg-num: '%s'\n", a_CSV->addr, a_CSV->reg_num);
+  }
+#endif
+
+  printf ("5 random records from \"%s\":\n", Modes.aircraft_db);
+  for (i = num_ok = 0; i < DIM(a_tests); i++)
+  {
+    a_CSV = aircraft_CSV_lookup_entry (a_tests[i].addr);
+    reg_num = manufact = "?";
+    if (a_CSV && a_CSV->reg_num[0])
+    {
+      reg_num = a_CSV->reg_num;
+      num_ok++;
+    }
+    if (a_CSV && a_CSV->manufact[0])
+       manufact = a_CSV->manufact;
+    fprintf (stderr, "  addr: %06X, reg-num: '%-6s', manufact: '%s'\n", a_tests[i].addr, reg_num, manufact);
+  }
+  fprintf (stderr, "%3u OKAY\n%3u FAIL\n", num_ok, i - num_ok);
+}
+
+/**
+ * The CSV callback for adding a record to `Modes.aircraft_list`.
  *
  * \param[in]  ctx   the CSV context structure.
  * \param[in]  value the value for this CSV field in record `ctx->rec_num`.
  *
- * Match the fields for a record like this:
+ * Match the fields 0, 1 and 3 for a record like this:
  * ```
  * "icao24","registration","manufacturericao","manufacturername","model","typecode","serialnumber","linenumber",
  * "icaoaircrafttype","operator","operatorcallsign","operatoricao","operatoriata","owner","testreg","registered",
@@ -848,18 +967,60 @@ int aircraft_CSV_parse (struct CSV_context *ctx, const char *value)
 
   if (ctx->field_num == 0)
   {
-    rec.addr = mg_unhexn (value, 6);
+    if (strlen(value) == 6)
+       rec.addr = mg_unhexn (value, 6);
   }
   else if (ctx->field_num == 1)
   {
     strncpy (rec.reg_num, value, sizeof(rec.reg_num));
   }
-  else if (ctx->field_num == ctx->num_fields -1)
+  else if (ctx->field_num == 3)
+  {
+    strncpy (rec.manufact, value, sizeof(rec.manufact));
+  }
+  else if (ctx->field_num == ctx->num_fields - 1)  /* we got the last field */
   {
     rc = aircraft_CSV_add_entry (&rec);
-    memset (&rec, '\0', sizeof(rec));    /* Ready for a new record. */
+    memset (&rec, '\0', sizeof(rec));    /* ready for a new record. */
   }
   return (rc);
+}
+
+/**
+ * Initialize the aircraft-database from .csv file.
+ */
+void aircraft_CSV_load (void)
+{
+  struct stat st;
+
+  if (!stricmp(Modes.aircraft_db, "NUL"))   /* User want no .csv file */
+     return;
+
+  if (stat(Modes.aircraft_db, &st) != 0)
+  {
+    fprintf (stderr, "Aircraft database \"%s\" does not exist.\n", Modes.aircraft_db);
+    return;
+  }
+
+  memset (&Modes.csv_ctx, '\0', sizeof(Modes.csv_ctx));
+  Modes.csv_ctx.file_name  = Modes.aircraft_db;
+  Modes.csv_ctx.delimiter  = ',';
+  Modes.csv_ctx.callback   = aircraft_CSV_parse;
+  Modes.csv_ctx.line_size  = 2000;
+  Modes.csv_ctx.num_fields = 27;
+  if (CSV_open_and_parse_file (&Modes.csv_ctx) < 0)
+  {
+    fprintf (stderr, "Parsing of \"%s\" failed: %s\n", Modes.aircraft_db, strerror(errno));
+    return;
+  }
+
+  TRACE (DEBUG_GENERAL, "Parsed %u records from: \"%s\"\n", Modes.aircraft_num_CSV, Modes.aircraft_db);
+  if (Modes.aircraft_num_CSV > 0)
+  {
+    qsort (Modes.aircraft_list, Modes.aircraft_num_CSV, sizeof(*Modes.aircraft_list), aircraft_CSV_compare_on_addr);
+    if (Modes.debug)
+       aircraft_CSV_test();
+  }
 }
 
 /**
@@ -873,12 +1034,15 @@ void modeS_init_config (void)
   strcpy (Modes.web_page, basename(GMAP_HTML));
   strcpy (Modes.web_root, dirname(Modes.who_am_I));
   strcat (Modes.web_root, "\\web_root");
+  snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\%s",
+            dirname(Modes.who_am_I), basename(AIRCRAFT_CSV));
 
   memset (&Modes.stat, '\0', sizeof(Modes.stat));
   Modes.gain = MODES_AUTO_GAIN;
   Modes.dev_index = 0;
   Modes.sample_rate = MODES_DEFAULT_RATE;
   Modes.freq = MODES_DEFAULT_FREQ;
+  Modes.ppm_error = 0;
   Modes.infile = NULL;
   Modes.fix_errors = 1;
   Modes.check_crc = 1;
@@ -905,16 +1069,16 @@ void modeS_init_config (void)
  *  \li Initialize the `Modes.data_mutex`.
  *  \li Setup a SIGINT handler for a clean exit.
  *  \li Allocate and initialize the needed buffers.
- *  \li Open and parse the `AIRCRAFT_CSV` file.
+ *  \li Open and parse the `Modes.aircraft_db` file (unless `NUL`).
  */
 int modeS_init (void)
 {
   struct stat st;
-  char   full_name [MG_PATH_MAX];
   int    i, q, rc;
 
   if (Modes.net)
   {
+    char full_name [MG_PATH_MAX];
     snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.web_root, basename(Modes.web_page));
     TRACE (DEBUG_NET, "Full web-page: \"%s\"\n", full_name);
 
@@ -953,8 +1117,8 @@ int modeS_init (void)
    * entry because it's a addr / timestamp pair for every entry.
    */
   Modes.ICAO_cache = calloc (sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2, 1);
-  Modes.data = malloc (Modes.data_len);
-  Modes.magnitude = malloc (2*Modes.data_len);
+  Modes.data       = malloc (Modes.data_len);
+  Modes.magnitude  = malloc (2*Modes.data_len);
 
   if (!Modes.ICAO_cache || !Modes.data || !Modes.magnitude)
   {
@@ -985,22 +1149,7 @@ int modeS_init (void)
         Modes.magnitude_lut [i*129+q] = (uint16_t) round (360 * sqrt(i*i + q*q));
   }
 
-  snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.where_am_I, basename(AIRCRAFT_CSV));
-  if (stat(full_name, &st) != 0)
-     fprintf (stderr, "Aircraft database \"%s\" does not exist.\n", full_name);
-  else
-  {
-    memset (&Modes.csv_ctx, '\0', sizeof(Modes.csv_ctx));
-    Modes.csv_ctx.file_name  = full_name;
-    Modes.csv_ctx.delimiter  = ',';
-    Modes.csv_ctx.callback   = aircraft_CSV_parse;
-    Modes.csv_ctx.line_size  = 2000;
-    Modes.csv_ctx.num_fields = 27;
-    CSV_open_and_parse_file (&Modes.csv_ctx);
-    TRACE (DEBUG_GENERAL, "Parsed %u records from: \"%s\"\n", Modes.aircraft_num_CSV, full_name);
-    if (Modes.aircraft_num_CSV > 0 && Modes.debug)
-       aircraft_CSV_test();
-  }
+  aircraft_CSV_load();
 
   if (Modes.debug == 0 && !Modes.raw && Modes.interactive)
      return console_init();
@@ -1012,7 +1161,7 @@ int modeS_init (void)
  */
 int modeS_init_RTLSDR (void)
 {
-  int    i, rc, device_count, ppm_error = 0;
+  int    i, rc, device_count;
   char   vendor[256], product[256], serial[256];
   double gain;
 
@@ -1041,15 +1190,16 @@ int modeS_init_RTLSDR (void)
   /* Set gain, frequency, sample rate, and reset the device.
    */
   if (Modes.gain == MODES_AUTO_GAIN)
-     verbose_auto_gain (Modes.dev);
+     verbose_gain_auto (Modes.dev);
   else
   {
-    Modes.gain = nearest_gain (Modes.dev, Modes.gain);
+    nearest_gain (Modes.dev, &Modes.gain);
     verbose_gain_set (Modes.dev, Modes.gain);
   }
 
-  rtlsdr_set_freq_correction (Modes.dev, ppm_error);
   rtlsdr_set_agc_mode (Modes.dev, 1);
+  verbose_ppm_set (Modes.dev, Modes.ppm_error);
+  verbose_bias_tee (Modes.dev, Modes.bias_tee);
 
   rtlsdr_set_center_freq (Modes.dev, Modes.freq);
   rtlsdr_set_sample_rate (Modes.dev, Modes.sample_rate);
@@ -1179,7 +1329,6 @@ void *data_thread_fn (void *arg)
     TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
            rc, get_rtlsdr_libusb_error(rc));
   }
-
   pthread_exit (NULL);
   return (NULL);
 }
@@ -1356,7 +1505,7 @@ void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint3
   printf ("\n--- %s\n    ", descr);
   for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
   {
-    printf ("%02x",msg[j]);
+    printf ("%02x", msg[j]);
     if (j == MODES_SHORT_MSG_BYTES-1)
        printf (" ... ");
   }
@@ -1667,26 +1816,27 @@ int decode_AC13_field (const uint8_t *msg, int *unit)
   else
   {
     *unit = MODES_UNIT_METERS;
-    /**\todo Implement altitude when meter unit is selected.
+
+    /** \todo Implement altitude when meter unit is selected.
      */
   }
   return (0);
 }
 
-/*
+/**
  * Decode the 12 bit AC altitude field (in DF 17 and others).
  * Returns the altitude or 0 if it can't be decoded.
  */
 int decode_AC12_field (uint8_t *msg, int *unit)
 {
-  int q_bit = msg[5] & 1;
+  int n, q_bit = msg[5] & 1;
 
   if (q_bit)
   {
     /* N is the 11 bit integer resulting from the removal of bit Q
      */
     *unit = MODES_UNIT_FEET;
-    int n = ((msg[5] >> 1) << 4) | ((msg[6] & 0xF0) >> 4);
+    n = ((msg[5] >> 1) << 4) | ((msg[6] & 0xF0) >> 4);
 
     /* The final altitude is due to the resulting number multiplied
      * by 25, minus 1000.
@@ -1705,7 +1855,7 @@ const char *capability_str[8] = {
     /* 2 */ "Level 3 (DF0,4,5,11,20,21)",
     /* 3 */ "Level 4 (DF0,4,5,11,20,21,24)",
     /* 4 */ "Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is on ground)",
-    /* 5 */ "Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is on airborne)",
+    /* 5 */ "Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is airborne)",
     /* 6 */ "Level 2+3+4 (DF0,4,5,11,20,21,24,code7)",
     /* 7 */ "Level 7 ???"
 };
@@ -1983,6 +2133,33 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
 }
 
 /**
+ * Return the hex-string for a 24-bit ICAO address.
+ * Also look for the registration number and manufacturer from
+ * the `Modes.aircraft_list`.
+ */
+const char *get_ICAO_details (int AA1, int AA2, int AA3)
+{
+  static char ret_buf[100];
+  const struct aircraft_CSV *a;
+  char  *p = ret_buf;
+  size_t n, left = sizeof(ret_buf);
+  uint32_t addr = (AA1 << 16) + (AA2 << 8) + AA3;
+
+  n = snprintf (p, left, "%02x%02x%02x", AA1, AA2, AA3);
+  p    += n;
+  left -= n;
+
+  a = aircraft_CSV_lookup_entry (addr);
+  if (a && a->reg_num[0])
+  {
+    snprintf (p, left, " (reg-num: %s, manuf: %s)", a->reg_num, a->manufact[0] ? a->manufact : "?");
+    if (!ICAO_address_recently_seen(addr))
+       Modes.stat.unique_aircrafts_CSV++;
+  }
+  return (ret_buf);
+}
+
+/**
  * This function gets a decoded Mode S Message and prints it on the screen
  * in a human readable format.
  */
@@ -1994,7 +2171,7 @@ void display_modeS_message (const struct modeS_message *mm)
    */
   if (Modes.only_addr)
   {
-    printf ("%02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
+    printf ("%s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
     return;
   }
 
@@ -2020,7 +2197,7 @@ void display_modeS_message (const struct modeS_message *mm)
     /* DF 0 */
     printf ("DF 0: Short Air-Air Surveillance.\n");
     printf ("  Altitude       : %d %s\n", mm->altitude, mm->unit == MODES_UNIT_METERS ? "meters" : "feet");
-    printf ("  ICAO Address   : %02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
+    printf ("  ICAO Address   : %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
   }
   else if (mm->msg_type == 4 || mm->msg_type == 20)
   {
@@ -2029,7 +2206,7 @@ void display_modeS_message (const struct modeS_message *mm)
     printf ("  DR             : %d\n", mm->DR_status);
     printf ("  UM             : %d\n", mm->UM_status);
     printf ("  Altitude       : %d %s\n", mm->altitude, mm->unit == MODES_UNIT_METERS ? "meters" : "feet");
-    printf ("  ICAO Address   : %02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
+    printf ("  ICAO Address   : %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
 
     if (mm->msg_type == 20)
     {
@@ -2043,7 +2220,7 @@ void display_modeS_message (const struct modeS_message *mm)
     printf ("  DR             : %d\n", mm->DR_status);
     printf ("  UM             : %d\n", mm->UM_status);
     printf ("  Squawk         : %d\n", mm->identity);
-    printf ("  ICAO Address   : %02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
+    printf ("  ICAO Address   : %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
 
     if (mm->msg_type == 21)
     {
@@ -2055,14 +2232,14 @@ void display_modeS_message (const struct modeS_message *mm)
     /* DF 11 */
     printf ("DF 11: All Call Reply.\n");
     printf ("  Capability  : %s\n", capability_str[mm->ca]);
-    printf ("  ICAO Address: %02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
+    printf ("  ICAO Address: %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
   }
   else if (mm->msg_type == 17)
   {
     /* DF 17 */
     printf ("DF 17: ADS-B message.\n");
     printf ("  Capability     : %d (%s)\n", mm->ca, capability_str[mm->ca]);
-    printf ("  ICAO Address   : %02x%02x%02x\n", mm->AA1, mm->AA2, mm->AA3);
+    printf ("  ICAO Address   : %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
     printf ("  Extended Squitter  Type: %d\n", mm->ME_type);
     printf ("  Extended Squitter  Sub : %d\n", mm->ME_subtype);
     printf ("  Extended Squitter  Name: %s\n", get_ME_description(mm));
@@ -2878,8 +3055,8 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
   }
 
   setcolor (COLOUR_WHITE);
-  printf ("ICAO   Flight   Sqwk   Altitude  Speed    Lat       Long     Heading  Messages Seen %c\n"
-          "-------------------------------------------------------------------------------------\n",
+  printf ("ICAO   Flight   Reg-num  Sqwk   Altitude  Speed    Lat       Long     Heading  Messages Seen %c\n"
+          "-----------------------------------------------------------------------------------------------\n",
           spinner[spin_idx++ % 4]);
   setcolor (0);
 
@@ -2926,14 +3103,14 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
     if (next_a)
        setcolor (COLOUR_RED);
 
-    printf ("%-6s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %2d sec  %s\n",
-            a->hexaddr, a->flight, squawk, alt_buf, speed_buf,
-            lat_buf, lon_buf, a->heading, a->messages, (int)(now - a->seen), reg_num);
+    printf ("%-6s %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %d sec   \n",
+            a->hexaddr, a->flight, reg_num, squawk, alt_buf, speed_buf,
+            lat_buf, lon_buf, a->heading, a->messages, (int)(now - a->seen));
 
     if (next_a)
        setcolor (0);
-    next_a = NULL;
 
+    next_a = NULL;
     a = a->next;
     count++;
   }
@@ -3035,6 +3212,7 @@ int strip_mode (int level)
 
 /**
  * Return a malloced JSON description of the active planes.
+ * Bt only those whose latitude and longitude is known.
  */
 char *aircrafts_to_json (int *len, int *num_planes)
 {
@@ -3134,7 +3312,8 @@ void free_client (struct client *_cli, int service)
   struct client *cli;
   uint32_t cli_id = (uint32_t)-1;
 
-  assert (_cli);
+  if (!_cli)
+     return;
 
   for (cli = Modes.clients[service]; cli; cli = cli->next)
   {
@@ -3565,7 +3744,7 @@ int modeS_init_net (void)
  */
 void modeS_send_raw_output (const struct modeS_message *mm)
 {
-  char  msg [10 + MODES_LONG_MSG_BYTES];
+  char  msg [10 + 2*MODES_LONG_MSG_BYTES];
   char *p = msg;
 
   *p++ = '*';
@@ -3966,6 +4145,8 @@ void show_help (const char *fmt, ...)
           "  --device-index <index>   Select RTL device (default: 0).\n"
           "  --freq <hz>              Set frequency (default: %u MHz).\n"
           "  --gain <db>              Set gain (default: AUTO)\n"
+          "  --ppm <correction>       Set frequency correction (default: 0)\n"
+          "  --bias                   Enable Bias-T output (default: 0)\n"
           "  --infile <filename>      Read data from file (use `-' for stdin).\n"
           "  --interactive            Interactive mode refreshing data on screen.\n"
           "  --interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
@@ -3979,6 +4160,7 @@ void show_help (const char *fmt, ...)
           "  --net-sbs-port <port>    TCP listening port for BaseStation format output (default: %u).\n"
           "  --net-http-port <port>   HTTP server port (default: %u).\n"
           "  --web-page <file>        The Web-page to server for HTTP clients (default: \"%s\").\n"
+          "  --database <file>        The CSV aircraft database (default: \"%s\").\n"
           "  --no-fix                 Disable single-bits error correction using CRC.\n"
           "  --no-crc-check           Disable messages with broken CRC (discouraged).\n"
           "  --onlyaddr               Show only ICAO addresses (testing purposes).\n"
@@ -3995,11 +4177,13 @@ void show_help (const char *fmt, ...)
           "                    n = Log network debugging information.\n"
           "                    N = a bit more network information than flag 'n'.\n"
           "                    j = Log frames to frames.js, loadable by `debug.html'.\n"
-          "                    G = Log general debugging info.\n",
+          "                    g = Log general debugging info.\n"
+          "                    G = a bit more network information than flag 'g'.\n",
           Modes.who_am_I,
           (uint32_t)(MODES_DEFAULT_FREQ / 1000000), MODES_ICAO_CACHE_TTL,
           MODES_NET_OUTPUT_RAW_PORT, MODES_NET_INPUT_RAW_PORT,
-          MODES_NET_OUTPUT_SBS_PORT, MODES_NET_HTTP_PORT, GMAP_HTML, MODES_DEFAULT_RATE/1000000);
+          MODES_NET_OUTPUT_SBS_PORT, MODES_NET_HTTP_PORT, GMAP_HTML,
+          Modes.aircraft_db, MODES_DEFAULT_RATE/1000000);
 
   modeS_exit();  /* free Pthread-W32 data */
   exit (1);
@@ -4076,6 +4260,7 @@ void show_statistics (void)
   printf (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
   printf (" %8llu total usable messages.\n", Modes.stat.good_CRC + Modes.stat.fixed);
   printf (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
+  printf (" %8llu unique aircrafts from CSV.\n", Modes.stat.unique_aircrafts_CSV);
   printf (" %8llu unrecognized ME types.\n", Modes.stat.unrecognized_ME);
 
   if (Modes.net)
@@ -4159,6 +4344,9 @@ void modeS_exit (void)
   if (Modes.ICAO_cache)
      free (Modes.ICAO_cache);
 
+  if (Modes.aircraft_list)
+     free (Modes.aircraft_list);
+
    if (Modes.data_mutex)
       pthread_mutex_destroy (&Modes.data_mutex);
 
@@ -4190,14 +4378,23 @@ int main (int argc, char **argv)
   {
     int more = j + 1 < argc; /* There are more arguments. */
 
-    if (!strcmp(argv[j], "--device-index") && more)
+    if ((!strcmp(argv[j], "--device") || !strcmp(argv[j], "--device-index")) && more)
        Modes.dev_index = atoi (argv[++j]);
 
     else if (!strcmp(argv[j], "--gain") && more)
         Modes.gain = (int) (10.0 * atof(argv[++j]));   /* Gain is in tens of DBs */
 
+    else if (!strcmp(argv[j], "--ppm") && more)
+        Modes.ppm_error = atoi (argv[++j]);
+
     else if (!strcmp(argv[j], "--freq") && more)
         Modes.freq = (uint32_t) ato_hertz (argv[++j]);
+
+    else if (!strcmp(argv[j], "--samplerate") && more)
+        Modes.sample_rate = (uint32_t) ato_hertz (argv[++j]);
+
+    else if (!strnicmp(argv[j], "--bias", 6))
+        Modes.bias_tee = 1;
 
     else if (!strcmp(argv[j], "--infile") && more)
         Modes.infile = argv[++j];
@@ -4213,9 +4410,6 @@ int main (int argc, char **argv)
 
     else if (!strcmp(argv[j], "--raw"))
         Modes.raw = 1;
-
-    else if (!strcmp(argv[j], "--samplerate") && more)
-        Modes.sample_rate = (uint32_t) ato_hertz (argv[++j]);
 
     else if (!strcmp(argv[j], "--net"))
         Modes.net = 1;
@@ -4234,6 +4428,9 @@ int main (int argc, char **argv)
 
     else if (!strcmp(argv[j], "--net-sbs-port") && more)
         modeS_net_services [MODES_NET_SERVICE_SBS].port = atoi (argv[++j]);
+
+    else if (!strcmp(argv[j], "--database") && more)
+        strncpy (Modes.aircraft_db, argv[++j], sizeof(Modes.aircraft_db)-1);
 
     else if (!strcmp(argv[j], "--web-page") && more)
     {
@@ -4304,8 +4501,10 @@ int main (int argc, char **argv)
                Modes.debug |= DEBUG_JS;
                break;
           case 'g':
-          case 'G':
                Modes.debug |= DEBUG_GENERAL;
+               break;
+          case 'G':
+               Modes.debug |= (DEBUG_GENERAL2 | DEBUG_GENERAL);
                break;
           default:
                show_help ("Unknown debugging flag: %c\n", *f);
@@ -4321,6 +4520,9 @@ int main (int argc, char **argv)
       /* not reached */
     }
   }
+
+  if (Modes.infile)
+     Modes.net = 0;
 
   rc = modeS_init();        /* Initialization */
   if (rc)
