@@ -115,7 +115,7 @@ from the received *Mode S* packets. Except the above *Messages* and last *Seen*.
 
 To decode data from file, use:
   ```
-  c:\dev\Dump1090> dump1090 --infile /path/to/binfile
+  c:\dev\Dump1090> dump1090 --infile file.bin
   ```
 
 The binary file should be created using `rtl_sdr` like this (or with another
@@ -132,6 +132,31 @@ This is not needed when calling *Dump1090* itself.
 
 It is possible to feed the program with data via *standard input* using
 the `--infile` option with `-` as argument.
+
+When a `aircraftDatabase.csv` is present and used with a `.bin`-file, it can show output like:
+  ```
+  c:\dev\Dump1090> dump1090 --infile testfiles\modes1.bin
+  ...
+  *5d4d20237a55a6;
+  CRC: 7a55a6 (ok)
+  DF 11: All Call Reply.
+    Capability  : Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is airborne)
+    ICAO Address: 4d2023 (reg-num: 9H-AEM, manuf: Airbus)
+
+  *20000f1f684a6c;
+  CRC: 684a6c (ok)
+  DF 4: Surveillance, Altitude Reply.
+    Flight Status  : Normal, Airborne
+    DR             : 0
+    UM             : 0
+    Altitude       : 23375 feet
+    ICAO Address   : 4d2023 (reg-num: 9H-AEM, manuf: Airbus)
+  ```
+
+Use option `--database NUL` (or  `--database -` etc.) to avoid loading this huge
+(approx. 82 MByte) `.CSV` file. The latest version is available from:
+  **http://opensky-network.org/datasets/metadata/**
+
 
 ## Additional options
 
