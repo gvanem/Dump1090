@@ -306,6 +306,8 @@ define dump1090_Doxyfile
   QUIET                 = yes
   PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1 USE_MONGOOSE:=1
   INPUT                 = ../dump1090.c           \
+                          ../csv.c                \
+                          ../csv.h                \
                           ../externals/mongoose.c \
                           ../externals/mongoose.h \
                           ../externals/rtl-sdr.h  \
