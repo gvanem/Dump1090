@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <pthread.h>
 #include <stdint.h>
 #include <errno.h>
 #include <math.h>
@@ -18,9 +17,15 @@
 #include <assert.h>
 #include <sys/stat.h>
 #include <io.h>
+#include <process.h>
 
 #include <rtl-sdr.h>
 #include <mongoose.h>
+
+#if defined(__PTW32_STATIC_LIB)
+#include <pthread.h>
+#endif
+
 #include "csv.h"
 
 /**
@@ -181,20 +186,21 @@ struct net_service {
  * \def SAFE_COND_WAIT(cond, mutex)
  *
  * Signals are not threadsafe by default.
- * Taken from the Osmocom-SDR code and modified.
+ * Taken from the Osmocom-SDR code and modified to
+ * use Win-Vista+ functions.
  */
 #define SAFE_COND_SIGNAL(cond, mutex)   \
         do {                            \
-          pthread_mutex_lock (mutex);   \
-          pthread_cond_signal (cond);   \
-          pthread_mutex_unlock (mutex); \
+          EnterCriticalSection (mutex); \
+          WakeConditionVariable (cond); \
+          LeaveCriticalSection (mutex); \
         } while (0)
 
-#define SAFE_COND_WAIT(cond, mutex)        \
-        do {                               \
-          pthread_mutex_lock (mutex);      \
-          pthread_cond_wait (cond, mutex); \
-          pthread_mutex_unlock (mutex);    \
+#define SAFE_COND_WAIT(cond, mutex)     \
+        do {                            \
+          EnterCriticalSection (mutex); \
+          WakeConditionVariable (cond); \
+          LeaveCriticalSection (mutex); \
         } while (0)
 
 /**
@@ -207,22 +213,6 @@ struct net_service {
              printf ("%u: " fmt, __LINE__, \
                      __VA_ARGS__);         \
         } while (0)
-
-/**
- * On Windows, a `pthread_t` is not a scalar but a structure like this:
- *  ```
- *   typedef struct
- *   {
- *     void *p;
- *     size_t x;
- *   } __ptw32_handle_t;
- *  ```
- *
- * So we cannot do e.g. `if (pthread_x == pthread_y) ..`
- *
- * But we can use `pthread_equal (pthread_x, PTHREAD_NULL)` to compare.
- */
-static pthread_t PTHREAD_NULL;
 
 /**
  * \struct client
@@ -316,8 +306,8 @@ struct statistics {
 struct global_data {
        char              who_am_I [MG_PATH_MAX];   /**< The full name of this program. */
        char              where_am_I [MG_PATH_MAX]; /**< The current directory (no trailing `\\`. not used). */
-       pthread_t         reader_thread;            /**< Device reader thread ID. */
-       pthread_mutex_t   data_mutex;               /**< Mutex to synchronize buffer access. */
+       HANDLE            reader_thread;            /**< Device reader thread ID. */
+       CRITICAL_SECTION  data_mutex;               /**< Mutex to synchronize buffer access. */
        uint8_t          *data;                     /**< Raw IQ samples buffer. */
        uint32_t          data_len;                 /**< Length of raw IQ buffer. */
        uint16_t         *magnitude;                /**< Magnitude vector. */
@@ -353,6 +343,7 @@ struct global_data {
        /** Configuration
         */
        const char *infile;                    /**< Input IQ samples from file with option `--infile file`. */
+       const char *logfile                    /**< Write debug/info to file with option `--logfile file`. */
        uint64_t    loops;                     /**< Read input file in a loop. */
        int         fix_errors;                /**< Single bit error correction if true. */
        int         check_crc;                 /**< Only display messages with good CRC. */
@@ -1055,7 +1046,8 @@ void modeS_init_config (void)
   Modes.aggressive = 0;
   Modes.interactive = 0;
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
-  Modes.reader_thread = PTHREAD_NULL;
+  Modes.reader_thread = INVALID_HANDLE_VALUE;
+
   Modes.strip_level = 0;
   Modes.interactive_rows = 0;  /* set in `console_init()` in `--interactive` mode */
   Modes.loops = 0;
@@ -1074,13 +1066,16 @@ void modeS_init_config (void)
 int modeS_init (void)
 {
   struct stat st;
-  int    i, q, rc;
+  int    i, q;
+
+  if (Modes.debug == 0)
+     mg_log_set ("0");
 
   if (Modes.net)
   {
     char full_name [MG_PATH_MAX];
     snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.web_root, basename(Modes.web_page));
-    TRACE (DEBUG_NET, "Full web-page: \"%s\"\n", full_name);
+    TRACE (DEBUG_NET, "Web-page: \"%s\"\n", full_name);
 
     if (stat(full_name, &st) != 0)
     {
@@ -1094,13 +1089,7 @@ int modeS_init (void)
     }
   }
 
-  rc = pthread_mutex_init (&Modes.data_mutex, NULL);
-  if (rc)
-  {
-    fprintf (stderr, "Failed to create mutex: %s.\n", strerror(rc));
-    return (1);
-  }
-
+  InitializeCriticalSection (&Modes.data_mutex);
   signal (SIGINT, sigint_handler);
 
   /* We add a full message minus a final bit to the length, so that we
@@ -1226,7 +1215,7 @@ void rtlsdr_callback (uint8_t *buf, uint32_t len, void *ctx)
   if (Modes.exit)
      return;
 
-  pthread_mutex_lock (&Modes.data_mutex);
+  EnterCriticalSection (&Modes.data_mutex);
   if (len > MODES_DATA_LEN)
      len = MODES_DATA_LEN;
 
@@ -1239,7 +1228,7 @@ void rtlsdr_callback (uint8_t *buf, uint32_t len, void *ctx)
    */
   memcpy (Modes.data + 4*(MODES_FULL_LEN-1), buf, len);
   Modes.data_ready = 1;
-  pthread_mutex_unlock (&Modes.data_mutex);
+  LeaveCriticalSection (&Modes.data_mutex);
 }
 
 /**
@@ -1314,7 +1303,7 @@ int read_from_data_file (void)
  * We read RTLSDR data using a separate thread, so the main thread only handles decoding
  * without caring about data acquisition. Ref. `main_data_loop()` below.
  */
-void *data_thread_fn (void *arg)
+unsigned int __stdcall data_thread_fn (void *arg)
 {
   int rc;
 
@@ -1329,8 +1318,7 @@ void *data_thread_fn (void *arg)
     TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
            rc, get_rtlsdr_libusb_error(rc));
   }
-  pthread_exit (NULL);
-  return (NULL);
+  return (0);
 }
 
 /**
@@ -1358,9 +1346,9 @@ void main_data_loop (void)
      * stuff * at the same time. (This should only be useful with very
      * slow processors).
      */
-    pthread_mutex_lock (&Modes.data_mutex);
+    EnterCriticalSection (&Modes.data_mutex);
     detect_modeS (Modes.magnitude, Modes.data_len/2);
-    pthread_mutex_unlock (&Modes.data_mutex);
+    LeaveCriticalSection (&Modes.data_mutex);
   }
 }
 
@@ -1712,6 +1700,17 @@ int ICAO_address_recently_seen (uint32_t addr)
   time_t   now = time (NULL);
 
   return (a && a == addr && (now - t) <= MODES_ICAO_CACHE_TTL);
+}
+
+/**
+ * As above with no regard to time seen.
+ */
+int ICAO_address_seen (uint32_t addr)
+{
+  uint32_t h = ICAO_cache_hash_address (addr);
+  uint32_t a = Modes.ICAO_cache [h*2];
+
+  return (a && a == addr);
 }
 
 /**
@@ -2077,7 +2076,7 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
       mm->odd_flag = msg[6] & (1 << 2);
       mm->UTC_flag = msg[6] & (1 << 3);
       mm->altitude = decode_AC12_field (msg, &mm->unit);
-      mm->raw_latitude = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
+      mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
       mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | msg[10];
     }
     else if (mm->ME_type == 19 && mm->ME_subtype >= 1 && mm->ME_subtype <= 4)
@@ -2153,7 +2152,7 @@ const char *get_ICAO_details (int AA1, int AA2, int AA3)
   if (a && a->reg_num[0])
   {
     snprintf (p, left, " (reg-num: %s, manuf: %s)", a->reg_num, a->manufact[0] ? a->manufact : "?");
-    if (!ICAO_address_recently_seen(addr))
+    if (ICAO_address_seen(addr))
        Modes.stat.unique_aircrafts_CSV++;
   }
   return (ret_buf);
@@ -3065,7 +3064,7 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
     int   altitude = a->altitude;
     int   speed = a->speed;
     char  alt_buf [10] = "  - ";
-    char  squawk [6] = "  - ";
+    char  squawk  [6]  = "  - ";
     char  lat_buf [10] = "  - ";
     char  lon_buf [10] = "  - ";
     char  speed_buf [8] = " - ";
@@ -4146,11 +4145,13 @@ void show_help (const char *fmt, ...)
           "  --freq <hz>              Set frequency (default: %u MHz).\n"
           "  --gain <db>              Set gain (default: AUTO)\n"
           "  --ppm <correction>       Set frequency correction (default: 0)\n"
-          "  --bias                   Enable Bias-T output (default: 0)\n"
+          "  --bias                   Enable Bias-T output (default: off)\n"
+          "  --agc                    Enable Automatic Gain Control (default: off)\n"
           "  --infile <filename>      Read data from file (use `-' for stdin).\n"
           "  --interactive            Interactive mode refreshing data on screen.\n"
           "  --interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
           "  --interactive-ttl <sec>  Remove from list if idle for <sec> (default: %u).\n"
+       /* "  --logfile <file>         Enable logging to file (default: off)\n" */
           "  --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
           "  --metric                 Use metric units (meters, km/h, ...).\n"
           "  --net                    Enable networking.\n"
@@ -4240,10 +4241,10 @@ void sigint_handler (int sig)
   {
     int rc;
 
-    pthread_mutex_lock (&Modes.data_mutex);
+    EnterCriticalSection (&Modes.data_mutex);
     rc = rtlsdr_cancel_async (Modes.dev);
     TRACE (DEBUG_GENERAL, "rtlsdr_cancel_async(): rc: %d.\n", rc);
-    pthread_mutex_unlock (&Modes.data_mutex);
+    LeaveCriticalSection (&Modes.data_mutex);
   }
 }
 
@@ -4261,7 +4262,8 @@ void show_statistics (void)
   printf (" %8llu total usable messages.\n", Modes.stat.good_CRC + Modes.stat.fixed);
   printf (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
   printf (" %8llu unique aircrafts from CSV.\n", Modes.stat.unique_aircrafts_CSV);
-  printf (" %8llu unrecognized ME types.\n", Modes.stat.unrecognized_ME);
+  if (!Modes.interactive)
+     printf (" %8llu unrecognized ME types.\n", Modes.stat.unrecognized_ME);
 
   if (Modes.net)
   {
@@ -4312,17 +4314,11 @@ void modeS_exit (void)
     TRACE (DEBUG_GENERAL, "rtlsdr_close(), rc: %d.\n", rc);
   }
 
-  if (!pthread_equal(Modes.reader_thread, PTHREAD_NULL))
-  {
-    rc = pthread_detach (Modes.reader_thread);
-    TRACE (DEBUG_GENERAL, "pthread_detach(): rc: %d.\n", rc);
-  }
+  if (Modes.reader_thread != INVALID_HANDLE_VALUE)
+     CloseHandle (Modes.reader_thread);
 
-  /* This should not hurt if we've not created the 'Modes.reader_thread'
-   */
 #if defined(__PTW32_STATIC_LIB)
   TRACE (DEBUG_GENERAL, "Cleaning up Pthreads-W32.\n\n");
-  Modes.reader_thread = PTHREAD_NULL;
   pthread_win32_thread_detach_np();
   pthread_win32_process_detach_np();
 #endif
@@ -4347,8 +4343,7 @@ void modeS_exit (void)
   if (Modes.aircraft_list)
      free (Modes.aircraft_list);
 
-   if (Modes.data_mutex)
-      pthread_mutex_destroy (&Modes.data_mutex);
+  DeleteCriticalSection (&Modes.data_mutex);
 
   Modes.data = NULL;
   Modes.magnitude = Modes.magnitude_lut = NULL;
@@ -4401,6 +4396,9 @@ int main (int argc, char **argv)
 
     else if (!strcmp(argv[j], "--loop"))
         Modes.loops = (more && isdigit(*argv[j+1])) ? _atoi64 (argv[++j]) : LLONG_MAX;
+
+    else if (!strcmp(argv[j], "--logfile") && more) /**\todo */
+        Modes.logfile = argv[++j];
 
     else if (!strcmp(argv[j], "--no-fix"))
         Modes.fix_errors = 0;
@@ -4571,10 +4569,15 @@ int main (int argc, char **argv)
   }
   else if (Modes.strip_level == 0)
   {
-    /* Create the thread that will read the data from the device and the network.
+    /* Create the thread that will read the data from the device.
      */
-    rc = pthread_create (&Modes.reader_thread, NULL, data_thread_fn, NULL);
-    TRACE (DEBUG_GENERAL, "pthread_create(): rc: %d.\n", rc);
+    Modes.reader_thread = (HANDLE) _beginthreadex (NULL, 0, data_thread_fn, NULL, 0, NULL);
+    if (!Modes.reader_thread)
+    {
+      rc = 1;
+      fprintf (stderr, "_beginthreadex() failed: %d.\n", errno);
+      goto quit;
+    }
     main_data_loop();
   }
 
