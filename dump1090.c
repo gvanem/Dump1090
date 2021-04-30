@@ -343,7 +343,7 @@ struct global_data {
        /** Configuration
         */
        const char *infile;                    /**< Input IQ samples from file with option `--infile file`. */
-       const char *logfile                    /**< Write debug/info to file with option `--logfile file`. */
+       const char *logfile;                   /**< Write debug/info to file with option `--logfile file`. */
        uint64_t    loops;                     /**< Read input file in a loop. */
        int         fix_errors;                /**< Single bit error correction if true. */
        int         check_crc;                 /**< Only display messages with good CRC. */
@@ -3029,6 +3029,61 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
 }
 
 /**
+ * Show information for a single aircraft.
+ */
+void interactive_show_aircraft (const struct aircraft *a, bool red_colour, uint64_t now)
+{
+  int   altitude = a->altitude;
+  int   speed = a->speed;
+  char  alt_buf [10] = "  - ";
+  char  squawk  [6]  = "  - ";
+  char  lat_buf [10] = "  - ";
+  char  lon_buf [10] = "  - ";
+  char  speed_buf [8] = " - ";
+  const char *reg_num = "";
+
+  /* Convert units to metric if --metric was specified.
+   */
+  if (Modes.metric)
+  {
+    double altitudeM, speedKmH;
+
+    altitudeM = (double) altitude / 3.2828;
+    altitude  = (int) altitudeM;
+    speedKmH  = (double) speed * 1.852;
+    speed     = (int) speedKmH;
+  }
+
+  if (altitude)
+     snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
+
+  if (a->identity)
+     snprintf (squawk, 5, "%05d", a->identity);
+
+  if (a->lat)
+     snprintf (lat_buf, sizeof(lat_buf), "%.03f", a->lat);
+
+  if (a->lon)
+     snprintf (lon_buf, sizeof(lon_buf), "%.03f", a->lon);
+
+  if (a->speed)
+     snprintf (speed_buf, sizeof(speed_buf), "%d", a->speed);
+
+  if (a->CSV && a->CSV->reg_num[0])
+     reg_num = a->CSV->reg_num;
+
+  if (red_colour)
+     setcolor (COLOUR_RED);
+
+  printf ("%-6s %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %d sec   \n",
+          a->hexaddr, a->flight, reg_num, squawk, alt_buf, speed_buf,
+          lat_buf, lon_buf, a->heading, a->messages, (int)(now - a->seen));
+
+  if (red_colour)
+     setcolor (0);
+}
+
+/**
  * Show the currently captured aircraft information on screen.
  * \param in now     the currect tick-timer
  * \param in next_a  the next aircraft to be removed. We print this in RED
@@ -3061,55 +3116,7 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
 
   while (a && count < Modes.interactive_rows && !Modes.exit)
   {
-    int   altitude = a->altitude;
-    int   speed = a->speed;
-    char  alt_buf [10] = "  - ";
-    char  squawk  [6]  = "  - ";
-    char  lat_buf [10] = "  - ";
-    char  lon_buf [10] = "  - ";
-    char  speed_buf [8] = " - ";
-    const char *reg_num = "";
-
-    /* Convert units to metric if --metric was specified. */
-    if (Modes.metric)
-    {
-      double altitudeM, speedKmH;
-
-      altitudeM = (double) altitude / 3.2828;
-      altitude  = (int) altitudeM;
-      speedKmH  = (double) speed * 1.852;
-      speed     = (int) speedKmH;
-    }
-
-    if (altitude)
-       snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
-
-    if (a->identity)
-       snprintf (squawk, 5, "%05d", a->identity);
-
-    if (a->lat)
-       snprintf (lat_buf, sizeof(lat_buf), "%.03f", a->lat);
-
-    if (a->lon)
-       snprintf (lon_buf, sizeof(lon_buf), "%.03f", a->lon);
-
-    if (a->speed)
-       snprintf (speed_buf, sizeof(speed_buf), "%d", a->speed);
-
-    if (a->CSV && a->CSV->reg_num[0])
-       reg_num = a->CSV->reg_num;
-
-    if (next_a)
-       setcolor (COLOUR_RED);
-
-    printf ("%-6s %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %d sec   \n",
-            a->hexaddr, a->flight, reg_num, squawk, alt_buf, speed_buf,
-            lat_buf, lon_buf, a->heading, a->messages, (int)(now - a->seen));
-
-    if (next_a)
-       setcolor (0);
-
-    next_a = NULL;
+    interactive_show_aircraft (a, a == next_a, now);
     a = a->next;
     count++;
   }
