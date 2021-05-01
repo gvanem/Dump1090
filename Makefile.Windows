@@ -75,15 +75,20 @@ endif
 
 CFLAGS  = -nologo -Zi -W3 -DUSE_MONGOOSE=1
 LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib
+RCFLAGS = -nologo
 
 ifeq ($(USE_CRT_DEBUG),1)
-  CFLAGS += -MDd -GS -Oy- -RTCu -RTCs
+  CFLAGS  += -MDd -GS -Oy- -RTCu -RTCs
+  RCFLAGS += -D_DEBUG
 else
   CFLAGS += -MD -GS- -Zo -Oy- -Ox -Gs0
 endif
 
 ifeq ($(CC),clang-cl)
-  CFLAGS += -fms-compatibility -ferror-limit=5
+  CFLAGS  += -fms-compatibility -ferror-limit=5
+  RCFLAGS += -D__clang__
+else
+  RCFLAGS += -D_MSC_VER
 endif
 
 CFLAGS += -FI./dump1090_config.h -I. -I./externals -I./externals/rtl-sdr
@@ -172,11 +177,15 @@ all: $(OBJ_DIR) $(TARGETS)
 $(OBJ_DIR) doxy-docs:
 	- mkdir $@
 
-dump1090.exe: $(OBJECTS)
+dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
 	$(call link_EXE, $@, $^ $(EX_LIBS))
 
 $(OBJ_DIR)/%.obj: %.c
 	$(CC) -c $(CFLAGS) -Fo$@ $<
+	@echo
+
+$(OBJ_DIR)/dump1090.res: dump1090.rc
+	rc $(RCFLAGS) -fo $@ $<
 	@echo
 
 docs: doxy-docs doxy-docs/Doxyfile
