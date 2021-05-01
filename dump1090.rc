@@ -1,0 +1,60 @@
+#include <winver.h>
+#include "dump1090_config.h"
+
+#define RC_VERSION   VER_MAJOR, VER_MINOR, VER_MICRO, 0
+
+#if defined(__clang__)
+  #define RC_BUILDER  "clang-cl"
+#else
+  #define RC_BUILDER  "MSVC"
+#endif
+
+#ifndef RC_CPU
+#define RC_CPU "x86"
+#endif
+
+#ifdef _DEBUG
+  #define RC_DBG_REL    " debug"
+  #define RC_FILEFLAGS  1
+#else
+  #define RC_DBG_REL    " release"
+  #define RC_FILEFLAGS  0
+#endif
+
+#define _STR2(x) #x
+#define _STR(x)  _STR2(x)
+
+#define RC_VER_STRING  _STR(VER_MAJOR) "." _STR(VER_MINOR) "." _STR(VER_MICRO) ".0 (" \
+                       RC_BUILDER ", " RC_CPU "," RC_DBG_REL ")"
+
+VS_VERSION_INFO VERSIONINFO
+  FILEVERSION     RC_VERSION
+  PRODUCTVERSION  RC_VERSION
+  FILEFLAGSMASK   0x3fL
+  FILEOS          VOS__WINDOWS32
+  FILETYPE        VFT_APP
+  FILESUBTYPE     0x0L
+  FILEFLAGS       RC_FILEFLAGS
+
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName",      "https://github.com/gvanem/Dump1090"
+      VALUE "FileDescription",  "A simple ADS-B receiver, decoder and web-server."
+      VALUE "FileVersion",      RC_VER_STRING
+      VALUE "InternalName",     "Dump1090"
+      VALUE "LegalCopyright",   "Copyright (c) 2012 Salvatore Sanfilippo;\n"
+"                        Copyright (c) 2021 Gisle Vanem"
+      VALUE "LegalTrademarks",  "MIT License "
+      VALUE "OriginalFilename", "dump1090.exe"
+      VALUE "ProductName",      "Dump1090"
+      VALUE "ProductVersion",   RC_VER_STRING
+    END
+  END
+BLOCK "VarFileInfo"
+BEGIN
+  VALUE "Translation", 0x409, 1200
+END
+END
