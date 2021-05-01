@@ -182,6 +182,7 @@ struct net_service {
 #define TWO_PI             (2 * M_PI)
 #define DIM(array)         (sizeof(array) / sizeof(array[0]))
 #define ONE_MBYTE          (1024*1024)
+#define STDIN_FILENO       0
 
 /**
  * \def SAFE_COND_SIGNAL(cond, mutex)
