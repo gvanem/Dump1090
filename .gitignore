@@ -22,8 +22,6 @@ Dump1090.vcxproj.user
 aircraftDatabase.csv
 doc8643AircraftTypes.csv
 doc8643Manufacturers.csv
-externals/mini-pthread.c
-externals/mini-pthread.h
 favicon.ico
 favicon.png
 testfiles/modes1.bin.png
