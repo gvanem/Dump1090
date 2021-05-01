@@ -106,7 +106,7 @@ ifeq ($(USE_ASAN),1)
 
   ifeq ($(CC),clang-cl)
     LDFLAGS += -inferasanlibs:no \
-               -libpath:$(CLANG_ROOT)/lib/clang/$(CLANG_VERSION)/lib/windows
+               -libpath:$(CLANG_ROOT)/lib/clang/$(CLANG_VER)/lib/windows
 
     EX_LIBS += clang_rt.asan_dynamic-i386.lib \
                clang_rt.asan_dynamic_runtime_thunk-i386.lib
@@ -114,12 +114,6 @@ ifeq ($(USE_ASAN),1)
 endif
 
 EX_LIBS += externals/libusb-1.0.lib ws2_32.lib
-
-#
-# This assumes you have an MSys/Cygwin 'echo.exe' with colour support.
-#
-BRIGHT_GREEN = \e[1;32m
-green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
 
 #
 # What to build:
@@ -134,6 +128,7 @@ SOURCES = externals/mongoose.c \
 ifeq ($(USE_BUNDLED_RTLSDR),1)
   VPATH  += externals/rtl-sdr
   CFLAGS += -DUSE_BUNDLED_RTLSDR=1 \
+            -DHAVE_rtlsdr_cal_imr  \
             -DLIBUSB_CALL=__stdcall
 
   SOURCES += $(addprefix externals/rtl-sdr/, \
@@ -167,6 +162,12 @@ OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
 
 GENERATED = dump1090_config.h
 
+#
+# This assumes you have an MSys/Cygwin 'echo.exe' with colour support.
+#
+BRIGHT_GREEN = \e[1;32m
+green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
+
 all: $(OBJ_DIR) $(GENERATED) $(TARGETS)
 	$(call green_msg, Welcome to Dump1090.)
 
@@ -193,7 +194,7 @@ docs: doxy-docs doxy-docs/Doxyfile
 
 docs_clean:
 	rm -fR doxy-docs/*
-	rm -f dump1090.chm dump1090.chw
+	rm -f dump1090.chw
 	- rmdir doxy-docs
 
 doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
@@ -232,7 +233,7 @@ clean: docs_clean
 	- rmdir $(OBJ_DIR)
 
 vclean realclean: clean
-	rm -f $(TARGETS) .depend.Windows
+	rm -f $(TARGETS) dump1090.chm .depend.Windows
 
 #
 # .obj -> .exe macro
