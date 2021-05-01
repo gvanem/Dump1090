@@ -80,7 +80,7 @@ ifeq ($(CC),clang-cl)
   CFLAGS  += -fms-compatibility -ferror-limit=5
   RCFLAGS += -D__clang__
 else
-  CFLAGS  += -wd4005 -wd4244
+  CFLAGS  += -wd4005 -wd4244 -wd4267
   RCFLAGS += -D_MSC_VER
 endif
 

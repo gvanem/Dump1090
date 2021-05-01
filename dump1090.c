@@ -3486,7 +3486,7 @@ void websocket_ctrl_handler (struct mg_connection *conn, const char *remote, int
 {
   struct mg_ws_message *ws = ev_data;
 
-  TRACE (DEBUG_NET, "Web-socket event %s from client at %s has %d bytes for us.\n",
+  TRACE (DEBUG_NET, "Web-socket event %s from client at %s has %zd bytes for us.\n",
          event_name(ev), remote, conn->recv.len);
 
   if (ev == MG_EV_WS_MSG)
@@ -3586,7 +3586,7 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
    */
   if (!stricmp(request, "GET /echo"))
   {
-    TRACE (DEBUG_NET, "Got Web-socket echo:\n'%.*s'.\n", hm->head.len, hm->head.ptr);
+    TRACE (DEBUG_NET, "Got Web-socket echo:\n'%.*s'.\n", (int)hm->head.len, hm->head.ptr);
     mg_ws_upgrade (conn, hm, "WS test");
     return;
   }
@@ -3686,7 +3686,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
     ++ (*handler_num_clients (service));
     Modes.stat.cli_accepted [service]++;
 
-    TRACE (DEBUG_NET, "New client %u (service \"%s\") from %s (socket %u).\n",
+    TRACE (DEBUG_NET, "New client %u (service \"%s\") from %s (socket %Iu).\n",
            cli->id, handler_descr(service), remote, _ptr2sock(conn->fd));
   }
   else if (ev == MG_EV_READ)
