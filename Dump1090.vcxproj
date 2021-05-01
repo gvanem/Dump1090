@@ -78,30 +78,30 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>.;./externals;./externals/pthreads</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_MONGOOSE;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0;LIBUSB_CALL=__stdcall</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
-      <AdditionalOptions>-wd4005 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>-wd4005 -wd4244 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>externals\rtlsdr.lib;externals\libusb-1.0.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>externals\rtl-sdr\rtlsdr.lib;externals\libusb-1.0.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099 %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>.;./externals;./externals/pthreads</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_MONGOOSE;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0;LIBUSB_CALL=__stdcall</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>-wd4005 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>-wd4005 -wd4244 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
@@ -109,15 +109,15 @@
       <SubSystem>Console</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>false</OptimizeReferences>
-      <AdditionalDependencies>externals\rtlsdr.lib;externals\libusb-1.0.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>externals\rtl-sdr\rtlsdr.lib;externals\libusb-1.0.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099 %(AdditionalOptions)</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/pthreads</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
-      <AdditionalOptions>-wd4005 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_MONGOOSE;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0;LIBUSB_CALL=__stdcall</PreprocessorDefinitions>
+      <AdditionalOptions>-wd4005 -wd4244 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <AdditionalOptions>/IGNORE:4099 %(AdditionalOptions)</AdditionalOptions>
@@ -125,9 +125,9 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/pthreads</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>HAVE_CONFIG_H;USE_MONGOOSE;rtlsdr_STATIC;__PTW32_STATIC_LIB;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0</PreprocessorDefinitions>
-      <AdditionalOptions>-wd4005 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_MONGOOSE;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0;LIBUSB_CALL=__stdcall</PreprocessorDefinitions>
+      <AdditionalOptions>-wd4005 -wd4244 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <AdditionalOptions>/IGNORE:4099 %(AdditionalOptions)</AdditionalOptions>
@@ -137,20 +137,25 @@
     <ClCompile Include="dump1090.c" />
     <ClCompile Include="csv.c" />
     <ClCompile Include="externals\mongoose.c" />
-    <ClCompile Include="externals\pthreads\pthread.c" />
+    <ClCompile Include="externals\rtl-sdr\librtlsdr.c" />
+    <ClCompile Include="externals\rtl-sdr\trace.c" />
+    <ClCompile Include="externals\rtl-sdr\tuner_e4k.c" />
+    <ClCompile Include="externals\rtl-sdr\tuner_fc001x.c" />
+    <ClCompile Include="externals\rtl-sdr\tuner_fc2580.c" />
+    <ClCompile Include="externals\rtl-sdr\tuner_r82xx.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="csv.h" />
     <ClInclude Include="externals\mongoose.h" />
-    <ClInclude Include="externals\pthreads\config.h" />
-    <ClInclude Include="externals\pthreads\context.h" />
-    <ClInclude Include="externals\pthreads\implement.h" />
-    <ClInclude Include="externals\pthreads\pthread.h" />
-    <ClInclude Include="externals\pthreads\sched.h" />
-    <ClInclude Include="externals\pthreads\semaphore.h" />
-    <ClInclude Include="externals\pthreads\_ptw32.h" />
-    <ClInclude Include="externals\rtl-sdr.h" />
-    <ClInclude Include="externals\rtl-sdr_export.h" />
+    <ClInclude Include="externals\rtl-sdr\convenience.h" />
+    <ClInclude Include="externals\rtl-sdr\rtlsdr_i2c.h" />
+    <ClInclude Include="externals\rtl-sdr\trace.h" />
+    <ClInclude Include="externals\rtl-sdr\tuner_e4k.h" />
+    <ClInclude Include="externals\rtl-sdr\tuner_fc001x.h" />
+    <ClInclude Include="externals\rtl-sdr\tuner_fc2580.h" />
+    <ClInclude Include="externals\rtl-sdr\tuner_r82xx.h" />
+    <ClInclude Include="externals\rtl-sdr\rtl-sdr.h" />
+    <ClInclude Include="externals\rtl-sdr\rtl-sdr_export.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
