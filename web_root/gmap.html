@@ -295,6 +295,7 @@
 
                   if (Planes[plane.hex]) {
                       var myplane = Planes[plane.hex];
+
                       marker = myplane.marker;
                       marker.setLatLng ([plane.lat,plane.lon]);
                       marker.setIcon (getIconForPlane(plane));
@@ -309,7 +310,7 @@
                   }
                   else {
                       var icon = getIconForPlane (plane);
-                      var marker = L.marker ([plane.lat, plane.lon], { icon: icon }).addTo(Map);
+                      var marker = L.marker ([plane.lat, plane.lon], { icon: icon }).addTo (Map);
                       var hex = plane.hex;
 
                       marker.on ('click', selectPlaneCallback(plane.hex));
@@ -329,7 +330,7 @@
               /* Remove idle planes. */
               for (var p in Planes) {
                   if (!stillhere[p]) {
-                      Map.removeLayer(Planes[p].marker);
+                      Map.removeLayer (Planes[p].marker);
                       delete Planes[p];
                   }
               }
@@ -387,7 +388,7 @@
        window.setInterval (function() {
           fetchData();
           refreshGeneralInfo();
-       // TODO: refreshTableInfo();
+       /* TODO: refreshTableInfo(); */
        }, 200);
       }
     </script>
