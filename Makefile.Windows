@@ -38,15 +38,16 @@ USE_CLANG_FORMAT ?= 0
 PYTHON ?= py -3
 
 #
-# Change the 'CLANG_ROOT' dir to suite:
+# Change the 'CLANG_[32|64]' dir to suite:
 # Only important if 'USE_ASAN = 1'.
 #
-CLANG_ROOT ?= f:/ProgramFiler/LLVM-11-32bit
-CLANG_VER  ?= 11.0.0
+CLANG_32  ?= f:/ProgramFiler/LLVM-11-32bit
+CLANG_64  ?= f:/ProgramFiler/LLVM-11-64bit
+CLANG_VER ?= 11.0.0
 
 define Usage
 
-  Usage: "make -f $(THIS_FILE) [CC=cl | clang-cl] [all | clean | vclean | depend]")
+  Usage: "make -f $(THIS_FILE) [CPU=x86 | x64] [CC=cl | clang-cl] [all | clean | vclean | depend]")
   Specify CC=cl       - use MSVC
   Specify CC=clang-cl - use clang-cl
 endef
@@ -65,7 +66,7 @@ else
 endif
 
 CFLAGS  = -nologo -Zi -W3 -DUSE_MONGOOSE=1
-LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib
+LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib -machine:$(CPU)
 RCFLAGS = -nologo
 
 ifeq ($(USE_CRT_DEBUG),1)
@@ -79,6 +80,7 @@ ifeq ($(CC),clang-cl)
   CFLAGS  += -fms-compatibility -ferror-limit=5
   RCFLAGS += -D__clang__
 else
+  CFLAGS  += -wd4005 -wd4244
   RCFLAGS += -D_MSC_VER
 endif
 
@@ -89,19 +91,48 @@ CFLAGS += -FI./dump1090_config.h -I. -I./externals -I./externals/rtl-sdr
 #
 CFLAGS += -Drtlsdr_STATIC
 
+#
+# If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
+#
+ifeq ($(CPU),)
+  CPU = x86
+endif
+
+#
+# GNU Make handles environment variables in a case-sensitive manner.
+#
+ifeq ($(CPU),X64)
+  BITS = 64
+else ifeq ($(CPU),x64)
+  BITS = 64
+else ifeq ($(CPU),x86)
+  BITS = 32
+else ifeq ($(CPU),X86)
+  BITS = 32
+else
+  $(error Unsupported $$(CPU)=$(CPU))
+endif
+
+RCFLAGS += -DRC_BITS=$(BITS)
+
 ifeq ($(USE_ASAN),1)
   CFLAGS += -fsanitize=address
 
   ifeq ($(CC),clang-cl)
     LDFLAGS += -inferasanlibs:no \
-               -libpath:$(CLANG_ROOT)/lib/clang/$(CLANG_VER)/lib/windows
+               -libpath:$(CLANG_$(BITS))/lib/clang/$(CLANG_VER)/lib/windows
 
-    EX_LIBS += clang_rt.asan_dynamic-i386.lib \
-               clang_rt.asan_dynamic_runtime_thunk-i386.lib
+    ifeq ($(CPU),x86)
+      EX_LIBS += clang_rt.asan_dynamic-i386.lib \
+                 clang_rt.asan_dynamic_runtime_thunk-i386.lib
+    else
+      EX_LIBS += clang_rt.asan_dynamic-x86_64.lib \
+                 clang_rt.asan_dynamic_runtime_thunk-x86_64.lib
+    endif
   endif
 endif
 
-EX_LIBS += externals/libusb-1.0.lib ws2_32.lib
+EX_LIBS += externals/$(CPU)/libusb-1.0.lib ws2_32.lib
 
 #
 # What to build:
@@ -117,7 +148,7 @@ ifeq ($(USE_BUNDLED_RTLSDR),1)
   VPATH  += externals/rtl-sdr
   CFLAGS += -DUSE_BUNDLED_RTLSDR=1 \
             -DHAVE_rtlsdr_cal_imr  \
-            -DLIBUSB_CALL=__stdcall
+            -DLIBUSB_CALL=WINAPI
 
   SOURCES += $(addprefix externals/rtl-sdr/, \
                librtlsdr.c                   \
@@ -130,7 +161,7 @@ else
   #
   # External static libraries needed:
   #
-  EX_LIBS = externals/rtl-sdr/rtlsdr.lib
+  EX_LIBS += externals/$(CPU)/rtlsdr.lib
 
   #
   # The flags are for Pthreads-W32:
@@ -154,6 +185,40 @@ OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
 BRIGHT_GREEN = \e[1;32m
 green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
 
+#
+# Select currect MSVC / clang-cl compiler w/o the 'vcvarsall.bat' non-sense.
+#
+# E.g.:
+#  'VCToolkitInstallDir=f:\gv\VC_2017\VC\Tools\MSVC\%VC_VER%' is the root of the MSVC tools.
+#  'WK_ROOT' is the root of the 'WindowsKits' API.
+#  'WK_ROOT' is the 'WindowsKits' version.
+#
+TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
+
+ifeq ($(CC),clang-cl)
+  _CC = $(realpath $(CLANG_$(BITS)))/bin/clang-cl.exe
+else
+  _CC = $(TOOLS_ROOT)/bin/HostX86/$(CPU)/cl.exe
+endif
+
+#
+# The path for the CRT libraries.
+#
+LDFLAGS += -libpath:$(TOOLS_ROOT)/lib/$(CPU)
+
+#
+# E.g. the User-Mode libraries for 'x86' are in:
+#   $(WK_ROOT)/Lib/$(WK_VER)/um/x86/
+#
+LDFLAGS += -libpath:$(realpath $(WK_ROOT)/Lib/$(WK_VER)/um/$(CPU))
+
+#
+# Ditto mess for the Universal CRT libraries: for 'x86' the UCRT libs are in:
+#   $(WK_ROOT)/Lib/$(WK_VER)/ucrt/x86/
+#
+LDFLAGS += -libpath:$(realpath $(WK_ROOT)/Lib/$(WK_VER)/ucrt/$(CPU))
+
+
 all: $(OBJ_DIR) $(TARGETS)
 	$(call green_msg, Welcome to Dump1090.)
 
@@ -164,7 +229,7 @@ dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
 	$(call link_EXE, $@, $^ $(EX_LIBS))
 
 $(OBJ_DIR)/%.obj: %.c
-	$(CC) -c $(CFLAGS) -Fo$@ $<
+	$(_CC) -c $(CFLAGS) -Fo$@ $<
 	@echo
 
 $(OBJ_DIR)/dump1090.res: dump1090.rc
@@ -302,7 +367,7 @@ define C_preprocess
   $(file >> $(1), ---------------------------------------------------------)
   $(file >> $(1), Try compile this output.)
   $(file >> $(1),*/)
-  $(CC) -E $(CFLAGS) $(2) | $(PYTHON) cpp_filter.py $(C_FORMATER) >> $(1)
+  $(_CC) -E $(CFLAGS) $(2) | $(PYTHON) cpp_filter.py $(C_FORMATER) >> $(1)
 endef
 
 define cpp_filter_py

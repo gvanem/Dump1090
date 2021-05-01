@@ -24,8 +24,6 @@
   #pragma clang diagnostic ignored "-Wmacro-redefined"
   #pragma clang diagnostic ignored "-Wignored-attributes"
   #pragma clang diagnostic ignored "-Wignored-pragma-optimize"
-#else
-  #pragma warning (disable:4005 4244)
 #endif
 
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
