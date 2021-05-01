@@ -1,4 +1,4 @@
-name: MSBuild MSVC project
+name: MSBuild - Dump1090
 
 on: [push]
 
