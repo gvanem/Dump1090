@@ -21,9 +21,11 @@
 
 #include <rtl-sdr.h>
 #include <mongoose.h>
+#include <libusb.h>
 
 #if defined(__PTW32_STATIC_LIB)
-#include <pthread.h>
+  extern void pthread_win32_thread_detach_np (void);
+  extern void pthread_win32_process_detach_np (void);
 #endif
 
 #include "csv.h"
@@ -245,7 +247,6 @@ struct aircraft_CSV {
  */
 struct aircraft {
        uint32_t addr;           /**< ICAO address */
-       char     hexaddr [7];    /**< Printable ICAO address */
        char     flight [9];     /**< Flight number */
        int      altitude;       /**< Altitude */
        uint32_t speed;          /**< Velocity computed from EW and NS components. */
@@ -683,33 +684,12 @@ char *dirname (const char *fname)
 }
 
 /**
- * Return TRUE if string `s1` starts with `s2`.
- *
- * Ignore casing of boith strings.
- * And drop leading blanks in `s1` first.
- */
-bool str_startswith (const char *s1, const char *s2)
-{
-  size_t s1_len = strlen (s1);
-  size_t s2_len = strlen (s2);
-
-  if (s2_len > s1_len)
-     return (FALSE);
-
-  if (!strncmp(s1, s2, s2_len))
-     return (true);
-  return (false);
-}
-
-/**
  * Return a string describing an error-code from RTLSDR
  *
  * This can be from `librtlsdr` itself or from `libusb`.
  */
 const char *get_rtlsdr_libusb_error (int err)
 {
-  extern const char *WINAPI libusb_error_name (int);
-
   if (err >= 0)
      return ("No error");
   if (err == -ENOMEM)
@@ -1068,8 +1048,8 @@ int modeS_init (void)
   struct stat st;
   int    i, q;
 
-  if (Modes.debug == 0)
-     mg_log_set ("0");
+  if (!(Modes.debug & (DEBUG_NET | DEBUG_NET2)))
+     mg_log_set_callback (NULL, NULL);     /* Disable all logging from Mongoose */
 
   if (Modes.net)
   {
@@ -1168,6 +1148,10 @@ int modeS_init_RTLSDR (void)
     fprintf (stderr, "%d: %s, %s, SN: %s %s\n", i, vendor, product, serial,
              (i == Modes.dev_index) ? "(currently selected)" : "");
   }
+
+#if defined(HAVE_rtlsdr_cal_imr) && 0
+  rtlsdr_cal_imr (1);
+#endif
 
   rc = rtlsdr_open (&Modes.dev, Modes.dev_index);
   if (rc < 0)
@@ -1317,6 +1301,9 @@ unsigned int __stdcall data_thread_fn (void *arg)
                             MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
     TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
            rc, get_rtlsdr_libusb_error(rc));
+
+    /* break out of main_data_loop() */
+    sigint_handler (0);
   }
   return (0);
 }
@@ -1703,17 +1690,6 @@ int ICAO_address_recently_seen (uint32_t addr)
 }
 
 /**
- * As above with no regard to time seen.
- */
-int ICAO_address_seen (uint32_t addr)
-{
-  uint32_t h = ICAO_cache_hash_address (addr);
-  uint32_t a = Modes.ICAO_cache [h*2];
-
-  return (a && a == addr);
-}
-
-/**
  * If the message type has the checksum XORed with the ICAO address, try to
  * brute force it using a list of recently seen ICAO addresses.
  *
@@ -1739,7 +1715,7 @@ int brute_force_AP (uint8_t *msg, struct modeS_message *mm)
   if (msg_type == 0 ||         /* Short air surveillance */
       msg_type == 4 ||         /* Surveillance, altitude reply */
       msg_type == 5 ||         /* Surveillance, identity reply */
-      msg_type == 16 ||        /* Long Air-Air survillance */
+      msg_type == 16 ||        /* Long Air-Air Surveillance */
       msg_type == 20 ||        /* Comm-A, altitude request */
       msg_type == 21 ||        /* Comm-A, identity request */
       msg_type == 24)          /* Comm-C ELM */
@@ -1849,7 +1825,7 @@ int decode_AC12_field (uint8_t *msg, int *unit)
  * Capability table.
  */
 const char *capability_str[8] = {
-    /* 0 */ "Level 1 (Survillance Only)",
+    /* 0 */ "Level 1 (Surveillance Only)",
     /* 1 */ "Level 2 (DF0,4,5,11)",
     /* 2 */ "Level 3 (DF0,4,5,11,20,21)",
     /* 3 */ "Level 4 (DF0,4,5,11,20,21,24)",
@@ -1873,6 +1849,22 @@ const char *flight_status_str[8] = {
     /* 7 */ "Value 7 is not assigned"
 };
 
+/**
+ * Emergency state table from: <br>
+ * https://www.ll.mit.edu/mission/aviation/publications/publication-files/atc-reports/Grappel_2007_ATC-334_WW-15318.pdf
+ * and 1090-DO-260B_FRAC
+ */
+const char *emerg_state_str[8] = {
+    /* 0 */ "No emergency",
+    /* 1 */ "General emergency (Squawk 7700)",
+    /* 2 */ "Lifeguard/Medical",
+    /* 3 */ "Minimum fuel",
+    /* 4 */ "No communications (Squawk 7600)",
+    /* 5 */ "Unlawful interference (Squawk 7500)",
+    /* 6 */ "Reserved",
+    /* 7 */ "Reserved"
+};
+
 const char *get_ME_description (const struct modeS_message *mm)
 {
   if (mm->ME_type >= 1 && mm->ME_type <= 4)
@@ -1892,6 +1884,9 @@ const char *get_ME_description (const struct modeS_message *mm)
 
   if (mm->ME_type == 23 && mm->ME_subtype == 0)
      return ("Test Message");
+
+   if (mm->ME_type == 23 && mm->ME_subtype == 7)
+     return ("Test Message -- Squawk");
 
   if (mm->ME_type == 24 && mm->ME_subtype == 1)
      return ("Surface System Status");
@@ -1918,7 +1913,7 @@ const char *get_ME_description (const struct modeS_message *mm)
 void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
 {
   uint32_t crc2;   /* Computed CRC, used to verify the message CRC. */
-  char    *AIS_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
+  const char *AIS_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
 
   /* Work on our local copy
    */
@@ -2150,11 +2145,7 @@ const char *get_ICAO_details (int AA1, int AA2, int AA3)
 
   a = aircraft_CSV_lookup_entry (addr);
   if (a && a->reg_num[0])
-  {
-    snprintf (p, left, " (reg-num: %s, manuf: %s)", a->reg_num, a->manufact[0] ? a->manufact : "?");
-    if (ICAO_address_seen(addr))
-       Modes.stat.unique_aircrafts_CSV++;
-  }
+     snprintf (p, left, " (reg-num: %s, manuf: %s)", a->reg_num, a->manufact[0] ? a->manufact : "?");
   return (ret_buf);
 }
 
@@ -2239,9 +2230,9 @@ void display_modeS_message (const struct modeS_message *mm)
     printf ("DF 17: ADS-B message.\n");
     printf ("  Capability     : %d (%s)\n", mm->ca, capability_str[mm->ca]);
     printf ("  ICAO Address   : %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
-    printf ("  Extended Squitter  Type: %d\n", mm->ME_type);
-    printf ("  Extended Squitter  Sub : %d\n", mm->ME_subtype);
-    printf ("  Extended Squitter  Name: %s\n", get_ME_description(mm));
+    printf ("  Extended Squitter Type: %d\n", mm->ME_type);
+    printf ("  Extended Squitter Sub : %d\n", mm->ME_subtype);
+    printf ("  Extended Squitter Name: %s\n", get_ME_description(mm));
 
     /* Decode the extended squitter message. */
     if (mm->ME_type >= 1 && mm->ME_type <= 4)
@@ -2283,6 +2274,27 @@ void display_modeS_message (const struct modeS_message *mm)
         printf ("    Heading: %d", mm->heading);
       }
     }
+    else if (mm->ME_type == 23)  /* Test Message */
+    {
+      if (mm->ME_subtype == 7)
+           printf ("    Squawk: %04x\n", mm->identity);
+      else printf ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
+    }
+    else if (mm->ME_type == 28)  /* Extended Squitter Aircraft Status */
+    {
+      if (mm->ME_subtype == 1)
+      {
+        printf ("    Emergency State: %s\n", emerg_state_str[(mm->msg[5] & 0xE0) >> 5]);
+        printf ("    Squawk: %04x\n", mm->identity);
+      }
+      else
+        printf ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
+    }
+#if 0     /**\todo Ref: chapter 8 in `The-1090MHz-riddle.pdf` */  //  178.137.186.214
+    else if (mm->ME_type == 31)  /* Aircraft operation status */
+    {
+    }
+#endif
     else
     {
       printf ("    Unrecognized ME type: %d subtype: %d\n", mm->ME_type, mm->ME_subtype);
@@ -2719,9 +2731,14 @@ struct aircraft *aircraft_create (uint32_t addr)
   if (a)
   {
     a->addr = addr;
-    snprintf (a->hexaddr, sizeof(a->hexaddr), "%06X", (int)addr);
     a->seen = MSEC_TIME() / 1000;
-    a->CSV = aircraft_CSV_lookup_entry (addr);
+    a->CSV  = aircraft_CSV_lookup_entry (addr);
+
+    /* We really can't tell if it's unique since we keep no global list of that yet
+     */
+    Modes.stat.unique_aircrafts++;
+    if (a->CSV)
+       Modes.stat.unique_aircrafts_CSV++;
   }
   return (a);
 }
@@ -2942,10 +2959,6 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
        return (NULL);  /* Not fatal; there could be available memory later */
     a->next = Modes.aircrafts;
     Modes.aircrafts = a;
-
-    /* We really can't tell if it's unique since we keep no global list of that yet
-     */
-    Modes.stat.unique_aircrafts++;
   }
   else
   {
@@ -3075,8 +3088,8 @@ void interactive_show_aircraft (const struct aircraft *a, bool red_colour, uint6
   if (red_colour)
      setcolor (COLOUR_RED);
 
-  printf ("%-6s %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %d sec   \n",
-          a->hexaddr, a->flight, reg_num, squawk, alt_buf, speed_buf,
+  printf ("%06X %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %3d      %-8ld %d sec   \n",
+          a->addr, a->flight, reg_num, squawk, alt_buf, speed_buf,
           lat_buf, lon_buf, a->heading, a->messages, (int)(now - a->seen));
 
   if (red_colour)
@@ -3253,10 +3266,10 @@ char *aircrafts_to_json (int *len, int *num_planes)
     if (a->lat != 0 && a->lon != 0)
     {
       l = snprintf (p, buflen,
-                    "{\"hex\":\"%s\", \"flight\":\"%s\", \"lat\":%f, "
+                    "{\"hex\":\"%06X\", \"flight\":\"%s\", \"lat\":%f, "
                     "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
                     "\"speed\":%d},\n",
-                    a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->heading, a->speed);
+                    a->addr, a->flight, a->lat, a->lon, a->altitude, a->heading, a->speed);
       p += l;
       buflen -= l;
       num++;
@@ -3548,7 +3561,7 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
   {
     char redirect [10+MG_PATH_MAX];
 
-    if (str_startswith(hm->proto.ptr, "HTTP/1.1"))
+    if (hm->proto.len >= 9 && strncmp(hm->proto.ptr, "HTTP/1.1", 8))
     {
       keep_alive = "Connection: keep-alive\r\n";
       Modes.stat.HTTP_keep_alive_recv++;
@@ -4242,7 +4255,8 @@ void sigint_handler (int sig)
 
   console_exit();
 
-  fputs ("Caught SIGINT, shutting down..\n", stderr);
+  if (sig == SIGINT)
+     fputs ("Caught SIGINT, shutting down..\n", stderr);
 
   if (Modes.dev)
   {
