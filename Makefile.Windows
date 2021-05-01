@@ -160,23 +160,17 @@ endif
 
 OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
 
-GENERATED = dump1090_config.h
-
 #
 # This assumes you have an MSys/Cygwin 'echo.exe' with colour support.
 #
 BRIGHT_GREEN = \e[1;32m
 green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
 
-all: $(OBJ_DIR) $(GENERATED) $(TARGETS)
+all: $(OBJ_DIR) $(TARGETS)
 	$(call green_msg, Welcome to Dump1090.)
 
 $(OBJ_DIR) doxy-docs:
 	- mkdir $@
-
-dump1090_config.h: $(THIS_FILE)
-	$(call Generate, $@, //)
-	$(file >> $@,$(dump1090_config_h))
 
 dump1090.exe: $(OBJECTS)
 	$(call link_EXE, $@, $^ $(EX_LIBS))
@@ -201,7 +195,7 @@ doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call Generate, $@, #)
 	$(file >> $@,$(dump1090_Doxyfile))
 
-%.i: %.c cpp_filter.py $(GENERATED) FORCE
+%.i: %.c cpp_filter.py FORCE
 	$(call C_preprocess, $@, $<)
 
 FORCE:
@@ -225,8 +219,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
                       $(TARGETS:.exe=.exp) \
                       $(TARGETS:.exe=.lib))
 
-OTHER_JUNK = $(GENERATED) link.tmp link.args vc1*.pdb cpp_filter.py \
-             dump1090_config.h
+OTHER_JUNK = link.tmp link.args vc1*.pdb cpp_filter.py
 
 clean: docs_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK) $(OBJ_DIR)/*
@@ -270,54 +263,6 @@ endef
 define make_resp_file
   $(file > $(1))
   $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
-endef
-
-define dump1090_config_h
-  #ifndef DUMP1090_CONFIG_H
-  #define DUMP1090_CONFIG_H
-
-  /* Warning control:
-   */
-  #if defined(__clang__)
-    #pragma clang diagnostic ignored "-Wunused-value"
-    #pragma clang diagnostic ignored "-Wunused-variable"
-    #pragma clang diagnostic ignored "-Wmacro-redefined"
-    #pragma clang diagnostic ignored "-Wignored-attributes"
-    #pragma clang diagnostic ignored "-Wignored-pragma-optimize"
-  #else
-    #pragma warning (disable:4005 4244)
-  #endif
-
-  #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
-  #define _CRT_SECURE_NO_WARNINGS         1
-  #define _CRT_SECURE_NO_DEPRECATE        1
-  #define _CRT_NONSTDC_NO_WARNINGS        1
-
-  #define _USE_MATH_DEFINES 1  /* To pull in 'M_PI' in <math.h> */
-  #define STDIN_FILENO      0
-
-  #if defined(_DEBUG)
-    #include <malloc.h>
-    #include <string.h>
-
-    #undef  _malloca          /* Avoid MSVC-9 <malloc.h>/<crtdbg.h> name-clash */
-    #define _CRTDBG_MAP_ALLOC
-    #include <crtdbg.h>
-  #endif
-
-  #if defined(USE_VLD)
-    /*
-     * Visual Leak Detector is mostly useful in a '_DEBUG' ('-MDd' or '-MTd') build.
-     * But including it for '_RELEASE' ('-MD' or '-MT') works too.
-     *
-     * Refs:
-     *   https://kinddragon.github.io/vld/
-     *   https://github.com/KindDragon/vld/wiki
-     */
-    #include <vld.h>
-  #endif
-
-  #endif /* DUMP1090_CONFIG_H */
 endef
 
 define dump1090_Doxyfile
@@ -430,7 +375,7 @@ endef
 DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
 DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.$.obj: @'
 
-depend: $(GENERATED)
+depend:
 	$(call Generate, .depend.Windows, #)
 	gcc $(DEP_CFLAGS) $(SOURCES) | sed $(DEP_REPLACE) >> .depend.Windows
 
