@@ -34,11 +34,8 @@
 
 #include "rtl-sdr.h"
 #include "rtlsdr_i2c.h"
+#include "trace.h"
 #include "tuner_r82xx.h"
-
-#ifdef _WIN32
-#include "convenience.h"
-#endif
 
 #define MHZ(x)		((x)*1000*1000)
 

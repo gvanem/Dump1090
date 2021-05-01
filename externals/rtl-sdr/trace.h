@@ -1,5 +1,5 @@
-#ifndef _TRACE_WIN32H
-#define _TRACE_WIN32H
+#ifndef _TRACE_WIN32
+#define _TRACE_WIN32
 
 #if !defined(_WIN32)
   #define TRACE(level, fmt, ...) /* NOP */
