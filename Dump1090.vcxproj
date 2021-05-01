@@ -84,7 +84,7 @@
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -wd4005 -wd4244 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
@@ -101,7 +101,7 @@
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -wd4005 -wd4244 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
@@ -117,7 +117,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>USE_MONGOOSE;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0;LIBUSB_CALL=__stdcall</PreprocessorDefinitions>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -wd4005 -wd4244 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <AdditionalOptions>/IGNORE:4099 %(AdditionalOptions)</AdditionalOptions>
@@ -127,7 +127,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>USE_MONGOOSE;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;STDIN_FILENO=0;LIBUSB_CALL=__stdcall</PreprocessorDefinitions>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -wd4005 -wd4244 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <AdditionalOptions>/IGNORE:4099 %(AdditionalOptions)</AdditionalOptions>
