@@ -16,6 +16,11 @@ THIS_FILE = Makefile.Windows
 USE_CRT_DEBUG ?= 0
 
 #
+# Use a mini version of RTLSDR here?
+#
+USE_BUNDLED_RTLSDR ?= 1
+
+#
 # Visual Leak Detector:
 #   https://kinddragon.github.io/vld/
 #
@@ -81,23 +86,12 @@ ifeq ($(CC),clang-cl)
   CFLAGS += -fms-compatibility -ferror-limit=5
 endif
 
-CFLAGS += -FI./dump1090_config.h -I. -I./externals
+CFLAGS += -FI./dump1090_config.h -I. -I./externals -I./externals/rtl-sdr
 
 #
 # Since 'rtlsdr' is used as a static library.
 #
 CFLAGS += -Drtlsdr_STATIC
-
-#
-# The flags are for Pthreads-W32:
-#
-CFLAGS += -I./externals/pthreads -D__PTW32_STATIC_LIB -DHAVE_CONFIG_H
-
-#
-# External static libraries needed:
-#
-EX_LIBS = externals/rtlsdr.lib \
-          externals/libusb-1.0.lib
 
 ifeq ($(USE_VLD),1)
   CFLAGS += -DUSE_VLD          \
@@ -119,7 +113,7 @@ ifeq ($(USE_ASAN),1)
   endif
 endif
 
-EX_LIBS += ws2_32.lib
+EX_LIBS += externals/libusb-1.0.lib ws2_32.lib
 
 #
 # This assumes you have an MSys/Cygwin 'echo.exe' with colour support.
@@ -127,20 +121,47 @@ EX_LIBS += ws2_32.lib
 BRIGHT_GREEN = \e[1;32m
 green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
 
-vpath %.c externals externals/pthreads
-
 #
 # What to build:
 #
 TARGETS = dump1090.exe
 
-#
-# Use the amalgamated version of Pthreads-W32:
-#
-SOURCES = externals/pthreads/pthread.c \
-          externals/mongoose.c         \
-          csv.c                        \
+VPATH  += externals
+SOURCES = externals/mongoose.c \
+          csv.c                \
           dump1090.c
+
+ifeq ($(USE_BUNDLED_RTLSDR),1)
+  VPATH  += externals/rtl-sdr
+  CFLAGS += -DUSE_BUNDLED_RTLSDR=1 \
+            -DLIBUSB_CALL=__stdcall
+
+  SOURCES += $(addprefix externals/rtl-sdr/, \
+               librtlsdr.c                   \
+               trace.c                       \
+               tuner_e4k.c                   \
+               tuner_fc001x.c                \
+               tuner_fc2580.c                \
+               tuner_r82xx.c)
+else
+  #
+  # External static libraries needed:
+  #
+  EX_LIBS = externals/rtl-sdr/rtlsdr.lib
+
+  #
+  # The flags are for Pthreads-W32:
+  #
+  CFLAGS += -I./externals/pthreads \
+            -D__PTW32_STATIC_LIB   \
+            -DHAVE_CONFIG_H
+
+  #
+  # Use the amalgamated version of Pthreads-W32:
+  #
+  VPATH   += externals/pthreads
+  SOURCES += externals/pthreads/pthread.c
+endif
 
 OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
 
@@ -260,9 +281,10 @@ define dump1090_config_h
     #pragma clang diagnostic ignored "-Wunused-value"
     #pragma clang diagnostic ignored "-Wunused-variable"
     #pragma clang diagnostic ignored "-Wmacro-redefined"
+    #pragma clang diagnostic ignored "-Wignored-attributes"
     #pragma clang diagnostic ignored "-Wignored-pragma-optimize"
   #else
-    #pragma warning (disable:4005)
+    #pragma warning (disable:4005 4244)
   #endif
 
   #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
