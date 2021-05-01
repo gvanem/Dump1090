@@ -21,19 +21,11 @@ USE_CRT_DEBUG ?= 0
 USE_BUNDLED_RTLSDR ?= 1
 
 #
-# Visual Leak Detector:
-#   https://kinddragon.github.io/vld/
-#
-USE_VLD ?= 0
-
-#
-# Enable "Addess Sanitazion".
+# Enable "Addess Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
 # Does not work with 'USE_CRT_DEBUG = 1' and 'CC = clang-cl'.
 # But 'USE_CRT_DEBUG = 1' and 'CC = cl' works.
-#
-# A 'USE_VLD = 1' together with this option can cause Stack Overflows.
 #
 USE_ASAN ?= 0
 
@@ -46,10 +38,9 @@ USE_CLANG_FORMAT ?= 0
 PYTHON ?= py -3
 
 #
-# Change the 'x_ROOT' dirs to suite:
-# Only important if 'USE_VLD = 1' or 'USE_ASAN = 1'.
+# Change the 'CLANG_ROOT' dir to suite:
+# Only important if 'USE_ASAN = 1'.
 #
-VLD_ROOT   ?= f:/ProgramFiler/VisualLeakDetector
 CLANG_ROOT ?= f:/ProgramFiler/LLVM-11-32bit
 CLANG_VER  ?= 11.0.0
 
@@ -97,14 +88,6 @@ CFLAGS += -FI./dump1090_config.h -I. -I./externals -I./externals/rtl-sdr
 # Since 'rtlsdr' is used as a static library.
 #
 CFLAGS += -Drtlsdr_STATIC
-
-ifeq ($(USE_VLD),1)
-  CFLAGS += -DUSE_VLD          \
-            -DVLD_FORCE_ENABLE \
-            -I$(VLD_ROOT)/include
-
-  EX_LIBS += $(VLD_ROOT)/lib/Win32/vld.lib
-endif
 
 ifeq ($(USE_ASAN),1)
   CFLAGS += -fsanitize=address

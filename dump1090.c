@@ -520,17 +520,7 @@ void console_exit (void)
   console_hnd = INVALID_HANDLE_VALUE;
 }
 
-#if defined(USE_VLD)
-void crtdbug_init (void)
-{
-  VLDSetReportOptions (VLD_OPT_REPORT_TO_STDOUT, NULL);  /* Force all reports to "stdout" in "ASCII" */
-  VLDSetOptions (VLDGetOptions(), 100, 4);   /* Dump max 100 bytes data. And walk max 4 stack frames */
-}
-void crtdbug_exit (void)
-{
-}
-
-#elif defined(_DEBUG)
+#if defined(_DEBUG)
 static _CrtMemState last_state;
 
 void crtdbug_exit (void)
@@ -564,7 +554,7 @@ void crtdbug_init (void)
   _CrtSetDbgFlag (flags | _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG));
   _CrtMemCheckpoint (&last_state);
 }
-#endif  /* USE_VLD */
+#endif  /* _DEBUG */
 
 /**
  * Convert standard suffixes (k, M, G) to double
@@ -4371,7 +4361,7 @@ void modeS_exit (void)
   Modes.magnitude = Modes.magnitude_lut = NULL;
   Modes.ICAO_cache = NULL;
 
-#if defined(_MSC_VER) && (defined(_DEBUG) || defined(USE_VLD))
+#if defined(_DEBUG)
   crtdbug_exit();
 #endif
 }
@@ -4383,7 +4373,7 @@ int main (int argc, char **argv)
 {
   int j, rc;
 
-#if defined(_MSC_VER) && (defined(_DEBUG) || defined(USE_VLD))
+#if defined(_DEBUG)
   crtdbug_init();
 #endif
 
