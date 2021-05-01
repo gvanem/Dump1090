@@ -5,6 +5,17 @@
 #ifndef DUMP1090_CONFIG_H
 #define DUMP1090_CONFIG_H
 
+#define VER_MAJOR 0
+#define VER_MINOR 1
+#define VER_MICRO 0
+
+#if !defined(RC_INVOKED)  /* Rest of file */
+
+#if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
+  #undef  _WIN32_WINNT
+  #define _WIN32_WINNT 0x0600
+#endif
+
 /* Warning control:
  */
 #if defined(__clang__)
@@ -23,7 +34,6 @@
 #define _CRT_NONSTDC_NO_WARNINGS        1
 
 #define _USE_MATH_DEFINES 1  /* To pull in 'M_PI' in <math.h> */
-#define STDIN_FILENO      0
 
 #if defined(_DEBUG)
   #include <malloc.h>
@@ -34,16 +44,5 @@
   #include <crtdbg.h>
 #endif
 
-#if defined(USE_VLD)
-  /*
-   * Visual Leak Detector is mostly useful in a '_DEBUG' ('-MDd' or '-MTd') build.
-   * But including it for '_RELEASE' ('-MD' or '-MT') works too.
-   *
-   * Refs:
-   *   https://kinddragon.github.io/vld/
-   *   https://github.com/KindDragon/vld/wiki
-   */
-  #include <vld.h>
-#endif
-
-#endif /* DUMP1090_CONFIG_H */
+#endif  /* RC_INVOKED */
+#endif  /* DUMP1090_CONFIG_H */
