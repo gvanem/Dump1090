@@ -14,10 +14,10 @@ env:
 jobs:
   build:
     runs-on: windows-latest
-    matrix:
-      BUILD_CONFIGURATION: [Release, Debug]
-      BUILD_PLATFORM: x86
-      # BUILD_PLATFORM: [x86, x64]
+    strategy:
+      matrix:
+        BUILD_CONFIGURATION: [Release, Debug]
+        BUILD_PLATFORM: x86
 
     steps:
     - uses: actions/checkout@v2
