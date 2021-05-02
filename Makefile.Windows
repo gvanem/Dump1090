@@ -1,5 +1,5 @@
 #
-# GNU Makefile for dump1090 (x86, MSVC or clang-cl).
+# GNU Makefile for dump1090 (x86/x64, MSVC or clang-cl).
 #
 # By G. Vanem <gvanem@yahoo.no> 2021.
 #
@@ -38,7 +38,7 @@ USE_CLANG_FORMAT ?= 0
 PYTHON ?= py -3
 
 #
-# Change the 'CLANG_[32|64]' dir to suite:
+# Change the 'CLANG_[32|64]' directory to suite:
 # Only important if 'USE_ASAN = 1'.
 #
 CLANG_32  ?= f:/ProgramFiler/LLVM-11-32bit
@@ -47,9 +47,11 @@ CLANG_VER ?= 11.0.0
 
 define Usage
 
-  Usage: "make -f $(THIS_FILE) [CPU=x86 | x64] [CC=cl | clang-cl] [all | clean | vclean | depend]")
-  Specify CC=cl       - use MSVC
-  Specify CC=clang-cl - use clang-cl
+  Usage: "make -f $(THIS_FILE) [CC=cl | clang-cl] [CPU=x86 | x64] [all | clean | vclean | depend]")
+  Specify CC=cl       - build with MSVC
+  Specify CC=clang-cl - build with clang-cl
+  Specify CPU=x86     - build for 32-bit
+  Specify CPU=x64     - build for 64-bit
 endef
 
 #
@@ -59,13 +61,17 @@ export CL=
 
 OBJ_DIR = objects
 
-ifeq ($(CC),cl)
-else ifeq ($(CC),clang-cl)
-else
-  $(error $(Usage))
+ifneq ($(CC),cl)
+  ifneq ($(CC),clang-cl)
+    $(error $(Usage))
+  endif
 endif
 
-CFLAGS  = -nologo -Zi -W3 -DUSE_MONGOOSE=1
+CFLAGS = -nologo -Zi -W3        \
+         -FI./dump1090_config.h \
+         -I. -I./externals      \
+         -I./externals/rtl-sdr
+
 LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib -machine:$(CPU)
 RCFLAGS = -nologo
 
@@ -83,13 +89,6 @@ else
   CFLAGS  += -wd4005 -wd4244 -wd4267
   RCFLAGS += -D_MSC_VER
 endif
-
-CFLAGS += -FI./dump1090_config.h -I. -I./externals -I./externals/rtl-sdr
-
-#
-# Since 'rtlsdr' is used as a static library.
-#
-CFLAGS += -Drtlsdr_STATIC
 
 #
 # If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
@@ -113,8 +112,6 @@ else
   $(error Unsupported $$(CPU)=$(CPU))
 endif
 
-RCFLAGS += -DRC_BITS=$(BITS)
-
 ifeq ($(USE_ASAN),1)
   CFLAGS += -fsanitize=address
 
@@ -131,6 +128,8 @@ ifeq ($(USE_ASAN),1)
     endif
   endif
 endif
+
+RCFLAGS += -DRC_BITS=$(BITS)
 
 EX_LIBS += externals/$(CPU)/libusb-1.0.lib ws2_32.lib
 
@@ -189,9 +188,9 @@ green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
 # Select currect MSVC / clang-cl compiler w/o the 'vcvarsall.bat' non-sense.
 #
 # E.g.:
-#  'VCToolkitInstallDir=f:\gv\VC_2017\VC\Tools\MSVC\%VC_VER%' is the root of the MSVC tools.
-#  'WK_ROOT' is the root of the 'WindowsKits' API.
-#  'WK_ROOT' is the 'WindowsKits' version.
+#  'VCToolkitInstallDir=c:\dev\VC_2019\VC\Tools\MSVC\%VC_VER%' is the root of the MSVC tools.
+#  'WK_ROOT=c:\ProgramFiles-x86\Windows-Kits' -- the root of the 'WindowsKits' API.
+#  'WK_VER=10.0.19041.0'                      -- the 'WindowsKits' version.
 #
 TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
 
@@ -210,13 +209,13 @@ LDFLAGS += -libpath:$(TOOLS_ROOT)/lib/$(CPU)
 # E.g. the User-Mode libraries for 'x86' are in:
 #   $(WK_ROOT)/Lib/$(WK_VER)/um/x86/
 #
-LDFLAGS += -libpath:$(realpath $(WK_ROOT)/Lib/$(WK_VER)/um/$(CPU))
+LDFLAGS += -libpath:$(realpath $(WK_ROOT))/Lib/$(WK_VER)/um/$(CPU)
 
 #
 # Ditto mess for the Universal CRT libraries: for 'x86' the UCRT libs are in:
 #   $(WK_ROOT)/Lib/$(WK_VER)/ucrt/x86/
 #
-LDFLAGS += -libpath:$(realpath $(WK_ROOT)/Lib/$(WK_VER)/ucrt/$(CPU))
+LDFLAGS += -libpath:$(realpath $(WK_ROOT))/Lib/$(WK_VER)/ucrt/$(CPU)
 
 
 all: $(OBJ_DIR) $(TARGETS)
