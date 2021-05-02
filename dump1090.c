@@ -3222,7 +3222,7 @@ int strip_mode (int level)
 
 /**
  * Return a malloced JSON description of the active planes.
- * Bt only those whose latitude and longitude is known.
+ * But only those whose latitude and longitude is known.
  */
 char *aircrafts_to_json (int *len, int *num_planes)
 {
@@ -3544,7 +3544,7 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
   /* Do not trace these '/data.json' requests since it would be too much
    */
   if (!data_json)
-     TRACE (DEBUG_NET, "'%s' from client %lu (cli: 0x%p) at %s.\n", request, conn->id, cli, remote);
+     TRACE (DEBUG_NET, "'%s' from client %lu at %s.\n", request, conn->id, remote);
 
   /* Redirect a 'GET /' to a 'GET /' + 'web_page'
    */
@@ -3560,7 +3560,7 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
     }
     snprintf (redirect, sizeof(redirect), "Location: %s\r\n%s", basename(Modes.web_page), keep_alive);
     mg_http_reply (conn, 303, redirect, "");
-    TRACE (DEBUG_NET, "Redirecting client %lu (cli: 0x%p): \"%s\"...\n\n", conn->id, cli, redirect);
+    TRACE (DEBUG_NET, "Redirecting client %lu: \"%s\"...\n\n", conn->id, redirect);
     return;
   }
 
@@ -3570,8 +3570,8 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
     char *data = aircrafts_to_json (&data_len, &num_planes);
 
     if (num_planes >= 1)
-       TRACE (DEBUG_NET2, "Feeding client %lu (cli: 0x%p) with \"%s\", num_planes: %d.\n",
-              conn->id, cli, uri, num_planes);
+       TRACE (DEBUG_NET2, "Feeding client %lu with \"%s\", num_planes: %d.\n",
+              conn->id, uri, num_planes);
 
     /* This is rather inefficient way to pump data over to the client.
      * Better use a WebSocket instead.
@@ -3629,7 +3629,7 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
     if (cli->keep_alive)
        Modes.stat.HTTP_keep_alive_sent++;
 
-    TRACE (DEBUG_NET, "Serving HTTP client %lu (cli: 0x%p) with \"%s\".\n", conn->id, cli, uri);
+    TRACE (DEBUG_NET, "Serving HTTP client %lu with \"%s\".\n", conn->id, uri);
     return;
   }
 
@@ -3638,35 +3638,22 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
 }
 
 /**
- * A hack to get the socket-fd from a
- * `struct mg_connection::fd` in mongoose.h.
- */
-static SOCKET _ptr2sock (void *ptr)
-{
-  union {
-    SOCKET s;
-    void  *ptr;
-  } u = { 0 };
-  u.ptr = ptr;
-  return (u.s);
-}
-
-/**
  * The event handler for ALL network I/O.
  */
 void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_data)
 {
   struct client *cli;
-  char *remote, remote_buf [100];
-  int   service = (int) fn_data;     /* 'fn_data' is arbitrary user data */
+  char   *remote, remote_buf [100];
+  INT_PTR _service = (INT_PTR) fn_data;   /* 'fn_data' is arbitrary user data */
+  int     service = (int)_service;
 
   if (Modes.exit)
      return;
 
-  if (ev == MG_EV_POLL || ev == MG_EV_ERROR)  /* Ignore these events */
+  if (ev == MG_EV_POLL || ev == MG_EV_ERROR)    /* Ignore these events */
      return;
 
-  if (ev == MG_EV_WRITE)
+  if (ev == MG_EV_WRITE)             /* Increment our own send() bytes */
   {
     Modes.stat.bytes_sent[service] += *(const int*) ev_data;
     return;
@@ -3686,8 +3673,8 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
     ++ (*handler_num_clients (service));
     Modes.stat.cli_accepted [service]++;
 
-    TRACE (DEBUG_NET, "New client %u (service \"%s\") from %s (socket %Iu).\n",
-           cli->id, handler_descr(service), remote, _ptr2sock(conn->fd));
+    TRACE (DEBUG_NET, "New client %u (service \"%s\") from %s.\n",
+           cli->id, handler_descr(service), remote);
   }
   else if (ev == MG_EV_READ)
   {
