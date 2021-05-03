@@ -153,8 +153,9 @@ When a `aircraftDatabase.csv` is present and used with a `.bin`-file, it can sho
     ICAO Address   : 4d2023 (reg-num: 9H-AEM, manuf: Airbus)
   ```
 
-Use option `--database NUL` (or  `--database -` etc.) to avoid loading this huge
-(approx. 82 MByte) `.CSV` file. The latest version is available from:
+Use option `--database NUL` (or  `--database -` etc.) to avoid loading this huge (approx. 82 MByte)
+`.CSV` file. <br>
+The latest version is available from:
   **http://opensky-network.org/datasets/metadata/**
 
 
@@ -290,9 +291,9 @@ used to visualize packets using a web browser, you can use
 
 ## How this program works?
 
-The code is very documented and written in order to be easy to understand.
-For the diligent programmer with a *Mode S*<br>
-specification at hand, it should be trivial to understand how it works.
+The code is very documented and written in order to be easy to understand. <br>
+For the diligent programmer with a *Mode S* specification at hand, it should be
+trivial to understand how it works.
 
 The algorithms I used were obtained basically looking at many messages
 as displayed using a throw-away SDL program, and trying to model the algorithm
