@@ -1,4 +1,4 @@
-name: MSBuild - Dump1090
+name: MSBuild
 
 on: [push]
 
