@@ -16,11 +16,6 @@ THIS_FILE = Makefile.Windows
 USE_CRT_DEBUG ?= 0
 
 #
-# Use a mini version of RTLSDR here?
-#
-USE_BUNDLED_RTLSDR ?= 1
-
-#
 # Enable "Addess Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
