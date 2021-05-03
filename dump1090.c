@@ -3521,7 +3521,7 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
   Modes.stat.HTTP_get_requests++;
   request = strncpy (alloca(hm->head.len+1), hm->head.ptr, hm->head.len);
 
-  uri = request + strlen("GET ");
+  uri = request + strlen ("GET ");
   end = strchr (uri, ' ');
   if (!end)
   {
@@ -3603,16 +3603,14 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
 
     if (!stricmp(request, "GET /favicon.png"))
     {
-      static const uint8_t favicon_array[] = {     /* generated array from a 'favicon.png' */
-             #include "favicon.c"
-           };
+      #include "favicon.c"  /* generated array from 'xxd -i favicon.png' */
 
       TRACE (DEBUG_NET, "Sending \"favicon.png\" to cli: %lu.\n", conn->id);
       mg_printf (conn,
                  "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
                  "Content-Length: %zu\r\n%s\r\n",
-                 content, sizeof(favicon_array), cli->keep_alive ? "Connection: keep-alive\r\n" : "");
-      mg_send (conn, favicon_array, sizeof(favicon_array));
+                 content, sizeof(favicon_png), cli->keep_alive ? "Connection: keep-alive\r\n" : "");
+      mg_send (conn, favicon_png, sizeof(favicon_png));
     }
     else
     {
