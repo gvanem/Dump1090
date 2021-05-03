@@ -69,9 +69,7 @@ CFLAGS = -nologo -Zi -W3        \
          -FI./dump1090_config.h \
          -I.                    \
          -I./externals          \
-         -I./externals/rtl-sdr  \
-         -DLIBUSB_CALL=WINAPI   \
-         -DHAVE_rtlsdr_cal_imr
+         -I./externals/rtl-sdr
 
 LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib -machine:$(CPU)
 RCFLAGS = -nologo
