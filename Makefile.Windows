@@ -16,7 +16,7 @@ THIS_FILE = Makefile.Windows
 USE_CRT_DEBUG ?= 0
 
 #
-# Enable "Addess Sanitation".
+# Enable "Address Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
 # Does not work with 'USE_CRT_DEBUG = 1' and 'CC = clang-cl'.
@@ -25,12 +25,10 @@ USE_CRT_DEBUG ?= 0
 USE_ASAN ?= 0
 
 #
-# Options for .c-file preprocessing:
+# For .c-file preprocessing:
 #
-USE_ASTYLE       ?= 1
-USE_CLANG_FORMAT ?= 0
-
-PYTHON ?= py -3
+USE_ASTYLE ?= 1
+PYTHON     ?= py -3
 
 #
 # Change the 'CLANG_[32|64]' directory to suite:
@@ -326,9 +324,6 @@ endef
 
 ifeq ($(USE_ASTYLE),1)
   C_FORMATER = | astyle
-
-else ifeq ($(USE_CLANG_FORMAT),1)
-  C_FORMATER = | clang-format -style=Mozilla -assume-filename=c
 endif
 
 define C_preprocess
@@ -337,7 +332,7 @@ define C_preprocess
   $(file >> $(1),   $(CC))
   $(foreach f, -E $(CFLAGS), $(file >> $(1),    $(f)))
   $(file >> $(1), ---------------------------------------------------------)
-  $(file >> $(1), Try compile this output.)
+  $(file >> $(1), Try to compile this output.)
   $(file >> $(1),*/)
   $(_CC) -E $(CFLAGS) $(2) | $(PYTHON) cpp_filter.py $(C_FORMATER) >> $(1)
 endef
