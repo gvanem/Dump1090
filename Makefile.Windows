@@ -67,10 +67,16 @@ ifneq ($(CC),cl)
   endif
 endif
 
+VPATH = externals \
+        externals/rtl-sdr
+
 CFLAGS = -nologo -Zi -W3        \
          -FI./dump1090_config.h \
-         -I. -I./externals      \
-         -I./externals/rtl-sdr
+         -I.                    \
+         -I./externals          \
+         -I./externals/rtl-sdr  \
+         -DLIBUSB_CALL=WINAPI   \
+         -DHAVE_rtlsdr_cal_imr
 
 LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib -machine:$(CPU)
 RCFLAGS = -nologo
@@ -138,43 +144,17 @@ EX_LIBS += externals/$(CPU)/libusb-1.0.lib ws2_32.lib
 #
 TARGETS = dump1090.exe
 
-VPATH  += externals
 SOURCES = externals/mongoose.c \
           csv.c                \
           dump1090.c
 
-ifeq ($(USE_BUNDLED_RTLSDR),1)
-  VPATH  += externals/rtl-sdr
-  CFLAGS += -DUSE_BUNDLED_RTLSDR=1 \
-            -DHAVE_rtlsdr_cal_imr  \
-            -DLIBUSB_CALL=WINAPI
-
-  SOURCES += $(addprefix externals/rtl-sdr/, \
-               librtlsdr.c                   \
-               trace.c                       \
-               tuner_e4k.c                   \
-               tuner_fc001x.c                \
-               tuner_fc2580.c                \
-               tuner_r82xx.c)
-else
-  #
-  # External static libraries needed:
-  #
-  EX_LIBS += externals/$(CPU)/rtlsdr.lib
-
-  #
-  # The flags are for Pthreads-W32:
-  #
-  CFLAGS += -I./externals/pthreads \
-            -D__PTW32_STATIC_LIB   \
-            -DHAVE_CONFIG_H
-
-  #
-  # Use the amalgamated version of Pthreads-W32:
-  #
-  VPATH   += externals/pthreads
-  SOURCES += externals/pthreads/pthread.c
-endif
+SOURCES += $(addprefix externals/rtl-sdr/, \
+             librtlsdr.c                   \
+             trace.c                       \
+             tuner_e4k.c                   \
+             tuner_fc001x.c                \
+             tuner_fc2580.c                \
+             tuner_r82xx.c)
 
 OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
 

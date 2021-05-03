@@ -22,12 +22,6 @@
 #include <rtl-sdr.h>
 #include <mongoose.h>
 #include <libusb.h>
-
-#if defined(__PTW32_STATIC_LIB)
-  extern void pthread_win32_thread_detach_np (void);
-  extern void pthread_win32_process_detach_np (void);
-#endif
-
 #include "csv.h"
 
 /**
@@ -3644,8 +3638,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
 {
   struct client *cli;
   char   *remote, remote_buf [100];
-  INT_PTR _service = (INT_PTR) fn_data;   /* 'fn_data' is arbitrary user data */
-  int     service = (int)_service;
+  INT_PTR service = (int)(INT_PTR) fn_data;   /* 'fn_data' is arbitrary user data */
 
   if (Modes.exit)
      return;
@@ -4315,12 +4308,6 @@ void modeS_exit (void)
 
   if (Modes.reader_thread != INVALID_HANDLE_VALUE)
      CloseHandle (Modes.reader_thread);
-
-#if defined(__PTW32_STATIC_LIB)
-  TRACE (DEBUG_GENERAL, "Cleaning up Pthreads-W32.\n\n");
-  pthread_win32_thread_detach_np();
-  pthread_win32_process_detach_np();
-#endif
 
   if (Modes.fd > STDIN_FILENO)
      close (Modes.fd);
