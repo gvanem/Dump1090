@@ -14,11 +14,6 @@
 //
 // Alternatively, you can license this software under a commercial
 // license, as set out in <https://www.cesanta.com/license>.
-
-//! \file    mongoose.h
-//! \ingroup Mongoose
-//! \brief   Embedded web server and multi-protocol networking library
-
 #pragma once
 #define MG_VERSION "7.3"
 
@@ -28,54 +23,17 @@
 #define MG_ARCH_WIN32 2
 #define MG_ARCH_ESP32 3
 #define MG_ARCH_ESP8266 4
-#define MG_ARCH_CC3100 5
-#define MG_ARCH_CC3200 6
-#define MG_ARCH_CC3220 7
-#define MG_ARCH_MSP432 8
-#define MG_ARCH_TM4C129 9
-#define MG_ARCH_MBED 10
-#define MG_ARCH_WINCE 11
-#define MG_ARCH_NXP_LPC 12
-#define MG_ARCH_NXP_KINETIS 13
-#define MG_ARCH_NRF51 14
-#define MG_ARCH_NRF52 15
-#define MG_ARCH_PIC32 16
-#define MG_ARCH_RS14100 17
-#define MG_ARCH_STM32 18
-#define MG_ARCH_FREERTOS 19
+#define MG_ARCH_FREERTOS_TCP 5
 
 #if !defined(MG_ARCH)
-#if defined(TARGET_IS_MSP432P4XX) || defined(__MSP432P401R__)
-#define MG_ARCH MG_ARCH_MSP432
-#elif defined(cc3200) || defined(TARGET_IS_CC3200)
-#define MG_ARCH MG_ARCH_CC3200
-#elif defined(cc3220) || defined(TARGET_IS_CC3220)
-#define MG_ARCH MG_ARCH_CC3220
-#elif defined(__unix__) || defined(__APPLE__)
+#if defined(__unix__) || defined(__APPLE__)
 #define MG_ARCH MG_ARCH_UNIX
-#elif defined(WINCE)
-#define MG_ARCH MG_ARCH_WINCE
 #elif defined(_WIN32)
 #define MG_ARCH MG_ARCH_WIN32
-#elif defined(__MBED__)
-#define MG_ARCH MG_ARCH_MBED
-#elif defined(__USE_LPCOPEN)
-#define MG_ARCH MG_ARCH_NXP_LPC
-#elif defined(FRDM_K64F) || defined(FREEDOM)
-#define MG_ARCH MG_ARCH_NXP_KINETIS
-#elif defined(PIC32)
-#define MG_ARCH MG_ARCH_PIC32
 #elif defined(ICACHE_FLASH) || defined(ICACHE_RAM_ATTR)
 #define MG_ARCH MG_ARCH_ESP8266
 #elif defined(ESP_PLATFORM)
 #define MG_ARCH MG_ARCH_ESP32
-#elif defined(TARGET_IS_TM4C129_RA0) || defined(TARGET_IS_TM4C129_RA1) || \
-    defined(TARGET_IS_TM4C129_RA2)
-#define MG_ARCH MG_ARCH_TM4C129
-#elif defined(RS14100)
-#define MG_ARCH MG_ARCH_RS14100
-#elif defined(STM32)
-#define MG_ARCH MG_ARCH_STM32
 #endif
 
 #if !defined(MG_ARCH)
@@ -159,31 +117,32 @@
 #endif
 
 
-#if MG_ARCH == MG_ARCH_FREERTOS
+#if MG_ARCH == MG_ARCH_FREERTOS_TCP
 
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <FreeRTOS.h>
-
-#include <task.h>
-
 #include <FreeRTOS_IP.h>
 #include <FreeRTOS_Sockets.h>
-#include <stdbool.h>
+#include <task.h>
 
 #define MG_INT64_FMT "%lld"
 #define MG_DIRSEP '/'
+
 #define IPPROTO_TCP FREERTOS_IPPROTO_TCP
 #define IPPROTO_UDP FREERTOS_IPPROTO_UDP
 #define AF_INET FREERTOS_AF_INET
@@ -194,9 +153,7 @@
 #define SOL_SOCKET 0
 #define SO_REUSEADDR 0
 #define sockaddr_in freertos_sockaddr
-struct sockaddr {
-  uint8_t sa_len, sa_family;
-};
+#define sockaddr freertos_sockaddr
 #define accept(a, b, c) FreeRTOS_accept((a), (b), (c))
 #define connect(a, b, c) FreeRTOS_connect((a), (b), (c))
 #define bind(a, b, c) FreeRTOS_bind((a), (b), (c))
@@ -211,12 +168,11 @@ struct sockaddr {
 #define closesocket(x) FreeRTOS_closesocket(x)
 #define gethostbyname(x) FreeRTOS_gethostbyname(x)
 
+#ifdef MG_ENABLE_FF
 #include <ff_stdio.h>
 
 #undef FILE
 #define FILE FF_FILE
-//#define SEEK_SET FF_SEEK_SET
-//#define SEEK_END FF_SEEK_END
 #define stat(a, b) ff_stat((a), (b))
 #define fopen(a, b) ff_fopen((a), (b))
 #define fclose(a) ff_fclose(a)
@@ -233,8 +189,9 @@ static inline int ff_vfprintf(FF_FILE *fp, const char *fmt, va_list ap) {
   if (buf != NULL) ff_fwrite(buf, 1, n, fp), free(buf);
   return n;
 }
+#endif  // MG_ENABLE_FF
 
-#endif
+#endif  // MG_ARCH == MG_ARCH_FREERTOS_TCP
 
 
 #if MG_ARCH == MG_ARCH_UNIX
@@ -342,12 +299,19 @@ typedef int socklen_t;
 
 #define MG_INT64_FMT "%I64d"
 
+// https://lgtm.com/rules/2154840805/ -gmtime, localtime, ctime and asctime
+static __inline struct tm *gmtime_r(time_t *t, struct tm *tm) {
+  (void) tm;
+  return gmtime(t);
+}
+
+static __inline struct tm *localtime_r(time_t *t, struct tm *tm) {
+  (void) tm;
+  return localtime(t);
+}
+
 #endif
 
-
-#ifndef MG_ENABLE_LWIP
-#define MG_ENABLE_LWIP 0
-#endif
 
 #ifndef MG_ENABLE_SOCKET
 #define MG_ENABLE_SOCKET 1
@@ -375,10 +339,6 @@ typedef int socklen_t;
 
 #ifndef MG_ENABLE_LOG
 #define MG_ENABLE_LOG 1
-#endif
-
-#ifndef MG_ENABLE_MGOS
-#define MG_ENABLE_MGOS 0
 #endif
 
 #ifndef MG_ENABLE_MD5
@@ -444,9 +404,6 @@ const char *mg_strstr(const struct mg_str haystack, const struct mg_str needle);
 
 
 
-#if MG_ENABLE_MGOS
-#include <common/cs_dbg.h>
-#else
 #if MG_ENABLE_LOG
 #define LOG(level, args)                                                   \
   do {                                                                     \
@@ -458,8 +415,8 @@ void mg_log(const char *fmt, ...) PRINTF_LIKE(1, 2);
 void mg_log_set(const char *spec);
 void mg_log_set_callback(void (*fn)(const void *, int, void *), void *param);
 #else
-#define LOG(level, args)
-#endif
+#define LOG(level, args) (void) 0
+#define mg_log_set(x) (void) (x)
 #endif
 
 
@@ -484,11 +441,24 @@ void mg_timer_poll(unsigned long uptime_ms);
 
 
 
+// WEAK symbol makes it possible to define a "default" function implementation,
+// which could be overridden by the user who can define a function with the
+// same name without linking conflict
+#if !defined(WEAK)
+#if (defined(__GNUC__) || defined(__clang__) || \
+     defined(__TI_COMPILER_VERSION__)) &&       \
+    !defined(_WIN32) && !defined(__CYGWIN__)
+#define WEAK __attribute__((weak))
+#else
+#define WEAK
+#endif
+#endif
+
 char *mg_file_read(const char *path, size_t *size);
 int64_t mg_file_size(const char *path);
 bool mg_file_write(const char *path, const void *buf, size_t len);
 bool mg_file_printf(const char *path, const char *fmt, ...);
-void mg_random(void *buf, size_t len);
+void mg_random(void *buf, size_t len) WEAK;
 bool mg_globmatch(const char *pattern, int plen, const char *s, int n);
 bool mg_next_comma_entry(struct mg_str *s, struct mg_str *k, struct mg_str *v);
 uint16_t mg_ntohs(uint16_t net);
@@ -517,19 +487,6 @@ FILE *mg_fopen(const char *fp, const char *mode);
 
 #define mg_htons(x) mg_ntohs(x)
 #define mg_htonl(x) mg_ntohl(x)
-
-// WEAK symbol makes it possible to define a "default" function implementation,
-// which could be overridden by the user who can define a function with the
-// same name without linking conflict
-#if !defined(WEAK)
-#if (defined(__GNUC__) || defined(__clang__) || \
-     defined(__TI_COMPILER_VERSION__)) &&       \
-    !defined(_WIN32) && !defined(__CYGWIN__)
-#define WEAK __attribute__((weak))
-#else
-#define WEAK
-#endif
-#endif
 
 // Expands to a string representation of its argument: e.g.
 // MG_STRINGIFY_LITERAL(5) expands to "5"
@@ -563,7 +520,6 @@ FILE *mg_fopen(const char *fp, const char *mode);
     while (*h != (elem_)) h = &(*h)->next; \
     *h = (elem_)->next;                    \
   } while (0)
-
 
 
 
@@ -675,7 +631,7 @@ struct mg_mgr {
   int dnstimeout;               // DNS resolve timeout in milliseconds
   unsigned long nextid;         // Next connection ID
   void *userdata;               // Arbitrary user data pointer
-#if MG_ARCH == MG_ARCH_FREERTOS
+#if MG_ARCH == MG_ARCH_FREERTOS_TCP
   SocketSet_t ss;  // NOTE(lsm): referenced from socket struct
 #endif
 };
