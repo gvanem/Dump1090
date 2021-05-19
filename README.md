@@ -103,8 +103,11 @@ to your browser to **http://localhost:8080**, use this command:
   c:\dev\Dump1090> dump1090 --interactive --net
   ```
 
-  It will present live traffic to the Web-browser and console:
-  **![interactive output](dump1090-win.png)**
+  It will present live traffic to the Web-browser:
+  **![web-page](dump1090-web.png)**
+
+  and the console:
+  **![console output](dump1090-win.png)**
 
 In this interactive mode there is a more compact output. Where the screen is refreshed
 up to 4 times per second displaying all the recently seen aircrafts with some additional
