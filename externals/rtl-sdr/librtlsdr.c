@@ -680,15 +680,19 @@ static void rtlsdr_set_gpio_output(rtlsdr_dev_t *dev, uint8_t gpio)
 	rtlsdr_write_reg_mask(dev, SYSB, GPOE, gpio, gpio);
 }
 
-static void rtlsdr_set_i2c_repeater(rtlsdr_dev_t *dev, int on)
+static int rtlsdr_set_i2c_repeater(rtlsdr_dev_t *dev, int on)
 {
+	int r;
+
 	if (on)
 		pthread_mutex_lock(&dev->cs_mutex);
 
-	rtlsdr_demod_write_reg_mask(dev, 1, 0x01, on ? 0x08 : 0x00, 0x08);
+	r = rtlsdr_demod_write_reg_mask(dev, 1, 0x01, on ? 0x08 : 0x00, 0x08);
 
 	if (!on)
 		pthread_mutex_unlock(&dev->cs_mutex);
+
+    return (r);
 }
 
 static int Set2(void *dev)
@@ -992,7 +996,7 @@ static int rtlsdr_set_if_freq(rtlsdr_dev_t *dev, uint32_t freq)
 	/* read corrected clock value */
 	if (rtlsdr_get_xtal_freq(dev, &rtl_xtal, NULL))
 	{
-		TRACE (1, "%s(): r: %d\n", __FUNCTION__, -2);
+		TRACE (1, "%s(): freq: %, r: %d\n", __FUNCTION__, freq, -2);
 		return -2;
 	}
 
@@ -1005,7 +1009,8 @@ static int rtlsdr_set_if_freq(rtlsdr_dev_t *dev, uint32_t freq)
 	tmp = if_freq & 0xff;
 	r |= rtlsdr_demod_write_reg(dev, 1, 0x1b, tmp, 1);
 
-	TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+	TRACE (1, "%s(): freq: %.3f MHz, IF-freq: %.3f MHz, XTAL: %.3f MHz, r: %d\n",
+	       __FUNCTION__, (double)freq / 1E6, (double)if_freq / 1E6, (double)rtl_xtal / 1E6, r);
 	return r;
 }
 
@@ -1022,7 +1027,7 @@ static int rtlsdr_set_sample_freq_correction(rtlsdr_dev_t *dev, int ppm)
 	r |= rtlsdr_demod_write_reg(dev, 1, 0x3e, (offs >> 8) & 0x3f, 1);
 	r |= rtlsdr_demod_write_reg(dev, 1, 0x3f, offs & 0xff, 1);
 
-	TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+	TRACE (1, "%s(): ppm: %d, r: %d\n", __FUNCTION__, ppm, r);
 	return r;
 }
 
@@ -1204,8 +1209,8 @@ int rtlsdr_set_center_freq(rtlsdr_dev_t *dev, uint32_t freq)
 	else
 		dev->freq = 0;
 
-	TRACE (1, "%s(): freq: %u, direct_sampling: %d, direct_sampling_mode: %d, r: %d\n",
-	       __FUNCTION__, freq, dev->direct_sampling, dev->direct_sampling_mode, r);
+	TRACE (1, "%s(): freq: %.3f MHz, direct_sampling: %d, direct_sampling_mode: %d, r: %d\n",
+	       __FUNCTION__, (double)freq / 1E6, dev->direct_sampling, dev->direct_sampling_mode, r);
 	return r;
 }
 
@@ -1356,7 +1361,7 @@ int rtlsdr_set_tuner_gain(rtlsdr_dev_t *dev, int gain)
 	else
 		dev->gain = 0;
 
-	TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+	TRACE (1, "%s(): gain: %d, r: %d\n", __FUNCTION__, dev->gain, r);
 	return r;
 }
 
@@ -1396,7 +1401,7 @@ int rtlsdr_set_tuner_gain_mode(rtlsdr_dev_t *dev, int mode)
 		r = dev->tuner->set_gain_mode((void *)dev, mode);
 		rtlsdr_set_i2c_repeater(dev, 0);
 	}
-	TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+	TRACE (1, "%s(): mode: %d (%s), r: %d\n", __FUNCTION__, mode, mode == 0 ? "auto" : "manual", r);
 	return r;
 }
 
@@ -1501,7 +1506,7 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 	if (dev->offs_freq)
 		rtlsdr_set_offset_tuning(dev, 1);
 
-	TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+	TRACE (1, "%s(): real_rate: %.3f MS/s,r: %d\n", __FUNCTION__, real_rate / 1E6, r);
 	return r;
 }
 
@@ -2172,9 +2177,8 @@ demod_found:
 	if (dev->tuner->init)
 		r = dev->tuner->init(dev);
 
-	TRACE (1, "Calling 'rtlsdr_set_i2c_repeater(0)'.\n");
-	rtlsdr_set_i2c_repeater(dev, 0);
-	TRACE (1, "Done.\n");
+	int r2 = rtlsdr_set_i2c_repeater(dev, 0);
+	TRACE (1, "rtlsdr_set_i2c_repeater(0): r: %d.\n", r2);
 
 	*out_dev = dev;
 

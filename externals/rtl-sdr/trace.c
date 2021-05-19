@@ -26,7 +26,7 @@ int trace_level (void)
 
   if (level == -1)
   {
-    const char *env = getenv ("RTLSDR_DEBUG");
+    const char *env = getenv ("RTLSDR_TRACE");
 
     if (env)
     {
