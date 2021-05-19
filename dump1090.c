@@ -200,12 +200,6 @@ struct net_service {
           LeaveCriticalSection (mutex); \
         } while (0)
 
-/**
- * \def LOG(fmt, ...)
- * A 'log-to-file' macro
- */
-#undef  LOG
-#define LOG(fmt, ...)  modeS_logf (fmt, __VA_ARGS__)
 
 /**
  * \def LOG_STDOUT(fmt, ...)
@@ -466,7 +460,6 @@ void sigint_handler (int sig);
   #define ATTR_PRINTF(_1, _2)
 #endif
 
-void modeS_logf  (_Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(1, 2);
 void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
 
 u_short               handler_port (int service);
@@ -590,44 +583,27 @@ void crtdbug_init (void)
  */
 void modeS_log (const char *buf)
 {
-  struct tm *tm;
-  time_t t;
-  char   tbuf[25];
   static bool saw_nl = true;
 
   if (!Modes.log)
      return;
 
   if (!saw_nl)
-  {
-    fputs (buf, Modes.log);
-  }
+     fputs (buf, Modes.log);
   else
   {
-    t = time (NULL);
-    tm = gmtime (&t);
-    strftime (tbuf, sizeof(tbuf), "%Y-%m-%d %H:%M:%S", tm);
+    SYSTEMTIME now;
+    char       tbuf[25];
+    static     char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+
+    GetLocalTime (&now);
+    now.wMonth--;
+    snprintf (tbuf, sizeof(tbuf), "%04u %.3s %02u %02u:%02u:%02u.%03u",
+              now.wYear, months + 3*now.wMonth, now.wDay, now.wHour,
+              now.wMinute, now.wSecond, now.wMilliseconds);
     fprintf (Modes.log, "%s: %s", tbuf, buf);
   }
   saw_nl = (strchr(buf, '\n') != NULL);
-  fflush (Modes.log);
-}
-
-/**
- * The printf-format version of `modeS_log()`.
- */
-void modeS_logf (const char *fmt, ...)
-{
-  char buf [1000];
-  va_list args;
-
-  if (!Modes.log)
-     return;
-
-  va_start (args, fmt);
-  vsnprintf (buf, sizeof(buf), fmt, args);
-  modeS_log (buf);
-  va_end (args);
 }
 
 /**
@@ -1129,7 +1105,8 @@ int modeS_init (void)
     }
     else
     {
-      char  args [1000] = "";
+      char   args [1000] = "";
+      char   buf [sizeof(args)+100];
       char  *p = args;
       size_t n, left = sizeof(args);
       int    i;
@@ -1141,7 +1118,8 @@ int modeS_init (void)
         left -= n;
       }
       fputc ('\n', Modes.log);
-      LOG ("---------------- starting '%s%s' -----------\n", Modes.who_am_I, args);
+      snprintf (buf, sizeof(buf), "---------------- starting '%s%s' -----------\n", Modes.who_am_I, args);
+      modeS_log (buf);
     }
   }
 
@@ -4225,6 +4203,8 @@ void background_tasks (void)
   refresh = (now - Modes.last_update_ms) > MODES_INTERACTIVE_REFRESH_TIME;
   if (refresh)
   {
+    if (Modes.log)
+       fflush (Modes.log);
     if (Modes.interactive)  /* Refresh screen when in interactive mode */
        interactive_show_data (now/1000, next_a);
     Modes.last_update_ms = now;
@@ -4258,51 +4238,51 @@ void sigint_handler (int sig)
 
 void show_statistics (void)
 {
-  puts ("Decoder statistics:");
-  printf (" %8llu valid preambles.\n", Modes.stat.valid_preamble);
-  printf (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
-  printf (" %8llu demodulated with zero errors.\n", Modes.stat.demodulated);
-  printf (" %8llu with CRC okay.\n", Modes.stat.good_CRC);
-  printf (" %8llu with CRC failure.\n", Modes.stat.bad_CRC);
-  printf (" %8llu errors corrected.\n", Modes.stat.fixed);
-  printf (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
-  printf (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
-  printf (" %8llu total usable messages.\n", Modes.stat.good_CRC + Modes.stat.fixed);
-  printf (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
-  printf (" %8llu unique aircrafts from CSV.\n", Modes.stat.unique_aircrafts_CSV);
+  LOG_STDOUT ("Decoder statistics:\n");
+  LOG_STDOUT (" %8llu valid preambles.\n", Modes.stat.valid_preamble);
+  LOG_STDOUT (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
+  LOG_STDOUT (" %8llu demodulated with zero errors.\n", Modes.stat.demodulated);
+  LOG_STDOUT (" %8llu with CRC okay.\n", Modes.stat.good_CRC);
+  LOG_STDOUT (" %8llu with CRC failure.\n", Modes.stat.bad_CRC);
+  LOG_STDOUT (" %8llu errors corrected.\n", Modes.stat.fixed);
+  LOG_STDOUT (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
+  LOG_STDOUT (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
+  LOG_STDOUT (" %8llu total usable messages.\n", Modes.stat.good_CRC + Modes.stat.fixed);
+  LOG_STDOUT (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
+  LOG_STDOUT (" %8llu unique aircrafts from CSV.\n", Modes.stat.unique_aircrafts_CSV);
   if (!Modes.interactive)
-     printf (" %8llu unrecognized ME types.\n", Modes.stat.unrecognized_ME);
+     LOG_STDOUT (" %8llu unrecognized ME types.\n", Modes.stat.unrecognized_ME);
 
   if (Modes.net)
   {
     uint64_t sum;
     int      s;
 
-    puts ("\nNetwork statistics:");
+    LOG_STDOUT ("\nNetwork statistics:\n");
     for (s = MODES_NET_SERVICE_RAW_OUT; s <= MODES_NET_SERVICE_HTTP; s++)
     {
-      printf ("  %s (port %u):\n", handler_descr(s), handler_port(s));
+      LOG_STDOUT ("  %s (port %u):\n", handler_descr(s), handler_port(s));
       if (s == MODES_NET_SERVICE_HTTP)
       {
-        printf ("    %8llu HTTP GET requests received.\n", Modes.stat.HTTP_get_requests);
-        printf ("    %8llu HTTP/WebSocket upgrades.\n", Modes.stat.HTTP_websockets);
-        printf ("    %8llu server connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_sent);
-        printf ("    %8llu client connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_recv);
+        LOG_STDOUT ("    %8llu HTTP GET requests received.\n", Modes.stat.HTTP_get_requests);
+        LOG_STDOUT ("    %8llu HTTP/WebSocket upgrades.\n", Modes.stat.HTTP_websockets);
+        LOG_STDOUT ("    %8llu server connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_sent);
+        LOG_STDOUT ("    %8llu client connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_recv);
       }
       sum = Modes.stat.cli_accepted[s] + Modes.stat.cli_removed[s] +
             Modes.stat.cli_unknown[s]  + Modes.stat.bytes_sent[s] +
             Modes.stat.bytes_recv[s]   + *handler_num_clients (s);
       if (sum == 0ULL)
       {
-        puts ("    Nothing.");
+        LOG_STDOUT ("    Nothing.\n");
         continue;
       }
-      printf ("    %8llu client connections accepted.\n", Modes.stat.cli_accepted[s]);
-      printf ("    %8llu client connections removed.\n", Modes.stat.cli_removed[s]);
-      printf ("    %8llu client connections unknown.\n", Modes.stat.cli_unknown[s]);
-      printf ("    %8llu bytes sent.\n", Modes.stat.bytes_sent[s]);
-      printf ("    %8llu bytes recv.\n", Modes.stat.bytes_recv[s]);
-      printf ("    %8u clients now.\n", *handler_num_clients(s));
+      LOG_STDOUT ("    %8llu client connections accepted.\n", Modes.stat.cli_accepted[s]);
+      LOG_STDOUT ("    %8llu client connections removed.\n", Modes.stat.cli_removed[s]);
+      LOG_STDOUT ("    %8llu client connections unknown.\n", Modes.stat.cli_unknown[s]);
+      LOG_STDOUT ("    %8llu bytes sent.\n", Modes.stat.bytes_sent[s]);
+      LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv[s]);
+      LOG_STDOUT ("    %8u clients now.\n", *handler_num_clients(s));
     }
   }
 }
@@ -4596,8 +4576,8 @@ int main (int argc, char **argv)
   }
 
 quit:
-  modeS_exit();
   if (rc == 0)
      show_statistics();
+  modeS_exit();
   return (0);
 }
