@@ -1,11 +1,6 @@
 #ifndef _TRACE_WIN32
 #define _TRACE_WIN32
 
-#if !defined(_WIN32)
-  #define TRACE(level, fmt, ...) /* NOP */
-  #define TRACE_LIBUSB(r)  r
-#else
-
 #include <windows.h>
 
 #define TRACE_COLOR_START  (FOREGROUND_INTENSITY | 3)  /* bright cyan */
@@ -33,5 +28,4 @@ int  trace_level (void);
 int  trace_libusb (int r, const char *func, const char *file, unsigned line);
 void trace_printf (unsigned short col, const char *fmt, ...);
 
-#endif /* _WIN32 */
 #endif
