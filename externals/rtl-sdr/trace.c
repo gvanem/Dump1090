@@ -1,6 +1,6 @@
 /*
  * Generic debug and trace macro. Print to 'stdout' if 'trace_level'
- * is sufficiently high. And on Windows, do it in colours.
+ * is sufficiently high. And do it in colours.
  */
 #include <stdio.h>
 #include <string.h>
