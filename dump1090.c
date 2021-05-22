@@ -247,6 +247,12 @@ struct aircraft_CSV {
        char     manufact [30];
      };
 
+typedef enum a_show_t {
+        A_FIRST_TIME = 1,
+        A_LAST_TIME,
+        A_SHOW_NORMAL
+      } a_show_t;
+
 /**
  * \struct aircraft
  * Structure used to describe an aircraft in interactive mode.
@@ -258,9 +264,10 @@ struct aircraft {
        uint32_t speed;             /**< Velocity computed from EW and NS components. */
        int      heading;           /**< Horizontal angle of flight. */
        bool     heading_is_valid;  /**< Have a valid heading. */
-       time_t   seen;              /**< Time at which the last packet was received. */
+       uint32_t seen;              /**< Tick-time (in sec) at which the last packet was received. */
        long     messages;          /**< Number of Mode S messages received. */
        int      identity;          /**< 13 bits identity (Squawk). */
+       a_show_t showing;           /**< Shown for the fist or last time? */
 
        /* Encoded latitude and longitude as extracted by odd and even
         * CPR encoded messages.
@@ -332,7 +339,9 @@ struct global_data {
        int               gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
        rtlsdr_dev_t     *dev;                      /**< The RTLSDR handle from `rtlsdr_open()`. */
        int               ppm_error;                /**< Set RTLSDR frequency correction. */
-       int               bias_tee;                 /**< Set RTLSDR bias-T voltage on coax input. */
+       bool              dig_agc;                  /**< Enable RTLSDR digital AGC. */
+       bool              bias_tee;                 /**< Enable RTLSDR bias-T voltage on coax input. */
+       bool              calibrate;                /**< Enable calibration for R820T/R828D type devices */
        uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
        uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE. <br>
                                                      *  \note This cannot be used yet since the code assumes a
@@ -433,8 +442,8 @@ struct modeS_message {
 
 struct aircraft *interactive_receive_data (const struct modeS_message *mm);
 void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *));
-void modeS_send_raw_output (const struct modeS_message *mm);
-void modeS_send_SBS_output (const struct modeS_message *mm, struct aircraft *a);
+int  modeS_send_raw_output (const struct modeS_message *mm);
+int  modeS_send_SBS_output (const struct modeS_message *mm, const struct aircraft *a);
 void modeS_user_message (const struct modeS_message *mm);
 
 int  fix_single_bit_errors (uint8_t *msg, int bits);
@@ -601,6 +610,8 @@ void modeS_log (const char *buf)
     snprintf (tbuf, sizeof(tbuf), "%04u %.3s %02u %02u:%02u:%02u.%03u",
               now.wYear, months + 3*now.wMonth, now.wDay, now.wHour,
               now.wMinute, now.wSecond, now.wMilliseconds);
+    if (*buf == '\n')
+       buf++;
     fprintf (Modes.log, "%s: %s", tbuf, buf);
   }
   saw_nl = (strchr(buf, '\n') != NULL);
@@ -1225,7 +1236,7 @@ int modeS_init_RTLSDR (void)
                 (i == Modes.dev_index) ? "(currently selected)" : "");
   }
 
-#if defined(HAVE_rtlsdr_cal_imr) && 0
+#if defined(HAVE_rtlsdr_cal_imr)
   if (Modes.calibrate)
      rtlsdr_cal_imr (1);
 #endif
@@ -1247,9 +1258,14 @@ int modeS_init_RTLSDR (void)
     verbose_gain_set (Modes.dev, Modes.gain);
   }
 
-  rtlsdr_set_agc_mode (Modes.dev, 1);
-  verbose_ppm_set (Modes.dev, Modes.ppm_error);
-  verbose_bias_tee (Modes.dev, Modes.bias_tee);
+  if (Modes.dig_agc)
+     rtlsdr_set_agc_mode (Modes.dev, Modes.dig_agc);
+
+  if (Modes.ppm_error)
+     verbose_ppm_set (Modes.dev, Modes.ppm_error);
+
+  if (Modes.bias_tee)
+     verbose_bias_tee (Modes.dev, Modes.bias_tee);
 
   rtlsdr_set_center_freq (Modes.dev, Modes.freq);
   rtlsdr_set_sample_rate (Modes.dev, Modes.sample_rate);
@@ -2790,7 +2806,10 @@ void modeS_user_message (const struct modeS_message *mm)
       struct aircraft *a = interactive_receive_data (mm);
 
       if (a && Modes.stat.cli_accepted[MODES_NET_SERVICE_SBS] > 0)
-         modeS_send_SBS_output (mm, a);     /* Feed SBS output clients. */
+      {
+        int num = modeS_send_SBS_output (mm, a);     /* Feed SBS output clients. */
+        TRACE (DEBUG_NET, "Sent ICAO=%06X to %d SBS client(s).\n", a->addr, num);
+      }
     }
 
     /* In non-interactive way, display messages on standard output.
@@ -2825,6 +2844,7 @@ struct aircraft *aircraft_create (uint32_t addr)
     a->addr = addr;
     a->seen = MSEC_TIME() / 1000;
     a->CSV  = aircraft_CSV_lookup_entry (addr);
+    a->showing = A_FIRST_TIME;
 
     /* We really can't tell if it's unique since we keep no global list of that yet
      */
@@ -3137,8 +3157,11 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
 
 /**
  * Show information for a single aircraft.
+ *
+ * If `a->showing == A_FIRST_TIME`, print in GREEN colour.
+ * If `a->showing == A_LAST_TIME`, print in RED colour.
  */
-void interactive_show_aircraft (const struct aircraft *a, bool red_colour, uint64_t now)
+void interactive_show_aircraft (struct aircraft *a, uint64_t now)
 {
   int   altitude = a->altitude;
   int   speed = a->speed;
@@ -3148,6 +3171,7 @@ void interactive_show_aircraft (const struct aircraft *a, bool red_colour, uint6
   char  lon_buf [10] = "  - ";
   char  speed_buf [8] = " - ";
   char  heading_buf [8] = " - ";
+  bool  restore_colour = false;
   const char *reg_num = "";
 
   /* Convert units to metric if --metric was specified.
@@ -3183,24 +3207,32 @@ void interactive_show_aircraft (const struct aircraft *a, bool red_colour, uint6
   if (a->CSV && a->CSV->reg_num[0])
      reg_num = a->CSV->reg_num;
 
-  if (red_colour)
-     setcolor (COLOUR_RED);
+  if (a->showing == A_FIRST_TIME)
+  {
+    setcolor (COLOUR_GREEN);
+    a->showing = A_SHOW_NORMAL;
+    restore_colour = true;
+  }
+  else if (a->showing == A_LAST_TIME)
+  {
+    setcolor (COLOUR_RED);
+    a->showing = A_SHOW_NORMAL;
+    restore_colour = true;
+  }
 
-  printf ("%06X %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %-7s  %-8ld %d sec   \n",
+  printf ("%06X %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %-7s  %-8ld %u sec   \n",
           a->addr, a->flight, reg_num, squawk, alt_buf, speed_buf,
-          lat_buf, lon_buf, heading_buf, a->messages, (int)(now - a->seen));
+          lat_buf, lon_buf, heading_buf, a->messages, (unsigned)(now - a->seen));
 
-  if (red_colour)
+  if (restore_colour)
      setcolor (0);
 }
 
 /**
  * Show the currently captured aircraft information on screen.
- * \param in now     the currect tick-timer
- * \param in next_a  the next aircraft to be removed. We print this in RED
- *                   colour here to make this clearer.
+ * \param in now  the currect tick-timer
  */
-void interactive_show_data (uint64_t now, const struct aircraft *next_a)
+void interactive_show_data (uint64_t now)
 {
   static int spin_idx = 0;
   static int old_count = -1;
@@ -3227,7 +3259,7 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
 
   while (a && count < Modes.interactive_rows && !Modes.exit)
   {
-    interactive_show_aircraft (a, a == next_a, now);
+    interactive_show_aircraft (a, now);
     a = a->next;
     count++;
   }
@@ -3242,37 +3274,31 @@ void interactive_show_data (uint64_t now, const struct aircraft *next_a)
  *         on the next call to this function. So we can write this
  *         aircraft information in red colour.
  */
-const struct aircraft *remove_stale_aircrafts (uint64_t now)
+void remove_stale_aircrafts (uint64_t now)
 {
-  struct aircraft *a = Modes.aircrafts;
-  struct aircraft *prev = NULL;
-  const struct aircraft *rc = NULL;
   uint32_t sec_now = (int) (now / 1000);
+  uint32_t sec_diff;
+  struct aircraft *a, *a_next;;
 
-  while (a)
+  for (a = Modes.aircrafts; a; a = a_next)
   {
-    if ((sec_now - a->seen) > Modes.interactive_ttl)
-    {
-      struct aircraft *next = a->next;
+    a_next = a->next;
+    sec_diff = sec_now - a->seen; /* could wrap */
 
+    if (sec_diff > Modes.interactive_ttl)
+    {
       /* Remove the element from the linked list, with care
        * if we are removing the first element.
        */
+      LIST_DELETE (struct aircraft, &Modes.aircrafts, a);
       free (a);
-      if (!prev)
-           Modes.aircrafts = next;
-      else prev->next = next;
-      a = next;
     }
     else
     {
       if (sec_now - a->seen >= (Modes.interactive_ttl + MODES_INTERACTIVE_REFRESH_TIME/1000))
-         rc = a;
-      prev = a;
-      a = a->next;
+         a->showing = A_LAST_TIME;
     }
   }
-  return (rc);
 }
 
 /**
@@ -3772,7 +3798,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
     cli->id      = conn->id;
     cli->addr    = conn->peer;
 
-    LIST_ADD_HEAD (struct client, &Modes.clients[service], cli);
+    LIST_ADD_TAIL (struct client, &Modes.clients[service], cli);
     ++ (*handler_num_clients (service));
     Modes.stat.cli_accepted [service]++;
 
@@ -3794,7 +3820,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
   else if (ev == MG_EV_CLOSE)
   {
     cli = get_client_addr (&conn->peer, service);
-    TRACE (DEBUG_NET, "Freeing client %u for service %s.\n", cli->id, handler_descr(service));
+    TRACE (DEBUG_NET, "Freeing client %u for service %s.\n", cli ? cli->id : 0, handler_descr(service));
     free_client (cli, service);
     -- (*handler_num_clients (service));
   }
@@ -3842,7 +3868,7 @@ int modeS_init_net (void)
 /**
  * Write raw output to TCP clients.
  */
-void modeS_send_raw_output (const struct modeS_message *mm)
+int modeS_send_raw_output (const struct modeS_message *mm)
 {
   char  msg [10 + 2*MODES_LONG_MSG_BYTES];
   char *p = msg;
@@ -3853,13 +3879,13 @@ void modeS_send_raw_output (const struct modeS_message *mm)
   *p++ = ';';
   *p++ = '\n';
 
-  send_all_clients (MODES_NET_SERVICE_RAW_OUT, msg, p - msg);
+  return send_all_clients (MODES_NET_SERVICE_RAW_OUT, msg, p - msg);
 }
 
 /**
  * Write SBS output to TCP clients (Base Station format).
  */
-void modeS_send_SBS_output (const struct modeS_message *mm, struct aircraft *a)
+int modeS_send_SBS_output (const struct modeS_message *mm, const struct aircraft *a)
 {
   char msg[256], *p = msg;
   int  emergency = 0, ground = 0, alert = 0, spi = 0;
@@ -3880,6 +3906,9 @@ void modeS_send_SBS_output (const struct modeS_message *mm, struct aircraft *a)
        spi = -1;
   }
 
+  /* Field 11 could contain the call-sign we can get from `aircraft_find()::reg_num`.
+   * Ref: http://woodair.net/sbs/article/barebones42_socket_data.htm
+   */
   if (mm->msg_type == 0)
   {
     p += sprintf (p, "MSG,5,,,%02X%02X%02X,,,,,,,%d,,,,,,,,,,",
@@ -3926,10 +3955,10 @@ void modeS_send_SBS_output (const struct modeS_message *mm, struct aircraft *a)
                   mm->AA1, mm->AA2, mm->AA3, mm->identity, alert, emergency, spi, ground);
   }
   else
-    return;
+    return (0);
 
   *p++ = '\n';
-  send_all_clients (MODES_NET_SERVICE_SBS, msg, p - msg);
+  return send_all_clients (MODES_NET_SERVICE_SBS, msg, p - msg);
 }
 
 /**
@@ -4151,9 +4180,10 @@ void show_help (const char *fmt, ...)
           MODES_NET_INPUT_RAW_PORT, MODES_NET_OUTPUT_SBS_PORT, GMAP_HTML);
 
   printf ("  RTLSDR options:\n"
-          "    --agc                    Enable Automatic Gain Control (default: off)\n"
+          "    --agc                    Enable Digital AGC (default: off)\n"
           "    --bias                   Enable Bias-T output (default: off)\n"
-          "    --device-index <index>   Select RTL device (default: 0).\n"
+          "    --calibrate              Enable calibration R820T/R828D devices (default: off)\n"
+          "    --device <index>         Select RTL device (default: 0).\n"
           "    --freq <Hz>              Set frequency (default: %u MHz).\n"
           "    --gain <dB>              Set gain (default: AUTO)\n"
           "    --ppm <correction>       Set frequency correction (default: 0)\n"
@@ -4176,8 +4206,8 @@ void show_help (const char *fmt, ...)
 }
 
 /**
- * The background function is called a few times every second by
- * `main_data_loop()` in order to perform tasks we need to do continuously.
+ * The background function is called 4 times every second (`MODES_INTERACTIVE_REFRESH_TIME`)
+ * by `main_data_loop()` in order to perform tasks we need to do continuously.
  *
  * Like accepting new clients from the net, refreshing the screen in
  * interactive mode, and so forth.
@@ -4187,12 +4217,11 @@ void background_tasks (void)
   uint64_t now = MSEC_TIME();
   int    refresh;
   static uint64_t start;  /* program start time */
-  const struct aircraft *next_a;
 
   if (start == 0)
      start = now;
 
-  next_a = remove_stale_aircrafts (now);
+  remove_stale_aircrafts (now);
 
   if (Modes.net)
      mg_mgr_poll (&Modes.mgr, MG_NET_POLL_TIME); /* Poll Mongoose for network events */
@@ -4206,7 +4235,7 @@ void background_tasks (void)
     if (Modes.log)
        fflush (Modes.log);
     if (Modes.interactive)  /* Refresh screen when in interactive mode */
-       interactive_show_data (now/1000, next_a);
+       interactive_show_data (now/1000);
     Modes.last_update_ms = now;
   }
 }
@@ -4232,6 +4261,11 @@ void sigint_handler (int sig)
     EnterCriticalSection (&Modes.data_mutex);
     rc = rtlsdr_cancel_async (Modes.dev);
     TRACE (DEBUG_GENERAL, "rtlsdr_cancel_async(): rc: %d.\n", rc);
+    if (rc == -2)
+    {
+      Sleep (2);
+      Modes.dev = NULL;
+    }
     LeaveCriticalSection (&Modes.data_mutex);
   }
 }
@@ -4367,8 +4401,11 @@ int main (int argc, char **argv)
   {
     int more = j + 1 < argc; /* There are more arguments. */
 
-    if ((!strcmp(argv[j], "--device") || !strcmp(argv[j], "--device-index")) && more)
+    if ((!strcmp(argv[j], "--device") || !strcmp(argv[j], "--device")) && more)
        Modes.dev_index = atoi (argv[++j]);
+
+    else if (!strcmp(argv[j], "--agc"))
+        Modes.dig_agc = true;
 
     else if (!strcmp(argv[j], "--gain") && more)
         Modes.gain = (int) (10.0 * atof(argv[++j]));   /* Gain is in tens of DBs */
@@ -4382,8 +4419,11 @@ int main (int argc, char **argv)
     else if (!strcmp(argv[j], "--samplerate") && more)
         Modes.sample_rate = (uint32_t) ato_hertz (argv[++j]);
 
-    else if (!strnicmp(argv[j], "--bias", 6))
-        Modes.bias_tee = 1;
+    else if (!strncmp(argv[j], "--bias", 6))
+        Modes.bias_tee = true;
+
+    else if (!strcmp(argv[j], "--calibrate"))
+         Modes.calibrate = true;
 
     else if (!strcmp(argv[j], "--infile") && more)
         Modes.infile = argv[++j];
@@ -4512,9 +4552,6 @@ int main (int argc, char **argv)
       /* not reached */
     }
   }
-
-  if (Modes.infile)
-     Modes.net = 0;
 
   rc = modeS_init();        /* Initialization */
   if (rc)
