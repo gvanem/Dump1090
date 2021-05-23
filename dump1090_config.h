@@ -6,7 +6,7 @@
 #define DUMP1090_CONFIG_H
 
 #define VER_MAJOR 0
-#define VER_MINOR 1
+#define VER_MINOR 2
 #define VER_MICRO 0
 
 #if !defined(RC_INVOKED)  /* Rest of file */
