@@ -11,6 +11,11 @@ THIS_FILE = Makefile.Windows
 #
 # Choose your weapons:
 #
+# Support for SDRplay based radios
+#
+USE_SDRPLAY ?= 1
+
+#
 # Use CRT debug-mode.
 #
 USE_CRT_DEBUG ?= 0
@@ -71,6 +76,11 @@ CFLAGS = -nologo -Zi -W3        \
 
 LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib -machine:$(CPU)
 RCFLAGS = -nologo
+
+ifeq ($(USE_SDRPLAY),1)
+  CFLAGS += -DUSE_SDRPLAY \
+            -I./externals/SDRplay-API
+endif
 
 ifeq ($(USE_CRT_DEBUG),1)
   CFLAGS  += -MDd -GS -Oy- -RTCu -RTCs
@@ -137,7 +147,8 @@ TARGETS = dump1090.exe
 
 SOURCES = externals/mongoose.c \
           csv.c                \
-          dump1090.c
+          dump1090.c           \
+          sdrplay.c
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
              librtlsdr.c                   \

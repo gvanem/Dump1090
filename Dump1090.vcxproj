@@ -78,8 +78,8 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <PreprocessorDefinitions>USE_MONGOOSE;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_MONGOOSE;USE_SDRPLAY;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -96,8 +96,8 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <PreprocessorDefinitions>USE_MONGOOSE;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_MONGOOSE;USE_SDRPLAY;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -114,8 +114,8 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>USE_MONGOOSE;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_MONGOOSE;USE_SDRPLAY;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -131,8 +131,8 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>USE_MONGOOSE;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>USE_MONGOOSE;USE_SDRPLAY;rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -161,6 +161,7 @@
   <ItemGroup>
     <ClInclude Include="common.h" />
     <ClInclude Include="csv.h" />
+    <ClInclude Include="misc.h" />
     <ClInclude Include="sdrplay.h" />
     <ClInclude Include="dump1090_config.h" />
     <ClInclude Include="externals\mongoose.h" />
