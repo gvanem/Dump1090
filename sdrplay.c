@@ -4,7 +4,11 @@
 static int __dummy;
 
 #ifdef USE_SDRPLAY   /* Rest of file */
-
+/**
+ * \file    sdrplay.c
+ * \ingroup Main
+ * \brief   The interface for SDRplay devices.
+ */
 #include <stdio.h>
 #include <stdbool.h>
 #include <windows.h>
@@ -29,24 +33,26 @@ static int __dummy;
 #define LOAD_FUNC(func)                                                    \
         do {                                                               \
           sdr.func = (func ## _t) GetProcAddress (sdr.dll_hnd, #func);     \
-          if (!sdr.func) {                                                 \
-            snprintf (sdr.last_err, sizeof(sdr.last_err),              \
+          if (!sdr.func)                                                   \
+          {                                                                \
+            snprintf (sdr.last_err, sizeof(sdr.last_err),                  \
                       "Failed to find '%s()' in %s", #func, sdr.dll_name); \
             goto failed;                                                   \
           }                                                                \
        /* TRACE (DEBUG_GENERAL2, "Function: %-30s -> 0x%p.\n", #func, sdr.func); */ \
         } while (0)
 
-#define CALL_FUNC(func, ...)                                             \
-        do {                                                             \
-          sdrplay_api_ErrT rc;                                           \
-          if (!sdr.func)                                                 \
-               rc = sdrplay_api_NotInitialised;                          \
-          else rc = (*sdr.func) (__VA_ARGS__);                           \
-          if (rc != sdrplay_api_Success) {                               \
-             sdrplay_store_error (rc);                                   \
-             LOG_STDERR ("%s(): %d / %s.\n", #func, rc, sdr.last_err); \
-          }                                                              \
+#define CALL_FUNC(func, ...)                                          \
+        do {                                                          \
+          sdrplay_api_ErrT rc;                                        \
+          if (!sdr.func)                                              \
+               rc = sdrplay_api_NotInitialised;                       \
+          else rc = (*sdr.func) (__VA_ARGS__);                        \
+          if (rc != sdrplay_api_Success)                              \
+          {                                                           \
+            sdrplay_store_error (rc);                                 \
+            LOG_STDERR ("%s(): %d / %s.\n", #func, rc, sdr.last_err); \
+          }                                                           \
         } while (0)
 
 struct SDRplay_info {
@@ -107,14 +113,29 @@ static struct modes {
      } Modes;
 
 /**
- * 16-bit data is received from RSP at 2MHz. It is interleaved into a circular buffer.
- * Each time the pointer passes a multiple of MODES_RSP_BUF_SIZE, that segment of buffer
- * is handed off to the routine which normally receives data from the RTL device.
+ * Store the last error-code and error-text from the
+ * last `CALL_FUNC()` macro call.
+ */
+static void sdrplay_store_error (sdrplay_api_ErrT rc)
+{
+  sdr.last_rc = rc;
+
+  if (sdr.sdrplay_api_GetErrorString)
+       strncpy (sdr.last_err, (*sdr.sdrplay_api_GetErrorString)(rc), sizeof(sdr.last_err));
+  else sdr.last_err[0] = '\0';
+}
+
+/**
+ * The SDRplay event callback.
  *
- * For each packet from the RSP, the maximum I signal value is recorded. This is
- * entered into a slow, exponentially decaying filter. The output from this filter
+ * 16-bit data is received from RSP at 2MHz. It is interleaved into a circular buffer.
+ * Each time the pointer passes a multiple of `MODES_RSP_BUF_SIZE`, that segment of
+ * buffer is handed off to the callback-routine `rx_callback()` in `dump1090.c`.
+ *
+ * For each packet from the RSP, the maximum `I` signal value is recorded.
+ * This is entered into a slow, exponentially decaying filter. The output from this filter
  * is occasionally checked and a decision made whether to step the RSP gain by
- * plus or minus 1dB.
+ * plus or minus 1 dB.
  */
 static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
                                     sdrplay_api_TunerSelectT  tuner,
@@ -129,9 +150,9 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
                      (tuner == sdrplay_api_Tuner_A) ? "sdrplay_api_Tuner_A" : "sdrplay_api_Tuner_B",
                      (params->powerOverloadParams.powerOverloadChangeType == sdrplay_api_Overload_Detected) ?
                      "sdrplay_api_Overload_Detected": "sdrplay_api_Overload_Corrected");
-         (*sdr.sdrplay_api_Update) (sdr.device->dev, tuner,
-                                    sdrplay_api_Update_Ctrl_OverloadMsgAck,
-                                    sdrplay_api_Update_Ext1_None);
+         CALL_FUNC (sdrplay_api_Update, sdr.device->dev, tuner,
+                                        sdrplay_api_Update_Ctrl_OverloadMsgAck,
+                                        sdrplay_api_Update_Ext1_None);
          break;
 
     case sdrplay_api_RspDuoModeChange:
@@ -196,6 +217,9 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
   MODES_NOTUSED (cb_context);
 }
 
+/**
+ * The main SDRplay stream callback.
+ */
 static void sdrplay_callback_A (short *xi, short *xq,
                                 sdrplay_api_StreamCbParamsT *params,
                                 unsigned int num_samples,
@@ -263,14 +287,14 @@ static void sdrplay_callback_A (short *xi, short *xq,
       sdr.chParams->tunerParams.gain.gRdB += 1;
       if (sdr.chParams->tunerParams.gain.gRdB > 59)
          sdr.chParams->tunerParams.gain.gRdB = 59;
-      (*sdr.sdrplay_api_Update) (sdr.device->dev, sdr.device->tuner, sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
+      CALL_FUNC (sdrplay_api_Update, sdr.device->dev, sdr.device->tuner, sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
     }
     if (max_sig < RSP_MIN_GAIN_THRESH)
     {
       sdr.chParams->tunerParams.gain.gRdB -= 1;
       if (sdr.chParams->tunerParams.gain.gRdB < 0)
          sdr.chParams->tunerParams.gain.gRdB = 0;
-      (*sdr.sdrplay_api_Update) (sdr.device->dev, sdr.device->tuner, sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
+      CALL_FUNC (sdrplay_api_Update, sdr.device->dev, sdr.device->tuner, sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
     }
   }
 
@@ -309,6 +333,11 @@ static void sdrplay_callback_A (short *xi, short *xq,
   MODES_NOTUSED (cb_context);
 }
 
+/**
+ * The secondary (?) SDRplay stream callback.
+ *
+ * Not used for anything.
+ */
 static void sdrplay_callback_B (short *xi, short *xq,
                                 sdrplay_api_StreamCbParamsT *params,
                                 unsigned int num_samples,
@@ -321,18 +350,6 @@ static void sdrplay_callback_B (short *xi, short *xq,
   MODES_NOTUSED (num_samples);
   MODES_NOTUSED (reset);
   MODES_NOTUSED (cb_context);
-}
-
-/**
- *
- */
-static void sdrplay_store_error (sdrplay_api_ErrT rc)
-{
-  sdr.last_rc = rc;
-
-  if (sdr.sdrplay_api_GetErrorString)
-       strncpy (sdr.last_err, (*sdr.sdrplay_api_GetErrorString)(rc), sizeof(sdr.last_err));
-  else sdr.last_err[0] = '\0';
 }
 
 /**
@@ -373,14 +390,24 @@ static sdrplay_api_DeviceT *sdrplay_select (const char *name)
 }
 
 /**
+ * This routine should be called from the main application in a separate thread.
  *
+ * It enters an infinite loop only returning when the main application sets
+ * the stop-condition specified in the `context`.
+ *
+ * \param[in] device   The device handle which is ignored. Since it's already
+ *                     retured in `sdrplay_init()` (we support only one device at a time).
+ * \param[in] callback The address of the receiver callback.
+ * \param[in] context  The address of the "stop-variable".
+ * \param[in] buf_num  The number of buffers to use (ignored for now).
+ * \param[in] buf_len  The length of each buffer to use (ignored for now).
  */
-int sdrplay_read_async (sdrplay_dev device, sdrplay_cb callback, void *ctx,
-                        uint32_t buf_num,  /* this are ignored for now */
-                        uint32_t buf_len)  /* this are ignored for now */
+int sdrplay_read_async (sdrplay_dev device,
+                        sdrplay_cb  callback,
+                        void       *context,
+                        uint32_t    buf_num,
+                        uint32_t    buf_len)
 {
-  sdrplay_api_ErrT rc;
-
   sdr.chParams = (sdr.device->tuner == sdrplay_api_Tuner_A) ? sdr.deviceParams->rxChannelA: sdr.deviceParams->rxChannelB;
 
   sdr.chParams->ctrlParams.dcOffset.IQenable = 0;
@@ -389,8 +416,8 @@ int sdrplay_read_async (sdrplay_dev device, sdrplay_cb callback, void *ctx,
   sdr.cbFns.StreamACbFn = sdrplay_callback_A;
   sdr.cbFns.StreamBCbFn = sdrplay_callback_B;
   sdr.cbFns.EventCbFn   = sdrplay_event_callback;
-  sdr.rx_callback = callback;
-  sdr.rx_context  = ctx;
+  sdr.rx_callback       = callback;
+  sdr.rx_context        = context;
 
   if (sdr.device->hwVer != SDRPLAY_RSP1_ID)
      sdr.chParams->tunerParams.gain.minGr = sdrplay_api_EXTENDED_MIN_GR;
@@ -471,21 +498,20 @@ int sdrplay_read_async (sdrplay_dev device, sdrplay_cb callback, void *ctx,
       sdr.chParams->ctrlParams.adsbMode = sdrplay_api_ADSB_DECIMATION;
   }
 
-  rc = (*sdr.sdrplay_api_Init) (sdr.device->dev, &sdr.cbFns, NULL);
-  LOG_STDERR ("sdrplay_api_Init(): %d.\n", rc);
-  if (rc != sdrplay_api_Success)
-     return (rc);
+  CALL_FUNC (sdrplay_api_Init, sdr.device->dev, &sdr.cbFns, NULL);
+  if (sdr.last_rc != sdrplay_api_Success)
+     return (sdr.last_rc);
 
   sdr.chParams->tunerParams.rfFreq.rfHz = 1090.0 * 1E6;
-  rc = (*sdr.sdrplay_api_Update) (sdr.device->dev, sdr.device->tuner, sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
-  if (rc != sdrplay_api_Success)
-     return (rc);
+  CALL_FUNC (sdrplay_api_Update, sdr.device->dev, sdr.device->tuner, sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
+  if (sdr.last_rc != sdrplay_api_Success)
+     return (sdr.last_rc);
 
   while (1)
   {
-    volatile int *exit = (volatile int*) ctx;
+    volatile int *exit = (volatile int*) context;
 
-    if (ctx && *exit)
+    if (context && *exit)
        break;
     Sleep (1000);
     LOG_STDERR ("rx_num_callbacks: %llu, sdr.max_sig: %d, sdr.rx_data_idx: %u.\n",
