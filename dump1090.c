@@ -4,8 +4,8 @@
  * \brief   Dump1090, a Mode S messages decoder for RTLSDR devices.
  */
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdint.h>
 #include <errno.h>
 #include <math.h>
@@ -19,9 +19,12 @@
 #include <io.h>
 #include <process.h>
 
-#include <rtl-sdr.h>
 #include <mongoose.h>
 #include <libusb.h>
+#include <rtl-sdr.h>
+
+#include "misc.h"
+#include "sdrplay.h"
 #include "csv.h"
 
 /**
@@ -142,15 +145,6 @@
 #define MODES_CONTENT_TYPE_JS     "application/javascript;charset=utf-8"
 #define MODES_CONTENT_TYPE_PNG    "image/png"
 
-#define ADS_B_ACRONYM             "ADS-B; Automatic Dependent Surveillance - Broadcast"
-#define AIRCRAFT_CSV              "aircraftDatabase.csv"
-
-/**
- * \def MSEC_TIME()
- * Returns a 64-bit tick-time value with 1 millisec granularity.
- */
-#define MSEC_TIME() GetTickCount64()
-
 /**
  * \struct net_service
  * A structure defining a network listening service.
@@ -161,66 +155,6 @@ struct net_service {
     unsigned    port;             /**< The listening port number */
     unsigned    num_clients;      /**< Number of active clients connected to it */
   };
-
-/**
- * \def GMAP_HTML
- * Our default main server page relative to `Mode.who_am_I`.
- */
-#define GMAP_HTML    "web_root/gmap.html"
-
-/**
- * Various helper macros.
- */
-#define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
-#define MODES_NOTUSED(V)   ((void)V)
-#define TWO_PI             (2 * M_PI)
-#define DIM(array)         (sizeof(array) / sizeof(array[0]))
-#define ONE_MBYTE          (1024*1024)
-#define STDIN_FILENO       0
-
-/**
- * \def SAFE_COND_SIGNAL(cond, mutex)
- * \def SAFE_COND_WAIT(cond, mutex)
- *
- * Signals are not threadsafe by default.
- * Taken from the Osmocom-SDR code and modified to
- * use Win-Vista+ functions.
- */
-#define SAFE_COND_SIGNAL(cond, mutex)   \
-        do {                            \
-          EnterCriticalSection (mutex); \
-          WakeConditionVariable (cond); \
-          LeaveCriticalSection (mutex); \
-        } while (0)
-
-#define SAFE_COND_WAIT(cond, mutex)     \
-        do {                            \
-          EnterCriticalSection (mutex); \
-          WakeConditionVariable (cond); \
-          LeaveCriticalSection (mutex); \
-        } while (0)
-
-
-/**
- * \def LOG_STDOUT(fmt, ...)
- * \def LOG_STDERR(fmt, ...)
- *
- * Print to both `stdout` and optionally to `Modes.log`.
- * Print to both `stderr` and optionally to `Modes.log`.
- */
-#define LOG_STDOUT(fmt, ...)  modeS_flogf (stdout, fmt, __VA_ARGS__)
-#define LOG_STDERR(fmt, ...)  modeS_flogf (stderr, fmt, __VA_ARGS__)
-
-/**
- * \def TRACE(bit, fmt, ...)
- * A more compact tracing macro
- */
-#define TRACE(bit, fmt, ...)                  \
-        do {                                  \
-          if (Modes.debug & (bit))            \
-             modeS_flogf (stdout, "%u: " fmt, \
-                 __LINE__, __VA_ARGS__);      \
-        } while (0)
 
 /**
  * \struct client
@@ -267,7 +201,7 @@ struct aircraft {
        uint32_t seen;              /**< Tick-time (in sec) at which the last packet was received. */
        long     messages;          /**< Number of Mode S messages received. */
        int      identity;          /**< 13 bits identity (Squawk). */
-       a_show_t showing;           /**< Shown for the fist or last time? */
+       a_show_t showing;           /**< Shown normal or for the first or last time? */
 
        /* Encoded latitude and longitude as extracted by odd and even
         * CPR encoded messages.
@@ -321,7 +255,7 @@ struct statistics {
 struct global_data {
        char              who_am_I [MG_PATH_MAX];   /**< The full name of this program. */
        char              where_am_I [MG_PATH_MAX]; /**< The current directory (no trailing `\\`. not used). */
-       HANDLE            reader_thread;            /**< Device reader thread ID. */
+       uintptr_t         reader_thread;            /**< Device reader thread ID. */
        CRITICAL_SECTION  data_mutex;               /**< Mutex to synchronize buffer access. */
        uint8_t          *data;                     /**< Raw IQ samples buffer. */
        uint32_t          data_len;                 /**< Length of raw IQ buffer. */
@@ -335,7 +269,8 @@ struct global_data {
        struct aircraft  *aircrafts;                /**< Linked list of active aircrafts. */
        uint64_t          last_update_ms;           /**< Last screen update in milliseconds. */
 
-       int               dev_index;                /**< The index of the RTLSDR device used */
+       int               dev_index;                /**< The index of the RTLSDR device used. */
+       char             *dev_name;                 /**< The manufacturer name of the RTLSDR device used. */
        int               gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
        rtlsdr_dev_t     *dev;                      /**< The RTLSDR handle from `rtlsdr_open()`. */
        int               ppm_error;                /**< Set RTLSDR frequency correction. */
@@ -347,6 +282,11 @@ struct global_data {
                                                      *  \note This cannot be used yet since the code assumes a
                                                      *        pulse-width of 0.5 usec based on a fixed rate of 2 MS/s.
                                                      */
+
+       /** These are effective only if `USE_SDRPLAY` is defined).
+        */
+       char        *sdrplay_name;                  /**< Name of SDRplay instance to use. */
+       sdrplay_dev sdrplay_device;                 /**< Device-handle from `sdrplay_init()`. */
 
        /** Lists of clients for each network service
         */
@@ -370,9 +310,9 @@ struct global_data {
        int         net;                       /**< Enable networking. */
        int         net_only;                  /**< Enable just networking. */
        int         interactive;               /**< Interactive mode */
-       int         interactive_rows;          /**< Interactive mode: max number of rows. */
-       int         interactive_ttl;           /**< Interactive mode: TTL before deletion. */
-       int         only_addr;                 /**< Print only ICAO addresses. */
+       uint16_t    interactive_rows;          /**< Interactive mode: max number of rows. */
+       uint32_t    interactive_ttl;           /**< Interactive mode: TTL before deletion. */
+       bool        only_addr;                 /**< Print only ICAO addresses. */
        int         metric;                    /**< Use metric units. */
        int         aggressive;                /**< Aggressive detection algorithm. */
        char        web_page [MG_PATH_MAX];    /**< The base-name of the web-page to server for HTTP clients */
@@ -455,21 +395,6 @@ void compute_magnitude_vector (void);
 void background_tasks (void);
 void modeS_exit (void);
 void sigint_handler (int sig);
-
-/*
- * Defined in MSVC's <sal.h>.
- */
-#ifndef _Printf_format_string_
-#define _Printf_format_string_
-#endif
-
-#if defined(__clang__)
-  #define ATTR_PRINTF(_1, _2) __attribute__((format(printf, _1, _2)))
-#else
-  #define ATTR_PRINTF(_1, _2)
-#endif
-
-void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
 
 u_short               handler_port (int service);
 const char           *handler_descr (int service);
@@ -945,6 +870,9 @@ int aircraft_CSV_compare_on_addr (const void *_a, const void *_b)
 const struct aircraft_CSV *aircraft_CSV_lookup_entry (uint32_t addr)
 {
   struct aircraft_CSV key = { addr, "" };
+
+  if (!Modes.aircraft_list)
+     return (NULL);
   return bsearch (&key, Modes.aircraft_list, Modes.aircraft_num_CSV,
                   sizeof(*Modes.aircraft_list), aircraft_CSV_compare_on_addr);
 }
@@ -1090,7 +1018,6 @@ void modeS_init_config (void)
   Modes.fix_errors = 1;
   Modes.check_crc = 1;
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
-  Modes.reader_thread = INVALID_HANDLE_VALUE;
 }
 
 /**
@@ -1214,11 +1141,21 @@ int modeS_init (void)
 
 /**
  * Step 3: Initialize the RTLSDR device.
+ *
+ * If `Modes.dev_name` is specified, select the device that matches `manufact`.
+ * Otherwise select on `Modes.dev_index` where 0 is the first device found.
+ *
+ * If one have > 1 RTLSDR device with the same product name and serial-number,
+ * then the program `rtl_eeprom -d 1 -M "name"` is handy to set them apart.
+ * Like:
+ *  ```
+ *   manufact: Silver, product: RTL2838UHIDIR, serial: 00000001
+ *   manufact: Blue, product: RTL2838UHIDIR, serial: 00000001
+ *  ```
  */
 int modeS_init_RTLSDR (void)
 {
   int    i, rc, device_count;
-  char   vendor[256], product[256], serial[256];
   double gain;
 
   device_count = rtlsdr_get_device_count();
@@ -1231,9 +1168,20 @@ int modeS_init_RTLSDR (void)
   LOG_STDERR ("Found %d device(s):\n", device_count);
   for (i = 0; i < device_count; i++)
   {
-    rtlsdr_get_device_usb_strings (i, vendor, product, serial);
-    LOG_STDERR ("%d: %s, %s, SN: %s %s\n", i, vendor, product, serial,
-                (i == Modes.dev_index) ? "(currently selected)" : "");
+    char  manufact[256], product[256], serial[256];
+    bool selected = false;
+
+    rtlsdr_get_device_usb_strings (i, manufact, product, serial);
+    if (Modes.dev_name && manufact[0] && !stricmp(Modes.dev_name, manufact))
+    {
+      selected = true;
+      Modes.dev_index = i;
+    }
+    else
+      selected = (i == Modes.dev_index);
+
+    LOG_STDERR ("%d: %s, %s, SN: %s %s\n", i, manufact, product, serial,
+                selected ? "(currently selected)" : "");
   }
 
 #if defined(HAVE_rtlsdr_cal_imr)
@@ -1244,7 +1192,7 @@ int modeS_init_RTLSDR (void)
   rc = rtlsdr_open (&Modes.dev, Modes.dev_index);
   if (rc < 0)
   {
-    LOG_STDERR ("Error opening the RTLSDR device: %s.\n", get_rtlsdr_libusb_error(rc));
+    LOG_STDERR ("Error opening the RTLSDR device %d: %s.\n", Modes.dev_index, get_rtlsdr_libusb_error(rc));
     return (1);
   }
 
@@ -1271,7 +1219,7 @@ int modeS_init_RTLSDR (void)
   rtlsdr_set_sample_rate (Modes.dev, Modes.sample_rate);
   rtlsdr_reset_buffer (Modes.dev);
 
-  LOG_STDERR ("Tuned to %.03f MHz.\n", Modes.freq/1E6);
+  LOG_STDERR ("Tuned to %.03f MHz.\n", Modes.freq / 1E6);
 
   gain = rtlsdr_get_tuner_gain (Modes.dev);
   if ((unsigned int)gain == 0)
@@ -1281,15 +1229,15 @@ int modeS_init_RTLSDR (void)
 }
 
 /**
- * This reading callback gets data from the RTLSDR API asynchronously.
+ * This reading callback gets data from the RTLSDR or SDRplay API asynchronously.
  * We then populate the data buffer. <br>
  * A Mutex is used to avoid race-condition with the decoding thread.
  */
-void rtlsdr_callback (uint8_t *buf, uint32_t len, void *ctx)
+void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
 {
-  MODES_NOTUSED (ctx);
+  volatile int *exit = (volatile int*) ctx;
 
-  if (Modes.exit)
+  if (*exit)
      return;
 
   EnterCriticalSection (&Modes.data_mutex);
@@ -1299,7 +1247,7 @@ void rtlsdr_callback (uint8_t *buf, uint32_t len, void *ctx)
   /* Move the last part of the previous buffer, that was not processed,
    * to the start of the new buffer.
    */
-  memcpy (Modes.data, Modes.data+MODES_DATA_LEN, 4*(MODES_FULL_LEN-1));
+  memcpy (Modes.data, Modes.data + MODES_DATA_LEN, 4*(MODES_FULL_LEN-1));
 
   /* Read the new data.
    */
@@ -1377,20 +1325,28 @@ int read_from_data_file (void)
 }
 
 /**
- * We read RTLSDR data using a separate thread, so the main thread only handles decoding
- * without caring about data acquisition. Ref. `main_data_loop()` below.
+ * We read RTLSDR (or SDRplay) data using a separate thread, so the main thread
+ * only handles decoding without caring about data acquisition.
+ * Ref. `main_data_loop()` below.
  */
 unsigned int __stdcall data_thread_fn (void *arg)
 {
   int rc;
 
-  MODES_NOTUSED (arg);
+#ifdef USE_SDRPLAY
+  if (Modes.sdrplay_device)
+  {
+    rc = sdrplay_read_async (Modes.sdrplay_device, rx_callback, (void*)&Modes.exit,
+                             MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
 
+    TRACE (DEBUG_GENERAL, "sdrplay_read_async(): rc: %d / %s.\n",
+           rc, sdrplay_error(rc));
+  }
+  else
+#endif
   if (Modes.dev)
   {
-    TRACE (DEBUG_GENERAL2, "Calling rtlsdr_read_async().\n");
-
-    rc = rtlsdr_read_async (Modes.dev, rtlsdr_callback, NULL,
+    rc = rtlsdr_read_async (Modes.dev, rx_callback, (void*)&Modes.exit,
                             MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
 
     TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
@@ -1399,6 +1355,7 @@ unsigned int __stdcall data_thread_fn (void *arg)
     /* break out of main_data_loop() */
     sigint_handler (0);
   }
+  MODES_NOTUSED (arg);
   return (0);
 }
 
@@ -3276,26 +3233,27 @@ void interactive_show_data (uint64_t now)
  */
 void remove_stale_aircrafts (uint64_t now)
 {
-  uint32_t sec_now = (int) (now / 1000);
-  uint32_t sec_diff;
+  uint32_t sec_now = (int32_t) (now / 1000);
+  int32_t  sec_diff;
   struct aircraft *a, *a_next;;
 
   for (a = Modes.aircrafts; a; a = a_next)
   {
     a_next = a->next;
-    sec_diff = sec_now - a->seen; /* could wrap */
+    sec_diff = (int32_t) (sec_now - a->seen);
 
-    if (sec_diff > Modes.interactive_ttl)
+    if (sec_diff > (uint32_t)Modes.interactive_ttl)
     {
-      /* Remove the element from the linked list, with care
-       * if we are removing the first element.
+      /* Remove the element from the linked list.
        */
       LIST_DELETE (struct aircraft, &Modes.aircrafts, a);
       free (a);
     }
     else
     {
-      if (sec_now - a->seen >= (Modes.interactive_ttl + MODES_INTERACTIVE_REFRESH_TIME/1000))
+      /* Remove this element on next refresh?
+       */
+      if (sec_diff >= (int32_t) (Modes.interactive_ttl + MODES_INTERACTIVE_REFRESH_TIME/1000))
          a->showing = A_LAST_TIME;
     }
   }
@@ -4049,14 +4007,15 @@ int decode_hex_message (struct client *c)
  * should close the connection with the client in case of non-recoverable
  * errors.
  */
-void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *))
+void read_from_client (struct client *cli, /* struct mg_iobuf *recv, */ char *sep, int (*handler)(struct client *))
 {
 #ifdef USE_MONGOOSE   /** \todo */
-   const struct mg_iobuf *msg = &cli->conn->recv;
+   struct mg_iobuf *msg = &cli->conn->recv;
 
    /* copy over before Mongoose discards this
     */
    memcpy (cli->buf, msg->buf, min(msg->len, sizeof(cli->buf)));
+   mg_iobuf_delete (msg, msg->len);
 
 #else
   while (1)
@@ -4179,16 +4138,22 @@ void show_help (const char *fmt, ...)
           MODES_NET_HTTP_PORT, MODES_NET_OUTPUT_RAW_PORT,
           MODES_NET_INPUT_RAW_PORT, MODES_NET_OUTPUT_SBS_PORT, GMAP_HTML);
 
-  printf ("  RTLSDR options:\n"
+#ifdef USE_SDRPLAY
+  #define DEVICE_OPTIONS "RTLSDR / SDRplay options"
+#else
+  #define DEVICE_OPTIONS "RTLSDR options"
+#endif
+
+  printf ("  %s:\n"
           "    --agc                    Enable Digital AGC (default: off)\n"
           "    --bias                   Enable Bias-T output (default: off)\n"
-          "    --calibrate              Enable calibration R820T/R828D devices (default: off)\n"
-          "    --device <index>         Select RTL device (default: 0).\n"
+          "    --calibrate              Enable calibrating R820T/R828D devices (default: off)\n"
+          "    --device <N / name>      Select device (default: 0).\n"
           "    --freq <Hz>              Set frequency (default: %u MHz).\n"
           "    --gain <dB>              Set gain (default: AUTO)\n"
           "    --ppm <correction>       Set frequency correction (default: 0)\n"
           "    --samplerate <Hz>        Set sample-rate (default: %uMS/s).\n\n",
-          (uint32_t)(MODES_DEFAULT_FREQ / 1000000), MODES_DEFAULT_RATE/1000000);
+          DEVICE_OPTIONS, (uint32_t)(MODES_DEFAULT_FREQ / 1000000), MODES_DEFAULT_RATE/1000000);
 
   printf ("  --debug <flags>: E = Log frames decoded with errors.\n"
           "                   D = Log frames decoded with zero errors.\n"
@@ -4246,6 +4211,8 @@ void background_tasks (void)
  */
 void sigint_handler (int sig)
 {
+  int rc;
+
   signal (sig, SIG_DFL);   /* reset signal handler - bit extra safety */
   Modes.exit = 1;          /* Signal to threads that we are done */
 
@@ -4256,17 +4223,18 @@ void sigint_handler (int sig)
 
   if (Modes.dev)
   {
-    int rc;
-
     EnterCriticalSection (&Modes.data_mutex);
     rc = rtlsdr_cancel_async (Modes.dev);
     TRACE (DEBUG_GENERAL, "rtlsdr_cancel_async(): rc: %d.\n", rc);
-    if (rc == -2)
-    {
-      Sleep (2);
-      Modes.dev = NULL;
-    }
+
+    if (rc == -2)  /* RTLSDR is not streaming data */
+       Sleep (5);
     LeaveCriticalSection (&Modes.data_mutex);
+  }
+  else if (Modes.sdrplay_device)
+  {
+    rc = sdrplay_cancel_async (Modes.sdrplay_device);
+    TRACE (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_error(rc));
   }
 }
 
@@ -4344,9 +4312,17 @@ void modeS_exit (void)
     Modes.dev = NULL;
     TRACE (DEBUG_GENERAL2, "rtlsdr_close(), rc: %d.\n", rc);
   }
+#ifdef USE_SDRPLAY
+  else if (Modes.sdrplay_device)
+  {
+    rc = sdrplay_exit (Modes.sdrplay_device);
+    Modes.sdrplay_device = NULL;
+    TRACE (DEBUG_GENERAL2, "sdrplay_exit(), rc: %d.\n", rc);
+  };
+#endif
 
-  if (Modes.reader_thread != INVALID_HANDLE_VALUE)
-     CloseHandle (Modes.reader_thread);
+  if (Modes.reader_thread)
+     CloseHandle ((HANDLE)Modes.reader_thread);
 
   if (Modes.fd > STDIN_FILENO)
      close (Modes.fd);
@@ -4370,6 +4346,7 @@ void modeS_exit (void)
 
   DeleteCriticalSection (&Modes.data_mutex);
 
+  Modes.reader_thread = 0;
   Modes.data = NULL;
   Modes.magnitude = Modes.magnitude_lut = NULL;
   Modes.ICAO_cache = NULL;
@@ -4379,6 +4356,21 @@ void modeS_exit (void)
 
 #if defined(_DEBUG)
   crtdbug_exit();
+#endif
+}
+
+static void select_device (char *arg, int *rtlsdr_index, char **rtlsdr_name, char **sdrplay_name)
+{
+  *sdrplay_name = NULL;
+  *rtlsdr_index = -1;
+
+  if (isdigit(arg[0]))
+       *rtlsdr_index = atoi (arg);
+  else *rtlsdr_name = arg;
+
+#ifdef USE_SDRPLAY
+  if (!strnicmp(arg, "sdrplay", 7))
+     *sdrplay_name = arg;
 #endif
 }
 
@@ -4401,8 +4393,8 @@ int main (int argc, char **argv)
   {
     int more = j + 1 < argc; /* There are more arguments. */
 
-    if ((!strcmp(argv[j], "--device") || !strcmp(argv[j], "--device")) && more)
-       Modes.dev_index = atoi (argv[++j]);
+    if (!strcmp(argv[j], "--device") && more)
+       select_device (argv[++j], &Modes.dev_index, &Modes.dev_name, &Modes.sdrplay_name);
 
     else if (!strcmp(argv[j], "--agc"))
         Modes.dig_agc = true;
@@ -4580,10 +4572,22 @@ int main (int argc, char **argv)
   }
   else
   {
-    rc = modeS_init_RTLSDR();
-    TRACE (DEBUG_GENERAL, "rtlsdr_open(): rc: %d.\n", rc);
-    if (rc)
-       goto quit;
+#ifdef USE_SDRPLAY
+    if (Modes.sdrplay_name)
+    {
+      rc = sdrplay_init (Modes.sdrplay_name, &Modes.sdrplay_device);
+      TRACE (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_error(rc));
+      if (rc)
+         goto quit;
+    }
+    else
+#endif
+    {
+      rc = modeS_init_RTLSDR();
+      TRACE (DEBUG_GENERAL, "rtlsdr_open(): rc: %d.\n", rc);
+      if (rc)
+         goto quit;
+    }
   }
 
   if (Modes.net)
@@ -4600,9 +4604,9 @@ int main (int argc, char **argv)
   }
   else if (Modes.strip_level == 0)
   {
-    /* Create the thread that will read the data from the device.
+    /* Create the thread that will read the data from the RTLSDR or SDRplay device.
      */
-    Modes.reader_thread = (HANDLE) _beginthreadex (NULL, 0, data_thread_fn, NULL, 0, NULL);
+    Modes.reader_thread = _beginthreadex (NULL, 0, data_thread_fn, NULL, 0, NULL);
     if (!Modes.reader_thread)
     {
       rc = 1;
