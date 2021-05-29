@@ -4,7 +4,6 @@ link.args
 link.tmp
 objects
 t
-backup
 ASAN-report.txt
 MLAT-ADS-B-Reference-Guide.pdf
 gmap-orig.html
