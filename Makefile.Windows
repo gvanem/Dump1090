@@ -310,14 +310,26 @@ define dump1090_Doxyfile
   OPTIMIZE_OUTPUT_FOR_C = yes
   FORCE_LOCAL_INCLUDES  = yes
   QUIET                 = yes
-  PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1 USE_MONGOOSE:=1
-  INPUT                 = ../dump1090.c           \
-                          ../csv.c                \
-                          ../csv.h                \
-                          ../externals/mongoose.c \
-                          ../externals/mongoose.h \
-                          ../externals/rtl-sdr.h  \
-                          ../externals/pthreads/pthread.c
+  PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1 USE_MONGOOSE:=1 USE_SDRPLAY:=1
+  INPUT                 = ../dump1090.c                                     \
+                          ../csv.c                                          \
+                          ../csv.h                                          \
+                          ../misc.h                                         \
+                          ../sdrplay.c                                      \
+                          ../sdrplay.h                                      \
+                          ../externals/mongoose.c                           \
+                          ../externals/mongoose.h                           \
+                          ../externals/rtl-sdr/rtl-sdr.h                    \
+                          ../externals/SDRplay-API/sdrplay_api.h            \
+                          ../externals/SDRplay-API/sdrplay_api_callback.h   \
+                          ../externals/SDRplay-API/sdrplay_api_control.h    \
+                          ../externals/SDRplay-API/sdrplay_api_dev.h        \
+                          ../externals/SDRplay-API/sdrplay_api_rsp1a.h      \
+                          ../externals/SDRplay-API/sdrplay_api_rsp2.h       \
+                          ../externals/SDRplay-API/sdrplay_api_rspDuo.h     \
+                          ../externals/SDRplay-API/sdrplay_api_rspDx.h      \
+                          ../externals/SDRplay-API/sdrplay_api_rx_channel.h \
+                          ../externals/SDRplay-API/sdrplay_api_tuner.h
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = ..
   INLINE_SIMPLE_STRUCTS = yes
