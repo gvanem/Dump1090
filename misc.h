@@ -1,12 +1,13 @@
 /**\file    misc.h
  * \ingroup Misc
  *
- * Various macroos and definitions.
+ * Various macros and definitions.
  */
 #ifndef _MISC_H
 #define _MISC_H
 
 #include <stdio.h>
+#include <windows.h>
 
 /**
  * Various helper macros.
