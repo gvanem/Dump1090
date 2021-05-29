@@ -3242,7 +3242,7 @@ void remove_stale_aircrafts (uint64_t now)
     a_next = a->next;
     sec_diff = (int32_t) (sec_now - a->seen);
 
-    if (sec_diff > (uint32_t)Modes.interactive_ttl)
+    if (sec_diff > (int32_t)Modes.interactive_ttl)
     {
       /* Remove the element from the linked list.
        */
