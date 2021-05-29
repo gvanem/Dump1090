@@ -11,14 +11,14 @@
 #define TRACE(level, fmt, ...)                                    \
         do {                                                      \
           if (trace_level() >= level) {                           \
-            _trace_file = __FILE__;                               \
+            _trace_file = "librtlsdr.c";   /* Only used here */   \
             _trace_line = __LINE__;                               \
             trace_printf (TRACE_COLOR_START, NULL);               \
             trace_printf (TRACE_COLOR_ARGS, fmt, ## __VA_ARGS__); \
           }                                                       \
         } while (0)
 
-#define TRACE_LIBUSB(r) trace_libusb (r, __FUNCTION__, __FILE__, __LINE__)
+#define TRACE_LIBUSB(r) trace_libusb (r, __FUNCTION__, "librtlsdr.c", __LINE__)
 
 extern const char *_trace_file;
 extern unsigned    _trace_line;
