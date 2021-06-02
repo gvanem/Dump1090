@@ -319,6 +319,7 @@ define dump1090_Doxyfile
                           ../sdrplay.h                                      \
                           ../externals/mongoose.c                           \
                           ../externals/mongoose.h                           \
+                          ../externals/libusb.h                             \
                           ../externals/rtl-sdr/rtl-sdr.h                    \
                           ../externals/SDRplay-API/sdrplay_api.h            \
                           ../externals/SDRplay-API/sdrplay_api_callback.h   \
