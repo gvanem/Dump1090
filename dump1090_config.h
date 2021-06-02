@@ -12,7 +12,6 @@
 #if !defined(RC_INVOKED)  /* Rest of file */
 
 #define rtlsdr_STATIC 1
-#define USE_MONGOOSE  1
 
 #define LIBUSB_CALL WINAPI
 #define HAVE_rtlsdr_cal_imr
