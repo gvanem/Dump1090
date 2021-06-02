@@ -54,11 +54,18 @@ available, developed by **Malcolm Robb**.
 
 ## Normal usage
 
-To capture traffic directly from your RTLSDR device (and soon a *SDRPlay* radio) and
-show the captured traffic on standard output, just run the program without options at all:
+To capture traffic directly from your RTLSDR device and show the captured traffic
+on standard output, just run the program without options at all:
   ```
   c:\dev\Dump1090> dump1090
   ```
+
+To use a SDRPlay device, the option `--device` must be used. Like:
+  ```
+  c:\dev\Dump1090> dump1090 --device sdrplay0
+  ```
+
+  But these devices does not work correctly yet.
 
   Example output:
   ```
