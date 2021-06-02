@@ -380,10 +380,12 @@ double ato_hertz (const char *Hertz)
     case 'G':
           multiplier *= 1E3;
           /* fall-through */
+          ATTR_FALLTHROUGH();
     case 'm':
     case 'M':
           multiplier *= 1E3;
           /* fall-through */
+          ATTR_FALLTHROUGH();
     case 'k':
     case 'K':
           multiplier *= 1E3;
@@ -3276,7 +3278,7 @@ int send_all_clients (int service, const void *msg, size_t len)
        continue;
 
     rc = mg_send (cli->conn, msg, len);
-    if (rc != len)
+    if (rc != (int)len)
          free_client (cli, service);    /* write failed; assume client is gone */
     else found++;
     TRACE (DEBUG_NET, "Sent to client service \"%s\", rc: %d.\n", handler_descr(service), rc);
@@ -3808,15 +3810,23 @@ int decode_hex_message (struct client *c)
  * should close the connection with the client in case of non-recoverable
  * errors.
  */
-void read_from_client (struct client *cli, /* struct mg_iobuf *recv, */ char *sep, int (*handler)(struct client *))
+void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *))
 {
 #ifdef USE_MONGOOSE   /** \todo */
-   struct mg_iobuf *msg = &cli->conn->recv;
+  struct mg_iobuf *msg = &cli->conn->recv;
+  const char      *p;
+  size_t           left = sizeof(cli->buf) - 1 - cli->buflen;
+  size_t           size = min (msg->len, left);
 
-   /* copy over before Mongoose discards this
-    */
-   memcpy (cli->buf, msg->buf, min(msg->len, sizeof(cli->buf)));
-   mg_iobuf_delete (msg, msg->len);
+  /* copy over before Mongoose discards this
+   */
+  memcpy (cli->buf + cli->buflen, msg->buf, size);
+  mg_iobuf_delete (msg, msg->len);
+  cli->buflen += size;
+  cli->buf [cli->buflen] = '\0';
+  p = strstr (cli->buf, sep);
+  if (p)
+    (*handler) (cli);
 
 #else
   while (1)
@@ -3848,7 +3858,7 @@ void read_from_client (struct client *cli, /* struct mg_iobuf *recv, */ char *se
     while ((p = strstr(cli->buf, sep)) != NULL)
     {
       i = p - cli->buf;    /* Turn it as an index inside the buffer. */
-      cli->buf[i] = '\0';  /* Te handler expects null terminated strings. */
+      cli->buf[i] = '\0';  /* The handler expects null terminated strings. */
 
       /* Call the function to process the message. It returns 1
        * on error to signal we should close the client connection.

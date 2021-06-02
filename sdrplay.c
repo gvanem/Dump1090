@@ -430,6 +430,16 @@ int sdrplay_read_async (sdrplay_dev *device,
                         uint32_t     buf_num,
                         uint32_t     buf_len)
 {
+  MODES_NOTUSED (buf_num);
+  MODES_NOTUSED (buf_len);
+
+  if (device != g_sdr_device)
+  {
+    strncpy (sdr.last_err, "No device", sizeof(sdr.last_err));
+    sdr.last_rc = sdrplay_api_NotInitialised;
+    return (sdr.last_rc);
+  }
+
   sdr.chParams = (sdr.dev->tuner == sdrplay_api_Tuner_A) ? sdr.deviceParams->rxChannelA: sdr.deviceParams->rxChannelB;
 
   sdr.chParams->ctrlParams.dcOffset.IQenable = 0;
@@ -458,7 +468,7 @@ int sdrplay_read_async (sdrplay_dev *device,
 
   if (sdr.dev->hwVer == SDRPLAY_RSPduo_ID && (sdr.dev->rspDuoMode & sdrplay_api_RspDuoMode_Slave))
   {
-    if (sdr.dev->rspDuoSampleFreq != Modes.sample_rate)
+    if ((uint32_t)sdr.dev->rspDuoSampleFreq != Modes.sample_rate)
     {
       strncpy (sdr.last_err, "RSPduo Master tuner in use and is not running in ADS-B compatible mode", sizeof(sdr.last_err));
       LOG_STDERR ("Error: %s.\n"
@@ -572,7 +582,7 @@ int sdrplay_cancel_async (sdrplay_dev *device)
  */
 const char *sdrplay_strerror (int rc)
 {
-  if (!sdr.last_err[0])
+  if (rc == 0 || !sdr.last_err[0])
      return ("<none>");
   return (sdr.last_err);
 }

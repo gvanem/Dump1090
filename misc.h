@@ -363,9 +363,11 @@ extern struct global_data Modes;
 #endif
 
 #if defined(__clang__)
-  #define ATTR_PRINTF(_1, _2) __attribute__((format(printf, _1, _2)))
+  #define ATTR_PRINTF(_1, _2)  __attribute__((format(printf, _1, _2)))
+  #define ATTR_FALLTHROUGH()   __attribute__((fallthrough))
 #else
   #define ATTR_PRINTF(_1, _2)
+  #define ATTR_FALLTHROUGH()   ((void)0)
 #endif
 
 extern void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
