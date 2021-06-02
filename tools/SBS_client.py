@@ -9,9 +9,7 @@ RAW-IN client:  Connect to host at port 30002, receive '*...;' messages and prin
 SBS client:     Connect to host at port 30003, listen for 'MSG,' text and print it to console.
 """
 
-import sys, os, time, argparse
-from socket import socket, AF_INET, SOCK_STREAM, SHUT_WR
-from io     import BytesIO
+import sys, os, time, argparse, socket
 
 LOG_FILE     = "SBS_client.log"
 REMOTE_HOST  = "localhost"
@@ -19,16 +17,18 @@ RAW_IN_PORT  = 30001
 RAW_OUT_PORT = 30002
 SBS_PORT     = 30003
 
-quit = False
-logf = None
-data_len = 0
+class cfg():
+  quit = False
+  logf = None
+  sock = None
+  data_len = 0
 
 #
 # Print to both stdout and log-file
 #
 def modes_log (s):
   os.write (1, bytes(s, encoding="ascii"))
-  logf.write ("%s: %s" % (time.strftime("%H:%M:%S"), str(s)))
+  cfg.logf.write ("%s: %s" % (time.strftime("%H:%M:%S"), str(s)))
 
 def show_help (error=None):
   if error:
@@ -53,40 +53,50 @@ def parse_cmdline():
 
 def SBS_connect (opt):
   try:
-    s = socket (AF_INET, SOCK_STREAM)
+    s = socket.socket (socket.AF_INET, socket.SOCK_STREAM)
     s.connect ((opt.host, opt.port))
     modes_log ("Connected to %s\n" % opt.host)
     return s
   except:
     modes_log ("Connection refused\n")
-    logf.close()
+    cfg.logf.close()
     sys.exit (1)
 
-def sbs_in_loop (sock):
-  global quit
-  while not quit:
+#
+# For receiving SBS or RAW-IN messages.
+#
+def raw_sbs_in_loop (sock):
+  while not cfg.quit:
     data = sock.readline (100)
     if not data:
       modes_log ("Connection gone.\n")
-      quit = True
+      cfg.quit = True
       break
     modes_log (data)
-    global data_len
-    data_len += len(data)
+    cfg.data_len += len(data)
     time.sleep (0.01)
 
 #
-# Simulate a Dump1090 client and test 'read_from_client (cli, "\n", decode_hex_message)'
+# For sending RAW-OUT messages.
+#
+# Simulate a Dump1090 client and test the function:
+#   read_from_client (cli, "\n", decode_hex_message);
+#
+# Todo: send random messages in round-robin:
+#   *8d4aca0599141911c8301577bf5d;
+#   *8d4780a099080c9a6858194590a0;
+#   *8d4780a0f8200002004bb85be2ef;
+#   *8d4780a099080d9a6854190ec06e;
+#
+# Or construct realistics messages on the fly?
 #
 def raw_out_loop (sock):
-  global quit
-  while not quit:
+  while not cfg.quit:
     data = b"*8d4b969699155600e87406f5b69f;\n"
     modes_log ("Sending RAW message: %s.\n" % str(data))
-    global data_len
     rc = sock.send (data)
     if rc > 0:
-      data_len += rc
+      cfg.data_len += rc
     time.sleep (10)
 
 ### main() ####################################
@@ -110,8 +120,8 @@ if opt.port == 0:
   elif mode == "RAW-OUT":
     opt.port = RAW_OUT_PORT
 
-logf = open (LOG_FILE, "a+t")
-logf.write ("%s: --- Starting -------\n" % time.strftime("%H:%M:%S"))
+cfg.logf = open (LOG_FILE, "a+t")
+cfg.logf.write ("%s: --- Starting -------\n" % time.strftime("%H:%M:%S"))
 modes_log ("Connecting to %s:%d\n" % (opt.host, opt.port))
 
 if opt.wait:
@@ -121,27 +131,27 @@ if opt.wait:
     os.write (1, b".")
   modes_log ("\n")
 
-s = SBS_connect (opt)
+cfg.sock = SBS_connect (opt)
 
 if mode == "RAW-OUT":
   loop   = raw_out_loop
   format = "Sent %d bytes\n"
 else:
-  loop = sbs_in_loop
-  s    = s.makefile()
+  loop   = raw_sbs_in_loop
   format = "Received %d bytes\n"
+  cfg.sock = cfg.sock.makefile()
 
 try:
-  loop (s)
+  loop (cfg.sock)
 
 except (ConnectionResetError, ConnectionAbortedError):
   modes_log ("Connection reset.\n")
-  quit = True
+  cfg.quit = True
 
 except KeyboardInterrupt:
   print ("^C")
-  quit = True
+  cfg.quit = True
 
-modes_log (format % data_len)
-s.close()
-logf.close()
+modes_log (format % cfg.data_len)
+cfg.sock.close()
+cfg.logf.close()
