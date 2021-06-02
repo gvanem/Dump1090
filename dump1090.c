@@ -178,7 +178,7 @@ struct modeS_message {
 };
 
 struct aircraft *interactive_receive_data (const struct modeS_message *mm);
-void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *));
+void read_from_client (struct client *cli, char *sep, void (*handler)(struct client *));
 int  modeS_send_raw_output (const struct modeS_message *mm);
 int  modeS_send_SBS_output (const struct modeS_message *mm, const struct aircraft *a);
 void modeS_user_message (const struct modeS_message *mm);
@@ -186,7 +186,7 @@ void modeS_user_message (const struct modeS_message *mm);
 int  fix_single_bit_errors (uint8_t *msg, int bits);
 int  fix_two_bits_errors (uint8_t *msg, int bits);
 void detect_modeS (uint16_t *m, uint32_t mlen);
-int  decode_hex_message (struct client *c);
+void decode_hex_message (struct client *c);
 int  modeS_message_len_by_type (int type);
 void compute_magnitude_vector (void);
 void background_tasks (void);
@@ -222,7 +222,7 @@ static void clrscr (void)
   WORD width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
   WORD y = console_info.srWindow.Top;
 
-  while (y < console_info.srWindow.Bottom)
+  while (y <= console_info.srWindow.Bottom)
   {
     DWORD written;
     COORD coord = { console_info.srWindow.Left, y++ };
@@ -3297,10 +3297,10 @@ int send_all_clients (int service, const void *msg, size_t len)
  * Keep the data for our 4 network services in this structure.
  */
 struct net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
-                 { &Modes.ros,   "Raw TCP output",         MODES_NET_OUTPUT_RAW_PORT },
-                 { &Modes.ris,   "Raw TCP input",          MODES_NET_INPUT_RAW_PORT },
-                 { &Modes.sbsos, "Basestation TCP output", MODES_NET_OUTPUT_SBS_PORT },
-                 { &Modes.http,  "HTTP server",            MODES_NET_HTTP_PORT }
+                 { &Modes.ros,   "Raw TCP output",         MODES_NET_PORT_OUTPUT_RAW },
+                 { &Modes.ris,   "Raw TCP input",          MODES_NET_PORT_INPUT_RAW },
+                 { &Modes.sbsos, "Basestation TCP output", MODES_NET_PORT_OUTPUT_SBS },
+                 { &Modes.http,  "HTTP server",            MODES_NET_PORT_HTTP }
                };
 
 /* Mongoose event names.
@@ -3752,7 +3752,7 @@ int hex_digit_val (int c)
  * no case where we want broken messages here to close the client
  * connection.
  */
-int decode_hex_message (struct client *c)
+void decode_hex_message (struct client *c)
 {
   struct modeS_message mm;
   char   *hex = c->buf;
@@ -3775,12 +3775,12 @@ int decode_hex_message (struct client *c)
   /* Turn the message into binary.
    */
   if (l < 2 || hex[0] != '*' || hex[l-1] != ';')
-     return (0);
+     return;
 
   hex++;   /* Skip `*` and `;` */
   l -= 2;
   if (l > 2*MODES_LONG_MSG_BYTES)   /* Too long message... broken. */
-     return (0);
+     return;
 
   for (j = 0; j < l; j += 2)
   {
@@ -3788,12 +3788,11 @@ int decode_hex_message (struct client *c)
     int low  = hex_digit_val (hex[j+1]);
 
     if (high == -1 || low == -1)
-       return (0);
+       return;
     msg[j/2] = (high << 4) | low;
   }
   decode_modeS_message (&mm, msg);
   modeS_user_message (&mm);
-  return (0);
 }
 
 /**
@@ -3806,15 +3805,17 @@ int decode_hex_message (struct client *c)
  * Every full message received is decoded and passed to the higher layers
  * calling the function `handler`.
  *
- * The hander returns 0 on success, or 1 to signal this function we
- * should close the connection with the client in case of non-recoverable
- * errors.
+ * The `tools/SBS_client.py` script is sending this in "RAW-OUT" test-mode:
+ * ```
+ *  *8d4b969699155600e87406f5b69f;\n
+ * ```
+ *
+ * This message shows up as ICAO "4B9696" and Reg-num "TC-ETV" in
+ * `--interactive` mode.
  */
-void read_from_client (struct client *cli, char *sep, int (*handler)(struct client *))
+void read_from_client (struct client *cli, char *sep, void (*handler)(struct client *))
 {
-#ifdef USE_MONGOOSE   /** \todo */
   struct mg_iobuf *msg = &cli->conn->recv;
-  const char      *p;
   size_t           left = sizeof(cli->buf) - 1 - cli->buflen;
   size_t           size = min (msg->len, left);
 
@@ -3823,84 +3824,14 @@ void read_from_client (struct client *cli, char *sep, int (*handler)(struct clie
   memcpy (cli->buf + cli->buflen, msg->buf, size);
   mg_iobuf_delete (msg, msg->len);
   cli->buflen += size;
-  cli->buf [cli->buflen] = '\0';
-  p = strstr (cli->buf, sep);
-  if (p)
-    (*handler) (cli);
+  cli->buf [cli->buflen+1] = '\0';
 
-#else
-  while (1)
-  {
-    int left  = sizeof(cli->buf) - 1 - cli->buflen;
-    int nread = recv (cli->fd, cli->buf + cli->buflen, left, 0);
-    int fullmsg = 0;
-    int i;
-    char *p;
+  TRACE (DEBUG_NET, "client msg: '%s'.\n", cli->buf);
 
-    if (nread <= 0)
-    {
-      if (nread == 0 || errno != EAGAIN)
-      {
-        /* Error, or end of file. */
-        free_client (cli->fd);
-      }
-      break; /* Serve next client. */
-    }
-    cli->buflen += nread;
+  if (strstr(cli->buf, sep))
+     (*handler) (cli);
 
-    /* Always null-term so we are free to use strstr() */
-    cli->buf[c->buflen] = '\0';
-
-    /* If there is a complete message there must be the separator 'sep'
-     * in the buffer, note that we full-scan the buffer at every read
-     * for simplicity.
-     */
-    while ((p = strstr(cli->buf, sep)) != NULL)
-    {
-      i = p - cli->buf;    /* Turn it as an index inside the buffer. */
-      cli->buf[i] = '\0';  /* The handler expects null terminated strings. */
-
-      /* Call the function to process the message. It returns 1
-       * on error to signal we should close the client connection.
-       */
-      if ((*handler)(cli))
-      {
-        free_client (cli->fd);
-        return;
-      }
-
-      /* Move what's left at the start of the buffer.
-       */
-      i += strlen (sep);  /* The separator is part of the previous msg. */
-      memmove (cli->buf, cli->buf + i, cli->buflen - i);
-      cli->buflen -= i;
-      cli->buf[c->buflen] = '\0';
-
-      /* Maybe there are more messages inside the buffer.
-       * Start looping from the start again.
-       */
-      fullmsg = 1;
-    }
-
-    /* If our buffer is full discard it, this is some badly
-     * formatted shit.
-     */
-    if (cli->buflen == sizeof(cli->buf) - 1)
-    {
-      cli->buflen = 0;
-
-      /* If there is garbage, read more to discard it ASAP.
-       */
-      continue;
-    }
-
-    /* If no message was decoded, process the next client.
-     * Otherwise read more data from the same client.
-     */
-    if (!fullmsg)
-       break;
-  }
-#endif
+  cli->buflen = 0;
 }
 
 /**
@@ -3946,8 +3877,8 @@ void show_help (const char *fmt, ...)
           "    --net-ri-port <port>     TCP listening port for raw input (default: %u).\n"
           "    --net-sbs-port <port>    TCP listening port for BaseStation format output (default: %u).\n"
           "    --web-page <file>        The Web-page to server for HTTP clients (default: \"$root\\%s\").\n\n",
-          MODES_NET_HTTP_PORT, MODES_NET_OUTPUT_RAW_PORT,
-          MODES_NET_INPUT_RAW_PORT, MODES_NET_OUTPUT_SBS_PORT, GMAP_HTML);
+          MODES_NET_PORT_HTTP, MODES_NET_PORT_OUTPUT_RAW,
+          MODES_NET_PORT_INPUT_RAW, MODES_NET_PORT_OUTPUT_SBS, GMAP_HTML);
 
 #ifdef USE_SDRPLAY
   #define DEVICE_OPTIONS "RTLSDR / SDRplay options"
