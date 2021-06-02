@@ -19,18 +19,13 @@
 #include <io.h>
 #include <process.h>
 
-#include <mongoose.h>
-#include <libusb.h>
-#include <rtl-sdr.h>
-
-#include "misc.h"
 #include "sdrplay.h"
-#include "csv.h"
+#include "misc.h"
 
 /**
  * \addtogroup Main      Main decoder
- * \addtogroup Mongoose  Web server
  * \addtogroup Misc      Support functions
+ * \addtogroup Mongoose  Web server
  *
  * \mainpage Dump1090
  *
@@ -83,7 +78,6 @@
  */
 
 #define MG_NET_POLL_TIME  500   /* milli-sec */
-#define MG_NET_DEBUG      "3"   /* LL_DEBUG */
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -104,40 +98,14 @@
 #define MODES_UNIT_METERS             1
 
 /**
- * Bits for 'Modes.debug':
- */
-#define DEBUG_DEMOD      (1 << 0)
-#define DEBUG_DEMODERR   (1 << 1)
-#define DEBUG_BADCRC     (1 << 2)
-#define DEBUG_GOODCRC    (1 << 3)
-#define DEBUG_NOPREAMBLE (1 << 4)
-#define DEBUG_JS         (1 << 5)
-#define DEBUG_NET        (1 << 6)
-#define DEBUG_NET2       (1 << 7)
-#define DEBUG_GENERAL    (1 << 8)
-#define DEBUG_GENERAL2   (1 << 9)
-
-/**
  * When debug is set to DEBUG_NOPREAMBLE, the first sample must be
  * at least greater than a given level for us to dump the signal.
  */
-#define DEBUG_NOPREAMBLE_LEVEL         25
+#define DEBUG_NOPREAMBLE_LEVEL          25
 
 #define MODES_INTERACTIVE_REFRESH_TIME 250   /* Milliseconds */
 #define MODES_INTERACTIVE_ROWS          15   /* Rows on screen */
 #define MODES_INTERACTIVE_TTL           60   /* TTL before being removed */
-
-#define MODES_NET_OUTPUT_SBS_PORT    30003
-#define MODES_NET_OUTPUT_RAW_PORT    30002
-#define MODES_NET_INPUT_RAW_PORT     30001
-#define MODES_NET_HTTP_PORT           8080
-#define MODES_CLIENT_BUF_SIZE         1024
-
-#define MODES_NET_SERVICE_RAW_OUT 0
-#define MODES_NET_SERVICE_RAW_IN  1
-#define MODES_NET_SERVICE_SBS     2
-#define MODES_NET_SERVICE_HTTP    3
-#define MODES_NET_SERVICES_NUM    4
 
 #define MODES_CONTENT_TYPE_CSS    "text/css;charset=utf-8"
 #define MODES_CONTENT_TYPE_HTML   "text/html;charset=utf-8"
@@ -156,177 +124,6 @@ struct net_service {
     unsigned    num_clients;      /**< Number of active clients connected to it */
   };
 
-/**
- * \struct client
- * Structure used to describe a networking client.
- */
-struct client {
-    struct mg_connection *conn;                          /**< Remember which connection the client is in */
-    int                   service;                       /**< This client's service membership */
-    uint32_t              id;                            /**< A copy of `conn->id` */
-    struct mg_addr        addr;                          /**< A copy of `conn->peer` */
-    int                   keep_alive;                    /**< Client request contains "Connection: keep-alive" */
-    char                  buf [MODES_CLIENT_BUF_SIZE+1]; /**< Read buffer. */
-    int                   buflen;                        /**< Amount of data on buffer. */
-    struct client        *next;
-};
-
-/**
- * \struct aircraft_CSV
- * Describes an aircraft from a .CSV-file.
- */
-struct aircraft_CSV {
-       uint32_t addr;
-       char     reg_num [10];
-       char     manufact [30];
-     };
-
-typedef enum a_show_t {
-        A_FIRST_TIME = 1,
-        A_LAST_TIME,
-        A_SHOW_NORMAL
-      } a_show_t;
-
-/**
- * \struct aircraft
- * Structure used to describe an aircraft in interactive mode.
- */
-struct aircraft {
-       uint32_t addr;              /**< ICAO address */
-       char     flight [9];        /**< Flight number */
-       int      altitude;          /**< Altitude */
-       uint32_t speed;             /**< Velocity computed from EW and NS components. */
-       int      heading;           /**< Horizontal angle of flight. */
-       bool     heading_is_valid;  /**< Have a valid heading. */
-       uint32_t seen;              /**< Tick-time (in sec) at which the last packet was received. */
-       long     messages;          /**< Number of Mode S messages received. */
-       int      identity;          /**< 13 bits identity (Squawk). */
-       a_show_t showing;           /**< Shown normal or for the first or last time? */
-
-       /* Encoded latitude and longitude as extracted by odd and even
-        * CPR encoded messages.
-        */
-       int      odd_CPR_lat;       /**< Encoded odd CPR latitude */
-       int      odd_CPR_lon;       /**< Encoded odd CPR longitude */
-       int      even_CPR_lat;      /**< Encoded even CPR latitude */
-       int      even_CPR_lon;      /**< Encoded even CPR longitude */
-       uint64_t odd_CPR_time;      /**< Tick-time for reception of an odd CPR message */
-       uint64_t even_CPR_time;     /**< Tick-time for reception of an even CPR message */
-       double   lat, lon;          /**< Coordinates obtained from decoded CPR data. */
-
-       const struct aircraft_CSV *CSV;  /**< A pointer to a CSV record (or NULL). */
-       struct aircraft           *next; /**< Next aircraft in our linked list. */
-     };
-
-/**
- * \struct statistics
- * Keep all collected statistics in this structure.
- */
-struct statistics {
-       uint64_t valid_preamble;
-       uint64_t demodulated;
-       uint64_t good_CRC;
-       uint64_t bad_CRC;
-       uint64_t fixed;
-       uint64_t single_bit_fix;
-       uint64_t two_bits_fix;
-       uint64_t out_of_phase;
-       uint64_t unique_aircrafts;
-       uint64_t unique_aircrafts_CSV;
-       uint64_t unrecognized_ME;
-
-       /* Network statistics:
-        */
-       uint64_t cli_removed  [MODES_NET_SERVICES_NUM];
-       uint64_t cli_accepted [MODES_NET_SERVICES_NUM];
-       uint64_t cli_unknown [MODES_NET_SERVICES_NUM];
-       uint64_t bytes_sent [MODES_NET_SERVICES_NUM];
-       uint64_t bytes_recv [MODES_NET_SERVICES_NUM];
-       uint64_t HTTP_get_requests;
-       uint64_t HTTP_keep_alive_recv;
-       uint64_t HTTP_keep_alive_sent;
-       uint64_t HTTP_websockets;
-     };
-
-/**
- * \struct global_data
- * All program global state is in this structure.
- */
-struct global_data {
-       char              who_am_I [MG_PATH_MAX];   /**< The full name of this program. */
-       char              where_am_I [MG_PATH_MAX]; /**< The current directory (no trailing `\\`. not used). */
-       uintptr_t         reader_thread;            /**< Device reader thread ID. */
-       CRITICAL_SECTION  data_mutex;               /**< Mutex to synchronize buffer access. */
-       uint8_t          *data;                     /**< Raw IQ samples buffer. */
-       uint32_t          data_len;                 /**< Length of raw IQ buffer. */
-       uint16_t         *magnitude;                /**< Magnitude vector. */
-       uint16_t         *magnitude_lut;            /**< I/Q -> Magnitude lookup table. */
-       int               fd;                       /**< `--infile` option file descriptor. */
-       volatile int      exit;                     /**< Exit from the main loop when true. */
-       volatile int      data_ready;               /**< Data ready to be processed. */
-       uint32_t         *ICAO_cache;               /**< Recently seen ICAO addresses. */
-       struct statistics stat;                     /**< Decoding and network statistics. */
-       struct aircraft  *aircrafts;                /**< Linked list of active aircrafts. */
-       uint64_t          last_update_ms;           /**< Last screen update in milliseconds. */
-
-       int               dev_index;                /**< The index of the RTLSDR device used. */
-       char             *dev_name;                 /**< The manufacturer name of the RTLSDR device used. */
-       int               gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
-       rtlsdr_dev_t     *dev;                      /**< The RTLSDR handle from `rtlsdr_open()`. */
-       int               ppm_error;                /**< Set RTLSDR frequency correction. */
-       bool              dig_agc;                  /**< Enable RTLSDR digital AGC. */
-       bool              bias_tee;                 /**< Enable RTLSDR bias-T voltage on coax input. */
-       bool              calibrate;                /**< Enable calibration for R820T/R828D type devices */
-       uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
-       uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE. <br>
-                                                     *  \note This cannot be used yet since the code assumes a
-                                                     *        pulse-width of 0.5 usec based on a fixed rate of 2 MS/s.
-                                                     */
-
-       /** These are effective only if `USE_SDRPLAY` is defined).
-        */
-       char        *sdrplay_name;                  /**< Name of SDRplay instance to use. */
-       sdrplay_dev sdrplay_device;                 /**< Device-handle from `sdrplay_init()`. */
-
-       /** Lists of clients for each network service
-        */
-       struct client        *clients [MODES_NET_SERVICES_NUM];
-       struct mg_connection *sbsos;           /**< SBS output listening connection. */
-       struct mg_connection *ros;             /**< Raw output listening connection. */
-       struct mg_connection *ris;             /**< Raw input listening connection. */
-       struct mg_connection *http;            /**< HTTP listening connection. */
-       struct mg_mgr         mgr;             /**< Only one connection manager */
-
-       /** Configuration
-        */
-       const char *infile;                    /**< Input IQ samples from file with option `--infile file`. */
-       const char *logfile;                   /**< Write debug/info to file with option `--logfile file`. */
-       FILE       *log;
-       uint64_t    loops;                     /**< Read input file in a loop. */
-       int         fix_errors;                /**< Single bit error correction if true. */
-       int         check_crc;                 /**< Only display messages with good CRC. */
-       int         raw;                       /**< Raw output format. */
-       int         debug;                     /**< Debugging mode. */
-       int         net;                       /**< Enable networking. */
-       int         net_only;                  /**< Enable just networking. */
-       int         interactive;               /**< Interactive mode */
-       uint16_t    interactive_rows;          /**< Interactive mode: max number of rows. */
-       uint32_t    interactive_ttl;           /**< Interactive mode: TTL before deletion. */
-       bool        only_addr;                 /**< Print only ICAO addresses. */
-       int         metric;                    /**< Use metric units. */
-       int         aggressive;                /**< Aggressive detection algorithm. */
-       char        web_page [MG_PATH_MAX];    /**< The base-name of the web-page to server for HTTP clients */
-       char        web_root [MG_PATH_MAX];    /**< And it's directory */
-       char        aircraft_db [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file */
-       int         strip_level;               /**< For '--strip X' mode */
-
-       /** For parsing a `Modes.aircraft_db` file:
-        */
-       struct CSV_context   csv_ctx;
-       struct aircraft_CSV *aircraft_list;
-       uint32_t             aircraft_num_CSV;
-     };
-
 struct global_data Modes;
 
 /**
@@ -337,11 +134,11 @@ struct modeS_message {
     uint8_t  msg [MODES_LONG_MSG_BYTES]; /**< Binary message. */
     int      msg_bits;                   /**< Number of bits in message */
     int      msg_type;                   /**< Downlink format # */
-    int      CRC_ok;                     /**< True if CRC was valid */
+    bool     CRC_ok;                     /**< True if CRC was valid */
     uint32_t CRC;                        /**< Message CRC */
     int      error_bit;                  /**< Bit corrected. -1 if no bit corrected. */
     int      AA1, AA2, AA3;              /**< ICAO Address bytes 1, 2 and 3 */
-    int      phase_corrected;            /**< True if phase correction was applied. */
+    bool     phase_corrected;            /**< True if phase correction was applied. */
 
     /** DF11
      */
@@ -1012,11 +809,11 @@ void modeS_init_config (void)
   snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\%s",
             dirname(Modes.who_am_I), basename(AIRCRAFT_CSV));
 
-  Modes.gain = MODES_AUTO_GAIN;
+  Modes.gain        = MODES_AUTO_GAIN;
   Modes.sample_rate = MODES_DEFAULT_RATE;
-  Modes.freq = MODES_DEFAULT_FREQ;
-  Modes.fix_errors = 1;
-  Modes.check_crc = 1;
+  Modes.freq        = MODES_DEFAULT_FREQ;
+  Modes.fix_errors  = true;
+  Modes.check_crc   = true;
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
 }
 
@@ -1084,6 +881,7 @@ int modeS_init (void)
   }
 
   InitializeCriticalSection (&Modes.data_mutex);
+  InitializeCriticalSection (&Modes.print_mutex);
   signal (SIGINT, sigint_handler);
 
   /* We add a full message minus a final bit to the length, so that we
@@ -1189,7 +987,7 @@ int modeS_init_RTLSDR (void)
      rtlsdr_cal_imr (1);
 #endif
 
-  rc = rtlsdr_open (&Modes.dev, Modes.dev_index);
+  rc = rtlsdr_open (&Modes.rtlsdr_device, Modes.dev_index);
   if (rc < 0)
   {
     LOG_STDERR ("Error opening the RTLSDR device %d: %s.\n", Modes.dev_index, get_rtlsdr_libusb_error(rc));
@@ -1199,29 +997,29 @@ int modeS_init_RTLSDR (void)
   /* Set gain, frequency, sample rate, and reset the device.
    */
   if (Modes.gain == MODES_AUTO_GAIN)
-     verbose_gain_auto (Modes.dev);
+     verbose_gain_auto (Modes.rtlsdr_device);
   else
   {
-    nearest_gain (Modes.dev, &Modes.gain);
-    verbose_gain_set (Modes.dev, Modes.gain);
+    nearest_gain (Modes.rtlsdr_device, &Modes.gain);
+    verbose_gain_set (Modes.rtlsdr_device, Modes.gain);
   }
 
   if (Modes.dig_agc)
-     rtlsdr_set_agc_mode (Modes.dev, Modes.dig_agc);
+     rtlsdr_set_agc_mode (Modes.rtlsdr_device, Modes.dig_agc);
 
   if (Modes.ppm_error)
-     verbose_ppm_set (Modes.dev, Modes.ppm_error);
+     verbose_ppm_set (Modes.rtlsdr_device, Modes.ppm_error);
 
   if (Modes.bias_tee)
-     verbose_bias_tee (Modes.dev, Modes.bias_tee);
+     verbose_bias_tee (Modes.rtlsdr_device, Modes.bias_tee);
 
-  rtlsdr_set_center_freq (Modes.dev, Modes.freq);
-  rtlsdr_set_sample_rate (Modes.dev, Modes.sample_rate);
-  rtlsdr_reset_buffer (Modes.dev);
+  rtlsdr_set_center_freq (Modes.rtlsdr_device, Modes.freq);
+  rtlsdr_set_sample_rate (Modes.rtlsdr_device, Modes.sample_rate);
+  rtlsdr_reset_buffer (Modes.rtlsdr_device);
 
   LOG_STDERR ("Tuned to %.03f MHz.\n", Modes.freq / 1E6);
 
-  gain = rtlsdr_get_tuner_gain (Modes.dev);
+  gain = rtlsdr_get_tuner_gain (Modes.rtlsdr_device);
   if ((unsigned int)gain == 0)
        LOG_STDERR ("Gain reported by device: AUTO.\n");
   else LOG_STDERR ("Gain reported by device: %.2f dB.\n", gain/10.0);
@@ -1340,13 +1138,13 @@ unsigned int __stdcall data_thread_fn (void *arg)
                              MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
 
     TRACE (DEBUG_GENERAL, "sdrplay_read_async(): rc: %d / %s.\n",
-           rc, sdrplay_error(rc));
+           rc, sdrplay_strerror(rc));
   }
   else
 #endif
-  if (Modes.dev)
+  if (Modes.rtlsdr_device)
   {
-    rc = rtlsdr_read_async (Modes.dev, rx_callback, (void*)&Modes.exit,
+    rc = rtlsdr_read_async (Modes.rtlsdr_device, rx_callback, (void*)&Modes.exit,
                             MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
 
     TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
@@ -1403,16 +1201,16 @@ void main_data_loop (void)
  * \li "-" is 2
  * \li "." is 1
  */
-void dump_magnitude_bar (int index, int magnitude)
+void dump_magnitude_bar (int magnitude, int index)
 {
   const char *set = " .-o";
   char  buf [256];
-  int   div = magnitude / 256 / 4;
-  int   rem = magnitude / 256 % 4;
+  int   div = (magnitude / 256) / 4;
+  int   rem = (magnitude / 256) % 4;
 
   memset (buf, 'O', div);
-  buf[div] = set[rem];
-  buf[div+1] = '\0';
+  buf [div] = set[rem];
+  buf [div+1] = '\0';
 
   if (index >= 0)
   {
@@ -1427,10 +1225,10 @@ void dump_magnitude_bar (int index, int magnitude)
      */
     if (index >= 16)
        markchar = ((index-16)/2 & 1) ? '|' : ')';
-    printf ("[%.3d%c |%-66s %d\n", index, markchar, buf, magnitude);
+    printf ("[%3d%c |%-66s %d\n", index, markchar, buf, magnitude);
   }
   else
-    printf ("[%.2d] |%-66s %d\n", index, buf, magnitude);
+    printf ("[%3d] |%-66s %d\n", index, buf, magnitude);
 }
 
 /**
@@ -1446,12 +1244,12 @@ void dump_magnitude_bar (int index, int magnitude)
 void dump_magnitude_vector (const uint16_t *m, uint32_t offset)
 {
   uint32_t padding = 5;  /* Show a few samples before the actual start. */
-  uint32_t start = (offset < padding) ? 0 : offset-padding;
+  uint32_t start = (offset < padding) ? 0 : offset - padding;
   uint32_t end = offset + (2*MODES_PREAMBLE_US) + (2*MODES_SHORT_MSG_BITS) - 1;
   uint32_t j;
 
   for (j = start; j <= end; j++)
-      dump_magnitude_bar (j-offset, m[j]);
+      dump_magnitude_bar (m[j], j - offset);
 }
 
 /**
@@ -1528,16 +1326,19 @@ void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint3
     return;
   }
 
-  printf ("\n--- %s\n    ", descr);
+  EnterCriticalSection (&Modes.print_mutex);
+
+  printf ("\n--- %s:\n    ", descr);
   for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
   {
-    printf ("%02x", msg[j]);
+    printf ("%02X", msg[j]);
     if (j == MODES_SHORT_MSG_BYTES-1)
        printf (" ... ");
   }
   printf (" (DF %d, Fixable: %d)\n", msg_type, fixable);
   dump_magnitude_vector (m, offset);
   puts ("---\n");
+  LeaveCriticalSection (&Modes.print_mutex);
 }
 
 /**
@@ -1995,12 +1796,12 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
     if (mm->error_bit != -1)
     {
       mm->CRC = modeS_checksum (msg, mm->msg_bits);
-      mm->CRC_ok = 1;
+      mm->CRC_ok = true;
     }
     else if (Modes.aggressive && mm->msg_type == 17 && (mm->error_bit = fix_two_bits_errors(msg, mm->msg_bits)) != -1)
     {
       mm->CRC = modeS_checksum (msg, mm->msg_bits);
-      mm->CRC_ok = 1;
+      mm->CRC_ok = true;
     }
   }
 
@@ -2072,10 +1873,10 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
     {
       /* We recovered the message, mark the checksum as valid.
        */
-      mm->CRC_ok = 1;
+      mm->CRC_ok = true;
     }
     else
-      mm->CRC_ok = 0;
+      mm->CRC_ok = false;
   }
   else
   {
@@ -2175,7 +1976,7 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
       }
     }
   }
-  mm->phase_corrected = 0; /* Set to 1 by the caller if needed. */
+  mm->phase_corrected = false;  /* Set to 'true' by the caller if needed. */
 }
 
 /**
@@ -2481,7 +2282,7 @@ void detect_modeS (uint16_t *m, uint32_t mlen)
   uint8_t  msg [MODES_LONG_MSG_BITS/2];
   uint16_t aux [MODES_LONG_MSG_BITS*2];
   uint32_t j;
-  int      use_correction = 0;
+  bool     use_correction = false;
 
   /* The Mode S preamble is made of impulses of 0.5 microseconds at
    * the following time offsets:
@@ -2508,8 +2309,8 @@ void detect_modeS (uint16_t *m, uint32_t mlen)
    */
   for (j = 0; j < mlen - 2*MODES_FULL_LEN; j++)
   {
-    int low, high, delta, i, errors;
-    int good_message = 0;
+    int  low, high, delta, i, errors;
+    bool good_message = false;
 
     if (Modes.exit)
        break;
@@ -2653,7 +2454,7 @@ good_preamble:
      */
     if (delta < 10*255)
     {
-      use_correction = 0;
+      use_correction = false;
       continue;
     }
 
@@ -2692,7 +2493,7 @@ good_preamble:
 
       /* Output debug mode info if needed.
        */
-      if (use_correction == 0)
+      if (!use_correction)
       {
         if (Modes.debug & DEBUG_DEMOD)
            dump_raw_message ("Demodulated with 0 errors", msg, m, j);
@@ -2709,9 +2510,9 @@ good_preamble:
       if (mm.CRC_ok)
       {
         j += 2 * (MODES_PREAMBLE_US + (8 * msg_len));
-        good_message = 1;
+        good_message = true;
         if (use_correction)
-           mm.phase_corrected = 1;
+           mm.phase_corrected = true;
       }
 
       /* Pass data to the next layer
@@ -2732,11 +2533,11 @@ good_preamble:
     if (!good_message && !use_correction)
     {
       j--;
-      use_correction = 1;
+      use_correction = true;
     }
     else
     {
-      use_correction = 0;
+      use_correction = false;
     }
   }
 }
@@ -2752,7 +2553,7 @@ good_preamble:
  */
 void modeS_user_message (const struct modeS_message *mm)
 {
-  if (Modes.check_crc == 0 || mm->CRC_ok)
+  if (!Modes.check_crc || mm->CRC_ok)
   {
     /* Track aircrafts in interactive mode or if we have some HTTP / SBS clients.
      */
@@ -3013,7 +2814,7 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
   struct aircraft *a, *aux;
   uint32_t addr;
 
-  if (Modes.check_crc && mm->CRC_ok == 0)
+  if (Modes.check_crc && !mm->CRC_ok)
      return (NULL);
 
   addr = (mm->AA1 << 16) | (mm->AA2 << 8) | mm->AA3;
@@ -3235,7 +3036,7 @@ void remove_stale_aircrafts (uint64_t now)
 {
   uint32_t sec_now = (int32_t) (now / 1000);
   int32_t  sec_diff;
-  struct aircraft *a, *a_next;;
+  struct aircraft *a, *a_next;
 
   for (a = Modes.aircrafts; a; a = a_next)
   {
@@ -4020,7 +3821,7 @@ void read_from_client (struct client *cli, /* struct mg_iobuf *recv, */ char *se
 #else
   while (1)
   {
-    int left = MODES_CLIENT_BUF_SIZE - cli->buflen;
+    int left  = sizeof(cli->buf) - 1 - cli->buflen;
     int nread = recv (cli->fd, cli->buf + cli->buflen, left, 0);
     int fullmsg = 0;
     int i;
@@ -4074,7 +3875,7 @@ void read_from_client (struct client *cli, /* struct mg_iobuf *recv, */ char *se
     /* If our buffer is full discard it, this is some badly
      * formatted shit.
      */
-    if (cli->buflen == MODES_CLIENT_BUF_SIZE)
+    if (cli->buflen == sizeof(cli->buf) - 1)
     {
       cli->buflen = 0;
 
@@ -4221,21 +4022,23 @@ void sigint_handler (int sig)
   if (sig == SIGINT)
      LOG_STDERR ("Caught SIGINT, shutting down ...\n");
 
-  if (Modes.dev)
+  if (Modes.rtlsdr_device)
   {
     EnterCriticalSection (&Modes.data_mutex);
-    rc = rtlsdr_cancel_async (Modes.dev);
+    rc = rtlsdr_cancel_async (Modes.rtlsdr_device);
     TRACE (DEBUG_GENERAL, "rtlsdr_cancel_async(): rc: %d.\n", rc);
 
     if (rc == -2)  /* RTLSDR is not streaming data */
        Sleep (5);
     LeaveCriticalSection (&Modes.data_mutex);
   }
+#ifdef USE_SDRPLAY
   else if (Modes.sdrplay_device)
   {
     rc = sdrplay_cancel_async (Modes.sdrplay_device);
-    TRACE (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_error(rc));
+    TRACE (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
   }
+#endif
 }
 
 void show_statistics (void)
@@ -4306,10 +4109,10 @@ void modeS_exit (void)
        Sleep (100);
   }
 
-  if (Modes.dev)
+  if (Modes.rtlsdr_device)
   {
-    rc = rtlsdr_close (Modes.dev);
-    Modes.dev = NULL;
+    rc = rtlsdr_close (Modes.rtlsdr_device);
+    Modes.rtlsdr_device = NULL;
     TRACE (DEBUG_GENERAL2, "rtlsdr_close(), rc: %d.\n", rc);
   }
 #ifdef USE_SDRPLAY
@@ -4345,6 +4148,7 @@ void modeS_exit (void)
      free (Modes.aircraft_list);
 
   DeleteCriticalSection (&Modes.data_mutex);
+  DeleteCriticalSection (&Modes.print_mutex);
 
   Modes.reader_thread = 0;
   Modes.data = NULL;
@@ -4371,6 +4175,9 @@ static void select_device (char *arg, int *rtlsdr_index, char **rtlsdr_name, cha
 #ifdef USE_SDRPLAY
   if (!strnicmp(arg, "sdrplay", 7))
      *sdrplay_name = arg;
+#else
+  if (!strnicmp(arg, "sdrplay", 7))
+     show_help ("Illegal argument \"%s\". SDRplay support is not built-in.\n", arg);
 #endif
 }
 
@@ -4427,10 +4234,10 @@ int main (int argc, char **argv)
         Modes.logfile = argv[++j];
 
     else if (!strcmp(argv[j], "--no-fix"))
-        Modes.fix_errors = 0;
+        Modes.fix_errors = false;
 
     else if (!strcmp(argv[j], "--no-crc-check"))
-        Modes.check_crc = 0;
+        Modes.check_crc = false;
 
     else if (!strcmp(argv[j], "--raw"))
         Modes.raw = 1;
@@ -4576,7 +4383,7 @@ int main (int argc, char **argv)
     if (Modes.sdrplay_name)
     {
       rc = sdrplay_init (Modes.sdrplay_name, &Modes.sdrplay_device);
-      TRACE (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_error(rc));
+      TRACE (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
       if (rc)
          goto quit;
     }
