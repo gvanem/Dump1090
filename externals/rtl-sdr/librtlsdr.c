@@ -1893,7 +1893,7 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 		return -1;
 	}
 
-	libusb_set_option(NULL, LIBUSB_OPTION_LOG_LEVEL, 1);
+	libusb_set_option(dev->ctx, LIBUSB_OPTION_LOG_LEVEL, 1);
 
 	pthread_mutex_init(&dev->cs_mutex, NULL);
 
