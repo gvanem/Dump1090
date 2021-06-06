@@ -5,11 +5,6 @@ on: [push]
 env:
   SOLUTION_FILE_PATH: Dump1090.sln
 
-  # Configuration type to build.
-  # You can convert this to a build matrix if you need coverage of multiple configuration types.
-  # https://docs.github.com/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
-  # BUILD_CONFIGURATION: Release
-
 jobs:
   build:
     runs-on: windows-latest
@@ -25,10 +20,12 @@ jobs:
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v1
 
-    # - name: Restore NuGet packages
-    #   working-directory: ${{env.GITHUB_WORKSPACE}}
-    #   run: nuget restore ${{env.SOLUTION_FILE_PATH}}
-
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.BUILD_PLATFORM}} ${{env.SOLUTION_FILE_PATH}}
+
+# test:
+#   steps:
+#    run:  start dump1090 --max-messages 20 --debug Gn --net --logfile dump1090.log
+#          py.exe -3 tools\SBS_client.py --host localhost --wait 10 --port 30001 raw-out
+#
