@@ -11,7 +11,6 @@ SBS client:     Connect to host at port 30003, listen for 'MSG,' text and print 
 
 import sys, os, time, argparse, socket
 
-LOG_FILE     = "SBS_client.log"
 REMOTE_HOST  = "localhost"
 RAW_IN_PORT  = 30001
 RAW_OUT_PORT = 30002
@@ -21,6 +20,8 @@ class cfg():
   quit = False
   logf = None
   sock = None
+  loop = None
+  format   = "?? %d bytes\n"
   data_len = 0
 
 #
@@ -28,6 +29,10 @@ class cfg():
 #
 def modes_log (s):
   os.write (1, bytes(s, encoding="ascii"))
+  if not cfg.logf:
+    fname = os.path.dirname(__file__) + "\\SBS_client.log"
+    cfg.logf = open (fname, "a+t")
+    cfg.logf.write ("%s: --- Starting -------\n" % time.strftime("%H:%M:%S"))
   cfg.logf.write ("%s: %s" % (time.strftime("%H:%M:%S"), str(s)))
 
 def show_help (error=None):
@@ -51,9 +56,10 @@ def parse_cmdline():
   parser.add_argument ("mode", nargs = argparse.REMAINDER)
   return parser.parse_args()
 
-def SBS_connect (opt):
+def connect_to_host (opt):
   try:
     s = socket.socket (socket.AF_INET, socket.SOCK_STREAM)
+    # print (dir(s))
     s.connect ((opt.host, opt.port))
     modes_log ("Connected to %s\n" % opt.host)
     return s
@@ -66,12 +72,11 @@ def SBS_connect (opt):
 # For receiving SBS or RAW-IN messages.
 #
 def raw_sbs_in_loop (sock):
-  while not cfg.quit:
-    data = sock.readline (100)
-    if not data:
-      modes_log ("Connection gone.\n")
-      cfg.quit = True
-      break
+  data = sock.readline (100)
+  if not data:
+    modes_log ("Connection gone.\n")
+    cfg.quit = True
+  else:
     modes_log (data)
     cfg.data_len += len(data)
     time.sleep (0.01)
@@ -79,25 +84,24 @@ def raw_sbs_in_loop (sock):
 #
 # For sending RAW-OUT messages.
 #
-# Simulate a Dump1090 client and test the function:
-#   read_from_client (cli, "\n", decode_hex_message);
+# Simulate a Dump1090 RAW-IN client for testing
+#   read_from_client()
 #
-# Todo: send random messages in round-robin:
-#   *8d4aca0599141911c8301577bf5d;
-#   *8d4780a099080c9a6858194590a0;
-#   *8d4780a0f8200002004bb85be2ef;
-#   *8d4780a099080d9a6854190ec06e;
-#
-# Or construct realistics messages on the fly?
+# Todo:
+#  Send random messages from several airplanes by constructing
+#  realistics messages on the fly. Messages with positions close
+#  to home. Show the distance in `--interactive` mode.
 #
 def raw_out_loop (sock):
-  while not cfg.quit:
-    data = b"*8d4b969699155600e87406f5b69f;\n"
-    modes_log ("Sending RAW message: %s.\n" % str(data))
-    rc = sock.send (data)
-    if rc > 0:
-      cfg.data_len += rc
-    time.sleep (10)
+  data = b"*8d4b969699155600e87406f5b69f;\n"
+  modes_log ("Sending RAW message: %s.\n" % str(data))
+  rc = sock.send (data)
+  if rc > 0:
+    cfg.data_len += rc
+  else:
+    raise (ConnectionResetError)
+  for i in range(10):
+    time.sleep (1)
 
 ### main() ####################################
 
@@ -120,8 +124,6 @@ if opt.port == 0:
   elif mode == "RAW-OUT":
     opt.port = RAW_OUT_PORT
 
-cfg.logf = open (LOG_FILE, "a+t")
-cfg.logf.write ("%s: --- Starting -------\n" % time.strftime("%H:%M:%S"))
 modes_log ("Connecting to %s:%d\n" % (opt.host, opt.port))
 
 if opt.wait:
@@ -131,18 +133,19 @@ if opt.wait:
     os.write (1, b".")
   modes_log ("\n")
 
-cfg.sock = SBS_connect (opt)
+cfg.sock = connect_to_host (opt)
 
 if mode == "RAW-OUT":
-  loop   = raw_out_loop
-  format = "Sent %d bytes\n"
+  cfg.loop   = raw_out_loop
+  cfg.format = "Sent %d bytes\n"
 else:
-  loop   = raw_sbs_in_loop
-  format = "Received %d bytes\n"
-  cfg.sock = cfg.sock.makefile()
+  cfg.loop   = raw_sbs_in_loop
+  cfg.format = "Received %d bytes\n"
+  cfg.sock   = cfg.sock.makefile()
 
 try:
-  loop (cfg.sock)
+  while not cfg.quit:
+    cfg.loop (cfg.sock)
 
 except (ConnectionResetError, ConnectionAbortedError):
   modes_log ("Connection reset.\n")
@@ -152,6 +155,6 @@ except KeyboardInterrupt:
   print ("^C")
   cfg.quit = True
 
-modes_log (format % cfg.data_len)
+modes_log (cfg.format % cfg.data_len)
 cfg.sock.close()
 cfg.logf.close()
