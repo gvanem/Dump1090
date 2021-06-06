@@ -2294,7 +2294,7 @@ static void LIBUSB_CALL _libusb_callback(struct libusb_transfer *xfer)
 		libusb_submit_transfer(xfer); /* resubmit transfer */
 		dev->xfer_errors = 0;
 	} else if (LIBUSB_TRANSFER_CANCELLED != xfer->status) {
-#ifndef _WIN32
+#if !defined(_WIN32) || 1
 		if (LIBUSB_TRANSFER_ERROR == xfer->status)
 			dev->xfer_errors++;
 
@@ -2305,7 +2305,7 @@ static void LIBUSB_CALL _libusb_callback(struct libusb_transfer *xfer)
 			rtlsdr_cancel_async(dev);
 			fprintf(stderr, "cb transfer status: %d, "
 				"canceling...\n", xfer->status);
-#ifndef _WIN32
+#if !defined(_WIN32) || 1
 		}
 #endif
 	}

@@ -83,7 +83,7 @@
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_ASYNC_BUF_NUMBER     12
 #define MODES_DATA_LEN             (16*16384)   /* 256k */
-#define MODES_AUTO_GAIN            -100         /* Use automatic gain. */
+#define MODES_AUTO_GAIN            0            /* Use automatic gain. */
 
 #define MODES_PREAMBLE_US             8         /* microseconds */
 #define MODES_LONG_MSG_BITS         112
@@ -178,14 +178,14 @@ struct modeS_message {
 };
 
 struct aircraft *interactive_receive_data (const struct modeS_message *mm);
-void read_from_client (struct client *cli, char *sep, void (*handler)(struct client *));
+void read_from_client (struct client *cli, int sep, void (*handler)(struct client *));
 int  modeS_send_raw_output (const struct modeS_message *mm);
 int  modeS_send_SBS_output (const struct modeS_message *mm, const struct aircraft *a);
 void modeS_user_message (const struct modeS_message *mm);
 
 int  fix_single_bit_errors (uint8_t *msg, int bits);
 int  fix_two_bits_errors (uint8_t *msg, int bits);
-void detect_modeS (uint16_t *m, uint32_t mlen);
+int  detect_modeS (uint16_t *m, uint32_t mlen);
 void decode_hex_message (struct client *c);
 int  modeS_message_len_by_type (int type);
 void compute_magnitude_vector (void);
@@ -524,7 +524,7 @@ void verbose_gain_auto (rtlsdr_dev_t *dev)
  * Set the RTLSDR gain verbosively to the nearest available
  * gain value given in `*target_gain`.
  */
-void nearest_gain (rtlsdr_dev_t *dev, int *target_gain)
+void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
 {
   int *gains, gain_in;
   int  i, err1, err2, count, nearest;
@@ -555,7 +555,7 @@ void nearest_gain (rtlsdr_dev_t *dev, int *target_gain)
     if (err2 < err1)
        nearest = gains[i];
   }
-  *target_gain = nearest;
+  *target_gain = (uint16_t) nearest;
 }
 
 /**
@@ -912,7 +912,7 @@ int modeS_init (void)
   memset (Modes.data, 127, Modes.data_len);
 
   /* Populate the I/Q -> Magnitude lookup table. It is used because
-   * sqrt() or round() may be expensive and may vary a lot depending on
+   * hypot() or round() may be expensive and may vary a lot depending on
    * the CRT used.
    *
    * We scale to 0-255 range multiplying by 1.4 in order to ensure that
@@ -926,10 +926,10 @@ int modeS_init (void)
     return (1);
   }
 
-  for (i = 0; i <= 128; i++)
+  for (i = 0; i < 129; i++)
   {
-    for (q = 0; q <= 128; q++)
-        Modes.magnitude_lut [i*129+q] = (uint16_t) round (360 * sqrt(i*i + q*q));
+    for (q = 0; q < 129; q++)
+        Modes.magnitude_lut [i*129+q] = (uint16_t) round (360 * hypot(i, q));
   }
 
   aircraft_CSV_load();
@@ -942,8 +942,8 @@ int modeS_init (void)
 /**
  * Step 3: Initialize the RTLSDR device.
  *
- * If `Modes.dev_name` is specified, select the device that matches `manufact`.
- * Otherwise select on `Modes.dev_index` where 0 is the first device found.
+ * If `Modes.rtlsdr.name` is specified, select the device that matches `manufact`.
+ * Otherwise select on `Modes.rtlsdr.index` where 0 is the first device found.
  *
  * If one have > 1 RTLSDR device with the same product name and serial-number,
  * then the program `rtl_eeprom -d 1 -M "name"` is handy to set them apart.
@@ -972,56 +972,56 @@ int modeS_init_RTLSDR (void)
     bool selected = false;
 
     rtlsdr_get_device_usb_strings (i, manufact, product, serial);
-    if (Modes.dev_name && manufact[0] && !stricmp(Modes.dev_name, manufact))
+    if (Modes.rtlsdr.name && manufact[0] && !stricmp(Modes.rtlsdr.name, manufact))
     {
       selected = true;
-      Modes.dev_index = i;
+      Modes.rtlsdr.index = i;
     }
     else
-      selected = (i == Modes.dev_index);
+      selected = (i == Modes.rtlsdr.index);
 
     LOG_STDERR ("%d: %s, %s, SN: %s %s\n", i, manufact, product, serial,
                 selected ? "(currently selected)" : "");
   }
 
 #if defined(HAVE_rtlsdr_cal_imr)
-  if (Modes.calibrate)
+  if (Modes.rtlsdr.calibrate)
      rtlsdr_cal_imr (1);
 #endif
 
-  rc = rtlsdr_open (&Modes.rtlsdr_device, Modes.dev_index);
+  rc = rtlsdr_open (&Modes.rtlsdr.device, Modes.rtlsdr.index);
   if (rc < 0)
   {
-    LOG_STDERR ("Error opening the RTLSDR device %d: %s.\n", Modes.dev_index, get_rtlsdr_libusb_error(rc));
+    LOG_STDERR ("Error opening the RTLSDR device %d: %s.\n", Modes.rtlsdr.index, get_rtlsdr_libusb_error(rc));
     return (1);
   }
 
   /* Set gain, frequency, sample rate, and reset the device.
    */
   if (Modes.gain == MODES_AUTO_GAIN)
-     verbose_gain_auto (Modes.rtlsdr_device);
+     verbose_gain_auto (Modes.rtlsdr.device);
   else
   {
-    nearest_gain (Modes.rtlsdr_device, &Modes.gain);
-    verbose_gain_set (Modes.rtlsdr_device, Modes.gain);
+    nearest_gain (Modes.rtlsdr.device, &Modes.gain);
+    verbose_gain_set (Modes.rtlsdr.device, Modes.gain);
   }
 
   if (Modes.dig_agc)
-     rtlsdr_set_agc_mode (Modes.rtlsdr_device, Modes.dig_agc);
+     rtlsdr_set_agc_mode (Modes.rtlsdr.device, Modes.dig_agc);
 
-  if (Modes.ppm_error)
-     verbose_ppm_set (Modes.rtlsdr_device, Modes.ppm_error);
+  if (Modes.rtlsdr.ppm_error)
+     verbose_ppm_set (Modes.rtlsdr.device, Modes.rtlsdr.ppm_error);
 
   if (Modes.bias_tee)
-     verbose_bias_tee (Modes.rtlsdr_device, Modes.bias_tee);
+     verbose_bias_tee (Modes.rtlsdr.device, Modes.bias_tee);
 
-  rtlsdr_set_center_freq (Modes.rtlsdr_device, Modes.freq);
-  rtlsdr_set_sample_rate (Modes.rtlsdr_device, Modes.sample_rate);
-  rtlsdr_reset_buffer (Modes.rtlsdr_device);
+  rtlsdr_set_center_freq (Modes.rtlsdr.device, Modes.freq);
+  rtlsdr_set_sample_rate (Modes.rtlsdr.device, Modes.sample_rate);
+  rtlsdr_reset_buffer (Modes.rtlsdr.device);
 
   LOG_STDERR ("Tuned to %.03f MHz.\n", Modes.freq / 1E6);
 
-  gain = rtlsdr_get_tuner_gain (Modes.rtlsdr_device);
+  gain = rtlsdr_get_tuner_gain (Modes.rtlsdr.device);
   if ((unsigned int)gain == 0)
        LOG_STDERR ("Gain reported by device: AUTO.\n");
   else LOG_STDERR ("Gain reported by device: %.2f dB.\n", gain/10.0);
@@ -1133,20 +1133,17 @@ unsigned int __stdcall data_thread_fn (void *arg)
 {
   int rc;
 
-#ifdef USE_SDRPLAY
-  if (Modes.sdrplay_device)
+  if (Modes.sdrplay.device)
   {
-    rc = sdrplay_read_async (Modes.sdrplay_device, rx_callback, (void*)&Modes.exit,
+    rc = sdrplay_read_async (Modes.sdrplay.device, rx_callback, (void*)&Modes.exit,
                              MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
 
     TRACE (DEBUG_GENERAL, "sdrplay_read_async(): rc: %d / %s.\n",
            rc, sdrplay_strerror(rc));
   }
-  else
-#endif
-  if (Modes.rtlsdr_device)
+  else if (Modes.rtlsdr.device)
   {
-    rc = rtlsdr_read_async (Modes.rtlsdr_device, rx_callback, (void*)&Modes.exit,
+    rc = rtlsdr_read_async (Modes.rtlsdr.device, rx_callback, (void*)&Modes.exit,
                             MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
 
     TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
@@ -1167,6 +1164,8 @@ void main_data_loop (void)
 {
   while (!Modes.exit)
   {
+    int rc;
+
     background_tasks();
 
     if (!Modes.data_ready)
@@ -1185,8 +1184,14 @@ void main_data_loop (void)
      * slow processors).
      */
     EnterCriticalSection (&Modes.data_mutex);
-    detect_modeS (Modes.magnitude, Modes.data_len/2);
+    rc = detect_modeS (Modes.magnitude, Modes.data_len/2);
     LeaveCriticalSection (&Modes.data_mutex);
+
+    if (rc > 0 && Modes.message_count > 0)
+    {
+      if (--Modes.message_count == 0)
+         Modes.exit = true;
+    }
   }
 }
 
@@ -2278,13 +2283,14 @@ void apply_phase_correction (uint16_t *m)
  * size `mlen` bytes. Every detected Mode S message is converted into a
  * stream of bits and passed to the function to display it.
  */
-void detect_modeS (uint16_t *m, uint32_t mlen)
+int detect_modeS (uint16_t *m, uint32_t mlen)
 {
   uint8_t  bits [MODES_LONG_MSG_BITS];
   uint8_t  msg [MODES_LONG_MSG_BITS/2];
   uint16_t aux [MODES_LONG_MSG_BITS*2];
   uint32_t j;
   bool     use_correction = false;
+  int      rc = 0;  /**\todo fix this */
 
   /* The Mode S preamble is made of impulses of 0.5 microseconds at
    * the following time offsets:
@@ -2542,6 +2548,7 @@ good_preamble:
       use_correction = false;
     }
   }
+  return (rc);
 }
 
 /**
@@ -2980,9 +2987,9 @@ void interactive_show_aircraft (struct aircraft *a, uint64_t now)
     restore_colour = true;
   }
 
-  printf ("%06X %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %-7s  %-8ld %u sec   \n",
+  printf ("%06X %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %-7s  %-4ld %2d sec \n",
           a->addr, a->flight, reg_num, squawk, alt_buf, speed_buf,
-          lat_buf, lon_buf, heading_buf, a->messages, (unsigned)(now - a->seen));
+          lat_buf, lon_buf, heading_buf, a->messages, (int)(now - a->seen));
 
   if (restore_colour)
      setcolor (0);
@@ -3012,8 +3019,8 @@ void interactive_show_data (uint64_t now)
   }
 
   setcolor (COLOUR_WHITE);
-  printf ("ICAO   Flight   Reg-num  Sqwk   Altitude  Speed    Lat       Long     Heading  Messages Seen %c\n"
-          "-----------------------------------------------------------------------------------------------\n",
+  printf ("ICAO   Flight   Reg-num  Sqwk   Altitude  Speed    Lat       Long     Heading  Msg  Seen %c\n"
+          "-------------------------------------------------------------------------------------------\n",
           spinner[spin_idx++ % 4]);
   setcolor (0);
 
@@ -3417,7 +3424,6 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
   if ((ev != MG_EV_HTTP_MSG && ev != MG_EV_HTTP_CHUNK) || strncmp(hm->head.ptr, "GET /", 5))
      return;
 
-  Modes.stat.HTTP_get_requests++;
   request = strncpy (alloca(hm->head.len+1), hm->head.ptr, hm->head.len);
 
   uri = request + strlen ("GET ");
@@ -3428,6 +3434,7 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
     conn->is_closing = 1;
     return;
   }
+  Modes.stat.HTTP_get_requests++;
 
   *end = '\0';
   data_json = (stricmp(request, "GET /data.json") == 0);
@@ -3575,7 +3582,7 @@ void net_handler (struct mg_connection *conn, int ev, void *ev_data, void *fn_da
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
       cli = get_client_addr (&conn->peer, service);
-      read_from_client (cli, "\n", decode_hex_message);
+      read_from_client (cli, '\n', decode_hex_message);
     }
   }
   else if (ev == MG_EV_CLOSE)
@@ -3813,7 +3820,7 @@ void decode_hex_message (struct client *c)
  * This message shows up as ICAO "4B9696" and Reg-num "TC-ETV" in
  * `--interactive` mode.
  */
-void read_from_client (struct client *cli, char *sep, void (*handler)(struct client *))
+void read_from_client (struct client *cli, int sep, void (*handler)(struct client *))
 {
   struct mg_iobuf *msg = &cli->conn->recv;
   size_t           left = sizeof(cli->buf) - 1 - cli->buflen;
@@ -3826,9 +3833,9 @@ void read_from_client (struct client *cli, char *sep, void (*handler)(struct cli
   cli->buflen += size;
   cli->buf [cli->buflen+1] = '\0';
 
-  TRACE (DEBUG_NET, "client msg: '%s'.\n", cli->buf);
+  TRACE (DEBUG_NET2, "client msg: '%s'.\n", cli->buf);
 
-  if (strstr(cli->buf, sep))
+  if (strchr(cli->buf, sep))
      (*handler) (cli);
 
   cli->buflen = 0;
@@ -3861,6 +3868,7 @@ void show_help (const char *fmt, ...)
           "    --interactive-ttl <sec>  Remove from list if idle for <sec> (default: %u).\n"
           "    --logfile <file>         Enable logging to file (default: off)\n"
           "    --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
+          "    --max-messages <N>       Max number of messages to process.\n"
           "    --metric                 Use metric units (meters, km/h, ...).\n"
           "    --no-fix                 Disable single-bits error correction using CRC.\n"
           "    --no-crc-check           Disable messages with broken CRC (discouraged).\n"
@@ -3880,13 +3888,7 @@ void show_help (const char *fmt, ...)
           MODES_NET_PORT_HTTP, MODES_NET_PORT_OUTPUT_RAW,
           MODES_NET_PORT_INPUT_RAW, MODES_NET_PORT_OUTPUT_SBS, GMAP_HTML);
 
-#ifdef USE_SDRPLAY
-  #define DEVICE_OPTIONS "RTLSDR / SDRplay options"
-#else
-  #define DEVICE_OPTIONS "RTLSDR options"
-#endif
-
-  printf ("  %s:\n"
+  printf ("  RTLSDR / SDRplay options:\n"
           "    --agc                    Enable Digital AGC (default: off)\n"
           "    --bias                   Enable Bias-T output (default: off)\n"
           "    --calibrate              Enable calibrating R820T/R828D devices (default: off)\n"
@@ -3895,7 +3897,7 @@ void show_help (const char *fmt, ...)
           "    --gain <dB>              Set gain (default: AUTO)\n"
           "    --ppm <correction>       Set frequency correction (default: 0)\n"
           "    --samplerate <Hz>        Set sample-rate (default: %uMS/s).\n\n",
-          DEVICE_OPTIONS, (uint32_t)(MODES_DEFAULT_FREQ / 1000000), MODES_DEFAULT_RATE/1000000);
+          (uint32_t)(MODES_DEFAULT_FREQ / 1000000), MODES_DEFAULT_RATE/1000000);
 
   printf ("  --debug <flags>: E = Log frames decoded with errors.\n"
           "                   D = Log frames decoded with zero errors.\n"
@@ -3963,23 +3965,21 @@ void sigint_handler (int sig)
   if (sig == SIGINT)
      LOG_STDERR ("Caught SIGINT, shutting down ...\n");
 
-  if (Modes.rtlsdr_device)
+  if (Modes.rtlsdr.device)
   {
     EnterCriticalSection (&Modes.data_mutex);
-    rc = rtlsdr_cancel_async (Modes.rtlsdr_device);
+    rc = rtlsdr_cancel_async (Modes.rtlsdr.device);
     TRACE (DEBUG_GENERAL, "rtlsdr_cancel_async(): rc: %d.\n", rc);
 
     if (rc == -2)  /* RTLSDR is not streaming data */
        Sleep (5);
     LeaveCriticalSection (&Modes.data_mutex);
   }
-#ifdef USE_SDRPLAY
-  else if (Modes.sdrplay_device)
+  else if (Modes.sdrplay.device)
   {
-    rc = sdrplay_cancel_async (Modes.sdrplay_device);
+    rc = sdrplay_cancel_async (Modes.sdrplay.device);
     TRACE (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
   }
-#endif
 }
 
 void show_statistics (void)
@@ -4050,20 +4050,18 @@ void modeS_exit (void)
        Sleep (100);
   }
 
-  if (Modes.rtlsdr_device)
+  if (Modes.rtlsdr.device)
   {
-    rc = rtlsdr_close (Modes.rtlsdr_device);
-    Modes.rtlsdr_device = NULL;
+    rc = rtlsdr_close (Modes.rtlsdr.device);
+    Modes.rtlsdr.device = NULL;
     TRACE (DEBUG_GENERAL2, "rtlsdr_close(), rc: %d.\n", rc);
   }
-#ifdef USE_SDRPLAY
-  else if (Modes.sdrplay_device)
+  else if (Modes.sdrplay.device)
   {
-    rc = sdrplay_exit (Modes.sdrplay_device);
-    Modes.sdrplay_device = NULL;
+    rc = sdrplay_exit (Modes.sdrplay.device);
+    Modes.sdrplay.device = NULL;
     TRACE (DEBUG_GENERAL2, "sdrplay_exit(), rc: %d.\n", rc);
-  };
-#endif
+  }
 
   if (Modes.reader_thread)
      CloseHandle ((HANDLE)Modes.reader_thread);
@@ -4104,22 +4102,18 @@ void modeS_exit (void)
 #endif
 }
 
-static void select_device (char *arg, int *rtlsdr_index, char **rtlsdr_name, char **sdrplay_name)
+static void select_device (char *arg)
 {
-  *sdrplay_name = NULL;
-  *rtlsdr_index = -1;
-
   if (isdigit(arg[0]))
-       *rtlsdr_index = atoi (arg);
-  else *rtlsdr_name = arg;
+       Modes.rtlsdr.index = atoi (arg);
+  else Modes.rtlsdr.name = arg;
 
-#ifdef USE_SDRPLAY
   if (!strnicmp(arg, "sdrplay", 7))
-     *sdrplay_name = arg;
-#else
-  if (!strnicmp(arg, "sdrplay", 7))
-     show_help ("Illegal argument \"%s\". SDRplay support is not built-in.\n", arg);
-#endif
+  {
+    Modes.sdrplay.name = arg;
+    if (isdigit(arg[+7]))
+       Modes.sdrplay.index = atoi (arg+7);
+  }
 }
 
 /**
@@ -4142,7 +4136,7 @@ int main (int argc, char **argv)
     int more = j + 1 < argc; /* There are more arguments. */
 
     if (!strcmp(argv[j], "--device") && more)
-       select_device (argv[++j], &Modes.dev_index, &Modes.dev_name, &Modes.sdrplay_name);
+       select_device (argv[++j]);
 
     else if (!strcmp(argv[j], "--agc"))
         Modes.dig_agc = true;
@@ -4151,7 +4145,7 @@ int main (int argc, char **argv)
         Modes.gain = (int) (10.0 * atof(argv[++j]));   /* Gain is in tens of DBs */
 
     else if (!strcmp(argv[j], "--ppm") && more)
-        Modes.ppm_error = atoi (argv[++j]);
+        Modes.rtlsdr.ppm_error = atoi (argv[++j]);
 
     else if (!strcmp(argv[j], "--freq") && more)
         Modes.freq = (uint32_t) ato_hertz (argv[++j]);
@@ -4163,7 +4157,7 @@ int main (int argc, char **argv)
         Modes.bias_tee = true;
 
     else if (!strcmp(argv[j], "--calibrate"))
-         Modes.calibrate = true;
+         Modes.rtlsdr.calibrate = true;
 
     else if (!strcmp(argv[j], "--infile") && more)
         Modes.infile = argv[++j];
@@ -4212,6 +4206,9 @@ int main (int argc, char **argv)
 
     else if (!strcmp(argv[j], "--onlyaddr"))
         Modes.only_addr = 1;
+
+    else if (!strcmp(argv[j], "--max-messages") && more)
+        Modes.message_count = _atoi64 (argv[++j]);
 
     else if (!strcmp(argv[j], "--metric"))
         Modes.metric = 1;
@@ -4320,16 +4317,14 @@ int main (int argc, char **argv)
   }
   else
   {
-#ifdef USE_SDRPLAY
-    if (Modes.sdrplay_name)
+    if (Modes.sdrplay.name)
     {
-      rc = sdrplay_init (Modes.sdrplay_name, &Modes.sdrplay_device);
+      rc = sdrplay_init (Modes.sdrplay.name, &Modes.sdrplay.device);
       TRACE (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
       if (rc)
          goto quit;
     }
     else
-#endif
     {
       rc = modeS_init_RTLSDR();
       TRACE (DEBUG_GENERAL, "rtlsdr_open(): rc: %d.\n", rc);

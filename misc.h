@@ -17,10 +17,7 @@
 #include <mongoose.h>
 #include <rtl-sdr.h>
 #include <libusb.h>
-
-#ifdef USE_SDRPLAY
 #include <sdrplay_api.h>
-#endif
 
 #include "csv.h"
 
@@ -220,32 +217,25 @@ struct statistics {
        uint64_t HTTP_websockets;
      };
 
-/**\todo
- * Set and use the device configuration in these structrures.
+/**
+ * The per-device configuration is in these structures.
  */
 struct rtlsdr_conf {
-       char             *name;                     /**< The manufacturer name of the RTLSDR device to use. */
-       int               index;                    /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"`. */
-       int               gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
-       rtlsdr_dev_t     *device;                   /**< The RTLSDR handle from `rtlsdr_open()`. */
-       int               ppm_error;                /**< Set RTLSDR frequency correction. */
-       bool              dig_agc;                  /**< Enable RTLSDR digital AGC. */
-       bool              bias_tee;                 /**< Enable RTLSDR bias-T voltage on coax input. */
-       bool              calibrate;                /**< Enable calibration for R820T/R828D type devices */
-       uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
-       uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE. */
+       char          *name;            /**< The manufacturer name of the RTLSDR device to use. */
+       int            index;           /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"`. */
+       rtlsdr_dev_t  *device;          /**< The RTLSDR handle from `rtlsdr_open()`. */
+       int            ppm_error;       /**< Set RTLSDR frequency correction. */
+       bool           dig_agc;         /**< Enable RTLSDR digital AGC. */
+       bool           bias_tee;        /**< Enable RTLSDR bias-T voltage on coax input. */
+       bool           calibrate;       /**< Enable calibration for R820T/R828D type devices */
      };
 
-#if defined(USE_SDRPLAY)
 struct sdrplay_conf {
-       char                            *name;           /**< Name of SDRplay instance to use. */
-       int                              index;          /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"`. */
-       sdrplay_dev                     *device;         /**< Device-handle from `sdrplay_init()`. */
-       uint32_t                         freq;           /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
-       uint32_t                         sample_rate;    /**< The sample-rate. Default is MODES_DEFAULT_RATE. */
+       char                            *name;      /**< Name of SDRplay instance to use. */
+       int                              index;     /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"`. */
+       sdrplay_dev                     *device;    /**< Device-handle from `sdrplay_init()`. */
        bool                             if_mode;
        bool                             over_sample;
-       bool                             enable_biasT;
        bool                             disable_broadcast_notch;
        bool                             disable_DAB_notch;
        int                              gain_reduction;
@@ -256,7 +246,6 @@ struct sdrplay_conf {
        sdrplay_api_TunerSelectT         tuner;
        sdrplay_api_RspDuoModeT          mode;
      };
-#endif
 
 /**
  * \struct global_data
@@ -279,25 +268,20 @@ struct global_data {
        struct statistics stat;                     /**< Decoding and network statistics. */
        struct aircraft  *aircrafts;                /**< Linked list of active aircrafts. */
        uint64_t          last_update_ms;           /**< Last screen update in milliseconds. */
+       uint64_t          message_count;            /**< How many messages to process before quitting. */
 
-       int               dev_index;                /**< The index of the RTLSDR device used. */
-       char             *dev_name;                 /**< The manufacturer name of the RTLSDR device used. */
-       int               gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
-       rtlsdr_dev_t     *rtlsdr_device;            /**< The RTLSDR handle from `rtlsdr_open()`. */
-       int               ppm_error;                /**< Set RTLSDR frequency correction. */
-       bool              dig_agc;                  /**< Enable RTLSDR digital AGC. */
-       bool              bias_tee;                 /**< Enable RTLSDR bias-T voltage on coax input. */
-       bool              calibrate;                /**< Enable calibration for R820T/R828D type devices */
+       /** Common stuff for RTLSDR and SDRplay:
+        */
+       bool              dig_agc;                  /**< Enable digital AGC. */
+       bool              bias_tee;                 /**< Enable bias-T voltage on coax input. */
+       uint16_t          gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
        uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
-       uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE. <br>
+       uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE.
                                                      *  \note This cannot be used yet since the code assumes a
                                                      *        pulse-width of 0.5 usec based on a fixed rate of 2 MS/s.
                                                      */
-
-       /** These are effective only if `USE_SDRPLAY` is defined).
-        */
-       char        *sdrplay_name;                  /**< Name of SDRplay instance to use. */
-       sdrplay_dev *sdrplay_device;                /**< Device-handle from `sdrplay_init()`. */
+       struct rtlsdr_conf  rtlsdr;                 /**< RTLSDR specific settings. */
+       struct sdrplay_conf sdrplay;                /**< SDRplay specific settings. */
 
        /** Lists of clients for each network service
         */
@@ -336,21 +320,6 @@ struct global_data {
        struct CSV_context   csv_ctx;
        struct aircraft_CSV *aircraft_list;
        uint32_t             aircraft_num_CSV;
-
-#if defined(USE_SDRPLAY)
-       bool                             if_mode;
-       bool                             over_sample;
-       bool                             enable_biasT;
-       bool                             disable_broadcast_notch;
-       bool                             disable_DAB_notch;
-       int                              gain_reduction;
-       int                              ADSB_mode;
-       int                              BW_mode;
-       sdrplay_api_Rsp2_AntennaSelectT  antenna_port;
-       sdrplay_api_RspDx_AntennaSelectT DX_antenna_port;
-       sdrplay_api_TunerSelectT         tuner;
-       sdrplay_api_RspDuoModeT          mode;
-#endif
      };
 
 extern struct global_data Modes;
