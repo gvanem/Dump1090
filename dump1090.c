@@ -939,6 +939,16 @@ int modeS_init (void)
   return (0);
 }
 
+static void LIBUSB_CALL Modes_libusb_debug (libusb_context *ctx,
+                                            enum libusb_log_level level,
+                                            const char *str)
+{
+  const char *p = strstr (str, "debug [");
+
+  if (p)
+     fputs (p + 6, stderr);
+}
+
 /**
  * Step 3: Initialize the RTLSDR device.
  *
@@ -957,6 +967,14 @@ int modeS_init_RTLSDR (void)
 {
   int    i, rc, device_count;
   double gain;
+
+  if (Modes.debug & (DEBUG_LIBUSB | DEBUG_LIBUSB2))
+  {
+    if (Modes.debug & DEBUG_LIBUSB)
+         putenv ("LIBUSB_DEBUG=3");
+    else putenv ("LIBUSB_DEBUG=4");
+    libusb_set_log_cb (NULL, Modes_libusb_debug, LIBUSB_LOG_CB_GLOBAL);
+  }
 
   device_count = rtlsdr_get_device_count();
   if (!device_count)
@@ -3908,7 +3926,9 @@ void show_help (const char *fmt, ...)
           "                   N = a bit more network information than flag 'n'.\n"
           "                   j = Log frames to frames.js, loadable by `debug.html'.\n"
           "                   g = Log general debugging info.\n"
-          "                   G = a bit more network information than flag 'g'.\n");
+          "                   G = a bit more network information than flag 'g'.\n"
+          "                   u = Log libusb informal messages.\n"
+          "                   U = Log libusb debug details.\n");
 
   modeS_exit();  /* free Pthread-W32 data */
   exit (1);
@@ -4274,6 +4294,12 @@ int main (int argc, char **argv)
                break;
           case 'G':
                Modes.debug |= (DEBUG_GENERAL2 | DEBUG_GENERAL);
+               break;
+          case 'u':
+               Modes.debug |= DEBUG_LIBUSB;
+               break;
+          case 'U':
+               Modes.debug |= DEBUG_LIBUSB2;
                break;
           default:
                show_help ("Unknown debugging flag: %c\n", *f);

@@ -103,6 +103,8 @@
 #define DEBUG_NET2       (1 << 7)
 #define DEBUG_GENERAL    (1 << 8)
 #define DEBUG_GENERAL2   (1 << 9)
+#define DEBUG_LIBUSB     (1 << 10)
+#define DEBUG_LIBUSB2    (1 << 11)
 
 /**
  * \def TRACE(bit, fmt, ...)
