@@ -373,14 +373,15 @@ static void sdrplay_callback_B (short *xi, short *xq,
 /**
  *
  */
-static void sdrplay_select (const char *name)
+static bool sdrplay_select (const char *wanted_name)
 {
   unsigned i;
   sdrplay_api_DeviceT *device;
+  char selected_dev [100];
 
   CALL_FUNC (sdrplay_api_LockDeviceApi);
   if (sdr.last_rc != sdrplay_api_Success)
-     return;
+     return (false);
 
   sdr.API_locked = true;
 
@@ -388,20 +389,36 @@ static void sdrplay_select (const char *name)
   if (sdr.num_devices == 0)
   {
     LOG_STDERR ("No SDRplay devices found.\n");
-    return;
+    return (false);
   }
 
   device = sdr.devices + 0;
 
-  TRACE (DEBUG_GENERAL, "wanted name: \"%s\".\n", name);
+  TRACE (DEBUG_GENERAL, "wanted name: \"%s\".\n", wanted_name);
 
   for (i = 0; i < sdr.num_devices; i++)
   {
     if (sdr.devices[i].hwVer == SDRPLAY_RSP1A_ID)
-          TRACE (DEBUG_GENERAL, "Device Index %d: RSP1A  - SerialNumber = %s\n", i, sdr.devices[i].SerNo);
+    {
+      strcpy (selected_dev, "sdrplay-RSP1A");
+      TRACE (DEBUG_GENERAL, "Device Index %d: RSP1A  - SerialNumber = %s\n", i, sdr.devices[i].SerNo);
+    }
     else if (sdr.devices[i].hwVer == SDRPLAY_RSPduo_ID)
-         TRACE (DEBUG_GENERAL, "Device Index %d: RSPduo - SerialNumber = %s\n", i, sdr.devices[i].SerNo);
-    else TRACE (DEBUG_GENERAL, "Device Index %d: RSP%d   - SerialNumber = %s\n", i, sdr.devices[i].hwVer, sdr.devices[i].SerNo);
+    {
+      strcpy (selected_dev, "sdrplay-RSPduo");
+      TRACE (DEBUG_GENERAL, "Device Index %d: RSPduo - SerialNumber = %s\n", i, sdr.devices[i].SerNo);
+    }
+    else
+    {
+      snprintf (selected_dev, sizeof(selected_dev), "sdrplay-RSP%d", sdr.devices[i].hwVer);
+      TRACE (DEBUG_GENERAL, "Device Index %d: RSP%d   - SerialNumber = %s\n", i, sdr.devices[i].hwVer, sdr.devices[i].SerNo);
+    }
+  }
+
+  if (i > 1 && stricmp(wanted_name, selected_dev))
+  {
+    LOG_STDERR ("Wanted device %s not found.\n", wanted_name);
+    return (false);
   }
 
   CALL_FUNC (sdrplay_api_SelectDevice, device);
@@ -410,7 +427,10 @@ static void sdrplay_select (const char *name)
     sdr.dev = device;
     g_sdr_device = &sdr;
     g_sdr_handle = device->dev;
+    Modes.selected_dev = strdup (selected_dev);
+    return (true);
   }
+  return (false);
 }
 
 /**
@@ -660,8 +680,7 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
   if (sdr.version != SDRPLAY_API_VERSION || sdr.version < 3.06F)
      goto failed;
 
-  sdrplay_select (name);
-  if (!g_sdr_device)
+  if (!sdrplay_select(name))
      goto failed;
 
   if (Modes.debug & DEBUG_GENERAL)
