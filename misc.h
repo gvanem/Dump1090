@@ -119,13 +119,17 @@
 
 /**
  * \def LOG_STDOUT(fmt, ...)
- * \def LOG_STDERR(fmt, ...)
- *
  * Print to both `stdout` and optionally to `Modes.log`.
- * Print to both `stderr` and optionally to `Modes.log`.
+ *
+ * \def LOG_STDERR(fmt, ...)
+ *  Print to both `stderr` and optionally to `Modes.log`.
+ *
+ * \def LOG_FILEONLY(fmt, ...)
+ *  Print to `Modes.log` only.
  */
-#define LOG_STDOUT(fmt, ...)  modeS_flogf (stdout, fmt, __VA_ARGS__)
-#define LOG_STDERR(fmt, ...)  modeS_flogf (stderr, fmt, __VA_ARGS__)
+#define LOG_STDOUT(fmt, ...)    modeS_flogf (stdout, fmt, __VA_ARGS__)
+#define LOG_STDERR(fmt, ...)    modeS_flogf (stderr, fmt, __VA_ARGS__)
+#define LOG_FILEONLY(fmt, ...)  modeS_flogf (Modes.log, fmt, __VA_ARGS__)
 
 /**
  * \struct client

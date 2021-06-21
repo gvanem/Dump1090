@@ -310,7 +310,7 @@ void crtdbug_init (void)
 #endif  /* _DEBUG */
 
 /**
- * Log a message to `Modes.log`.
+ * Log a message to the `Modes.log` file.
  */
 void modeS_log (const char *buf)
 {
@@ -350,8 +350,12 @@ void modeS_flogf (FILE *f, const char *fmt, ...)
   va_start (args, fmt);
   vsnprintf (buf, sizeof(buf), fmt, args);
   va_end (args);
-  fputs (buf, f);
-  fflush (f);
+
+  if (f && f != Modes.log)
+  {
+    fputs (buf, f);
+    fflush (f);
+  }
   if (Modes.log)
      modeS_log (buf);
 }
@@ -2997,12 +3001,13 @@ void interactive_show_aircraft (struct aircraft *a, uint64_t now)
     setcolor (COLOUR_GREEN);
     a->showing = A_SHOW_NORMAL;
     restore_colour = true;
+    LOG_FILEONLY ("plane '%06X' entering.\n", a->addr);
   }
   else if (a->showing == A_LAST_TIME)
   {
     setcolor (COLOUR_RED);
-    a->showing = A_SHOW_NORMAL;
     restore_colour = true;
+    LOG_FILEONLY ("plane '%06X' leaving.\n", a->addr);
   }
 
   printf ("%06X %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %-7s  %-4ld %2d sec \n",
@@ -3081,7 +3086,7 @@ void remove_stale_aircrafts (uint64_t now)
     {
       /* Remove this element on next refresh?
        */
-      if (sec_diff >= (int32_t) (Modes.interactive_ttl + MODES_INTERACTIVE_REFRESH_TIME/1000))
+      if (sec_diff >= (int32_t)Modes.interactive_ttl)
          a->showing = A_LAST_TIME;
     }
   }
