@@ -3,7 +3,7 @@
  * \ingroup Main
  * \brief   The interface for SDRplay devices.
  *
- * Load all need functions from "sdrplay_api.dll" dynamically.
+ * Load all needed functions from "sdrplay_api.dll" dynamically.
  */
 #include "sdrplay.h"
 #include "misc.h"
@@ -112,6 +112,8 @@ static void sdrplay_store_error (sdrplay_api_ErrT rc)
 
   if (sdr.sdrplay_api_GetErrorString)
        strncpy (sdr.last_err, (*sdr.sdrplay_api_GetErrorString)(rc), sizeof(sdr.last_err));
+  else if (rc == sdrplay_api_NotInitialised)
+       strncpy (sdr.last_err, "SDRplay API not initialised", sizeof(sdr.last_err));
   else sdr.last_err[0] = '\0';
 }
 
