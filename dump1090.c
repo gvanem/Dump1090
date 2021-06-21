@@ -248,6 +248,16 @@ void setcolor (int color)
   SetConsoleTextAttribute (console_hnd, attr);
 }
 
+void console_title_stats (void)
+{
+  char buf [100];
+  snprintf (buf, sizeof(buf), "Dev: %s. CRC: %llu / %llu. Pkt: %llu",
+            Modes.selected_dev ? Modes.selected_dev : "?",
+            Modes.stat.good_CRC, Modes.stat.bad_CRC,
+            Modes.stat.good_CRC + Modes.stat.fixed);
+  SetConsoleTitle (buf);
+}
+
 int console_init (void)
 {
   console_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
@@ -990,7 +1000,7 @@ int modeS_init_RTLSDR (void)
   LOG_STDERR ("Found %d device(s):\n", device_count);
   for (i = 0; i < device_count; i++)
   {
-    char  manufact[256], product[256], serial[256];
+    char manufact[256], product[256], serial[256];
     bool selected = false;
 
     rtlsdr_get_device_usb_strings (i, manufact, product, serial);
@@ -1002,6 +1012,15 @@ int modeS_init_RTLSDR (void)
     else
       selected = (i == Modes.rtlsdr.index);
 
+    if (selected)
+    {
+      char buf [sizeof(manufact) + sizeof(product)];
+
+      strcpy (buf, manufact);
+      strcat (buf, ": ");
+      strcat (buf, product);
+      Modes.selected_dev = strdup (buf);
+    }
     LOG_STDERR ("%d: %s, %s, SN: %s %s\n", i, manufact, product, serial,
                 selected ? "(currently selected)" : "");
   }
@@ -1171,7 +1190,8 @@ unsigned int __stdcall data_thread_fn (void *arg)
     TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
            rc, get_rtlsdr_libusb_error(rc));
 
-    /* break out of main_data_loop() */
+    /* break out of main_data_loop()
+     */
     sigint_handler (0);
   }
   MODES_NOTUSED (arg);
@@ -1180,7 +1200,7 @@ unsigned int __stdcall data_thread_fn (void *arg)
 
 /**
  * Main data processing loop. <br>
- * This runs in the main thrad of the program.
+ * This runs in the main thread of the program.
  */
 void main_data_loop (void)
 {
@@ -1419,7 +1439,8 @@ uint32_t modeS_checksum (const uint8_t *msg, int bits)
     int bit  = j % 8;
     int bitmask = 1 << (7 - bit);
 
-    /* If bit is set, XOR with corresponding table entry. */
+    /* If bit is set, XOR with corresponding table entry.
+     */
     if (msg[byte] & bitmask)
        crc ^= modeS_checksum_table [j + offset];
   }
@@ -2500,7 +2521,8 @@ good_preamble:
        */
       decode_modeS_message (&mm, msg);
 
-      /* Update statistics. */
+      /* Update statistics.
+       */
       if (mm.CRC_ok || use_correction)
       {
         if (errors == 0)
@@ -2623,17 +2645,20 @@ void modeS_user_message (const struct modeS_message *mm)
  * contain more than 24 bits.
  *
  * \param in addr  the specific ICAO address.
+ * \param in now   the current tick-time in seconds.
  */
-struct aircraft *aircraft_create (uint32_t addr)
+struct aircraft *aircraft_create (uint32_t addr, uint32_t now)
 {
   struct aircraft *a = calloc (sizeof(*a), 1);
 
   if (a)
   {
     a->addr = addr;
-    a->seen = MSEC_TIME() / 1000;
+    a->seen = now;
+    a->seen_first = now;
     a->CSV  = aircraft_CSV_lookup_entry (addr);
     a->showing = A_FIRST_TIME;
+    a->show_changed = true;
 
     /* We really can't tell if it's unique since we keep no global list of that yet
      */
@@ -2844,18 +2869,22 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
 {
   struct aircraft *a, *aux;
   uint32_t addr;
+  uint32_t now_s;
+  uint64_t now;
 
   if (Modes.check_crc && !mm->CRC_ok)
      return (NULL);
 
-  addr = (mm->AA1 << 16) | (mm->AA2 << 8) | mm->AA3;
+  addr  = (mm->AA1 << 16) | (mm->AA2 << 8) | mm->AA3;
+  now   = MSEC_TIME();
+  now_s = now / 1000;
 
   /* Loookup our aircraft or create a new one.
    */
   a = aircraft_find (addr);
   if (!a)
   {
-    a = aircraft_create (addr);
+    a = aircraft_create (addr, now_s);
     if (!a)
        return (NULL);  /* Not fatal; there could be available memory later */
     a->next = Modes.aircrafts;
@@ -2871,7 +2900,7 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
      * otherwise with multiple aircrafts at the same time we have an
      * useless shuffle of positions on the screen.
      */
-    if (0 && Modes.aircrafts != a && (MSEC_TIME()/1000 - a->seen) >= 1)
+    if (0 && Modes.aircrafts != a && (now_s - a->seen) >= 1)
     {
       aux = Modes.aircrafts;
       while (aux->next != a)
@@ -2887,7 +2916,7 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
     }
   }
 
-  a->seen = MSEC_TIME() / 1000;
+  a->seen = now_s;
   a->messages++;
 
   if (mm->msg_type == 5 || mm->msg_type == 21)
@@ -2915,13 +2944,13 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
       {
         a->odd_CPR_lat  = mm->raw_latitude;
         a->odd_CPR_lon  = mm->raw_longitude;
-        a->odd_CPR_time = MSEC_TIME();
+        a->odd_CPR_time = now;
       }
       else
       {
         a->even_CPR_lat  = mm->raw_latitude;
         a->even_CPR_lon  = mm->raw_longitude;
-        a->even_CPR_time = MSEC_TIME();
+        a->even_CPR_time = now;
       }
 
       /* If the two reports are less than 10 seconds apart, compute the position.
@@ -2949,8 +2978,11 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
  *
  * If `a->showing == A_FIRST_TIME`, print in GREEN colour.
  * If `a->showing == A_LAST_TIME`, print in RED colour.
+ *
+ * \param in a    the aircraft to show.
+ * \param in now  the currect tick-timer in seconds.
  */
-void interactive_show_aircraft (struct aircraft *a, uint64_t now)
+bool interactive_show_aircraft (const struct aircraft *a, uint64_t now)
 {
   int   altitude = a->altitude;
   int   speed = a->speed;
@@ -2962,6 +2994,7 @@ void interactive_show_aircraft (struct aircraft *a, uint64_t now)
   char  heading_buf [8] = " - ";
   bool  restore_colour = false;
   const char *reg_num = "";
+  bool  rc = false;
 
   /* Convert units to metric if --metric was specified.
    */
@@ -2996,18 +3029,21 @@ void interactive_show_aircraft (struct aircraft *a, uint64_t now)
   if (a->CSV && a->CSV->reg_num[0])
      reg_num = a->CSV->reg_num;
 
-  if (a->showing == A_FIRST_TIME)
+  if (a->show_changed)
   {
-    setcolor (COLOUR_GREEN);
-    a->showing = A_SHOW_NORMAL;
-    restore_colour = true;
-    LOG_FILEONLY ("plane '%06X' entering.\n", a->addr);
-  }
-  else if (a->showing == A_LAST_TIME)
-  {
-    setcolor (COLOUR_RED);
-    restore_colour = true;
-    LOG_FILEONLY ("plane '%06X' leaving.\n", a->addr);
+    if (a->showing == A_FIRST_TIME)
+    {
+      setcolor (COLOUR_GREEN);
+      rc = restore_colour = true;
+      LOG_FILEONLY ("plane '%06X' entering.\n", a->addr);
+    }
+    else if (a->showing == A_LAST_TIME)
+    {
+      setcolor (COLOUR_RED);
+      rc = restore_colour = true;
+      LOG_FILEONLY ("plane '%06X' leaving. Active for %u sec.\n",
+                    a->addr, (uint32_t)(now - a->seen_first - Modes.interactive_ttl));
+    }
   }
 
   printf ("%06X %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %-7s  %-4ld %2d sec \n",
@@ -3016,11 +3052,13 @@ void interactive_show_aircraft (struct aircraft *a, uint64_t now)
 
   if (restore_colour)
      setcolor (0);
+
+  return (rc);
 }
 
 /**
  * Show the currently captured aircraft information on screen.
- * \param in now  the currect tick-timer
+ * \param in now  the currect tick-timer in seconds
  */
 void interactive_show_data (uint64_t now)
 {
@@ -3049,7 +3087,14 @@ void interactive_show_data (uint64_t now)
 
   while (a && count < Modes.interactive_rows && !Modes.exit)
   {
-    interactive_show_aircraft (a, now);
+    if (interactive_show_aircraft (a, now))
+    {
+      if (a->showing == A_FIRST_TIME)
+         a->showing = A_SHOW_NORMAL;
+      else if (a->showing == A_LAST_TIME)
+         a->showing = 0;  /* don't show again */
+    }
+    a->show_changed = false;
     a = a->next;
     count++;
   }
@@ -3084,10 +3129,13 @@ void remove_stale_aircrafts (uint64_t now)
     }
     else
     {
-      /* Remove this element on next refresh?
+      /* Mark this plane for a "last time" on next refresh?
        */
-      if (sec_diff >= (int32_t)Modes.interactive_ttl)
-         a->showing = A_LAST_TIME;
+      if ((int)a->showing && sec_diff >= (int32_t)Modes.interactive_ttl)
+      {
+        a->showing = A_LAST_TIME;
+        a->show_changed = true;
+     }
     }
   }
 }
@@ -3882,8 +3930,9 @@ void show_help (const char *fmt, ...)
 
   printf ("  Usage: %s [options]\n"
           "  General options:\n"
-          "    --aggressive             More CPU for more messages (two bits fixes, ...).\n"
-          "    --database <file>        The CSV aircraft database (default: \"$root\\%s\").\n"
+          "    --aggressive             Use a more aggressive CRC check (two bits fixes, ...).\n"
+          "    --database <file>        The CSV file for the aircraft database\n"
+          "                             (default: \"%s\").\n"
           "    --debug <flags>          Debug mode; see below for details.\n"
           "    --infile <filename>      Read data from file (use `-' for stdin).\n"
           "    --interactive            Interactive mode refreshing data on screen.\n"
@@ -3891,25 +3940,26 @@ void show_help (const char *fmt, ...)
           "    --interactive-ttl <sec>  Remove from list if idle for <sec> (default: %u).\n"
           "    --logfile <file>         Enable logging to file (default: off)\n"
           "    --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
-          "    --max-messages <N>       Max number of messages to process.\n"
+          "    --max-messages <N>       Max number of messages to process (default: Inf).\n"
           "    --metric                 Use metric units (meters, km/h, ...).\n"
           "    --no-fix                 Disable single-bits error correction using CRC.\n"
-          "    --no-crc-check           Disable messages with broken CRC (discouraged).\n"
-          "    --onlyaddr               Show only ICAO addresses (testing purposes).\n"
+          "    --no-crc-check           Disable checking CRC of messages (discouraged).\n"
+          "    --only-addr              Show only ICAO addresses (testing purposes).\n"
           "    --strip <level>          Strip IQ file removing samples below level.\n"
           "    -h, --help               Show this help.\n\n",
-          Modes.who_am_I, AIRCRAFT_CSV, MODES_ICAO_CACHE_TTL);
+          Modes.who_am_I, Modes.aircraft_db, MODES_ICAO_CACHE_TTL);
 
   printf ("  Network options:\n"
           "    --net                    Enable networking.\n"
           "    --net-http-port <port>   HTTP server port (default: %u).\n"
-          "    --net-only               Enable just networking, no RTL device or file used.\n"
+          "    --net-only               Enable just networking, no RTL device or file.\n"
           "    --net-ro-port <port>     TCP listening port for raw output (default: %u).\n"
           "    --net-ri-port <port>     TCP listening port for raw input (default: %u).\n"
           "    --net-sbs-port <port>    TCP listening port for BaseStation format output (default: %u).\n"
-          "    --web-page <file>        The Web-page to server for HTTP clients (default: \"$root\\%s\").\n\n",
+          "    --web-page <file>        The Web-page to server for HTTP clients\n"
+          "                             (default: \"%s\\%s\").\n\n",
           MODES_NET_PORT_HTTP, MODES_NET_PORT_OUTPUT_RAW,
-          MODES_NET_PORT_INPUT_RAW, MODES_NET_PORT_OUTPUT_SBS, GMAP_HTML);
+          MODES_NET_PORT_INPUT_RAW, MODES_NET_PORT_OUTPUT_SBS, Modes.web_root, Modes.web_page);
 
   printf ("  RTLSDR / SDRplay options:\n"
           "    --agc                    Enable Digital AGC (default: off)\n"
@@ -3940,17 +3990,18 @@ void show_help (const char *fmt, ...)
 }
 
 /**
- * The background function is called 4 times every second (`MODES_INTERACTIVE_REFRESH_TIME`)
- * by `main_data_loop()` in order to perform tasks we need to do continuously.
- *
- * Like accepting new clients from the net, refreshing the screen in
- * interactive mode, and so forth.
+ * This background function is called continously by `main_data_loop()`.
+ * It performs:
+ *  *) Removes inactive aircrafts from the list.
+ *  *) Polls the network for events.
+ *  *) Refreshes interactive data 4 times per second (`MODES_INTERACTIVE_REFRESH_TIME`).
+ *  *) Refreshes the console-title with some statistics (also 4 times per second).
  */
 void background_tasks (void)
 {
   uint64_t now = MSEC_TIME();
-  int    refresh;
-  static uint64_t start;  /* program start time */
+  bool     refresh;
+  static   uint64_t start;  /* program start time */
 
   if (start == 0)
      start = now;
@@ -3968,8 +4019,14 @@ void background_tasks (void)
   {
     if (Modes.log)
        fflush (Modes.log);
-    if (Modes.interactive)  /* Refresh screen when in interactive mode */
-       interactive_show_data (now/1000);
+
+    /* Refresh screen and console-title when in interactive mode
+     */
+    if (Modes.interactive)
+    {
+      interactive_show_data (now/1000);
+      console_title_stats();
+    }
     Modes.last_update_ms = now;
   }
 }
@@ -4111,6 +4168,9 @@ void modeS_exit (void)
   if (Modes.aircraft_list)
      free (Modes.aircraft_list);
 
+  if (Modes.selected_dev)
+     free (Modes.selected_dev);
+
   DeleteCriticalSection (&Modes.data_mutex);
   DeleteCriticalSection (&Modes.print_mutex);
 
@@ -4118,6 +4178,7 @@ void modeS_exit (void)
   Modes.data = NULL;
   Modes.magnitude = Modes.magnitude_lut = NULL;
   Modes.ICAO_cache = NULL;
+  Modes.selected_dev = NULL;
 
   if (Modes.log)
      fclose (Modes.log);
@@ -4130,8 +4191,12 @@ void modeS_exit (void)
 static void select_device (char *arg)
 {
   if (isdigit(arg[0]))
-       Modes.rtlsdr.index = atoi (arg);
-  else Modes.rtlsdr.name = arg;
+     Modes.rtlsdr.index = atoi (arg);
+  else
+  {
+    Modes.rtlsdr.name = arg;
+    Modes.rtlsdr.index = -1;  /* select on name only */
+  }
 
   if (!strnicmp(arg, "sdrplay", 7))
   {
@@ -4229,8 +4294,8 @@ int main (int argc, char **argv)
       strncpy (Modes.web_page, basename(argv[j]), sizeof(Modes.web_page)-1);
     }
 
-    else if (!strcmp(argv[j], "--onlyaddr"))
-        Modes.only_addr = 1;
+    else if (!strcmp(argv[j], "--only-addr"))
+        Modes.only_addr = true;
 
     else if (!strcmp(argv[j], "--max-messages") && more)
         Modes.message_count = _atoi64 (argv[++j]);
@@ -4239,7 +4304,7 @@ int main (int argc, char **argv)
         Modes.metric = 1;
 
     else if (!strcmp(argv[j], "--aggressive"))
-        Modes.aggressive++;
+        Modes.aggressive = true;
 
     else if (!strcmp(argv[j], "--interactive"))
         Modes.interactive = 1;

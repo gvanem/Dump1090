@@ -174,9 +174,11 @@ struct aircraft {
        int      heading;           /**< Horizontal angle of flight. */
        bool     heading_is_valid;  /**< Have a valid heading. */
        uint32_t seen;              /**< Tick-time (in sec) at which the last packet was received. */
+       uint32_t seen_first;        /**< Tick-time (in sec) at which the first packet was received. */
        long     messages;          /**< Number of Mode S messages received. */
        int      identity;          /**< 13 bits identity (Squawk). */
-       a_show_t showing;           /**< Shown normal or for the first or last time? */
+       a_show_t showing;           /**< The plane's shown-state */
+       bool     show_changed;      /**< The plane's shown-state changed since last `interactive_show_aircraft()` */
 
        /* Encoded latitude and longitude as extracted by odd and even
         * CPR encoded messages.
@@ -278,6 +280,7 @@ struct global_data {
 
        /** Common stuff for RTLSDR and SDRplay:
         */
+       char             *selected_dev;             /**< Name of selected device. */
        bool              dig_agc;                  /**< Enable digital AGC. */
        bool              bias_tee;                 /**< Enable bias-T voltage on coax input. */
        uint16_t          gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
@@ -315,7 +318,7 @@ struct global_data {
        uint32_t    interactive_ttl;           /**< Interactive mode: TTL before deletion. */
        bool        only_addr;                 /**< Print only ICAO addresses. */
        int         metric;                    /**< Use metric units. */
-       int         aggressive;                /**< Aggressive detection algorithm. */
+       bool        aggressive;                /**< Aggressive detection algorithm. */
        char        web_page [MG_PATH_MAX];    /**< The base-name of the web-page to server for HTTP clients */
        char        web_root [MG_PATH_MAX];    /**< And it's directory */
        char        aircraft_db [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file */
