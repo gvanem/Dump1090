@@ -1,7 +1,7 @@
 /**
  * \file    dump1090.c
  * \ingroup Main
- * \brief   Dump1090, a Mode S messages decoder for RTLSDR devices.
+ * \brief   Dump1090, a Mode-S messages decoder for RTLSDR devices.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,10 +17,11 @@
 #include <assert.h>
 #include <sys/stat.h>
 #include <io.h>
+#include <conio.h>
 #include <process.h>
 
-#include "sdrplay.h"
 #include "misc.h"
+#include "sdrplay.h"
 
 /**
  * \addtogroup Main      Main decoder
@@ -77,13 +78,10 @@
  * ```
  */
 
-#define MG_NET_POLL_TIME  500   /* milli-sec */
-
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_ASYNC_BUF_NUMBER     12
 #define MODES_DATA_LEN             (16*16384)   /* 256k */
-#define MODES_AUTO_GAIN            0            /* Use automatic gain. */
 
 #define MODES_PREAMBLE_US             8         /* microseconds */
 #define MODES_LONG_MSG_BITS         112
@@ -101,11 +99,13 @@
  * When debug is set to DEBUG_NOPREAMBLE, the first sample must be
  * at least greater than a given level for us to dump the signal.
  */
-#define DEBUG_NOPREAMBLE_LEVEL          25
+#define DEBUG_NOPREAMBLE_LEVEL           25
 
-#define MODES_INTERACTIVE_REFRESH_TIME 250   /* Milliseconds */
-#define MODES_INTERACTIVE_ROWS          15   /* Rows on screen */
-#define MODES_INTERACTIVE_TTL           60   /* TTL before being removed */
+#define MODES_INTERACTIVE_REFRESH_TIME  250   /* Milliseconds */
+#define MODES_INTERACTIVE_ROWS           15   /* Rows on screen */
+#define MODES_INTERACTIVE_TTL         60000   /* TTL (msec) before being removed */
+
+#define MG_NET_POLL_TIME             (MODES_INTERACTIVE_REFRESH_TIME / 2)
 
 #define MODES_CONTENT_TYPE_CSS    "text/css;charset=utf-8"
 #define MODES_CONTENT_TYPE_HTML   "text/html;charset=utf-8"
@@ -177,11 +177,13 @@ struct modeS_message {
     int altitude, unit;
 };
 
-struct aircraft *interactive_receive_data (const struct modeS_message *mm);
+struct aircraft *interactive_receive_data (const struct modeS_message *mm, uint64_t now);
 void read_from_client (struct client *cli, int sep, void (*handler)(struct client *));
 int  modeS_send_raw_output (const struct modeS_message *mm);
 int  modeS_send_SBS_output (const struct modeS_message *mm, const struct aircraft *a);
 void modeS_user_message (const struct modeS_message *mm);
+void set_est_home_distance (struct aircraft *a, uint64_t now);
+void spherical_to_cartesian (cartesian_t *cart, const pos_t *point);
 
 int  fix_single_bit_errors (uint8_t *msg, int bits);
 int  fix_two_bits_errors (uint8_t *msg, int bits);
@@ -250,12 +252,95 @@ void setcolor (int color)
 
 void console_title_stats (void)
 {
-  char buf [100];
-  snprintf (buf, sizeof(buf), "Dev: %s. CRC: %llu / %llu. Pkt: %llu",
+  char         buf [100];
+  char         gain [10];
+  static       uint64_t last_good_CRC, last_bad_CRC;
+  static       int ovl_count = 0;
+  static char *overload = "            ";
+  uint64_t     good_CRC = Modes.stat.good_CRC + Modes.stat.fixed;
+  uint64_t     bad_CRC  = Modes.stat.bad_CRC - Modes.stat.fixed;
+
+  if (Modes.gain_auto)
+       strcpy (gain, "auto");
+  else snprintf (gain, sizeof(gain), "%.1f", (double)Modes.gain / 10.0);
+
+  if (bad_CRC - last_bad_CRC > 2*(good_CRC - last_good_CRC))
+  {
+     overload = " (too high?)";
+     ovl_count = 3;   /* let it show for 3 refreshes */
+  }
+  else if (ovl_count && --ovl_count == 0)
+    overload = "            ";
+
+  snprintf (buf, sizeof(buf), "Dev: %s. CRC: %llu / %llu / %llu. Gain: %s dB%s",
             Modes.selected_dev ? Modes.selected_dev : "?",
-            Modes.stat.good_CRC, Modes.stat.bad_CRC,
-            Modes.stat.good_CRC + Modes.stat.fixed);
+            good_CRC, Modes.stat.fixed, bad_CRC, gain, overload);
+
+  last_good_CRC = good_CRC;
+  last_bad_CRC  = bad_CRC;
   SetConsoleTitle (buf);
+}
+
+static int gain_increase (int gain_idx)
+{
+  if (Modes.rtlsdr.device && gain_idx < Modes.rtlsdr.gain_count-1)
+  {
+    Modes.gain = Modes.rtlsdr.gains [++gain_idx];
+    rtlsdr_set_tuner_gain (Modes.rtlsdr.device, Modes.gain);
+  }
+  else if (Modes.sdrplay.device && gain_idx < Modes.sdrplay.gain_count-1)
+  {
+    Modes.gain = Modes.sdrplay.gains [++gain_idx];
+    sdrplay_set_gain (Modes.sdrplay.device, Modes.gain);
+  }
+  return (gain_idx);
+}
+
+static int gain_decrease (int gain_idx)
+{
+  if (Modes.rtlsdr.device && gain_idx > 0)
+  {
+    Modes.gain = Modes.rtlsdr.gains [--gain_idx];
+    rtlsdr_set_tuner_gain (Modes.rtlsdr.device, Modes.gain);
+  }
+  else if (Modes.sdrplay.device && gain_idx > 0)
+  {
+    Modes.gain = Modes.sdrplay.gains [--gain_idx];
+    sdrplay_set_gain (Modes.sdrplay.device, Modes.gain);
+  }
+  return (gain_idx);
+}
+
+/**
+ * Poll for '+/-' keypresses and adjust the RTLSDR / SDRplay gain accordingly.
+ * But within the min/max gain settings for the device.
+ */
+void console_update_gain (void)
+{
+  static int gain_idx = -1;
+  int i, ch;
+
+  if (gain_idx == -1)
+  {
+    for (i = 0; i < Modes.rtlsdr.gain_count; i++)
+        if (Modes.gain == Modes.rtlsdr.gains[i])
+        {
+          gain_idx = i;
+          break;
+        }
+    if (Modes.sdrplay.device)
+       gain_idx = 0;
+  }
+
+  if (!kbhit())
+     return;
+
+  ch = getch();
+
+  if (ch == '+')
+     gain_idx = gain_increase (gain_idx);
+  else if (ch == '-')
+     gain_idx = gain_decrease (gain_idx);
 }
 
 int console_init (void)
@@ -320,177 +405,6 @@ void crtdbug_init (void)
 #endif  /* _DEBUG */
 
 /**
- * Log a message to the `Modes.log` file.
- */
-void modeS_log (const char *buf)
-{
-  static bool saw_nl = true;
-
-  if (!Modes.log)
-     return;
-
-  if (!saw_nl)
-     fputs (buf, Modes.log);
-  else
-  {
-    SYSTEMTIME now;
-    char       tbuf[25];
-    static     char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
-
-    GetLocalTime (&now);
-    now.wMonth--;
-    snprintf (tbuf, sizeof(tbuf), "%04u %.3s %02u %02u:%02u:%02u.%03u",
-              now.wYear, months + 3*now.wMonth, now.wDay, now.wHour,
-              now.wMinute, now.wSecond, now.wMilliseconds);
-    if (*buf == '\n')
-       buf++;
-    fprintf (Modes.log, "%s: %s", tbuf, buf);
-  }
-  saw_nl = (strchr(buf, '\n') != NULL);
-}
-
-/**
- * Print to both `FILE *f` and optionally to `Modes.log`.
- */
-void modeS_flogf (FILE *f, const char *fmt, ...)
-{
-  char buf [1000];
-  va_list args;
-
-  va_start (args, fmt);
-  vsnprintf (buf, sizeof(buf), fmt, args);
-  va_end (args);
-
-  if (f && f != Modes.log)
-  {
-    fputs (buf, f);
-    fflush (f);
-  }
-  if (Modes.log)
-     modeS_log (buf);
-}
-
-/**
- * Convert standard suffixes (k, M, G) to double
- *
- * \param in Hertz   a string to be parsed
- * \retval the fereuency as a `double`
- * \note Taken from Osmo-SDR's `convenience.c` and modified.
- */
-double ato_hertz (const char *Hertz)
-{
-  char   tmp [20], last_ch;
-  int    len;
-  double multiplier = 1.0;
-
-  strncpy (tmp, Hertz, sizeof(tmp));
-  len = strlen (tmp);
-  last_ch = tmp [len-1];
-  tmp [len-1] = '\0';
-
-  switch (last_ch)
-  {
-    case 'g':
-    case 'G':
-          multiplier *= 1E3;
-          /* fall-through */
-          ATTR_FALLTHROUGH();
-    case 'm':
-    case 'M':
-          multiplier *= 1E3;
-          /* fall-through */
-          ATTR_FALLTHROUGH();
-    case 'k':
-    case 'K':
-          multiplier *= 1E3;
-          break;
-    default:
-          break;
-  }
-  tmp [len-1] = last_ch;
-  return (multiplier * atof(tmp));
-}
-
-/**
- * Strip drive-letter, directory and suffix from a filename.
- */
-char *basename (const char *fname)
-{
-  const char *base = fname;
-
-  if (fname && *fname)
-  {
-    if (fname[0] && fname[1] == ':')
-    {
-      fname += 2;
-      base = fname;
-    }
-    while (*fname)
-    {
-      if (IS_SLASH(*fname))
-         base = fname + 1;
-      fname++;
-    }
-  }
-  return (char*) base;
-}
-
-/**
- * Return the directory part of a filename.
- * A static buffer is returned so make a copy of this ASAP.
- */
-char *dirname (const char *fname)
-{
-  const char *p = fname;
-  const char *slash = NULL;
-  size_t      dirlen;
-  static char dir [MG_PATH_MAX];
-
-  if (!fname)
-     return (NULL);
-
-  if (fname[0] && fname[1] == ':')
-  {
-    slash = fname + 1;
-    p += 2;
-  }
-
-  /* Find the rightmost slash.
-   */
-  while (*p)
-  {
-    if (IS_SLASH(*p))
-       slash = p;
-    p++;
-  }
-
-  if (slash == NULL)
-  {
-    fname = ".";
-    dirlen = 1;
-  }
-  else
-  {
-    /* Remove any trailing slashes.
-     */
-    while (slash > fname && (IS_SLASH(slash[-1])))
-        slash--;
-
-    /* How long is the directory we will return?
-     */
-    dirlen = slash - fname + (slash == fname || slash[-1] == ':');
-    if (*slash == ':' && dirlen == 1)
-       dirlen += 2;
-  }
-  strncpy (dir, fname, dirlen);
-
-  if (slash && *slash == ':' && dirlen == 3)
-     dir[2] = '.';      /* for "x:foo" return "x:." */
-  dir[dirlen] = '\0';
-  return (dir);
-}
-
-/**
  * Return a string describing an error-code from RTLSDR
  *
  * This can be from `librtlsdr` itself or from `libusb`.
@@ -519,7 +433,7 @@ void verbose_gain_set (rtlsdr_dev_t *dev, int gain)
   r = rtlsdr_set_tuner_gain (dev, gain);
   if (r)
        LOG_STDERR ("WARNING: Failed to set tuner gain.\n");
-  else LOG_STDERR ("Tuner gain set to %0.1f dB.\n", gain/10.0);
+  else LOG_STDERR ("Tuner gain set to %.0f dB.\n", gain/10.0);
 }
 
 /**
@@ -540,9 +454,9 @@ void verbose_gain_auto (rtlsdr_dev_t *dev)
  */
 void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
 {
-  int *gains, gain_in;
-  int  i, err1, err2, count, nearest;
-  int  r = rtlsdr_set_tuner_gain_mode (dev, 1);
+  int gain_in;
+  int i, err1, err2, nearest;
+  int r = rtlsdr_set_tuner_gain_mode (dev, 1);
 
   if (r)
   {
@@ -550,24 +464,24 @@ void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
     return;
   }
 
-  count = rtlsdr_get_tuner_gains (dev, NULL);
-  if (count <= 0)
+  Modes.rtlsdr.gain_count = rtlsdr_get_tuner_gains (dev, NULL);
+  if (Modes.rtlsdr.gain_count <= 0)
      return;
 
-  gains = alloca (sizeof(int) * count);
-  count = rtlsdr_get_tuner_gains (dev, gains);
-  nearest = gains[0];
+  Modes.rtlsdr.gains = malloc (sizeof(int) * Modes.rtlsdr.gain_count);
+  Modes.rtlsdr.gain_count = rtlsdr_get_tuner_gains (dev, Modes.rtlsdr.gains);
+  nearest = Modes.rtlsdr.gains[0];
   gain_in = *target_gain;
 
   LOG_STDERR ("Supported gains:");
-  for (i = 0; i < count; i++)
+  for (i = 0; i < Modes.rtlsdr.gain_count; i++)
   {
     err1 = abs (gain_in - nearest);
-    err2 = abs (gain_in - gains[i]);
+    err2 = abs (gain_in - Modes.rtlsdr.gains[i]);
 
-    LOG_STDERR (" %.0f%c", gains[i] / 10.0, i < count-1 ? ',' : '\n');
+    LOG_STDERR (" %.0f%c", Modes.rtlsdr.gains[i] / 10.0, i < Modes.rtlsdr.gain_count-1 ? ',' : '\n');
     if (err2 < err1)
-       nearest = gains[i];
+       nearest = Modes.rtlsdr.gains[i];
   }
   *target_gain = (uint16_t) nearest;
 }
@@ -605,7 +519,24 @@ void verbose_ppm_set (rtlsdr_dev_t *dev, int ppm_error)
   r = rtlsdr_set_freq_correction (dev, ppm_error);
   if (r < 0)
        LOG_STDERR ("WARNING: Failed to set PPM.\n");
-  else LOG_STDERR ("Tuner error set to %i PPM.\n", ppm_error);
+  else
+  {
+    uint32_t tuner_freq = 0;
+    rtlsdr_get_xtal_freq (dev, NULL, &tuner_freq);
+    LOG_STDERR ("Tuner correction set to %i PPM; %.3lf MHz.\n", ppm_error, (double)tuner_freq / 1E6);
+  }
+}
+
+/**
+ * Set RTLSDR automatic gain control.
+ */
+void verbose_agc_set (rtlsdr_dev_t *dev, int agc)
+{
+  int r = rtlsdr_set_agc_mode (dev, agc);
+
+  if (r < 0)
+       LOG_STDERR ("WARNING: Failed to set AGC.\n");
+  else LOG_STDERR ("AGC %s okay.\n", agc ? "enabled" : "disabled");
 }
 
 /**
@@ -825,7 +756,7 @@ void modeS_init_config (void)
   snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\%s",
             dirname(Modes.who_am_I), basename(AIRCRAFT_CSV));
 
-  Modes.gain        = MODES_AUTO_GAIN;
+  Modes.gain_auto   = true;
   Modes.sample_rate = MODES_DEFAULT_RATE;
   Modes.freq        = MODES_DEFAULT_FREQ;
   Modes.fix_errors  = true;
@@ -843,8 +774,9 @@ void modeS_init_config (void)
  */
 int modeS_init (void)
 {
-  mg_stat_t st;
-  int i, q;
+  mg_stat_t   st;
+  int         i, q;
+  const char *env;
 
   if (Modes.logfile)
   {
@@ -869,7 +801,7 @@ int modeS_init (void)
         left -= n;
       }
       fputc ('\n', Modes.log);
-      snprintf (buf, sizeof(buf), "---------------- starting '%s%s' -----------\n", Modes.who_am_I, args);
+      snprintf (buf, sizeof(buf), "------- Starting '%s%s' -----------\n", Modes.who_am_I, args);
       modeS_log (buf);
     }
   }
@@ -894,6 +826,21 @@ int modeS_init (void)
       LOG_STDERR ("Web-page \"%s\" is not a regular file.\n", full_name);
       return (1);
     }
+  }
+
+  env = getenv ("DUMP1090_HOMEPOS");
+  if (env)
+  {
+    pos_t pos;
+
+    if (sscanf(env, "%lf,%lf", &pos.lat, &pos.lon) != 2 || !VALID_POS(pos))
+    {
+      LOG_STDERR ("Invalid home-pos %s\n", env);
+      return (1);
+    }
+    Modes.home_pos = pos;
+    Modes.home_pos_ok = true;
+    spherical_to_cartesian (&Modes.home_pos_cart, &Modes.home_pos);
   }
 
   InitializeCriticalSection (&Modes.data_mutex);
@@ -948,7 +895,7 @@ int modeS_init (void)
 
   aircraft_CSV_load();
 
-  if (Modes.interactive && Modes.debug == 0 && Modes.raw == 0)
+  if (Modes.interactive && Modes.debug == 0 && !Modes.raw)
      return console_init();
   return (0);
 }
@@ -1039,7 +986,7 @@ int modeS_init_RTLSDR (void)
 
   /* Set gain, frequency, sample rate, and reset the device.
    */
-  if (Modes.gain == MODES_AUTO_GAIN)
+  if (Modes.gain_auto)
      verbose_gain_auto (Modes.rtlsdr.device);
   else
   {
@@ -1048,7 +995,7 @@ int modeS_init_RTLSDR (void)
   }
 
   if (Modes.dig_agc)
-     rtlsdr_set_agc_mode (Modes.rtlsdr.device, Modes.dig_agc);
+     verbose_agc_set (Modes.rtlsdr.device, 1);
 
   if (Modes.rtlsdr.ppm_error)
      verbose_ppm_set (Modes.rtlsdr.device, Modes.rtlsdr.ppm_error);
@@ -1099,7 +1046,7 @@ void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
 
 /**
  * This is used when `--infile` is specified in order to read data from file
- * instead of using an RTLSDR device.
+ * instead of using a RTLSDR / SDRplay device.
  */
 int read_from_data_file (void)
 {
@@ -1117,7 +1064,7 @@ int read_from_data_file (void)
      if (Modes.interactive)
      {
        /* When --infile and --interactive are used together, slow down
-        * playing at the natural rate of the RTLSDR received.
+        * mimicking the real RTLSDR / SDRplay rate.
         */
        Sleep (1000);
      }
@@ -1812,14 +1759,17 @@ const char *get_ME_description (const struct modeS_message *mm)
  * Decode a raw Mode S message demodulated as a stream of bytes by `detect_modeS()`. <br>
  * And split it into fields populating a `modeS_message` structure.
  */
-void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
+void decode_modeS_message (struct modeS_message *mm, const uint8_t *_msg)
 {
-  uint32_t crc2;   /* Computed CRC, used to verify the message CRC. */
+  uint32_t    crc2;   /* Computed CRC, used to verify the message CRC. */
   const char *AIS_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
+  uint8_t    *msg;
+
+  memset (mm, '\0', sizeof(*mm));
 
   /* Work on our local copy
    */
-  memcpy (mm->msg, msg, MODES_LONG_MSG_BYTES);
+  memcpy (mm->msg, _msg, MODES_LONG_MSG_BYTES);
   msg = mm->msg;
 
   /* Get the message type ASAP as other operations depend on this
@@ -1973,8 +1923,8 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
       mm->odd_flag = msg[6] & (1 << 2);
       mm->UTC_flag = msg[6] & (1 << 3);
       mm->altitude = decode_AC12_field (msg, &mm->unit);
-      mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
-      mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | msg[10];
+      mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1); /* Bits 23 - 39 */
+      mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | msg[10];       /* Bits 40 - 56 */
     }
     else if (mm->ME_type == 19 && mm->ME_subtype >= 1 && mm->ME_subtype <= 4)
     {
@@ -1996,15 +1946,15 @@ void decode_modeS_message (struct modeS_message *mm, uint8_t *msg)
 
         if (mm->velocity)
         {
-          int ewv = mm->EW_velocity;
-          int nsv = mm->NS_velocity;
+          int    ewV = mm->EW_velocity;
+          int    nsV = mm->NS_velocity;
           double heading;
 
           if (mm->EW_dir)
-             ewv *= -1;
+             ewV *= -1;
           if (mm->NS_dir)
-             nsv *= -1;
-          heading = atan2 (ewv, nsv);
+             nsV *= -1;
+          heading = atan2 (ewV, nsV);
 
           /* Convert to degrees.
            */
@@ -2373,18 +2323,18 @@ int detect_modeS (uint16_t *m, uint32_t mlen)
      * representing a valid preamble. We don't even investigate further
      * if this simple test is not passed.
      */
-    if (!(m[j] > m[j+1] &&
-        m[j+1] < m[j+2] &&
-        m[j+2] > m[j+3] &&
-        m[j+3] < m[j] &&
-        m[j+4] < m[j] &&
-        m[j+5] < m[j] &&
-        m[j+6] < m[j] &&
-        m[j+7] > m[j+8] &&
-        m[j+8] < m[j+9] &&
-        m[j+9] > m[j+6]))
+    if (!(m[j]   > m[j+1] &&
+          m[j+1] < m[j+2] &&
+          m[j+2] > m[j+3] &&
+          m[j+3] < m[j]   &&
+          m[j+4] < m[j]   &&
+          m[j+5] < m[j]   &&
+          m[j+6] < m[j]   &&
+          m[j+7] > m[j+8] &&
+          m[j+8] < m[j+9] &&
+          m[j+9] > m[j+6]))
     {
-      if (Modes.debug & DEBUG_NOPREAMBLE && m[j] > DEBUG_NOPREAMBLE_LEVEL)
+      if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
          dump_raw_message ("Unexpected ratio among first 10 samples", msg, m, j);
       continue;
     }
@@ -2397,7 +2347,7 @@ int detect_modeS (uint16_t *m, uint32_t mlen)
     high = (m[j] + m[j+2] + m[j+7] + m[j+9]) / 6;
     if (m[j+4] >= high || m[j+5] >= high)
     {
-      if (Modes.debug & DEBUG_NOPREAMBLE && m[j] > DEBUG_NOPREAMBLE_LEVEL)
+      if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
          dump_raw_message ("Too high level in samples between 3 and 6", msg, m, j);
       continue;
     }
@@ -2408,10 +2358,11 @@ int detect_modeS (uint16_t *m, uint32_t mlen)
      */
     if (m[j+11] >= high || m[j+12] >= high || m[j+13] >= high || m[j+14] >= high)
     {
-      if (Modes.debug & DEBUG_NOPREAMBLE && m[j] > DEBUG_NOPREAMBLE_LEVEL)
+      if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
          dump_raw_message ("Too high level in samples between 10 and 15", msg, m, j);
       continue;
     }
+
     Modes.stat.valid_preamble++;
 
 good_preamble:
@@ -2550,10 +2501,10 @@ good_preamble:
         if (Modes.debug & DEBUG_DEMOD)
            dump_raw_message ("Demodulated with 0 errors", msg, m, j);
 
-        else if (Modes.debug & DEBUG_BADCRC && mm.msg_type == 17 && (!mm.CRC_ok || mm.error_bit != -1))
+        else if ((Modes.debug & DEBUG_BADCRC) && mm.msg_type == 17 && (!mm.CRC_ok || mm.error_bit != -1))
            dump_raw_message ("Decoded with bad CRC", msg, m, j);
 
-        else if (Modes.debug & DEBUG_GOODCRC && mm.CRC_ok && mm.error_bit == -1)
+        else if ((Modes.debug & DEBUG_GOODCRC) && mm.CRC_ok && mm.error_bit == -1)
            dump_raw_message ("Decoded with good CRC", msg, m, j);
       }
 
@@ -2573,7 +2524,7 @@ good_preamble:
     }
     else
     {
-      if (Modes.debug & DEBUG_DEMODERR && use_correction)
+      if ((Modes.debug & DEBUG_DEMODERR) && use_correction)
       {
         LOG_STDOUT ("The following message has %d demod errors\n", errors);
         dump_raw_message ("Demodulated with errors", msg, m, j);
@@ -2597,7 +2548,7 @@ good_preamble:
 
 /**
  * When a new message is available, because it was decoded from the
- * RTL device, file, or received in the TCP input port, or any other
+ * RTL/SDRplay device, file, or received in the TCP input port, or any other
  * way we can receive a decoded message, we call this function in order
  * to use the message.
  *
@@ -2614,12 +2565,16 @@ void modeS_user_message (const struct modeS_message *mm)
                            Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS];
     if (Modes.interactive || num_clients > 0)
     {
-      struct aircraft *a = interactive_receive_data (mm);
+      uint64_t now = MSEC_TIME();
+      struct aircraft *a = interactive_receive_data (mm, now);
 
-      if (a && Modes.stat.cli_accepted[MODES_NET_SERVICE_SBS] > 0)
+      if (a)
       {
-        int num = modeS_send_SBS_output (mm, a);     /* Feed SBS output clients. */
-        TRACE (DEBUG_NET, "Sent ICAO=%06X to %d SBS client(s).\n", a->addr, num);
+        if (Modes.stat.cli_accepted[MODES_NET_SERVICE_SBS] > 0)
+        {
+          int num = modeS_send_SBS_output (mm, a);     /* Feed SBS output clients. */
+          TRACE (DEBUG_NET, "Sent ICAO=%06X to %d SBS client(s).\n", a->addr, num);
+        }
       }
     }
 
@@ -2640,25 +2595,23 @@ void modeS_user_message (const struct modeS_message *mm)
 }
 
 /**
- * Create a new dynamic aircraft structure.<br>
+ * Create a new aircraft structure.<br>
  * Store the printable hex-address as 6 digits since an ICAO address should never
  * contain more than 24 bits.
  *
  * \param in addr  the specific ICAO address.
- * \param in now   the current tick-time in seconds.
+ * \param in now   the current tick-time in milli-seconds.
  */
-struct aircraft *aircraft_create (uint32_t addr, uint32_t now)
+struct aircraft *aircraft_create (uint32_t addr, uint64_t now)
 {
   struct aircraft *a = calloc (sizeof(*a), 1);
 
   if (a)
   {
     a->addr = addr;
-    a->seen = now;
-    a->seen_first = now;
-    a->CSV  = aircraft_CSV_lookup_entry (addr);
-    a->showing = A_FIRST_TIME;
-    a->show_changed = true;
+    a->seen_first = a->seen_last = now;
+    a->CSV = aircraft_CSV_lookup_entry (addr);
+    a->show = A_SHOW_FIRST_TIME;
 
     /* We really can't tell if it's unique since we keep no global list of that yet
      */
@@ -2702,6 +2655,171 @@ int aircraft_numbers (void)
 }
 
 /**
+ * Distance between 2 points on a spherical earth.
+ * This has up to 0.5% error because the earth isn't actually spherical
+ * (but we don't use it in situations where that matters)
+ *
+ * \ref https://en.wikipedia.org/wiki/Great-circle_distance
+ */
+double great_circle_dist (const pos_t *pos1, const pos_t *pos2)
+{
+  double lat1 = TWO_PI * pos1->lat / 360.0;  /* convert to radians */
+  double lon1 = TWO_PI * pos1->lon / 360.0;
+  double lat2 = TWO_PI * pos2->lat / 360.0;
+  double lon2 = TWO_PI * pos2->lon / 360.0;
+  double angle;
+
+  /* Avoid a 'NaN'
+   */
+  if (fabs(lat1 - lat2) < SMALL_VAL && fabs(lon1 - lon2) < SMALL_VAL)
+     return (0.0);
+
+  angle = sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(fabs(lon1 - lon2));
+
+  /* Radius of the Earth * 'arcosine of angular distance'.
+   */
+  return (6371000.0 * acos(angle));
+}
+
+/**
+ * Set this aircraft's distance to our home position.
+ *
+ * The reference time-tick is the latest of `a->odd_CPR_time` and `a->even_CPR_time`.
+ */
+void set_home_distance (struct aircraft *a)
+{
+  if (VALID_POS(Modes.home_pos) && VALID_POS(a->position))
+  {
+    a->distance = great_circle_dist (&a->position, &Modes.home_pos);
+    a->EST_position  = a->position;
+    a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
+  }
+}
+
+/**
+ * Convert spherical coordinate to cartesian.
+ * Also calculates radius and a normal vector
+ */
+void spherical_to_cartesian (cartesian_t *cart, const pos_t *point)
+{
+  double lat = TWO_PI * point->lat / 360.0;
+  double lon = TWO_PI * point->lon / 360.0;
+
+  cart->c_x = 6371000.0 * cos (lon) * cos (lat);
+  cart->c_y = 6371000.0 * sin (lon) * cos (lat);
+  cart->c_z = 6371000.0 * sin (lat);
+}
+
+/**
+ * \ref https://keisan.casio.com/exec/system/1359533867
+ */
+void cartesian_to_spherical (pos_t *point, const cartesian_t *cart)
+{
+  /* We do not need this; close to earth's radius = 6371000 m.
+   *
+   * double radius = sqrt (cart->c_x*cart->c_x +cart->c_y*cart->c_y + cart->c_z*cart->c_z);
+   */
+  point->lon = 360.0 * atan2 (cart->c_y, cart->c_x) / TWO_PI;
+  point->lat = 360.0 * atan2 (hypot(cart->c_x, cart->c_y), cart->c_z) / TWO_PI;
+}
+
+/**
+ * Return the distance between 2 cartesian points.
+ */
+double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
+{
+  double dX = b->c_x - a->c_x;
+  double dY = b->c_y - a->c_y;
+  return hypot (dX, dY);
+}
+
+/**
+ * Set this aircraft's estimated distance to our home position.
+ *
+ * Assuming a constant good last heading and speed, calculate the
+ * new position from that using the elapsed time.
+ */
+void set_est_home_distance (struct aircraft *a, uint64_t now)
+{
+  if (VALID_POS(Modes.home_pos) && a->speed && a->heading_is_valid)
+  {
+    double      heading, distance, dX, dY;
+    cartesian_t cpos;
+
+    if (!VALID_POS(a->EST_position) || a->EST_seen_last < a->seen_last)
+       return;
+
+    spherical_to_cartesian (&cpos, &a->EST_position);
+
+    /* Ensure heading is in range '[-Phi .. +Phi]'
+     */
+    if (a->heading >= 180)
+         heading = TWO_PI * (a->heading - 360) / 360;
+    else heading = TWO_PI * a->heading / 360;
+
+    /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
+     */
+    distance = 0.001852 * (double)a->speed * (now - a->EST_seen_last);
+    a->EST_seen_last = now;
+
+    dX = distance * sin (heading);
+    dY = distance * cos (heading);
+    cpos.c_x += dX;
+    cpos.c_y += dY;
+
+    cartesian_to_spherical (&a->EST_position, &cpos);
+
+#if 1
+    a->EST_distance = great_circle_dist (&a->EST_position, &Modes.home_pos);
+#else
+    a->EST_distance = cartesian_distance (&cpos, &Modes.home_pos_cart);
+#endif
+
+    LOG_FILEONLY ("addr %04X: heading: %+7.2lf, distance: %7.3lf, dX: %+8.3lf, dY: %+8.3lf, EST_distance: %3.1lf km\n",
+                  a->addr, 360.0*heading/TWO_PI, distance, dX, dY, a->EST_distance/1000);
+  }
+}
+
+/**
+ * Return a string showing this aircraft's distance to our home position.
+ *
+ * If `Modes.metric == true`, return it in kilo-meters. <br>
+ * Otherwise Knots.
+ */
+const char *get_home_distance (const struct aircraft *a, const char **km_kts)
+{
+  static char buf [20];
+  double divisor = Modes.metric ? 1000.0 : 1852.0;
+
+  if (km_kts)
+     *km_kts = Modes.metric ? "km" : "kts";
+
+  if (a->distance <= SMALL_VAL)
+     return (NULL);
+
+  snprintf (buf, sizeof(buf), "%.1lf", a->distance / divisor);
+  return (buf);
+}
+
+/**
+ * As for `get_home_distance()`, but return the Estimated distance.
+ */
+const char *get_est_home_distance (const struct aircraft *a, const char **km_kts)
+{
+  static char buf [20];
+  double divisor = Modes.metric ? 1000.0 : 1852.0;
+
+  if (km_kts)
+     *km_kts = Modes.metric ? "km" : "kts";
+
+  if (a->EST_distance <= SMALL_VAL)
+     return (NULL);
+
+  snprintf (buf, sizeof(buf), "%.1lf", a->EST_distance / divisor);
+  return (buf);
+}
+
+/**
  * Helper function for decoding the **CPR** (*Compact Position Reporting*). <br>
  * Always positive MOD operation, used for CPR decoding.
  */
@@ -2711,7 +2829,7 @@ int CPR_mod_func (int a, int b)
 
   if (res < 0)
      res += b;
-  return res;
+  return (res);
 }
 
 /**
@@ -2830,10 +2948,11 @@ void decode_CPR (struct aircraft *a)
 
   if (rlat0 >= 270)
      rlat0 -= 360;
+
   if (rlat1 >= 270)
      rlat1 -= 360;
 
-  /* Check that both are in the same latitude zone, or abort.
+  /* Check that both are in the same latitude zone, or return.
    */
   if (CPR_NL_func(rlat0) != CPR_NL_func(rlat1))
      return;
@@ -2846,8 +2965,8 @@ void decode_CPR (struct aircraft *a)
     int ni = CPR_N_func (rlat0, 0);
     int m = (int) floor ((((lon0 * (CPR_NL_func(rlat0)-1)) -
                          (lon1 * CPR_NL_func(rlat0))) / 131072) + 0.5);
-    a->lon = CPR_Dlong_func (rlat0, 0) * (CPR_mod_func(m, ni) + lon0/131072);
-    a->lat = rlat0;
+    a->position.lon = CPR_Dlong_func (rlat0, 0) * (CPR_mod_func(m, ni) + lon0/131072);
+    a->position.lat = rlat0;
   }
   else
   {
@@ -2855,40 +2974,39 @@ void decode_CPR (struct aircraft *a)
     int ni = CPR_N_func (rlat1, 1);
     int m  = (int) floor ((((lon0 * (CPR_NL_func(rlat1)-1)) -
                           (lon1 * CPR_NL_func(rlat1))) / 131072.0) + 0.5);
-    a->lon = CPR_Dlong_func (rlat1, 1) * (CPR_mod_func (m, ni)+lon1/131072);
-    a->lat = rlat1;
+    a->position.lon = CPR_Dlong_func (rlat1, 1) * (CPR_mod_func (m, ni) + lon1/131072);
+    a->position.lat = rlat1;
   }
-  if (a->lon > 180)
-     a->lon -= 360;
+
+  if (a->position.lon > 180)
+     a->position.lon -= 360;
+
+  set_home_distance (a);
 }
 
 /**
  * Receive new messages and populate the interactive mode with more info.
  */
-struct aircraft *interactive_receive_data (const struct modeS_message *mm)
+struct aircraft *interactive_receive_data (const struct modeS_message *mm, uint64_t now)
 {
   struct aircraft *a, *aux;
   uint32_t addr;
-  uint32_t now_s;
-  uint64_t now;
 
   if (Modes.check_crc && !mm->CRC_ok)
      return (NULL);
 
-  addr  = (mm->AA1 << 16) | (mm->AA2 << 8) | mm->AA3;
-  now   = MSEC_TIME();
-  now_s = now / 1000;
+  addr = (mm->AA1 << 16) | (mm->AA2 << 8) | mm->AA3;
 
   /* Loookup our aircraft or create a new one.
    */
   a = aircraft_find (addr);
   if (!a)
   {
-    a = aircraft_create (addr, now_s);
+    a = aircraft_create (addr, now);
     if (!a)
-       return (NULL);  /* Not fatal; there could be available memory later */
-    a->next = Modes.aircrafts;
-    Modes.aircrafts = a;
+       return (NULL);          /* Not fatal; there could be available memory later */
+
+    LIST_ADD_HEAD (struct aircraft, &Modes.aircrafts, a);
   }
   else
   {
@@ -2900,7 +3018,7 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
      * otherwise with multiple aircrafts at the same time we have an
      * useless shuffle of positions on the screen.
      */
-    if (0 && Modes.aircrafts != a && (now_s - a->seen) >= 1)
+    if (0 && Modes.aircrafts != a && (now - a->seen_last) >= 1000)
     {
       aux = Modes.aircrafts;
       while (aux->next != a)
@@ -2916,7 +3034,7 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
     }
   }
 
-  a->seen = now_s;
+  a->seen_last = now;
   a->messages++;
 
   if (mm->msg_type == 5 || mm->msg_type == 21)
@@ -2936,8 +3054,8 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
     {
       memcpy (a->flight, mm->flight, sizeof(a->flight));
     }
-    else if ((mm->ME_type >= 9  && mm->ME_type <= 18) || /* Airborne Position (Baro Altitude)" */
-             (mm->ME_type >= 20 && mm->ME_type <= 22))   /* "Airborne Position (GNSS Height)" */
+    else if ((mm->ME_type >= 9  && mm->ME_type <= 18) || /* Airborne Position (Baro Altitude) */
+             (mm->ME_type >= 20 && mm->ME_type <= 22))   /* Airborne Position (GNSS Height) */
     {
       a->altitude = mm->altitude;
       if (mm->odd_flag)
@@ -2953,12 +3071,20 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
         a->even_CPR_time = now;
       }
 
-      /* If the two reports are less than 10 seconds apart, compute the position.
+      /* If the two reports are less than 10 minutes apart, compute the position.
+       * This used to be '10 sec', but I used some code from:
+       *   https://github.com/Mictronics/readsb/blob/master/track.c
+       *
+       * which says:
+       *   A wrong relative position decode would require the aircraft to
+       *   travel 360-100=260 NM in the 10 minutes of position validity.
+       *   This is impossible for planes slower than 1560 knots/Mach 2.3 over the ground.
        */
       int64_t t_diff = (int64_t) (a->even_CPR_time - a->odd_CPR_time);
 
-      if (llabs(t_diff) <= 10000)
-         decode_CPR (a);
+      if (llabs(t_diff) <= 60*10*1000)
+           decode_CPR (a);
+      else LOG_FILEONLY ("t_diff for '%04X' too large: %lld sec.\n", a->addr, t_diff/1000);
     }
     else if (mm->ME_type == 19)
     {
@@ -2976,25 +3102,28 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm)
 /**
  * Show information for a single aircraft.
  *
- * If `a->showing == A_FIRST_TIME`, print in GREEN colour.
- * If `a->showing == A_LAST_TIME`, print in RED colour.
+ * If `a->show == A_SHOW_FIRST_TIME`, print in GREEN colour.
+ * If `a->show == A_SHOW_LAST_TIME`, print in RED colour.
  *
  * \param in a    the aircraft to show.
- * \param in now  the currect tick-timer in seconds.
+ * \param in now  the currect tick-timer in milli-seconds.
  */
-bool interactive_show_aircraft (const struct aircraft *a, uint64_t now)
+void interactive_show_aircraft (const struct aircraft *a, uint64_t now)
 {
   int   altitude = a->altitude;
   int   speed = a->speed;
-  char  alt_buf [10] = "  - ";
-  char  squawk  [6]  = "  - ";
-  char  lat_buf [10] = "  - ";
-  char  lon_buf [10] = "  - ";
-  char  speed_buf [8] = " - ";
-  char  heading_buf [8] = " - ";
-  bool  restore_colour = false;
-  const char *reg_num = "";
-  bool  rc = false;
+  char  alt_buf [10]       = "  - ";
+  char  squawk  [6]        = "  - ";
+  char  lat_buf [10]       = "  - ";
+  char  lon_buf [10]       = "  - ";
+  char  speed_buf [8]      = " - ";
+  char  heading_buf [8]    = " - ";
+  char  distance_buf [10]  = "";
+  bool  restore_colour     = false;
+  const char *reg_num      = "";
+  const char *distance     = NULL;
+  const char *est_distance = NULL;
+  const char *km_kts;
 
   /* Convert units to metric if --metric was specified.
    */
@@ -3014,11 +3143,11 @@ bool interactive_show_aircraft (const struct aircraft *a, uint64_t now)
   if (a->identity)
      snprintf (squawk, 5, "%05d", a->identity);
 
-  if (a->lat)
-     snprintf (lat_buf, sizeof(lat_buf), "%.03f", a->lat);
+  if (a->position.lat)
+     snprintf (lat_buf, sizeof(lat_buf), "%.03f", a->position.lat);
 
-  if (a->lon)
-     snprintf (lon_buf, sizeof(lon_buf), "%.03f", a->lon);
+  if (a->position.lon)
+     snprintf (lon_buf, sizeof(lon_buf), "%.03f", a->position.lon);
 
   if (a->speed)
      snprintf (speed_buf, sizeof(speed_buf), "%d", a->speed);
@@ -3026,39 +3155,44 @@ bool interactive_show_aircraft (const struct aircraft *a, uint64_t now)
   if (a->heading_is_valid)
      snprintf (heading_buf, sizeof(heading_buf), "%d", a->heading);
 
+  if (Modes.home_pos_ok)
+  {
+    distance     = get_home_distance (a, &km_kts);
+    est_distance = get_est_home_distance (a, &km_kts);
+    snprintf (distance_buf, sizeof(distance_buf), "  %-6.6s", est_distance ? est_distance : " -");
+  }
+
   if (a->CSV && a->CSV->reg_num[0])
      reg_num = a->CSV->reg_num;
 
-  if (a->show_changed)
+  if (a->show == A_SHOW_FIRST_TIME)
   {
-    if (a->showing == A_FIRST_TIME)
-    {
-      setcolor (COLOUR_GREEN);
-      rc = restore_colour = true;
-      LOG_FILEONLY ("plane '%06X' entering.\n", a->addr);
-    }
-    else if (a->showing == A_LAST_TIME)
-    {
-      setcolor (COLOUR_RED);
-      rc = restore_colour = true;
-      LOG_FILEONLY ("plane '%06X' leaving. Active for %u sec.\n",
-                    a->addr, (uint32_t)(now - a->seen_first - Modes.interactive_ttl));
-    }
+    setcolor (COLOUR_GREEN);
+    restore_colour = true;
+    LOG_FILEONLY ("plane '%06X' entering.\n", a->addr);
+  }
+  else if (a->show == A_SHOW_LAST_TIME)
+  {
+    setcolor (COLOUR_RED);
+    restore_colour = true;
+    LOG_FILEONLY ("plane '%06X' leaving. Active for %.1lf sec. Distance: %s/%s %s.\n",
+                  a->addr, (double)(now - a->seen_first) / 1000.0,
+                  distance     ? distance     : "-",
+                  est_distance ? est_distance : "-", km_kts);
   }
 
-  printf ("%06X %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %-7s  %-4ld %2d sec \n",
+  printf ("%06X %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %-7s%s  %-4ld %2llu sec \n",
           a->addr, a->flight, reg_num, squawk, alt_buf, speed_buf,
-          lat_buf, lon_buf, heading_buf, a->messages, (int)(now - a->seen));
+          lat_buf, lon_buf, heading_buf, distance_buf, a->messages,
+          (now - a->seen_last) / 1000);
 
   if (restore_colour)
      setcolor (0);
-
-  return (rc);
 }
 
 /**
  * Show the currently captured aircraft information on screen.
- * \param in now  the currect tick-timer in seconds
+ * \param in now  the currect tick-timer in mill-seconds
  */
 void interactive_show_data (uint64_t now)
 {
@@ -3066,6 +3200,9 @@ void interactive_show_data (uint64_t now)
   static int old_count = -1;
   int    count = 0;
   char   spinner[] = "|/-\\";
+  const char *dist_column;
+  const char *extra_dashes;
+
   struct aircraft *a = Modes.aircrafts;
 
   /* Unless debug or raw-mode is active, clear the screen to remove old info.
@@ -3074,27 +3211,44 @@ void interactive_show_data (uint64_t now)
    */
   if (Modes.debug == 0 && !Modes.raw)
   {
-    if (old_count == -1 || old_count > aircraft_numbers())
+    if (old_count == -1 || aircraft_numbers() < old_count)
        clrscr();
     gotoxy (1, 1);
   }
 
+  if (Modes.home_pos_ok)
+  {
+    dist_column  = "  Dist  ";
+    extra_dashes = "--------";
+  }
+  else
+  {
+    dist_column  = "";
+    extra_dashes = "";
+  }
+
   setcolor (COLOUR_WHITE);
-  printf ("ICAO   Flight   Reg-num  Sqwk   Altitude  Speed    Lat       Long     Heading  Msg  Seen %c\n"
-          "-------------------------------------------------------------------------------------------\n",
-          spinner[spin_idx++ % 4]);
+  printf ("ICAO   Flight   Reg-num  Sqwk   Altitude  Speed    Lat       Long     Heading%s  Msg  Seen %c\n"
+          "-------------------------------------------------------------------------------------------%s\n",
+          dist_column, spinner[spin_idx & 3], extra_dashes);
+  spin_idx++;
   setcolor (0);
 
   while (a && count < Modes.interactive_rows && !Modes.exit)
   {
-    if (interactive_show_aircraft (a, now))
+    if (a->show != A_SHOW_NONE)
     {
-      if (a->showing == A_FIRST_TIME)
-         a->showing = A_SHOW_NORMAL;
-      else if (a->showing == A_LAST_TIME)
-         a->showing = 0;  /* don't show again */
+      set_est_home_distance (a, now);
+      interactive_show_aircraft (a, now);
     }
-    a->show_changed = false;
+
+    /* Simple state-machine for the plane's show-state
+     */
+    if (a->show == A_SHOW_FIRST_TIME)
+       a->show = A_SHOW_NORMAL;
+    else if (a->show == A_SHOW_LAST_TIME)
+       a->show = A_SHOW_NONE;      /* don't show again before deleting it */
+
     a = a->next;
     count++;
   }
@@ -3102,40 +3256,33 @@ void interactive_show_data (uint64_t now)
 }
 
 /**
- * When in interactive mode, if we don't receive new nessages within
- * `Modes.interactive_ttl` seconds, we remove the aircraft from the list.
+ * Called from `background_tasks()` 4 times per second.
  *
- * \retval return a pointer to the aircraft that is to be removed
- *         on the next call to this function. So we can write this
- *         aircraft information in red colour.
+ * If we don't receive new nessages within `Modes.interactive_ttl`
+ * milli-seconds, we remove the aircraft from the list.
  */
 void remove_stale_aircrafts (uint64_t now)
 {
-  uint32_t sec_now = (int32_t) (now / 1000);
-  int32_t  sec_diff;
   struct aircraft *a, *a_next;
 
   for (a = Modes.aircrafts; a; a = a_next)
   {
-    a_next = a->next;
-    sec_diff = (int32_t) (sec_now - a->seen);
+    int64_t diff = (int64_t) (now - a->seen_last);
 
-    if (sec_diff > (int32_t)Modes.interactive_ttl)
+    a_next = a->next;
+
+    /* Mark this plane for a "last time" view on next refresh?
+     */
+    if (a->show == A_SHOW_NORMAL && diff >= Modes.interactive_ttl - 1000)
+    {
+      a->show = A_SHOW_LAST_TIME;
+    }
+    else if (diff > Modes.interactive_ttl)
     {
       /* Remove the element from the linked list.
        */
       LIST_DELETE (struct aircraft, &Modes.aircrafts, a);
       free (a);
-    }
-    else
-    {
-      /* Mark this plane for a "last time" on next refresh?
-       */
-      if ((int)a->showing && sec_diff >= (int32_t)Modes.interactive_ttl)
-      {
-        a->showing = A_LAST_TIME;
-        a->show_changed = true;
-     }
     }
   }
 }
@@ -3226,13 +3373,12 @@ char *aircrafts_to_json (int *len, int *num_planes)
       speed     = (int) speedKmH;
     }
 
-    if (a->lat != 0 && a->lon != 0)
+    if (VALID_POS(a->position))
     {
       l = snprintf (p, buflen,
-                    "{\"hex\":\"%06X\", \"flight\":\"%s\", \"lat\":%f, "
-                    "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
-                    "\"speed\":%d},\n",
-                    a->addr, a->flight, a->lat, a->lon, a->altitude, a->heading, a->speed);
+                    "{\"hex\":\"%06X\", \"flight\":\"%s\", \"lat\":%f, \"lon\":%f, \"altitude\":%d, "
+                    "\"track\":%d, \"speed\":%d},\n",
+                    a->addr, a->flight, a->position.lat, a->position.lon, a->altitude, a->heading, a->speed);
       p += l;
       buflen -= l;
       num++;
@@ -3508,7 +3654,8 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
   Modes.stat.HTTP_get_requests++;
 
   *end = '\0';
-  data_json = (stricmp(request, "GET /data.json") == 0);
+  data_json = (stricmp(request, "GET /data.json") == 0) ||
+              (strnicmp(request, "GET /chunks/chunks.json", 23) == 0);  /* Tar1090 web-root */
 
   cli = get_client_addr (&conn->peer, MODES_NET_SERVICE_HTTP);
 
@@ -3775,11 +3922,11 @@ int modeS_send_SBS_output (const struct modeS_message *mm, const struct aircraft
   }
   else if (mm->msg_type == 17 && mm->ME_type >= 9 && mm->ME_type <= 18)
   {
-    if (a->lat == 0 && a->lon == 0)
+    if (a->position.lat == 0 && a->position.lon == 0)
          p += sprintf (p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,,,,,0,0,0,0",
                        mm->AA1, mm->AA2, mm->AA3, mm->altitude);
     else p += sprintf (p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
-                       mm->AA1, mm->AA2, mm->AA3, mm->altitude, a->lat, a->lon);
+                       mm->AA1, mm->AA2, mm->AA3, mm->altitude, a->position.lat, a->position.lon);
   }
   else if (mm->msg_type == 17 && mm->ME_type == 19 && mm->ME_subtype == 1)
   {
@@ -3947,12 +4094,12 @@ void show_help (const char *fmt, ...)
           "    --only-addr              Show only ICAO addresses (testing purposes).\n"
           "    --strip <level>          Strip IQ file removing samples below level.\n"
           "    -h, --help               Show this help.\n\n",
-          Modes.who_am_I, Modes.aircraft_db, MODES_ICAO_CACHE_TTL);
+          Modes.who_am_I, Modes.aircraft_db, MODES_INTERACTIVE_TTL);
 
   printf ("  Network options:\n"
           "    --net                    Enable networking.\n"
           "    --net-http-port <port>   HTTP server port (default: %u).\n"
-          "    --net-only               Enable just networking, no RTL device or file.\n"
+          "    --net-only               Enable just networking, no physical device or file.\n"
           "    --net-ro-port <port>     TCP listening port for raw output (default: %u).\n"
           "    --net-ri-port <port>     TCP listening port for raw input (default: %u).\n"
           "    --net-sbs-port <port>    TCP listening port for BaseStation format output (default: %u).\n"
@@ -3978,14 +4125,17 @@ void show_help (const char *fmt, ...)
           "                   C = Log frames with good CRC.\n"
           "                   p = Log frames with bad preamble.\n"
           "                   n = Log network debugging information.\n"
-          "                   N = a bit more network information than flag 'n'.\n"
+          "                   N = A bit more network information than flag 'n'.\n"
           "                   j = Log frames to frames.js, loadable by `debug.html'.\n"
           "                   g = Log general debugging info.\n"
-          "                   G = a bit more network information than flag 'g'.\n"
+          "                   G = A bit more network information than flag 'g'.\n"
           "                   u = Log libusb informal messages.\n"
-          "                   U = Log libusb debug details.\n");
+          "                   U = Log libusb debug details.\n\n");
 
-  modeS_exit();  /* free Pthread-W32 data */
+  printf ("  Your home-position for distance calculation can be set like:\n"
+          "  'c:\\> set DUMP1090_HOMEPOS=51.5285578,-0.2420247' for London.\n");
+
+  modeS_exit();
   exit (1);
 }
 
@@ -3993,20 +4143,14 @@ void show_help (const char *fmt, ...)
  * This background function is called continously by `main_data_loop()`.
  * It performs:
  *  *) Removes inactive aircrafts from the list.
- *  *) Polls the network for events.
+ *  *) Polls the network for events blocking less than `MODES_INTERACTIVE_REFRESH_TIME`.
  *  *) Refreshes interactive data 4 times per second (`MODES_INTERACTIVE_REFRESH_TIME`).
  *  *) Refreshes the console-title with some statistics (also 4 times per second).
  */
 void background_tasks (void)
 {
-  uint64_t now = MSEC_TIME();
   bool     refresh;
-  static   uint64_t start;  /* program start time */
-
-  if (start == 0)
-     start = now;
-
-  remove_stale_aircrafts (now);
+  uint64_t now;
 
   if (Modes.net)
      mg_mgr_poll (&Modes.mgr, MG_NET_POLL_TIME); /* Poll Mongoose for network events */
@@ -4014,20 +4158,26 @@ void background_tasks (void)
   if (Modes.exit)
      return;
 
-  refresh = (now - Modes.last_update_ms) > MODES_INTERACTIVE_REFRESH_TIME;
-  if (refresh)
-  {
-    if (Modes.log)
-       fflush (Modes.log);
+  now = MSEC_TIME();
 
-    /* Refresh screen and console-title when in interactive mode
-     */
-    if (Modes.interactive)
-    {
-      interactive_show_data (now/1000);
-      console_title_stats();
-    }
-    Modes.last_update_ms = now;
+  refresh = (now - Modes.last_update_ms) >= MODES_INTERACTIVE_REFRESH_TIME;
+  if (!refresh)
+     return;
+
+  Modes.last_update_ms = now;
+
+  if (Modes.log)
+     fflush (Modes.log);
+
+  remove_stale_aircrafts (now);
+
+  /* Refresh screen and console-title when in interactive mode
+   */
+  if (Modes.interactive)
+  {
+    interactive_show_data (now);
+    console_title_stats();
+    console_update_gain();
   }
 }
 
@@ -4135,12 +4285,14 @@ void modeS_exit (void)
   if (Modes.rtlsdr.device)
   {
     rc = rtlsdr_close (Modes.rtlsdr.device);
+    free (Modes.rtlsdr.gains);
     Modes.rtlsdr.device = NULL;
     TRACE (DEBUG_GENERAL2, "rtlsdr_close(), rc: %d.\n", rc);
   }
   else if (Modes.sdrplay.device)
   {
     rc = sdrplay_exit (Modes.sdrplay.device);
+    free (Modes.sdrplay.gains);
     Modes.sdrplay.device = NULL;
     TRACE (DEBUG_GENERAL2, "sdrplay_exit(), rc: %d.\n", rc);
   }
@@ -4153,23 +4305,12 @@ void modeS_exit (void)
 
   free_all_aircrafts();
 
-  if (Modes.magnitude_lut)
-     free (Modes.magnitude_lut);
-
-  if (Modes.magnitude)
-     free (Modes.magnitude);
-
-  if (Modes.data)
-     free (Modes.data);
-
-  if (Modes.ICAO_cache)
-     free (Modes.ICAO_cache);
-
-  if (Modes.aircraft_list)
-     free (Modes.aircraft_list);
-
-  if (Modes.selected_dev)
-     free (Modes.selected_dev);
+  free (Modes.magnitude_lut);
+  free (Modes.magnitude);
+  free (Modes.data);
+  free (Modes.ICAO_cache);
+  free (Modes.aircraft_list);
+  free (Modes.selected_dev);
 
   DeleteCriticalSection (&Modes.data_mutex);
   DeleteCriticalSection (&Modes.print_mutex);
@@ -4206,6 +4347,198 @@ static void select_device (char *arg)
   }
 }
 
+void select_debug (const char *flags)
+{
+  while (*flags)
+  {
+    switch (*flags)
+    {
+      case 'D':
+           Modes.debug |= DEBUG_DEMOD;
+           break;
+      case 'E':
+           Modes.debug |= DEBUG_DEMODERR;
+           break;
+      case 'C':
+           Modes.debug |= DEBUG_GOODCRC;
+           break;
+      case 'c':
+           Modes.debug |= DEBUG_BADCRC;
+           break;
+      case 'p':
+      case 'P':
+           Modes.debug |= DEBUG_NOPREAMBLE;
+           break;
+      case 'n':
+           Modes.debug |= DEBUG_NET;
+           break;
+      case 'N':
+           Modes.debug |= (DEBUG_NET2 | DEBUG_NET);  /* A bit more network details */
+           break;
+      case 'j':
+      case 'J':
+           Modes.debug |= DEBUG_JS;
+           break;
+      case 'g':
+           Modes.debug |= DEBUG_GENERAL;
+           break;
+      case 'G':
+           Modes.debug |= (DEBUG_GENERAL2 | DEBUG_GENERAL);
+           break;
+      case 'u':
+           Modes.debug |= DEBUG_LIBUSB;
+           break;
+      case 'U':
+           Modes.debug |= DEBUG_LIBUSB2;
+           break;
+      default:
+           show_help ("Unknown debugging flag: %c\n", *flags);
+           /* not reached */
+           break;
+    }
+    flags++;
+  }
+}
+
+static struct option long_options[] = {
+  { "agc",              no_argument,        (int*)&Modes.dig_agc,          1   },
+  { "aggressive",       no_argument,        (int*)&Modes.aggressive,       1   },
+  { "database",         required_argument,  NULL,                          'b' },
+  { "bias",             no_argument,        (int*)&Modes.bias_tee,         1   },
+  { "calibrate",        no_argument,        (int*)&Modes.rtlsdr.calibrate, 1   },
+  { "debug",            required_argument,  NULL,                          'd' },
+  { "device",           required_argument,  NULL,                          'D' },
+  { "freq",             required_argument,  NULL,                          'f' },
+  { "gain",             required_argument,  NULL,                          'g' },
+  { "help",             no_argument,        NULL,                          'h' },
+  { "infile",           required_argument,  NULL,                          'i' },
+  { "interactive",      no_argument,        (int*)&Modes.interactive,      1   },
+  { "interactive-rows", required_argument,  NULL,                          'r' },
+  { "interactive-ttl",  required_argument,  NULL,                          't' },
+  { "logfile",          required_argument,  NULL,                          'L' },
+  { "loop",             optional_argument,  NULL,                          'l' },
+  { "max-messages",     required_argument,  NULL,                          'm' },
+  { "metric",           no_argument,        (int*)&Modes.metric,           1   },
+  { "no-crc-check",     no_argument,        (int*)&Modes.check_crc,        0   },
+  { "no-fix",           no_argument,        (int*)&Modes.fix_errors,       0   },
+  { "net",              no_argument,        (int*)&Modes.net,              1   },
+  { "net-only",         no_argument,        NULL,                          'n' },
+  { "net-http-port",    required_argument,  NULL,                          'X' + MODES_NET_SERVICE_HTTP },
+  { "net-ri-port",      required_argument,  NULL,                          'X' + MODES_NET_SERVICE_RAW_IN },
+  { "net-ro-port",      required_argument,  NULL,                          'X' + MODES_NET_SERVICE_RAW_OUT },
+  { "net-sbs-port",     required_argument,  NULL,                          'X' + MODES_NET_SERVICE_SBS },
+  { "only-addr",        no_argument,        (int*)&Modes.only_addr,        1   },
+  { "ppm",              required_argument,  NULL,                          'p' },
+  { "raw",              no_argument,        (int*)&Modes.raw,              1   },
+  { "samplerate",       required_argument,  NULL,                          's' },
+  { "strip",            required_argument,  NULL,                          'S' },
+  { "web-page",         required_argument,  NULL,                          'w' },
+  { NULL,               no_argument,        NULL,                          0   }
+};
+
+void parse_cmd_line (int argc, char **argv)
+{
+  int c;
+
+  while ((c = getopt_long (argc, argv, "h?", long_options, NULL)) != EOF)
+  {
+    switch (c)
+    {
+      case 'b':
+           strncpy (Modes.aircraft_db, optarg, sizeof(Modes.aircraft_db)-1);
+           break;
+
+      case 'D':
+           select_device (optarg);
+           break;
+
+      case 'd':
+           select_debug (optarg);
+           break;
+
+      case 'f':
+           Modes.freq = (uint32_t) ato_hertz (optarg);
+           break;
+
+      case 'g':
+           if (stricmp(optarg, "auto"))   /* Since 'Modes.gain_auto = true' already set */
+           {
+             Modes.gain = (int) (10.0 * atof(optarg));   /* Gain is in tens of dBs */
+             Modes.gain_auto = false;
+           }
+           break;
+
+      case 'i':
+           Modes.infile = optarg;
+           break;
+
+      case 'l':
+           Modes.loops = optarg ? _atoi64 (optarg) : LLONG_MAX;
+           break;
+
+      case 'L':
+           Modes.logfile = optarg;
+           break;
+
+      case 'm':
+           Modes.message_count = _atoi64 (optarg);
+           break;
+
+      case 'n':
+           Modes.net_only = Modes.net = true;
+           break;
+
+      case 'X' + MODES_NET_SERVICE_RAW_OUT:
+           modeS_net_services [MODES_NET_SERVICE_RAW_OUT].port = atoi (optarg);
+           break;
+
+      case 'X' + MODES_NET_SERVICE_RAW_IN:
+           modeS_net_services [MODES_NET_SERVICE_RAW_IN].port = atoi (optarg);
+           break;
+
+      case 'X' + MODES_NET_SERVICE_HTTP:
+           modeS_net_services [MODES_NET_SERVICE_HTTP].port = atoi (optarg);
+           break;
+
+      case 'X' + MODES_NET_SERVICE_SBS:
+           modeS_net_services [MODES_NET_SERVICE_SBS].port = atoi (optarg);
+           break;
+
+      case 'p':
+           Modes.rtlsdr.ppm_error = atoi (optarg);
+           break;
+
+      case 'r':
+           Modes.interactive_rows = atoi (optarg);
+           break;
+
+      case 's':
+           Modes.sample_rate = (uint32_t) ato_hertz (optarg);
+           break;
+
+      case 'S':
+           Modes.strip_level = atoi (optarg);
+           if (Modes.strip_level == 0)
+              show_help ("Illegal --strip level %d.\n\n", Modes.strip_level);
+           break;
+
+      case 't':
+           Modes.interactive_ttl = 1000 * atoi (optarg);
+           break;
+
+      case 'w':
+           strncpy (Modes.web_root, dirname(optarg), sizeof(Modes.web_root)-1);
+           strncpy (Modes.web_page, basename(optarg), sizeof(Modes.web_page)-1);
+           break;
+
+      case 'h':
+      case '?':
+           show_help (NULL);
+           break;
+    }
+  }
+}
+
 /**
  * Our main entry.
  */
@@ -4220,179 +4553,16 @@ int main (int argc, char **argv)
   /* Set sane defaults. */
   modeS_init_config();
 
-  /* Parse the command line options */
-  for (j = 1; j < argc; j++)
-  {
-    int more = j + 1 < argc; /* There are more arguments. */
+  parse_cmd_line (argc, argv);
 
-    if (!strcmp(argv[j], "--device") && more)
-       select_device (argv[++j]);
-
-    else if (!strcmp(argv[j], "--agc"))
-        Modes.dig_agc = true;
-
-    else if (!strcmp(argv[j], "--gain") && more)
-        Modes.gain = (int) (10.0 * atof(argv[++j]));   /* Gain is in tens of DBs */
-
-    else if (!strcmp(argv[j], "--ppm") && more)
-        Modes.rtlsdr.ppm_error = atoi (argv[++j]);
-
-    else if (!strcmp(argv[j], "--freq") && more)
-        Modes.freq = (uint32_t) ato_hertz (argv[++j]);
-
-    else if (!strcmp(argv[j], "--samplerate") && more)
-        Modes.sample_rate = (uint32_t) ato_hertz (argv[++j]);
-
-    else if (!strncmp(argv[j], "--bias", 6))
-        Modes.bias_tee = true;
-
-    else if (!strcmp(argv[j], "--calibrate"))
-         Modes.rtlsdr.calibrate = true;
-
-    else if (!strcmp(argv[j], "--infile") && more)
-        Modes.infile = argv[++j];
-
-    else if (!strcmp(argv[j], "--loop"))
-        Modes.loops = (more && isdigit(*argv[j+1])) ? _atoi64 (argv[++j]) : LLONG_MAX;
-
-    else if (!strcmp(argv[j], "--logfile") && more)
-        Modes.logfile = argv[++j];
-
-    else if (!strcmp(argv[j], "--no-fix"))
-        Modes.fix_errors = false;
-
-    else if (!strcmp(argv[j], "--no-crc-check"))
-        Modes.check_crc = false;
-
-    else if (!strcmp(argv[j], "--raw"))
-        Modes.raw = 1;
-
-    else if (!strcmp(argv[j], "--net"))
-        Modes.net = 1;
-
-    else if (!strcmp(argv[j], "--net-only"))
-        Modes.net = Modes.net_only = 1;
-
-    else if (!strcmp(argv[j], "--net-ro-port") && more)
-        modeS_net_services [MODES_NET_SERVICE_RAW_OUT].port = atoi (argv[++j]);
-
-    else if (!strcmp(argv[j], "--net-ri-port") && more)
-        modeS_net_services [MODES_NET_SERVICE_RAW_IN].port = atoi (argv[++j]);
-
-    else if (!strcmp(argv[j], "--net-http-port") && more)
-        modeS_net_services [MODES_NET_SERVICE_HTTP].port = atoi (argv[++j]);
-
-    else if (!strcmp(argv[j], "--net-sbs-port") && more)
-        modeS_net_services [MODES_NET_SERVICE_SBS].port = atoi (argv[++j]);
-
-    else if (!strcmp(argv[j], "--database") && more)
-        strncpy (Modes.aircraft_db, argv[++j], sizeof(Modes.aircraft_db)-1);
-
-    else if (!strcmp(argv[j], "--web-page") && more)
-    {
-      strncpy (Modes.web_root, dirname(argv[++j]), sizeof(Modes.web_root)-1);
-      strncpy (Modes.web_page, basename(argv[j]), sizeof(Modes.web_page)-1);
-    }
-
-    else if (!strcmp(argv[j], "--only-addr"))
-        Modes.only_addr = true;
-
-    else if (!strcmp(argv[j], "--max-messages") && more)
-        Modes.message_count = _atoi64 (argv[++j]);
-
-    else if (!strcmp(argv[j], "--metric"))
-        Modes.metric = 1;
-
-    else if (!strcmp(argv[j], "--aggressive"))
-        Modes.aggressive = true;
-
-    else if (!strcmp(argv[j], "--interactive"))
-        Modes.interactive = 1;
-
-    else if (!strcmp(argv[j], "--interactive-rows") && more)
-        Modes.interactive_rows = atoi (argv[++j]);
-
-    else if (!strcmp(argv[j], "--interactive-ttl") && more)
-        Modes.interactive_ttl = atoi (argv[++j]);
-
-    else if (!strcmp(argv[j], "--strip") && more)
-    {
-      Modes.strip_level = atoi (argv[++j]);
-      if (Modes.strip_level == 0)
-         show_help ("Illegal --strip level %d.\n\n", Modes.strip_level);
-    }
-    else if (!strcmp(argv[j], "-h") || !strcmp(argv[j], "--help"))
-    {
-      show_help (NULL);
-    }
-    else if (!strcmp(argv[j], "--debug") && more)
-    {
-      char *f = argv[++j];
-
-      while (*f)
-      {
-        switch (*f)
-        {
-          case 'D':
-               Modes.debug |= DEBUG_DEMOD;
-               break;
-          case 'E':
-               Modes.debug |= DEBUG_DEMODERR;
-               break;
-          case 'C':
-               Modes.debug |= DEBUG_GOODCRC;
-               break;
-          case 'c':
-               Modes.debug |= DEBUG_BADCRC;
-               break;
-          case 'p':
-          case 'P':
-               Modes.debug |= DEBUG_NOPREAMBLE;
-               break;
-          case 'n':
-               Modes.debug |= DEBUG_NET;
-               break;
-          case 'N':
-               Modes.debug |= (DEBUG_NET2 | DEBUG_NET);  /* A bit more network details */
-               break;
-          case 'j':
-          case 'J':
-               Modes.debug |= DEBUG_JS;
-               break;
-          case 'g':
-               Modes.debug |= DEBUG_GENERAL;
-               break;
-          case 'G':
-               Modes.debug |= (DEBUG_GENERAL2 | DEBUG_GENERAL);
-               break;
-          case 'u':
-               Modes.debug |= DEBUG_LIBUSB;
-               break;
-          case 'U':
-               Modes.debug |= DEBUG_LIBUSB2;
-               break;
-          default:
-               show_help ("Unknown debugging flag: %c\n", *f);
-               /* not reached */
-               break;
-        }
-        f++;
-      }
-    }
-    else
-    {
-      show_help ("Unknown option \"%s\".\n\n", argv[j]);
-      /* not reached */
-    }
-  }
-
-  rc = modeS_init();        /* Initialization */
+  /* Initialization based on cmd-line options. */
+  rc = modeS_init();
   if (rc)
      goto quit;
 
   if (Modes.net_only)
   {
-    LOG_STDERR ("Net-only mode, no RTL device or file open.\n");
+    LOG_STDERR ("Net-only mode, no physical device or file open.\n");
   }
   else if (Modes.strip_level)
   {

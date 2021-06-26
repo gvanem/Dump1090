@@ -33,7 +33,7 @@
 
 /**
  * \def GMAP_HTML
- * Our default main server page relative to `Mode.who_am_I`.
+ * Our default main server page relative to `Modes.who_am_I`.
  */
 #define GMAP_HTML         "web_root/gmap.html"
 
@@ -61,12 +61,6 @@
 #define MODES_NET_SERVICE_SBS      2
 #define MODES_NET_SERVICE_HTTP     3
 #define MODES_NET_SERVICES_NUM     4
-
-/**
- * \def MSEC_TIME()
- * Returns a 64-bit tick-time value with 1 millisec granularity.
- */
-#define MSEC_TIME() GetTickCount64()
 
 /**
  * \def SAFE_COND_SIGNAL(cond, mutex)
@@ -156,11 +150,47 @@ struct aircraft_CSV {
        char     manufact [30];
      };
 
+/**
+ * \enum a_show_t
+ * The "show-state" for an aircraft.
+ */
 typedef enum a_show_t {
-        A_FIRST_TIME = 1,
-        A_LAST_TIME,
-        A_SHOW_NORMAL
+        A_SHOW_FIRST_TIME = 1,
+        A_SHOW_LAST_TIME,
+        A_SHOW_NORMAL,
+        A_SHOW_NONE,
       } a_show_t;
+
+/**
+ * \struct pos_t
+ *
+ * Latitude (East-West) and Longitude (North-South) coordinates.
+ * (ignoring altitude).
+ */
+typedef struct pos_t {
+        double lat;
+        double lon;
+      } pos_t;
+
+/**
+ * \struct cartesian_t
+ *
+ * A point in Cartesian coordinates.
+ */
+typedef struct cartesian_t {
+        double c_x;
+        double c_y;
+        double c_z;
+      } cartesian_t;
+
+/**
+ * \def SMALL_VAL
+ * \def VALID_POS()
+ *
+ * Simple check for a valid geo-position
+ */
+#define SMALL_VAL       0.0001
+#define VALID_POS(pos)  (pos.lon >= SMALL_VAL && pos.lat >= SMALL_VAL)
 
 /**
  * \struct aircraft
@@ -170,15 +200,17 @@ struct aircraft {
        uint32_t addr;              /**< ICAO address */
        char     flight [9];        /**< Flight number */
        int      altitude;          /**< Altitude */
-       uint32_t speed;             /**< Velocity computed from EW and NS components. */
+       uint32_t speed;             /**< Velocity computed from EW and NS components. In Knots. */
        int      heading;           /**< Horizontal angle of flight. */
        bool     heading_is_valid;  /**< Have a valid heading. */
-       uint32_t seen;              /**< Tick-time (in sec) at which the last packet was received. */
-       uint32_t seen_first;        /**< Tick-time (in sec) at which the first packet was received. */
+       uint64_t seen_first;        /**< Tick-time (in milli-sec) at which the first packet was received. */
+       uint64_t seen_last;         /**< Tick-time (in milli-sec) at which the last packet was received. */
+       uint64_t EST_seen_last;     /**< Tick-time (in milli-sec) at which the last estimated positoon was done. */
        long     messages;          /**< Number of Mode S messages received. */
        int      identity;          /**< 13 bits identity (Squawk). */
-       a_show_t showing;           /**< The plane's shown-state */
-       bool     show_changed;      /**< The plane's shown-state changed since last `interactive_show_aircraft()` */
+       a_show_t show;              /**< The plane's show-state */
+       double   distance;          /**< Distance (in meters) to home position */
+       double   EST_distance;      /**< Estimated `distance` based on last `speed` and `heading` */
 
        /* Encoded latitude and longitude as extracted by odd and even
         * CPR encoded messages.
@@ -189,7 +221,8 @@ struct aircraft {
        int      even_CPR_lon;      /**< Encoded even CPR longitude */
        uint64_t odd_CPR_time;      /**< Tick-time for reception of an odd CPR message */
        uint64_t even_CPR_time;     /**< Tick-time for reception of an even CPR message */
-       double   lat, lon;          /**< Coordinates obtained from decoded CPR data. */
+       pos_t    position;          /**< Coordinates obtained from decoded CPR data. */
+       pos_t    EST_position;      /**< Estimated position based on last `speed` and `heading`. */
 
        const struct aircraft_CSV *CSV;  /**< A pointer to a CSV record (or NULL). */
        struct aircraft           *next; /**< Next aircraft in our linked list. */
@@ -236,12 +269,14 @@ struct rtlsdr_conf {
        bool           dig_agc;         /**< Enable RTLSDR digital AGC. */
        bool           bias_tee;        /**< Enable RTLSDR bias-T voltage on coax input. */
        bool           calibrate;       /**< Enable calibration for R820T/R828D type devices */
+       int           *gains;           /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
+       int            gain_count;      /**< Number of gain values in above array */
      };
 
 struct sdrplay_conf {
        char                            *name;      /**< Name of SDRplay instance to use. */
        int                              index;     /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"`. */
-       sdrplay_dev                     *device;    /**< Device-handle from `sdrplay_init()`. */
+       void                            *device;    /**< Device-handle from `sdrplay_init()`. */
        bool                             if_mode;
        bool                             over_sample;
        bool                             disable_broadcast_notch;
@@ -249,6 +284,8 @@ struct sdrplay_conf {
        int                              gain_reduction;
        int                              ADSB_mode;
        int                              BW_mode;
+       int                             *gains;
+       int                              gain_count;
        sdrplay_api_Rsp2_AntennaSelectT  antenna_port;
        sdrplay_api_RspDx_AntennaSelectT DX_antenna_port;
        sdrplay_api_TunerSelectT         tuner;
@@ -283,6 +320,7 @@ struct global_data {
        char             *selected_dev;             /**< Name of selected device. */
        bool              dig_agc;                  /**< Enable digital AGC. */
        bool              bias_tee;                 /**< Enable bias-T voltage on coax input. */
+       bool              gain_auto;                /**< Use auto-gain */
        uint16_t          gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
        uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
        uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE.
@@ -307,22 +345,25 @@ struct global_data {
        const char *logfile;                   /**< Write debug/info to file with option `--logfile file`. */
        FILE       *log;
        uint64_t    loops;                     /**< Read input file in a loop. */
+       uint32_t    debug;                     /**< Debugging mode bits. */
        bool        fix_errors;                /**< Single bit error correction if true. */
        bool        check_crc;                 /**< Only display messages with good CRC. */
-       int         raw;                       /**< Raw output format. */
-       int         debug;                     /**< Debugging mode. */
-       int         net;                       /**< Enable networking. */
-       int         net_only;                  /**< Enable just networking. */
-       int         interactive;               /**< Interactive mode */
+       bool        raw;                       /**< Raw output format. */
+       bool        net;                       /**< Enable networking. */
+       bool        net_only;                  /**< Enable just networking. */
+       bool        interactive;               /**< Interactive mode */
        uint16_t    interactive_rows;          /**< Interactive mode: max number of rows. */
        uint32_t    interactive_ttl;           /**< Interactive mode: TTL before deletion. */
        bool        only_addr;                 /**< Print only ICAO addresses. */
-       int         metric;                    /**< Use metric units. */
+       bool        metric;                    /**< Use metric units. */
        bool        aggressive;                /**< Aggressive detection algorithm. */
        char        web_page [MG_PATH_MAX];    /**< The base-name of the web-page to server for HTTP clients */
        char        web_root [MG_PATH_MAX];    /**< And it's directory */
        char        aircraft_db [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file */
        int         strip_level;               /**< For '--strip X' mode */
+       pos_t       home_pos;                  /**< Coordinates of home position */
+       cartesian_t home_pos_cart;             /**< Coordinates of home position (cartesian) */
+       bool        home_pos_ok;               /**< We have a good home position */
 
        /** For parsing a `Modes.aircraft_db` file:
         */
@@ -348,6 +389,58 @@ extern struct global_data Modes;
   #define ATTR_FALLTHROUGH()   ((void)0)
 #endif
 
-extern void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
+extern void   modeS_log (const char *buf);
+extern void   modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
+extern double ato_hertz (const char *Hertz);
+extern char  *basename (const char *fname);
+extern char  *dirname (const char *fname);
+extern int    gettimeofday (struct timeval *tv, void *timezone);
+
+/**
+ * \def MSEC_TIME()
+ * Returns a 64-bit tick-time value with 1 millisec granularity.
+ */
+#if defined(USE_gettimeofday)
+  static __inline uint64_t MSEC_TIME (void)
+  {
+    struct timeval now;
+
+    gettimeofday (&now, NULL);
+    return (1000 * now.tv_sec) + (now.tv_usec / 1000);
+  }
+#else
+  #define MSEC_TIME() GetTickCount64()
+#endif
+
+/**
+ * GNU-like getopt_long() / getopt_long_only() with 4.4BSD optreset extension.
+ */
+#define no_argument        0   /**< \def no_argument */
+#define required_argument  1   /**< \def required_argument */
+#define optional_argument  2   /**< \def optional_argument */
+
+/**\struct option
+ */
+struct option {
+       const char *name; /**< name of long option */
+
+       /**
+        * one of `no_argument`, `required_argument` or `optional_argument`:<br>
+        * whether option takes an argument.
+        */
+       int  has_arg;
+       int *flag;    /**< if not NULL, set *flag to val when option found */
+       int  val;     /**< if flag not NULL, value to set \c *flag to; else return value */
+    };
+
+int getopt_long (int, char * const *, const char *,
+                 const struct option *, int *);
+
+int getopt (int nargc, char * const *nargv, const char *options);
+
+extern char *optarg;  /**< the argument to an option in `optsstring`. */
+extern int   optind;  /**< the index of the next element to be processed in `argv`. */
+extern int   opterr;  /**< if caller set this to zero, an error-message will never be printed. */
+extern int   optopt;  /**< on errors, an unrecognised option character is stored in `optopt`. */
 
 #endif
