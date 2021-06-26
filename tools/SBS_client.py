@@ -23,6 +23,7 @@ class cfg():
   loop = None
   format   = "?? %d bytes\n"
   data_len = 0
+  sleep = 1
 
 #
 # Print to both stdout and log-file
@@ -79,7 +80,7 @@ def raw_sbs_in_loop (sock):
   else:
     modes_log (data)
     cfg.data_len += len(data)
-    time.sleep (0.01)
+    time.sleep (cfg.sleep)
 
 #
 # For sending RAW-OUT messages.
@@ -100,7 +101,7 @@ def raw_out_loop (sock):
     cfg.data_len += rc
   else:
     raise (ConnectionResetError)
-  for i in range(10):
+  for i in range(cfg.sleep):
     time.sleep (1)
 
 ### main() ####################################
@@ -136,9 +137,11 @@ if opt.wait:
 cfg.sock = connect_to_host (opt)
 
 if mode == "RAW-OUT":
+  cfg.sleep  = 1
   cfg.loop   = raw_out_loop
   cfg.format = "Sent %d bytes\n"
 else:
+  cfg.sleep  = 0.01
   cfg.loop   = raw_sbs_in_loop
   cfg.format = "Received %d bytes\n"
   cfg.sock   = cfg.sock.makefile()
