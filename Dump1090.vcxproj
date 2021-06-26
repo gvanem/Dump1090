@@ -149,6 +149,7 @@
   <ItemGroup>
     <ClCompile Include="dump1090.c" />
     <ClCompile Include="csv.c" />
+    <ClCompile Include="misc.c" />
     <ClCompile Include="sdrplay.c" />
     <ClCompile Include="externals\mongoose.c" />
     <ClCompile Include="externals\rtl-sdr\librtlsdr.c" />

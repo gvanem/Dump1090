@@ -63,12 +63,13 @@ endif
 VPATH = externals \
         externals/rtl-sdr
 
-CFLAGS = -nologo -Zi -W3        \
-         -FI./dump1090_config.h \
-         -I.                    \
-         -I./externals          \
-         -I./externals/rtl-sdr  \
-         -I./externals/SDRplay-API
+CFLAGS = -nologo -Zi -W3           \
+         -FI./dump1090_config.h    \
+         -I.                       \
+         -I./externals             \
+         -I./externals/rtl-sdr     \
+         -I./externals/SDRplay-API \
+         -DUSE_gettimeofday
 
 LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib -machine:$(CPU)
 RCFLAGS = -nologo
@@ -139,6 +140,7 @@ TARGETS = dump1090.exe
 SOURCES = externals/mongoose.c \
           csv.c                \
           dump1090.c           \
+          misc.c               \
           sdrplay.c
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
