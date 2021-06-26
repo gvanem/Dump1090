@@ -99,8 +99,12 @@ static struct SDRplay_info sdr = { "sdrplay_api.dll" };
 /**
  * We support only 1 device at a time.
  */
-static sdrplay_dev *g_sdr_device;
-static HANDLE       g_sdr_handle;
+static struct SDRplay_info *g_sdr_device;
+static HANDLE               g_sdr_handle;
+
+/* 4 - 44 dB
+ */
+static int gain_table[10] = { 40, 100, 150, 170, 210, 260, 310, 350, 390, 440 };
 
 /**
  * Store the last error-code and error-text from the
@@ -228,7 +232,7 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
 /**
  * The main SDRplay stream callback.
  */
-#define USE_8BIT_SAMPLES 1
+#define USE_8BIT_SAMPLES 0
 
 static void sdrplay_callback_A (short *xi, short *xq,
                                 sdrplay_api_StreamCbParamsT *params,
@@ -462,7 +466,7 @@ int sdrplay_read_async (sdrplay_dev *device,
     return (sdr.last_rc);
   }
 
-  sdr.chParams = (sdr.dev->tuner == sdrplay_api_Tuner_A) ? sdr.deviceParams->rxChannelA: sdr.deviceParams->rxChannelB;
+  sdr.chParams = (sdr.dev->tuner == sdrplay_api_Tuner_A) ? sdr.deviceParams->rxChannelA : sdr.deviceParams->rxChannelB;
 
   sdr.chParams->ctrlParams.dcOffset.IQenable = 0;
   sdr.chParams->ctrlParams.dcOffset.DCenable = 1;
@@ -573,6 +577,15 @@ int sdrplay_read_async (sdrplay_dev *device,
     TRACE (DEBUG_GENERAL, "rx_num_callbacks: %llu, sdr.max_sig: %d, sdr.rx_data_idx: %u.\n",
            sdr.rx_num_callbacks, sdr.max_sig, sdr.rx_data_idx);
   }
+  return (0);
+}
+
+/**
+ *
+ */
+int sdrplay_set_gain (sdrplay_dev *device, int gain)
+{
+  LOG_FILEONLY ("gain: %.1f dB\n", (double)gain / 10);
   return (0);
 }
 
@@ -697,6 +710,13 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
   }
 
   *device = g_sdr_device;
+
+  /* A fixed test
+   */
+  Modes.sdrplay.gains = malloc (10 * sizeof(int));
+  Modes.sdrplay.gain_count = 10;
+  memcpy (Modes.sdrplay.gains, &gain_table, 10 * sizeof(int));
+
   return (sdrplay_api_Success);
 
 failed:
