@@ -2294,20 +2294,15 @@ static void LIBUSB_CALL _libusb_callback(struct libusb_transfer *xfer)
 		libusb_submit_transfer(xfer); /* resubmit transfer */
 		dev->xfer_errors = 0;
 	} else if (LIBUSB_TRANSFER_CANCELLED != xfer->status) {
-#if !defined(_WIN32) || 1
 		if (LIBUSB_TRANSFER_ERROR == xfer->status)
 			dev->xfer_errors++;
 
-		if (dev->xfer_errors >= dev->xfer_buf_num ||
-			LIBUSB_TRANSFER_NO_DEVICE == xfer->status) {
-#endif
+		if (dev->xfer_errors >= dev->xfer_buf_num || LIBUSB_TRANSFER_NO_DEVICE == xfer->status) {
 			dev->dev_lost = 1;
 			rtlsdr_cancel_async(dev);
 			fprintf(stderr, "cb transfer status: %d, "
 				"canceling...\n", xfer->status);
-#if !defined(_WIN32) || 1
 		}
-#endif
 	}
 }
 
@@ -2552,6 +2547,11 @@ int rtlsdr_cancel_async(rtlsdr_dev_t *dev)
 	}
 #endif
 	return -2;
+}
+
+int rtlsdr_wait_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx)
+{
+	return rtlsdr_read_async(dev, cb, ctx, 0, 0);
 }
 
 uint32_t rtlsdr_get_tuner_clock(void *dev)
