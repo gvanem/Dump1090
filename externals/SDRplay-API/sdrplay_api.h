@@ -21,7 +21,7 @@ typedef void *HANDLE;
 
 // Application code should check that it is compiled against the same API version
 // sdrplay_api_ApiVersion() returns the API version 
-#define SDRPLAY_API_VERSION                   (float)(3.07)
+#define SDRPLAY_API_VERSION                   (float)(3.08)
 
 // API Constants
 #define SDRPLAY_MAX_DEVICES                   (16)
@@ -145,6 +145,7 @@ typedef struct
     unsigned char hwVer;
     sdrplay_api_TunerSelectT tuner;
     sdrplay_api_RspDuoModeT rspDuoMode;
+    unsigned char valid;
     double rspDuoSampleFreq;
     HANDLE dev;
 } sdrplay_api_DeviceT;
@@ -186,7 +187,7 @@ typedef sdrplay_api_ErrT        (*sdrplay_api_Init_t)(HANDLE dev, sdrplay_api_Ca
 typedef sdrplay_api_ErrT        (*sdrplay_api_Uninit_t)(HANDLE dev);
 typedef sdrplay_api_ErrT        (*sdrplay_api_Update_t)(HANDLE dev, sdrplay_api_TunerSelectT tuner, sdrplay_api_ReasonForUpdateT reasonForUpdate, sdrplay_api_ReasonForUpdateExtension1T reasonForUpdateExt1);
 typedef sdrplay_api_ErrT        (*sdrplay_api_SwapRspDuoActiveTuner_t)(HANDLE dev, sdrplay_api_TunerSelectT *tuner, sdrplay_api_RspDuo_AmPortSelectT tuner1AmPortSel);
-typedef sdrplay_api_ErrT        (*sdrplay_api_SwapRspDuoDualTunerModeSampleRate_t)(double *currentSampleRate);
+typedef sdrplay_api_ErrT        (*sdrplay_api_SwapRspDuoDualTunerModeSampleRate_t)(double *currentSampleRate, double newSampleRate);
 typedef sdrplay_api_ErrT        (*sdrplay_api_SwapRspDuoMode_t)(sdrplay_api_DeviceT *currDevice, sdrplay_api_DeviceParamsT **deviceParams,
                                                                 sdrplay_api_RspDuoModeT rspDuoMode, double sampleRate, sdrplay_api_TunerSelectT tuner,
                                                                 sdrplay_api_Bw_MHzT bwType, sdrplay_api_If_kHzT ifType, sdrplay_api_RspDuo_AmPortSelectT tuner1AmPortSel);
@@ -217,7 +218,7 @@ extern "C"
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_Uninit(HANDLE dev);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_Update(HANDLE dev, sdrplay_api_TunerSelectT tuner, sdrplay_api_ReasonForUpdateT reasonForUpdate, sdrplay_api_ReasonForUpdateExtension1T reasonForUpdateExt1);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_SwapRspDuoActiveTuner(HANDLE dev, sdrplay_api_TunerSelectT *currentTuner, sdrplay_api_RspDuo_AmPortSelectT tuner1AmPortSel);
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_SwapRspDuoDualTunerModeSampleRate(HANDLE dev, double *currentSampleRate);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_SwapRspDuoDualTunerModeSampleRate(HANDLE dev, double *currentSampleRate, double newSampleRate);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_SwapRspDuoMode(sdrplay_api_DeviceT *currDevice, sdrplay_api_DeviceParamsT **deviceParams,
                                                                               sdrplay_api_RspDuoModeT rspDuoMode, double sampleRate, sdrplay_api_TunerSelectT tuner,
                                                                               sdrplay_api_Bw_MHzT bwType, sdrplay_api_If_kHzT ifType, sdrplay_api_RspDuo_AmPortSelectT tuner1AmPortSel);
