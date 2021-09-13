@@ -189,9 +189,12 @@ typedef struct cartesian_t {
  *
  * Simple check for a valid geo-position
  */
-#define SMALL_VAL       0.0001
-#define VALID_POS(pos)  (pos.lon >= SMALL_VAL && pos.lat >= SMALL_VAL)
-
+#define SMALL_VAL        0.0001
+#define VALID_POS(pos)   (pos.lon >= SMALL_VAL && pos.lat >= SMALL_VAL)
+#define ASSERT_POS(pos)  do {                                         \
+                           assert (pos.lon >= -180 && pos.lon < 180); \
+                           assert (pos.lat >= -180 && pos.lat < 180); \
+                         } while (0)
 /**
  * \struct aircraft
  * Structure used to describe an aircraft in interactive mode.
@@ -211,6 +214,8 @@ struct aircraft {
        a_show_t show;              /**< The plane's show-state */
        double   distance;          /**< Distance (in meters) to home position */
        double   EST_distance;      /**< Estimated `distance` based on last `speed` and `heading` */
+       double   sig_levels [4];    /**< RSSI signal-levels from the last 4 messages */
+       int      sig_idx;
 
        /* Encoded latitude and longitude as extracted by odd and even
         * CPR encoded messages.
@@ -346,8 +351,6 @@ struct global_data {
        FILE       *log;
        uint64_t    loops;                     /**< Read input file in a loop. */
        uint32_t    debug;                     /**< Debugging mode bits. */
-       bool        fix_errors;                /**< Single bit error correction if true. */
-       bool        check_crc;                 /**< Only display messages with good CRC. */
        bool        raw;                       /**< Raw output format. */
        bool        net;                       /**< Enable networking. */
        bool        net_only;                  /**< Enable just networking. */

@@ -136,6 +136,7 @@ struct modeS_message {
     int      msg_type;                   /**< Downlink format # */
     bool     CRC_ok;                     /**< True if CRC was valid */
     uint32_t CRC;                        /**< Message CRC */
+    double   sig_level;                  /**< RSSI, in the range [0..1], as a fraction of full-scale power */
     int      error_bit;                  /**< Bit corrected. -1 if no bit corrected. */
     int      AA1, AA2, AA3;              /**< ICAO Address bytes 1, 2 and 3 */
     bool     phase_corrected;            /**< True if phase correction was applied. */
@@ -183,7 +184,7 @@ int  modeS_send_raw_output (const struct modeS_message *mm);
 int  modeS_send_SBS_output (const struct modeS_message *mm, const struct aircraft *a);
 void modeS_user_message (const struct modeS_message *mm);
 void set_est_home_distance (struct aircraft *a, uint64_t now);
-void spherical_to_cartesian (cartesian_t *cart, const pos_t *point);
+void spherical_to_cartesian (cartesian_t *cart, pos_t point);
 
 int  fix_single_bit_errors (uint8_t *msg, int bits);
 int  fix_two_bits_errors (uint8_t *msg, int bits);
@@ -759,8 +760,6 @@ void modeS_init_config (void)
   Modes.gain_auto   = true;
   Modes.sample_rate = MODES_DEFAULT_RATE;
   Modes.freq        = MODES_DEFAULT_FREQ;
-  Modes.fix_errors  = true;
-  Modes.check_crc   = true;
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
 }
 
@@ -840,7 +839,7 @@ int modeS_init (void)
     }
     Modes.home_pos = pos;
     Modes.home_pos_ok = true;
-    spherical_to_cartesian (&Modes.home_pos_cart, &Modes.home_pos);
+    spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
   }
 
   InitializeCriticalSection (&Modes.data_mutex);
@@ -1232,7 +1231,8 @@ void dump_magnitude_bar (int magnitude, int index)
  * message as a magnitude signal.
  *
  * The message starts at the specified offset in the `m` buffer.
- * The function will display enough data to cover a short 56 bit message.
+ * The function will display enough data to cover a short 56 bit
+ * (`MODES_SHORT_MSG_BITS`) message.
  *
  * If possible a few samples before the start of the messsage are included
  * for context.
@@ -1339,25 +1339,25 @@ void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint3
 
 /**
  * Parity table for MODE S Messages. s<br>
- * The table contains 112 elements, every element corresponds to a bit set
- * in the message, starting from the first bit of actual data after the
- * preamble.
+ * The table contains 112 (`MODES_LONG_MSG_BITS`) elements, every element
+ * corresponds to a bit set in the message, starting from the first bit of
+ * actual data after the preamble.
  *
  * For messages of 112 bit, the whole table is used.
  * For messages of 56 bits only the last 56 elements are used.
  *
- * The algorithm is as simple as xoring all the elements in this table
+ * The algorithm is as simple as XOR-ing all the elements in this table
  * for which the corresponding bit on the message is set to 1.
  *
- * The latest 24 elements in this table are set to 0 as the checksum at the
+ * The last 24 elements in this table are set to 0 as the checksum at the
  * end of the message should not affect the computation.
  *
  * \note
  * This function can be used with DF11 and DF17. Other modes have
- * the CRC *XORed* with the sender address as they are replies to interrogations,
+ * the CRC *XOR-ed* with the sender address as they are replies to interrogations,
  * but a casual listener can't split the address from the checksum.
  */
-const uint32_t modeS_checksum_table[112] = {
+const uint32_t modeS_checksum_table [MODES_LONG_MSG_BITS] = {
                0x3935EA, 0x1C9AF5, 0xF1B77E, 0x78DBBF, 0xC397DB, 0x9E31E9, 0xB0E2F0, 0x587178,
                0x2C38BC, 0x161C5E, 0x0B0E2F, 0xFA7D13, 0x82C48D, 0xBE9842, 0x5F4C21, 0xD05C14,
                0x682E0A, 0x341705, 0xE5F186, 0x72F8C3, 0xC68665, 0x9CB936, 0x4E5C9B, 0xD8D449,
@@ -1377,8 +1377,11 @@ const uint32_t modeS_checksum_table[112] = {
 uint32_t modeS_checksum (const uint8_t *msg, int bits)
 {
   uint32_t crc = 0;
-  int      offset = (bits == 112) ? 0 : (112 - 56);
+  int      offset = 0;
   int      j;
+
+  if (bits != MODES_LONG_MSG_BITS);
+     offset = MODES_LONG_MSG_BITS - MODES_SHORT_MSG_BITS;
 
   for (j = 0; j < bits; j++)
   {
@@ -1790,7 +1793,7 @@ void decode_modeS_message (struct modeS_message *mm, const uint8_t *_msg)
   mm->error_bit = -1;    /* No error */
   mm->CRC_ok = (mm->CRC == crc2);
 
-  if (!mm->CRC_ok && Modes.fix_errors && (mm->msg_type == 11 || mm->msg_type == 17))
+  if (!mm->CRC_ok && (mm->msg_type == 11 || mm->msg_type == 17))
   {
     mm->error_bit = fix_single_bit_errors (msg, mm->msg_bits);
     if (mm->error_bit != -1)
@@ -1992,7 +1995,7 @@ const char *get_ICAO_details (int AA1, int AA2, int AA3)
   size_t n, left = sizeof(ret_buf);
   uint32_t addr = (AA1 << 16) + (AA2 << 8) + AA3;
 
-  n = snprintf (p, left, "%02x%02x%02x", AA1, AA2, AA3);
+  n = snprintf (p, left, "%02X%02X%02X", AA1, AA2, AA3);
   p    += n;
   left -= n;
 
@@ -2039,9 +2042,12 @@ void display_modeS_message (const struct modeS_message *mm)
   if (Modes.raw)
      return;         /* Enough for --raw mode */
 
-  LOG_STDOUT ("CRC: %06x (%s)\n", (int)mm->CRC, mm->CRC_ok ? "ok" : "wrong");
+  LOG_STDOUT ("CRC: %06X (%s)\n", (int)mm->CRC, mm->CRC_ok ? "ok" : "wrong");
   if (mm->error_bit != -1)
      LOG_STDOUT ("Single bit error fixed, bit %d\n", mm->error_bit);
+
+  if (mm->sig_level > 0)
+     LOG_STDOUT ("RSSI: %.1lf dBFS\n", 10 * log10(mm->sig_level));
 
   if (mm->msg_type == 0)
   {
@@ -2163,14 +2169,13 @@ void display_modeS_message (const struct modeS_message *mm)
 #endif
     else
     {
-      LOG_STDOUT ("    Unrecognized ME type: %d subtype: %d\n", mm->ME_type, mm->ME_subtype);
+      LOG_STDOUT ("    Unrecognized ME type: %d, subtype: %d\n", mm->ME_type, mm->ME_subtype);
       Modes.stat.unrecognized_ME++;
     }
   }
   else
   {
-    if (Modes.check_crc)
-       LOG_STDOUT ("DF %d with good CRC received (decoding still not implemented).\n", mm->msg_type);
+    LOG_STDOUT ("DF %d with good CRC received (decoding still not implemented).\n", mm->msg_type);
   }
 }
 
@@ -2184,7 +2189,7 @@ void compute_magnitude_vector (void)
   uint32_t  j;
   const uint8_t *p = Modes.data;
 
-  /* Compute the magnitudo vector. It's just `sqrt(I^2 + Q^2)`, but
+  /* Compute the magnitude vector. It's just `sqrt(I^2 + Q^2)`, but
    * we rescale to the 0-255 range to exploit the full resolution.
    */
   for (j = 0; j < Modes.data_len; j += 2)
@@ -2317,7 +2322,7 @@ int detect_modeS (uint16_t *m, uint32_t mlen)
        break;
 
     if (use_correction)
-       goto good_preamble; /* We already checked it. */
+       goto good_preamble;    /* We already checked it. */
 
     /* First check of relations between the first 10 samples
      * representing a valid preamble. We don't even investigate further
@@ -2467,10 +2472,22 @@ good_preamble:
     if (errors == 0 || (Modes.aggressive && errors < 3))
     {
       struct modeS_message mm;
+      double   signal_power = 0ULL;
+      int      signal_len = mlen;
+      uint32_t k, mag;
 
       /* Decode the received message and update statistics
        */
       decode_modeS_message (&mm, msg);
+
+      /* measure signal power
+       */
+      for (k = j; k < j + MODES_FULL_LEN; k++)
+      {
+        mag = m [k];
+        signal_power += mag * mag;
+      }
+      mm.sig_level = signal_power / (65536.0 * signal_len);
 
       /* Update statistics.
        */
@@ -2557,7 +2574,7 @@ good_preamble:
  */
 void modeS_user_message (const struct modeS_message *mm)
 {
-  if (!Modes.check_crc || mm->CRC_ok)
+  if (mm->CRC_ok)
   {
     /* Track aircrafts in interactive mode or if we have some HTTP / SBS clients.
      */
@@ -2584,7 +2601,10 @@ void modeS_user_message (const struct modeS_message *mm)
     {
       display_modeS_message (mm);
       if (!Modes.raw && !Modes.only_addr)
-         puts ("");
+      {
+        puts ("");
+        modeS_log ("\n\n");
+      }
     }
 
     /* Send data to connected clients.
@@ -2661,12 +2681,12 @@ int aircraft_numbers (void)
  *
  * \ref https://en.wikipedia.org/wiki/Great-circle_distance
  */
-double great_circle_dist (const pos_t *pos1, const pos_t *pos2)
+double great_circle_dist (pos_t pos1, pos_t pos2)
 {
-  double lat1 = TWO_PI * pos1->lat / 360.0;  /* convert to radians */
-  double lon1 = TWO_PI * pos1->lon / 360.0;
-  double lat2 = TWO_PI * pos2->lat / 360.0;
-  double lon2 = TWO_PI * pos2->lon / 360.0;
+  double lat1 = TWO_PI * pos1.lat / 360.0;  /* convert to radians */
+  double lon1 = TWO_PI * pos1.lon / 360.0;
+  double lat2 = TWO_PI * pos2.lat / 360.0;
+  double lon2 = TWO_PI * pos2.lon / 360.0;
   double angle;
 
   /* Avoid a 'NaN'
@@ -2690,47 +2710,78 @@ void set_home_distance (struct aircraft *a)
 {
   if (VALID_POS(Modes.home_pos) && VALID_POS(a->position))
   {
-    a->distance = great_circle_dist (&a->position, &Modes.home_pos);
+    double distance = great_circle_dist (a->position, Modes.home_pos);
+
+    if (distance != 0.0)
+       a->distance = distance;
     a->EST_position  = a->position;
     a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
   }
 }
 
 /**
+ * From SDRangel's 'sdrbase/util/azel.cpp':
+ *
+ * Convert geodetic latitude to geocentric latitude;
+ * angle from centre of Earth between the point and equator.
+ *
+ * https://en.wikipedia.org/wiki/Latitude#Geocentric_latitude
+ */
+double geocentric_latitude (double lat)
+{
+  double e2 = 0.00669437999014;
+
+  return atan ((1.0 - e2) * tan(lat));
+}
+
+/**
  * Convert spherical coordinate to cartesian.
  * Also calculates radius and a normal vector
  */
-void spherical_to_cartesian (cartesian_t *cart, const pos_t *point)
+void spherical_to_cartesian (cartesian_t *cart, pos_t pos)
 {
-  double lat = TWO_PI * point->lat / 360.0;
-  double lon = TWO_PI * point->lon / 360.0;
+  double lat  = TWO_PI * pos.lat / 360.0;
+  double lon  = TWO_PI * pos.lon / 360.0;
+  double clat = geocentric_latitude (lat);
 
-  cart->c_x = 6371000.0 * cos (lon) * cos (lat);
-  cart->c_y = 6371000.0 * sin (lon) * cos (lat);
-  cart->c_z = 6371000.0 * sin (lat);
+  cart->c_x = 6371000.0 * cos (lon) * cos (clat);
+  cart->c_y = 6371000.0 * sin (lon) * cos (clat);
+  cart->c_z = 6371000.0 * sin (clat);
 }
 
 /**
  * \ref https://keisan.casio.com/exec/system/1359533867
  */
-void cartesian_to_spherical (pos_t *point, const cartesian_t *cart)
+void cartesian_to_spherical (pos_t *pos, cartesian_t cart)
 {
   /* We do not need this; close to earth's radius = 6371000 m.
    *
-   * double radius = sqrt (cart->c_x*cart->c_x +cart->c_y*cart->c_y + cart->c_z*cart->c_z);
+   * double radius = sqrt (cart.c_x*cart.c_x + cart.c_y*cart.c_y + cart.c_z*cart->c_z);
    */
-  point->lon = 360.0 * atan2 (cart->c_y, cart->c_x) / TWO_PI;
-  point->lat = 360.0 * atan2 (hypot(cart->c_x, cart->c_y), cart->c_z) / TWO_PI;
+  pos->lon = 360.0 * atan2 (cart.c_y, cart.c_x) / TWO_PI;
+  pos->lat = 360.0 * atan2 (hypot(cart.c_x, cart.c_y), cart.c_z) / TWO_PI;
 }
 
 /**
  * Return the distance between 2 cartesian points.
  */
-double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
+double cartesian_distance (const cartesian_t *a, const cartesian_t *b, double heading)
 {
   double dX = b->c_x - a->c_x;
   double dY = b->c_y - a->c_y;
+
   return hypot (dX, dY);
+}
+
+/**
+ * Return the closest of `val1` and `val2` to `val`.
+ */
+double closest_to (double val, double val1, double val2)
+{
+  double diff1 = fabs (val1 - val);
+  double diff2 = fabs (val2 - val);
+
+  return (diff1 > diff2 ? val2 : val1);
 }
 
 /**
@@ -2741,43 +2792,43 @@ double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
  */
 void set_est_home_distance (struct aircraft *a, uint64_t now)
 {
-  if (VALID_POS(Modes.home_pos) && a->speed && a->heading_is_valid)
-  {
-    double      heading, distance, dX, dY;
-    cartesian_t cpos;
+  double      heading, distance, gc_distance, cart_distance, dX, dY;
+  cartesian_t cpos;
 
-    if (!VALID_POS(a->EST_position) || a->EST_seen_last < a->seen_last)
-       return;
+  if (!Modes.home_pos_ok || a->speed == 0 || !a->heading_is_valid)
+     return;
 
-    spherical_to_cartesian (&cpos, &a->EST_position);
+  if (!VALID_POS(a->EST_position) || a->EST_seen_last < a->seen_last)
+     return;
 
-    /* Ensure heading is in range '[-Phi .. +Phi]'
-     */
-    if (a->heading >= 180)
-         heading = TWO_PI * (a->heading - 360) / 360;
-    else heading = TWO_PI * a->heading / 360;
+  spherical_to_cartesian (&cpos, a->EST_position);
 
-    /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
-     */
-    distance = 0.001852 * (double)a->speed * (now - a->EST_seen_last);
-    a->EST_seen_last = now;
+  /* Ensure heading is in range '[-Phi .. +Phi]'
+   */
+  if (a->heading >= 180)
+       heading = TWO_PI * (a->heading - 360) / 360;
+  else heading = TWO_PI * a->heading / 360;
 
-    dX = distance * sin (heading);
-    dY = distance * cos (heading);
-    cpos.c_x += dX;
-    cpos.c_y += dY;
+  /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
+   */
+  distance = 0.001852 * (double)a->speed * (now - a->EST_seen_last);
+  a->EST_seen_last = now;
 
-    cartesian_to_spherical (&a->EST_position, &cpos);
+  dX = distance * sin (heading);
+  dY = distance * cos (heading);
+  cpos.c_x += dX;
+  cpos.c_y += dY;
 
-#if 1
-    a->EST_distance = great_circle_dist (&a->EST_position, &Modes.home_pos);
-#else
-    a->EST_distance = cartesian_distance (&cpos, &Modes.home_pos_cart);
+  cartesian_to_spherical (&a->EST_position, cpos);
+
+  gc_distance   = great_circle_dist (a->EST_position, Modes.home_pos);
+  cart_distance = cartesian_distance (&cpos, &Modes.home_pos_cart, 360.0*heading/TWO_PI);
+  a->EST_distance = closest_to (a->EST_distance, gc_distance, cart_distance);
+
+#if 0
+  LOG_FILEONLY ("addr %04X: heading: %+7.1lf, dX: %+8.3lf, dY: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
+                a->addr, 360.0*heading/TWO_PI, dX, dY, gc_distance/1000, cart_distance/1000);
 #endif
-
-    LOG_FILEONLY ("addr %04X: heading: %+7.2lf, distance: %7.3lf, dX: %+8.3lf, dY: %+8.3lf, EST_distance: %3.1lf km\n",
-                  a->addr, 360.0*heading/TWO_PI, distance, dX, dY, a->EST_distance/1000);
-  }
 }
 
 /**
@@ -2991,8 +3042,9 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm, uint6
 {
   struct aircraft *a, *aux;
   uint32_t addr;
+  char    *p;
 
-  if (Modes.check_crc && !mm->CRC_ok)
+  if (!mm->CRC_ok)
      return (NULL);
 
   addr = (mm->AA1 << 16) | (mm->AA2 << 8) | mm->AA3;
@@ -3037,6 +3089,13 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm, uint6
   a->seen_last = now;
   a->messages++;
 
+  /* Ensure number of elements is 2^n.
+   */
+  assert ((DIM(a->sig_levels) & -(int)DIM(a->sig_levels)) == DIM(a->sig_levels));
+
+  a->sig_levels [a->sig_idx++] = mm->sig_level;
+  a->sig_idx &= DIM(a->sig_levels) - 1;
+
   if (mm->msg_type == 5 || mm->msg_type == 21)
   {
     if (mm->identity)
@@ -3053,6 +3112,10 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm, uint6
     if (mm->ME_type >= 1 && mm->ME_type <= 4)
     {
       memcpy (a->flight, mm->flight, sizeof(a->flight));
+      p = a->flight + sizeof(a->flight)-1;
+      while (*p == ' ')
+        *p-- = '\0';  /* Remove trailing spaces */
+
     }
     else if ((mm->ME_type >= 9  && mm->ME_type <= 18) || /* Airborne Position (Baro Altitude) */
              (mm->ME_type >= 20 && mm->ME_type <= 22))   /* Airborne Position (GNSS Height) */
@@ -3084,7 +3147,7 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm, uint6
 
       if (llabs(t_diff) <= 60*10*1000)
            decode_CPR (a);
-      else LOG_FILEONLY ("t_diff for '%04X' too large: %lld sec.\n", a->addr, t_diff/1000);
+   // else LOG_FILEONLY ("t_diff for '%04X' too large: %lld sec.\n", a->addr, t_diff/1000);
     }
     else if (mm->ME_type == 19)
     {
@@ -3110,20 +3173,22 @@ struct aircraft *interactive_receive_data (const struct modeS_message *mm, uint6
  */
 void interactive_show_aircraft (const struct aircraft *a, uint64_t now)
 {
+  int   i;
   int   altitude = a->altitude;
   int   speed = a->speed;
   char  alt_buf [10]       = "  - ";
-  char  squawk  [6]        = "  - ";
   char  lat_buf [10]       = "  - ";
   char  lon_buf [10]       = "  - ";
   char  speed_buf [8]      = " - ";
   char  heading_buf [8]    = " - ";
   char  distance_buf [10]  = "";
+  char  RSSI [6]           = " - ";
   bool  restore_colour     = false;
   const char *reg_num      = "";
   const char *distance     = NULL;
   const char *est_distance = NULL;
   const char *km_kts;
+  double sig_avg = 0;
 
   /* Convert units to metric if --metric was specified.
    */
@@ -3137,11 +3202,16 @@ void interactive_show_aircraft (const struct aircraft *a, uint64_t now)
     speed     = (int) speedKmH;
   }
 
+  /* Get the average RSSI from last 4 messages.
+   */
+  for (i = 0; i < DIM(a->sig_levels); i++)
+      sig_avg += a->sig_levels[i];
+  sig_avg /= DIM(a->sig_levels);
+  if (sig_avg > 1E-5)
+     snprintf (RSSI, sizeof(RSSI), "%.1lf", 10 * log10(sig_avg));
+
   if (altitude)
      snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
-
-  if (a->identity)
-     snprintf (squawk, 5, "%05d", a->identity);
 
   if (a->position.lat)
      snprintf (lat_buf, sizeof(lat_buf), "%.03f", a->position.lat);
@@ -3181,9 +3251,9 @@ void interactive_show_aircraft (const struct aircraft *a, uint64_t now)
                   est_distance ? est_distance : "-", km_kts);
   }
 
-  printf ("%06X %-8s %-8s %-5s  %-5s     %-7s  %-7s %7s    %-7s%s  %-4ld %2llu sec \n",
-          a->addr, a->flight, reg_num, squawk, alt_buf, speed_buf,
-          lat_buf, lon_buf, heading_buf, distance_buf, a->messages,
+  printf ("%06X %-8s %-8s %-5s     %-7s %-7s %7s    %-7s%s %-5s %-4ld %2llu sec \n",
+          a->addr, a->flight, reg_num, alt_buf, speed_buf,
+          lat_buf, lon_buf, heading_buf, distance_buf, RSSI, a->messages,
           (now - a->seen_last) / 1000);
 
   if (restore_colour)
@@ -3228,8 +3298,8 @@ void interactive_show_data (uint64_t now)
   }
 
   setcolor (COLOUR_WHITE);
-  printf ("ICAO   Flight   Reg-num  Sqwk   Altitude  Speed    Lat       Long     Heading%s  Msg  Seen %c\n"
-          "-------------------------------------------------------------------------------------------%s\n",
+  printf ("ICAO   Flight   Reg-num  Altitude  Speed   Lat       Long     Heading%s RSSI  Msg  Seen %c\n"
+          "---------------------------------------------------------------------------------------%s\n",
           dist_column, spinner[spin_idx & 3], extra_dashes);
   spin_idx++;
   setcolor (0);
@@ -3339,21 +3409,72 @@ int strip_mode (int level)
   return (0);
 }
 
+#if 0
+/*
+ * Taken from Dump1090-FA's 'net_io.c':
+ */
+char *aircraft_json_Dump1090_OL3 (const char *url_path, int *len)
+{
+}
+
+#define MODES_DUMP1090_VERSION "0.1"
+
+/**
+ * Return a description of the receiver in JSON.
+ */
+char *receiver_to_json (int *len)
+{
+  char *buf = malloc(1024), *p = buf;
+  int history_size;
+
+  /* work out number of valid history entries
+   */
+  if (Modes.json_aircraft_history[HISTORY_SIZE-1].content == NULL)
+       history_size = Modes.json_aircraft_history_next;
+  else history_size = HISTORY_SIZE;
+
+  p += sprintf (p, "{ \"version\": \"%s\", \"refresh\": %.0f, \"history\": %d",
+                MODES_DUMP1090_VERSION, 1.0*Modes.json_interval, history_size);
+
+  if (Modes.home_pos_ok)
+  {
+    p += sprintf (p, ", \"lat\" : %.6f, \"lon\" : %.6f",
+                  Modes.home_pos.lat, Modes.home_pos.lon);
+  }
+  p += sprintf(p, " }\n");
+  *len = (p - buf);
+  return (buf);
+}
+#endif
+
 /**
  * Return a malloced JSON description of the active planes.
  * But only those whose latitude and longitude is known.
+ *
+ * Since various Web-clients expects different elements in this returned
+ * JSON array, add those which is approprite for that Web-clients only
  */
-char *aircrafts_to_json (int *len, int *num_planes)
+char *aircrafts_to_json (int *len, int *num_planes, bool is_Tar1090, bool is_Dump1090_OL3)
 {
   struct aircraft *a = Modes.aircrafts;
-  int   l, num = 0;
+  int   l;
   int   buflen = 1024;        /* The initial buffer is incremented as needed. */
   char *buf = malloc (buflen);
   char *p = buf;
 
+  *num_planes = 0;
+
   l = snprintf (p, buflen, "[\n");
-  p += l;
+  p      += l;
   buflen -= l;
+
+  if (is_Dump1090_OL3)
+  {
+    l = snprintf (p, buflen, " {\"now:\":%.1lf, \"messages\": %llu, \"aircraft\": [",
+                  (double)MSEC_TIME() / 1000.0, Modes.stat.unique_aircrafts);
+    p      += l;
+    buflen -= l;
+  }
 
   while (a)
   {
@@ -3379,9 +3500,10 @@ char *aircrafts_to_json (int *len, int *num_planes)
                     "{\"hex\":\"%06X\", \"flight\":\"%s\", \"lat\":%f, \"lon\":%f, \"altitude\":%d, "
                     "\"track\":%d, \"speed\":%d},\n",
                     a->addr, a->flight, a->position.lat, a->position.lon, a->altitude, a->heading, a->speed);
-      p += l;
+      p      += l;
       buflen -= l;
-      num++;
+
+      (*num_planes)++;
 
       /* Resize if needed.
        */
@@ -3405,12 +3527,15 @@ char *aircrafts_to_json (int *len, int *num_planes)
     p--;
     buflen++;
   }
-  l = snprintf (p, buflen, "]\n");
-  p += l;
+
+  if (is_Dump1090_OL3)
+       l = snprintf (p, buflen, "]}\n]\n");
+  else l = snprintf (p, buflen, "]\n");
+
+  p      += l;
   buflen -= l;
 
   *len = p - buf;
-  *num_planes = num;
   return (buf);
 }
 
@@ -3631,10 +3756,9 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
 {
   struct mg_http_message *hm = ev_data;
   struct client          *cli;
-  bool   data_json;
+  bool   json_data, is_Tar1090, is_Dump1090_OL3;
   const char *content;
   const char *uri;
-  const char *keep_alive = "";
   const char *ext;
   char  *request, *end;
 
@@ -3651,51 +3775,64 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
     conn->is_closing = 1;
     return;
   }
+
   Modes.stat.HTTP_get_requests++;
 
+  is_Dump1090_OL3 = (strncmp("GET /data/aircraft.json", request, 23) == 0);  /* From a Dump1090-OpenLayers3 web-client */
+  is_Tar1090      = (strncmp("GET /chunks/chunks.json", request, 23) == 0);  /* From a Tar1090 web-client */
+
   *end = '\0';
-  data_json = (stricmp(request, "GET /data.json") == 0) ||
-              (strnicmp(request, "GET /chunks/chunks.json", 23) == 0);  /* Tar1090 web-root */
+  json_data = (strncmp("GET /data.json", request, 16) == 0) || is_Tar1090 || is_Dump1090_OL3;
+
+#if 0
+  if (!strncmp("GET /data/receiver.json", request, 23))
+  {
+    int   data_len;
+    char *data = receiver_to_json (&data_len);
+
+    TRACE (DEBUG_NET, "Feeding client %lu with receiver-data:\n%s\n", conn->id, data);
+
+    mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
+    return;
+  }
+#endif
 
   cli = get_client_addr (&conn->peer, MODES_NET_SERVICE_HTTP);
 
-  /* Do not trace these '/data.json' requests since it would be too much
-   */
-  if (!data_json)
-     TRACE (DEBUG_NET, "'%s' from client %lu at %s.\n", request, conn->id, remote);
-
-  /* Redirect a 'GET /' to a 'GET /' + 'web_page'
-   */
-  if (!strcmp(request, "GET /"))
-  {
-    char redirect [10+MG_PATH_MAX];
-
-    if (hm->proto.len >= 9 && strncmp(hm->proto.ptr, "HTTP/1.1", 8))
-    {
-      keep_alive = "Connection: keep-alive\r\n";
-      Modes.stat.HTTP_keep_alive_recv++;
-      cli->keep_alive = 1;
-    }
-    snprintf (redirect, sizeof(redirect), "Location: %s\r\n%s", basename(Modes.web_page), keep_alive);
-    mg_http_reply (conn, 303, redirect, "");
-    TRACE (DEBUG_NET, "Redirecting client %lu: \"%s\"...\n\n", conn->id, redirect);
-    return;
-  }
-
-  if (data_json)
+  if (json_data)
   {
     int   data_len, num_planes;
-    char *data = aircrafts_to_json (&data_len, &num_planes);
+    char *data = aircrafts_to_json (&data_len, &num_planes, is_Tar1090, is_Dump1090_OL3);
 
     if (num_planes >= 1)
-       TRACE (DEBUG_NET2, "Feeding client %lu with \"%s\", num_planes: %d.\n",
-              conn->id, uri, num_planes);
+       TRACE (DEBUG_NET, "Feeding client %lu with \"%s\", num_planes: %d. data:\n%s\n",
+              conn->id, uri, num_planes, is_Dump1090_OL3 ? data : "");
 
     /* This is rather inefficient way to pump data over to the client.
      * Better use a WebSocket instead.
      */
     mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
     free (data);
+    return;
+  }
+
+  TRACE (DEBUG_NET, "'%s' from client %lu at %s. json_data: %d.\n", request, conn->id, remote, json_data);
+
+  /* Redirect a 'GET /' to a 'GET /' + 'web_page'
+   */
+  if (!strcmp(request, "GET /"))
+  {
+    char redirect [50+MG_PATH_MAX];
+
+    if (hm->proto.len >= 9 && strncmp(hm->proto.ptr, "HTTP/1.1", 8))
+    {
+      Modes.stat.HTTP_keep_alive_recv++;
+      cli->keep_alive = 1;
+    }
+    snprintf (redirect, sizeof(redirect),
+              "%sLocation: %s\r\n", cli->keep_alive ? "Connection: keep-alive\r\n" : "", basename(Modes.web_page));
+    mg_http_reply (conn, 303, redirect, "");
+    TRACE (DEBUG_NET, "Redirecting client %lu: \"%s\"...\n\n", conn->id, redirect);
     return;
   }
 
@@ -3749,7 +3886,7 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
     return;
   }
 
-  mg_http_reply (conn, 404, "", "Not found\n");
+  mg_http_reply (conn, 404, cli->keep_alive ? "Connection: keep-alive\r\n" : "", "Not found\n");
   TRACE (DEBUG_NET, "HTTP 404 for URI: \"%s\".\n", uri);
 }
 
@@ -4174,11 +4311,10 @@ void background_tasks (void)
   /* Refresh screen and console-title when in interactive mode
    */
   if (Modes.interactive)
-  {
-    interactive_show_data (now);
-    console_title_stats();
-    console_update_gain();
-  }
+     interactive_show_data (now);
+
+  console_title_stats();
+  console_update_gain();
 }
 
 /**
@@ -4329,6 +4465,8 @@ void modeS_exit (void)
 #endif
 }
 
+static bool selection_done = false;
+
 static void select_device (char *arg)
 {
   if (isdigit(arg[0]))
@@ -4345,6 +4483,7 @@ static void select_device (char *arg)
     if (isdigit(arg[+7]))
        Modes.sdrplay.index = atoi (arg+7);
   }
+  selection_done = true;
 }
 
 void select_debug (const char *flags)
@@ -4419,8 +4558,6 @@ static struct option long_options[] = {
   { "loop",             optional_argument,  NULL,                          'l' },
   { "max-messages",     required_argument,  NULL,                          'm' },
   { "metric",           no_argument,        (int*)&Modes.metric,           1   },
-  { "no-crc-check",     no_argument,        (int*)&Modes.check_crc,        0   },
-  { "no-fix",           no_argument,        (int*)&Modes.fix_errors,       0   },
   { "net",              no_argument,        (int*)&Modes.net,              1   },
   { "net-only",         no_argument,        NULL,                          'n' },
   { "net-http-port",    required_argument,  NULL,                          'X' + MODES_NET_SERVICE_HTTP },
@@ -4449,6 +4586,8 @@ void parse_cmd_line (int argc, char **argv)
            break;
 
       case 'D':
+           if (selection_done)
+              show_help ("Option '--device' already done.\n\n");
            select_device (optarg);
            break;
 
@@ -4544,7 +4683,7 @@ void parse_cmd_line (int argc, char **argv)
  */
 int main (int argc, char **argv)
 {
-  int j, rc;
+  int rc;
 
 #if defined(_DEBUG)
   crtdbug_init();
