@@ -691,7 +691,11 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
 
   TRACE (DEBUG_GENERAL, "sdrplay_api_ApiVersion(): '%.2f', build version: '%.2f'.\n", sdr.version, SDRPLAY_API_VERSION);
   if (sdr.version != SDRPLAY_API_VERSION || sdr.version < 3.06F)
-     goto failed;
+  {
+    snprintf (sdr.last_err, sizeof(sdr.last_err), "Wrong sdrplay_api_ApiVersion(): '%.2f', build version: '%.2f'.\n",
+              sdr.version, SDRPLAY_API_VERSION);
+    goto failed;
+  }
 
   if (!sdrplay_select(name))
      goto failed;
@@ -720,7 +724,7 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
   return (sdrplay_api_Success);
 
 failed:
-  TRACE (DEBUG_GENERAL, "%s.\n", sdr.last_err);
+  LOG_STDERR ("%s.\n", sdr.last_err);
   sdrplay_exit (NULL);
   return (sdrplay_api_Fail);  /* A better error-code? */
 }
