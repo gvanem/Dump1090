@@ -24,21 +24,12 @@ void modeS_log (const char *buf)
      fputs (buf, Modes.log);
   else
   {
-    char tbuf[30];
+    char tbuf [30];
     SYSTEMTIME now;
-    static     char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
 
     GetLocalTime (&now);
-    now.wMonth--;
-
-#if 0
-    snprintf (tbuf, sizeof(tbuf), "%04u %.3s %02u %02u:%02u:%02u.%03u",
-              now.wYear, months + 3*now.wMonth, now.wDay, now.wHour,
-              now.wMinute, now.wSecond, now.wMilliseconds);
-#else
     snprintf (tbuf, sizeof(tbuf), "%02u:%02u:%02u.%03u",
               now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
-#endif
 
     if (*buf == '\n')
        buf++;
@@ -48,7 +39,7 @@ void modeS_log (const char *buf)
 }
 
 /**
- * Print to both `FILE *f` and optionally to `Modes.log`.
+ * Print to `f` and optionally to `Modes.log`.
  */
 void modeS_flogf (FILE *f, const char *fmt, ...)
 {
