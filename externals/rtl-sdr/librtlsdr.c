@@ -22,7 +22,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <process.h>
 #include <libusb.h>
 
 #define pthread_t                 HANDLE
@@ -1893,8 +1892,6 @@ int rtlsdr_open(rtlsdr_dev_t **out_dev, uint32_t index)
 		return -1;
 	}
 
-	libusb_set_option(dev->ctx, LIBUSB_OPTION_LOG_LEVEL, 1);
-
 	pthread_mutex_init(&dev->cs_mutex, NULL);
 
 	dev->dev_lost = 1;
@@ -2497,10 +2494,13 @@ int rtlsdr_read_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx,
 					/* handle events after canceling
 					 * to allow transfer status to
 					 * propagate */
-					r2 = libusb_handle_events_timeout_completed(dev->ctx,
+					libusb_handle_events_timeout_completed(dev->ctx,
 												 &zerotv, NULL);
-					if (r < 0)
+					if (r < 0) {
+						TRACE (1, "dev->xfer[%d] not cancelled\n", i);
+						r = 0;
 						continue;
+					}
 
 					next_status = RTLSDR_CANCELING;
 				}
@@ -2510,8 +2510,7 @@ int rtlsdr_read_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx,
 				/* handle any events that still need to
 				 * be handled before exiting after we
 				 * just cancelled all transfers */
-				libusb_handle_events_timeout_completed(dev->ctx,
-											 &zerotv, NULL);
+				r2 = libusb_handle_events_timeout_completed(dev->ctx, &zerotv, NULL);
 				break;
 			}
 		}
