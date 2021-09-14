@@ -379,10 +379,10 @@ void crtdbug_exit (void)
   _CrtMemCheckpoint (&new_state);
   if (!_CrtMemDifference(&diff_state, &last_state, &new_state))
   {
-    TRACE (DEBUG_GENERAL, "No leaks detected.\n");
+    LOG_STDERR ("No mem-leaks detected.\n");
     return;
   }
-  TRACE (DEBUG_GENERAL, "Leak report:\n");
+  LOG_STDERR ("Mem-leak report:\n");
   _CrtCheckMemory();
   _CrtSetDbgFlag (0);
   _CrtDumpMemoryLeaks();
@@ -710,12 +710,12 @@ int aircraft_CSV_parse (struct CSV_context *ctx, const char *value)
  */
 void aircraft_CSV_load (void)
 {
-  mg_stat_t st;
+  struct stat st;
 
   if (!stricmp(Modes.aircraft_db, "NUL"))   /* User want no .csv file */
      return;
 
-  if (mg_stat(Modes.aircraft_db, &st) != 0)
+  if (stat(Modes.aircraft_db, &st) != 0)
   {
     LOG_STDERR ("Aircraft database \"%s\" does not exist.\n", Modes.aircraft_db);
     return;
@@ -773,7 +773,7 @@ void modeS_init_config (void)
  */
 int modeS_init (void)
 {
-  mg_stat_t   st;
+  struct stat st;
   int         i, q;
   const char *env;
 
@@ -815,7 +815,7 @@ int modeS_init (void)
     snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.web_root, basename(Modes.web_page));
     TRACE (DEBUG_NET, "Web-page: \"%s\"\n", full_name);
 
-    if (mg_stat(full_name, &st) != 0)
+    if (stat(full_name, &st) != 0)
     {
       LOG_STDERR ("Web-page \"%s\" does not exist.\n", full_name);
       return (1);
@@ -1380,7 +1380,7 @@ uint32_t modeS_checksum (const uint8_t *msg, int bits)
   int      offset = 0;
   int      j;
 
-  if (bits != MODES_LONG_MSG_BITS);
+  if (bits != MODES_LONG_MSG_BITS)
      offset = MODES_LONG_MSG_BITS - MODES_SHORT_MSG_BITS;
 
   for (j = 0; j < bits; j++)
@@ -1585,7 +1585,7 @@ int brute_force_AP (uint8_t *msg, struct modeS_message *mm)
      * (ADDR xor CRC) xor CRC = ADDR.
      */
     crc = modeS_checksum (aux, msg_bits);
-    aux [last_byte] ^= crc & 0xFF;
+    aux [last_byte]   ^= crc & 0xFF;
     aux [last_byte-1] ^= (crc >> 8) & 0xFF;
     aux [last_byte-2] ^= (crc >> 16) & 0xFF;
 
@@ -2469,7 +2469,7 @@ good_preamble:
      * with a Mode S message in our hands, but it may still be broken
      * and CRC may not be correct. This is handled by the next layer.
      */
-    if (errors == 0 || (Modes.aggressive && errors < 3))
+    if (errors == 0 || (Modes.aggressive && errors <= 2))
     {
       struct modeS_message mm;
       double   signal_power = 0ULL;
@@ -2574,44 +2574,47 @@ good_preamble:
  */
 void modeS_user_message (const struct modeS_message *mm)
 {
-  if (mm->CRC_ok)
+  uint64_t num_clients;
+
+  if (!mm->CRC_ok)
+     return;
+
+  /* Track aircrafts in interactive mode or if we have some HTTP / SBS clients.
+   */
+  num_clients = Modes.stat.cli_accepted [MODES_NET_SERVICE_HTTP] +
+                Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS];
+
+  if (Modes.interactive || num_clients > 0)
   {
-    /* Track aircrafts in interactive mode or if we have some HTTP / SBS clients.
-     */
-    uint64_t num_clients = Modes.stat.cli_accepted [MODES_NET_SERVICE_HTTP] +
-                           Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS];
-    if (Modes.interactive || num_clients > 0)
-    {
-      uint64_t now = MSEC_TIME();
-      struct aircraft *a = interactive_receive_data (mm, now);
+    uint64_t now = MSEC_TIME();
+    struct aircraft *a = interactive_receive_data (mm, now);
 
-      if (a)
+    if (a)
+    {
+      if (Modes.stat.cli_accepted[MODES_NET_SERVICE_SBS] > 0)
       {
-        if (Modes.stat.cli_accepted[MODES_NET_SERVICE_SBS] > 0)
-        {
-          int num = modeS_send_SBS_output (mm, a);     /* Feed SBS output clients. */
-          TRACE (DEBUG_NET, "Sent ICAO=%06X to %d SBS client(s).\n", a->addr, num);
-        }
+        int num = modeS_send_SBS_output (mm, a);     /* Feed SBS output clients. */
+        TRACE (DEBUG_NET, "Sent ICAO=%06X to %d SBS client(s).\n", a->addr, num);
       }
     }
-
-    /* In non-interactive way, display messages on standard output.
-     */
-    if (!Modes.interactive)
-    {
-      display_modeS_message (mm);
-      if (!Modes.raw && !Modes.only_addr)
-      {
-        puts ("");
-        modeS_log ("\n\n");
-      }
-    }
-
-    /* Send data to connected clients.
-     */
-    if (Modes.net)
-       modeS_send_raw_output (mm);
   }
+
+  /* In non-interactive way, display messages on standard output.
+   */
+  if (!Modes.interactive)
+  {
+    display_modeS_message (mm);
+    if (!Modes.raw && !Modes.only_addr)
+    {
+      puts ("");
+      modeS_log ("\n\n");
+    }
+  }
+
+  /* Send data to connected clients.
+   */
+  if (Modes.net)
+     modeS_send_raw_output (mm);
 }
 
 /**
@@ -2666,8 +2669,8 @@ struct aircraft *aircraft_find (uint32_t addr)
  */
 int aircraft_numbers (void)
 {
-  struct aircraft *a = Modes.aircrafts;
-  int    num;
+  const struct aircraft *a = Modes.aircrafts;
+  int   num;
 
   for (num = 0; a; num++)
       a = a->next;
@@ -3749,6 +3752,16 @@ bool is_websocket_ctrl_event (int ev)
   return (ev == MG_EV_WS_MSG || ev == MG_EV_WS_CTL);
 }
 
+const char *get_client_headers (const struct client *cli, const char *hdr)
+{
+  static char buf[100];
+  int    len = snprintf (buf, sizeof(buf), "%s\r\n", hdr);
+
+  if (cli->keep_alive)
+     strncpy (buf + len, "Connection: keep-alive\r\n", sizeof(buf) - len - 1);
+  return (buf);
+}
+
 /**
  * The event handler for HTTP traffic.
  */
@@ -3875,9 +3888,12 @@ void http_handler (struct mg_connection *conn, const char *remote, int ev, void 
     }
     else
     {
+      struct mg_http_serve_opts opts;
+
+      memset (&opts, '\0', sizeof(opts));
+      opts.extra_headers = get_client_headers (cli, content);
       snprintf (file, sizeof(file), "%s\\%s", Modes.web_root, uri+1);
-      mg_http_serve_file (conn, hm, file, content,
-                          cli->keep_alive ? "Connection: keep-alive\r\n" : "");
+      mg_http_serve_file (conn, hm, file, &opts);
     }
     if (cli->keep_alive)
        Modes.stat.HTTP_keep_alive_sent++;
@@ -4184,7 +4200,7 @@ void read_from_client (struct client *cli, int sep, void (*handler)(struct clien
   /* copy over before Mongoose discards this
    */
   memcpy (cli->buf + cli->buflen, msg->buf, size);
-  mg_iobuf_delete (msg, msg->len);
+  mg_iobuf_free (msg);
   cli->buflen += size;
   cli->buf [cli->buflen+1] = '\0';
 
