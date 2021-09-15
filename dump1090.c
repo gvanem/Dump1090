@@ -185,6 +185,7 @@ int  modeS_send_SBS_output (const struct modeS_message *mm, const struct aircraf
 void modeS_user_message (const struct modeS_message *mm);
 void set_est_home_distance (struct aircraft *a, uint64_t now);
 void spherical_to_cartesian (cartesian_t *cart, pos_t point);
+bool ICAO_is_military (uint32_t addr);
 
 int  fix_single_bit_errors (uint8_t *msg, int bits);
 int  fix_two_bits_errors (uint8_t *msg, int bits);
@@ -630,12 +631,14 @@ void aircraft_CSV_test (void)
   const struct aircraft_CSV *a_CSV;
   const char  *reg_num, *manufact;
   unsigned     i, num_ok;
+  uint32_t     addr;
   static const struct aircraft_CSV a_tests[] = {
                { 0xAA3487, "N757F",  "Raytheon Aircraft Company" },
                { 0x800737, "VT-ANQ", "Boeing" },
                { 0xAB34DE, "N821DA", "Beech"  },
                { 0x800737, "VT-ANQ", "Boeing" },
-               { 0xA713D8, "N555UZ", "Cessna" }
+               { 0xA713D8, "N555UZ", "Cessna" },
+               { 0x3532C1, "T.23-01","AIRBUS" },  // Spanish Air Force
              };
 #if 0
   for (i = 0; i < min(100, Modes.aircraft_num_CSV); i++)
@@ -648,7 +651,8 @@ void aircraft_CSV_test (void)
   LOG_STDOUT ("5 random records from \"%s\":\n", Modes.aircraft_db);
   for (i = num_ok = 0; i < DIM(a_tests); i++)
   {
-    a_CSV = aircraft_CSV_lookup_entry (a_tests[i].addr);
+    addr = a_tests[i].addr;
+    a_CSV = aircraft_CSV_lookup_entry (addr);
     reg_num = manufact = "?";
     if (a_CSV && a_CSV->reg_num[0])
     {
@@ -657,7 +661,8 @@ void aircraft_CSV_test (void)
     }
     if (a_CSV && a_CSV->manufact[0])
        manufact = a_CSV->manufact;
-    LOG_STDOUT ("  addr: %06X, reg-num: '%-6s', manufact: '%s'\n", a_tests[i].addr, reg_num, manufact);
+    LOG_STDOUT ("  addr: %06X, reg-num: '%-7s', manufact: '%s' %s\n",
+                addr, reg_num, manufact, ICAO_is_military(addr) ? ", Military" : "");
   }
   LOG_STDOUT ("%3u OKAY\n", num_ok);
   LOG_STDOUT ("%3u FAIL\n", i - num_ok);
@@ -788,7 +793,7 @@ int modeS_init (void)
     else
     {
       char   args [1000] = "";
-      char   buf [sizeof(args)+100];
+      char   buf [sizeof(args)+PATH_MAX+10];
       char  *p = args;
       size_t n, left = sizeof(args);
       int    i;
@@ -1017,7 +1022,8 @@ int modeS_init_RTLSDR (void)
 
 /**
  * This reading callback gets data from the RTLSDR or SDRplay API asynchronously.
- * We then populate the data buffer. <br>
+ * We then populate the data buffer.
+ *
  * A Mutex is used to avoid race-condition with the decoding thread.
  */
 void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
@@ -1145,7 +1151,8 @@ unsigned int __stdcall data_thread_fn (void *arg)
 }
 
 /**
- * Main data processing loop. <br>
+ * Main data processing loop.
+ *
  * This runs in the main thread of the program.
  */
 void main_data_loop (void)
@@ -1338,7 +1345,8 @@ void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint3
 }
 
 /**
- * Parity table for MODE S Messages. s<br>
+ * Parity table for MODE S Messages.
+ *
  * The table contains 112 (`MODES_LONG_MSG_BITS`) elements, every element
  * corresponds to a bit set in the message, starting from the first bit of
  * actual data after the preamble.
@@ -1542,6 +1550,56 @@ int ICAO_address_recently_seen (uint32_t addr)
 }
 
 /**
+ * Returns TRUE if the ICAO address is in one of these military ranges.
+ */
+static const ICAO_range military_range[] = {
+     { 0xADF7C8,  0xAFFFFF },
+     { 0x010070,  0x01008F },
+     { 0x0A4000,  0x0A4FFF },
+     { 0x33FF00,  0x33FFFF },
+     { 0x350000,  0x37FFFF },
+     { 0x3A8000,  0x3AFFFF },
+     { 0x3B0000,  0x3BFFFF },
+     { 0x3EA000,  0x3EBFFF },
+     { 0x3F4000,  0x3FBFFF },
+     { 0x400000,  0x40003F },
+     { 0x43C000,  0x43CFFF },
+     { 0x444000,  0x446FFF },
+     { 0x44F000,  0x44FFFF },
+     { 0x457000,  0x457FFF },
+     { 0x45F400,  0x45F4FF },
+     { 0x468000,  0x4683FF },
+     { 0x473C00,  0x473C0F },
+     { 0x478100,  0x4781FF },
+     { 0x480000,  0x480FFF },
+     { 0x48D800,  0x48D87F },
+     { 0x497C00,  0x497CFF },
+     { 0x498420,  0x49842F },
+     { 0x4B7000,  0x4B7FFF },
+     { 0x4B8200,  0x4B82FF },
+     { 0x506F00,  0x506FFF },
+     { 0x70C070,  0x70C07F },
+     { 0x710258,  0x71028F },
+     { 0x710380,  0x71039F },
+     { 0x738A00,  0x738AFF },
+     { 0x7C822E,  0x7C84FF },
+     { 0x7C8800,  0x7C88FF },
+     { 0x7C9000,  0x7CBFFF },
+     { 0x7D0000,  0x7FFFFF },
+     { 0x800200,  0x8002FF },
+     { 0xC20000,  0xC3FFFF },
+     { 0xE40000,  0xE41FFF }
+   };
+
+bool ICAO_is_military (uint32_t addr)
+{
+  for (int i = 0; i < DIM(military_range); i++)
+      if (addr >= military_range[i].low && addr <= military_range[i].high)
+         return (true);
+  return (false);
+}
+
+/**
  * If the message type has the checksum XORed with the ICAO address, try to
  * brute force it using a list of recently seen ICAO addresses.
  *
@@ -1703,7 +1761,8 @@ const char *flight_status_str[8] = {
 
 /**
  * Emergency state table from: <br>
- * https://www.ll.mit.edu/mission/aviation/publications/publication-files/atc-reports/Grappel_2007_ATC-334_WW-15318.pdf
+ *   https://www.ll.mit.edu/mission/aviation/publications/publication-files/atc-reports/Grappel_2007_ATC-334_WW-15318.pdf
+ *
  * and 1090-DO-260B_FRAC
  */
 const char *emerg_state_str[8] = {
@@ -1759,7 +1818,8 @@ const char *get_ME_description (const struct modeS_message *mm)
 }
 
 /**
- * Decode a raw Mode S message demodulated as a stream of bytes by `detect_modeS()`. <br>
+ * Decode a raw Mode S message demodulated as a stream of bytes by `detect_modeS()`.
+ *
  * And split it into fields populating a `modeS_message` structure.
  */
 void decode_modeS_message (struct modeS_message *mm, const uint8_t *_msg)
@@ -2001,7 +2061,8 @@ const char *get_ICAO_details (int AA1, int AA2, int AA3)
 
   a = aircraft_CSV_lookup_entry (addr);
   if (a && a->reg_num[0])
-     snprintf (p, left, " (reg-num: %s, manuf: %s)", a->reg_num, a->manufact[0] ? a->manufact : "?");
+     snprintf (p, left, " (reg-num: %s, manuf: %s%s)",
+               a->reg_num, a->manufact[0] ? a->manufact : "?", ICAO_is_military(addr) ? ", Military" : "");
   return (ret_buf);
 }
 
@@ -2618,7 +2679,8 @@ void modeS_user_message (const struct modeS_message *mm)
 }
 
 /**
- * Create a new aircraft structure.<br>
+ * Create a new aircraft structure.
+ *
  * Store the printable hex-address as 6 digits since an ICAO address should never
  * contain more than 24 bits.
  *
@@ -2887,10 +2949,10 @@ int CPR_mod_func (int a, int b)
 }
 
 /**
- * Helper function for decoding the **CPR** (*Compact Position Reporting*). <br>
+ * Helper function for decoding the **CPR** (*Compact Position Reporting*).
  *
  * Calculates **NL** *(lat)*; *Number of Longitude* zone. <br>
- * Given the latitude, this function returns the number of longitude zones between 1 and 59. <br>
+ * Given the latitude, this function returns the number of longitude zones between 1 and 59.
  *
  * The NL function uses the precomputed table from 1090-WP-9-14. <br>
  * Refer [The-1090MHz-riddle](./The-1090MHz-riddle.pdf), page 45 for the exact equation.
@@ -3180,29 +3242,26 @@ void interactive_show_aircraft (const struct aircraft *a, uint64_t now)
   int   altitude = a->altitude;
   int   speed = a->speed;
   char  alt_buf [10]       = "  - ";
-  char  lat_buf [10]       = "  - ";
-  char  lon_buf [10]       = "  - ";
+  char  lat_buf [10]       = "   - ";
+  char  lon_buf [10]       = "    - ";
   char  speed_buf [8]      = " - ";
   char  heading_buf [8]    = " - ";
-  char  distance_buf [10]  = "";
-  char  RSSI [6]           = " - ";
+  char  distance_buf [10]  = " - ";
+  char  RSSI_buf [7]           = " - ";
   bool  restore_colour     = false;
   const char *reg_num      = "";
   const char *distance     = NULL;
   const char *est_distance = NULL;
   const char *km_kts;
-  double sig_avg = 0;
+  double  sig_avg = 0;
+  int64_t ms_diff;
 
   /* Convert units to metric if --metric was specified.
    */
   if (Modes.metric)
   {
-    double altitudeM, speedKmH;
-
-    altitudeM = (double) altitude / 3.2828;
-    altitude  = (int) altitudeM;
-    speedKmH  = (double) speed * 1.852;
-    speed     = (int) speedKmH;
+    altitude = (int) round ((double)altitude / 3.2828);
+    speed    = (int) round ((double)speed * 1.852);
   }
 
   /* Get the average RSSI from last 4 messages.
@@ -3210,29 +3269,31 @@ void interactive_show_aircraft (const struct aircraft *a, uint64_t now)
   for (i = 0; i < DIM(a->sig_levels); i++)
       sig_avg += a->sig_levels[i];
   sig_avg /= DIM(a->sig_levels);
+
   if (sig_avg > 1E-5)
-     snprintf (RSSI, sizeof(RSSI), "%.1lf", 10 * log10(sig_avg));
+     snprintf (RSSI_buf, sizeof(RSSI_buf), "% +4.1lf", 10 * log10(sig_avg));
 
   if (altitude)
      snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
 
   if (a->position.lat)
-     snprintf (lat_buf, sizeof(lat_buf), "%.03f", a->position.lat);
+     snprintf (lat_buf, sizeof(lat_buf), "% +7.03f", a->position.lat);
 
   if (a->position.lon)
-     snprintf (lon_buf, sizeof(lon_buf), "%.03f", a->position.lon);
+     snprintf (lon_buf, sizeof(lon_buf), "% +8.03f", a->position.lon);
 
-  if (a->speed)
-     snprintf (speed_buf, sizeof(speed_buf), "%d", a->speed);
+  if (speed)
+     snprintf (speed_buf, sizeof(speed_buf), "%4d", speed);
 
   if (a->heading_is_valid)
-     snprintf (heading_buf, sizeof(heading_buf), "%d", a->heading);
+     snprintf (heading_buf, sizeof(heading_buf), "%3d", a->heading);
 
   if (Modes.home_pos_ok)
   {
     distance     = get_home_distance (a, &km_kts);
     est_distance = get_est_home_distance (a, &km_kts);
-    snprintf (distance_buf, sizeof(distance_buf), "  %-6.6s", est_distance ? est_distance : " -");
+    if (est_distance)
+       snprintf (distance_buf, sizeof(distance_buf), "%s", est_distance);
   }
 
   if (a->CSV && a->CSV->reg_num[0])
@@ -3254,10 +3315,12 @@ void interactive_show_aircraft (const struct aircraft *a, uint64_t now)
                   est_distance ? est_distance : "-", km_kts);
   }
 
-  printf ("%06X %-8s %-8s %-5s     %-7s %-7s %7s    %-7s%s %-5s %-4ld %2llu sec \n",
-          a->addr, a->flight, reg_num, alt_buf, speed_buf,
-          lat_buf, lon_buf, heading_buf, distance_buf, RSSI, a->messages,
-          (now - a->seen_last) / 1000);
+  ms_diff = (now - a->seen_last);
+  if (ms_diff < 0LL)  /* clock wrapped */
+     ms_diff = 0L;
+
+  printf ("%06X %-8s %-8s %-5s     %-5s %-7s %-8s   %-5s ", a->addr, a->flight, reg_num, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf);
+  printf ("%6s  %5s %5u  %2llu sec \n", distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
 
   if (restore_colour)
      setcolor (0);
@@ -3273,8 +3336,6 @@ void interactive_show_data (uint64_t now)
   static int old_count = -1;
   int    count = 0;
   char   spinner[] = "|/-\\";
-  const char *dist_column;
-  const char *extra_dashes;
 
   struct aircraft *a = Modes.aircrafts;
 
@@ -3289,21 +3350,10 @@ void interactive_show_data (uint64_t now)
     gotoxy (1, 1);
   }
 
-  if (Modes.home_pos_ok)
-  {
-    dist_column  = "  Dist  ";
-    extra_dashes = "--------";
-  }
-  else
-  {
-    dist_column  = "";
-    extra_dashes = "";
-  }
-
   setcolor (COLOUR_WHITE);
-  printf ("ICAO   Flight   Reg-num  Altitude  Speed   Lat       Long     Heading%s RSSI  Msg  Seen %c\n"
-          "---------------------------------------------------------------------------------------%s\n",
-          dist_column, spinner[spin_idx & 3], extra_dashes);
+  printf ("ICAO   Flight   Reg-num  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c\n"
+          "----------------------------------------------------------------------------------------------\n",
+          spinner[spin_idx & 3]);
   spin_idx++;
   setcolor (0);
 

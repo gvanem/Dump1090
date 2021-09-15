@@ -151,6 +151,15 @@ struct aircraft_CSV {
      };
 
 /**
+ * \typdef ICAO_range
+ * The low and high values used to lookup military ranges.
+ */
+typedef struct ICAO_range {
+        uint32_t  low;
+        uint32_t  high;
+      } ICAO_range;
+
+/**
  * \enum a_show_t
  * The "show-state" for an aircraft.
  */
@@ -209,7 +218,7 @@ struct aircraft {
        uint64_t seen_first;        /**< Tick-time (in milli-sec) at which the first packet was received. */
        uint64_t seen_last;         /**< Tick-time (in milli-sec) at which the last packet was received. */
        uint64_t EST_seen_last;     /**< Tick-time (in milli-sec) at which the last estimated positoon was done. */
-       long     messages;          /**< Number of Mode S messages received. */
+       uint32_t messages;          /**< Number of Mode S messages received. */
        int      identity;          /**< 13 bits identity (Squawk). */
        a_show_t show;              /**< The plane's show-state */
        double   distance;          /**< Distance (in meters) to home position */
