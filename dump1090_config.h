@@ -34,6 +34,13 @@
 
 #elif defined(_MSC_VER)
   #pragma warning (disable:4005 4244 4267)
+
+  #ifdef _WIN64
+    /*
+     * 'type cast': conversion from 'int' to 'void *' of greater size
+    */
+    #pragma warning (disable:4312)
+  #endif
 #endif
 
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
