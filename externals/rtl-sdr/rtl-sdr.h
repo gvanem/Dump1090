@@ -24,11 +24,6 @@
 extern "C" {
 #endif
 
-#ifdef _WIN32
-#define usleep(x) Sleep(x/1000)
-#endif
-
-
 #include <stdint.h>
 #include <stddef.h>
 #include <rtl-sdr_export.h>
@@ -100,7 +95,7 @@ RTLSDR_API int rtlsdr_set_xtal_freq(rtlsdr_dev_t *dev, uint32_t rtl_freq,
  * \return 0 on success
  */
 RTLSDR_API int rtlsdr_get_xtal_freq(rtlsdr_dev_t *dev, uint32_t *rtl_freq,
-				    uint32_t *tuner_freq);
+				    double *tuner_freq);
 
 /*!
  * Get USB device strings.
@@ -173,6 +168,15 @@ RTLSDR_API uint32_t rtlsdr_get_center_freq(rtlsdr_dev_t *dev);
  * \return 0 on success
  */
 RTLSDR_API int rtlsdr_set_freq_correction(rtlsdr_dev_t *dev, int ppm);
+
+/*!
+ * Set the frequency correction value for the device.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param ppm correction value in parts per 100 million (ppm)
+ * \return 0 on success
+ */
+RTLSDR_API int rtlsdr_set_freq_correction_100ppm(rtlsdr_dev_t *dev, int ppm);
 
 /*!
  * Get actual frequency correction value of the device.
@@ -444,7 +448,7 @@ RTLSDR_API int rtlsdr_cancel_async(rtlsdr_dev_t *dev);
  */
 RTLSDR_API int rtlsdr_ir_query(rtlsdr_dev_t *dev, uint8_t *buf, size_t buf_len);
 
-void rtlsdr_set_gpio_bit(rtlsdr_dev_t *dev, uint8_t gpio, int val);
+RTLSDR_API void rtlsdr_set_gpio_bit(rtlsdr_dev_t *dev, uint8_t gpio, int val);
 
 /*!
  * Enable or disable the bias tee on GPIO PIN 0. (Works for rtl-sdr.com v3 dongles)
@@ -521,6 +525,7 @@ RTLSDR_API int rtlsdr_reset_demod(rtlsdr_dev_t *dev);
  * \return 0 on success
  */
 RTLSDR_API int rtlsdr_set_dithering(rtlsdr_dev_t *dev, int dither);
+RTLSDR_API int rtlsdr_set_if_freq(rtlsdr_dev_t *dev, int32_t freq);
 
 #ifdef DEBUG
 RTLSDR_API void print_demod_register(rtlsdr_dev_t *dev, uint8_t page);

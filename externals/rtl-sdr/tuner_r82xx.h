@@ -55,7 +55,7 @@ enum r82xx_tuner_type {
 
 struct r82xx_config {
 	uint8_t i2c_addr;
-	uint32_t xtal;
+	double xtal;
 	enum r82xx_chip rafael_chip;
 	int use_predetect;
 	int	cal_imr;

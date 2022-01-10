@@ -680,10 +680,9 @@ static int r82xx_set_mux(struct r82xx_priv *priv, uint32_t freq)
 static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 {
 	int rc, i;
-	uint64_t vco_freq;
-	uint64_t vco_div;
+	int64_t vco_freq, vco_div;
 	uint32_t vco_min = 1770000000;
-	uint32_t pll_ref;
+	double pll_ref;
 	uint32_t sdm;
 	uint8_t div_num;
 	uint8_t refdiv2 = 0;
@@ -697,7 +696,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 
 	pll_ref = priv->cfg->xtal;
 
-	if (priv->cfg->xtal > 24000000) {
+	if (priv->cfg->xtal > 24000000.0) {
 		pll_ref /= 2;
 		refdiv2 = 0x10;
 	}
@@ -724,7 +723,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	if (rc < 0)
 		return rc;
 
-	vco_freq = (uint64_t)freq << (div_num + 1);
+	vco_freq = (int64_t)freq << (div_num + 1);
 
 	/*
 	 * We want to approximate:
@@ -747,15 +746,6 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
     nint = vco_div / 65536;
 	sdm = vco_div % 65536;
     //printf("nint = %d, sdm = %d\n", nint, sdm);
-
-#if 0
-	{
-	  uint8_t mix_div = 1 << (div_num + 1);
-	  uint64_t actual_vco = (uint64_t)2 * pll_ref * nint + (uint64_t)2 * pll_ref * sdm / 65536;
-	  fprintf(stderr, "[R82XX] requested %uHz; selected mix_div=%u vco_freq=%llu nint=%u sdm=%u; actual_vco=%llu; tuning error=%+dHz\n",
-		  freq, mix_div, vco_freq, nint, sdm, actual_vco, (int32_t) (actual_vco - vco_freq) / mix_div);
-	}
-#endif
 
 	ni = (nint - 13) / 4;
 	si = nint - 4 * ni - 13;
@@ -806,8 +796,31 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 
 	/* set pll autotune = 8kHz */
 	rc = r82xx_write_reg_mask(priv, 0x1a, 0x08, 0x08);
+	if (rc < 0)
+		return rc;
 
-	return rc;
+	{
+		int zf, tuning_error;
+		int64_t actual_vco;
+		double dither_offset = 0.0;
+		uint8_t mix_div = 1 << (div_num + 1);
+		if(sdm) //frac pll enabled
+		{
+			if(r82xx_read_cache_reg(priv, 0x12) & 0x10)
+				dither_offset = 0.5;
+			else
+				dither_offset = 0.25;
+		}
+		actual_vco = 2 * pll_ref * nint + 2 * pll_ref * (dither_offset + sdm) / 65536;
+		tuning_error = (int)(actual_vco - vco_freq) / mix_div;
+		//fprintf(stderr, "[R82XX] requested %uHz; selected mix_div=%u vco_freq=%lld nint=%u sdm=%u; actual_vco=%lld; xtal=%.1f, tuning error=%dHz\n",
+		//		freq, mix_div, vco_freq, nint, sdm, actual_vco, priv->cfg->xtal, tuning_error);
+		if(priv->sideband)
+			zf = priv->int_freq - tuning_error;
+		else
+			zf = priv->int_freq + tuning_error;
+		return rtlsdr_set_if_freq(priv->rtl_dev, zf+3);
+	}
 }
 
 static int r82xx_sysfreq_sel(struct r82xx_priv *priv,

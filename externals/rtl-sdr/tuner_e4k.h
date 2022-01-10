@@ -165,14 +165,8 @@ enum e4k_band {
 };
 
 struct e4k_pll_params {
-	uint32_t fosc;
-	uint32_t intended_flo;
+	double fosc;
 	uint32_t flo;
-	uint16_t x;
-	uint8_t z;
-	uint8_t r;
-	uint8_t r_idx;
-	uint8_t threephase;
 };
 
 /* structure describing a field in a register */

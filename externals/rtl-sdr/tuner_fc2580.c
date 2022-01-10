@@ -293,7 +293,7 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 	uint64_t f_vco;
 	uint8_t synth_config;
 	int ret = 0;
-	unsigned int freq_xtal = rtlsdr_get_tuner_clock(dev);
+	double freq_xtal = rtlsdr_get_tuner_clock(dev);
 
 	/*
 	 * Fractional-N synthesizer
@@ -348,7 +348,7 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 	k_cw = (f_vco % uitmp) * 0x100000 / uitmp;
 
 #if 0
-	fprintf(stderr,	"frequency=%u f_vco=%llu freq_xtal=%u div_ref=%u div_n=%u div_out=%u k_cw=%0x\n",
+	fprintf(stderr,	"frequency=%u f_vco=%llu freq_xtal=%.1f div_ref=%u div_n=%u div_out=%u k_cw=%0x\n",
 		frequency, f_vco, freq_xtal, div_ref, div_n, div_out, k_cw);
 #endif
 
