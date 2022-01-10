@@ -1,5 +1,11 @@
-#ifndef _TRACE_WIN32
-#define _TRACE_WIN32
+#ifndef _TRACE_WIN32H
+#define _TRACE_WIN32H
+
+#if !defined(USE_TRACE) || (USE_TRACE == 0)
+  #define TRACE(level, fmt, ...) ((void)0)
+  #define TRACE_WINUSB(func, win_err) \
+          fprintf (stderr, "%s() failed with GetLastError() %lu.\n", func, win_err)
+#else
 
 #include <windows.h>
 
@@ -8,24 +14,28 @@
 #define TRACE_COLOR_OK     (FOREGROUND_INTENSITY | 2)  /* bright green */
 #define TRACE_COLOR_ERR    (FOREGROUND_INTENSITY | 4)  /* bright red */
 
+/*
+ * Trace printer controlled by env-var "set RTLSDR_TRACE=level":
+ */
 #define TRACE(level, fmt, ...)                                    \
         do {                                                      \
           if (trace_level() >= level) {                           \
-            _trace_file = "librtlsdr.c";   /* Only used here */   \
+            _trace_file = __FILE__;                               \
             _trace_line = __LINE__;                               \
             trace_printf (TRACE_COLOR_START, NULL);               \
             trace_printf (TRACE_COLOR_ARGS, fmt, ## __VA_ARGS__); \
           }                                                       \
         } while (0)
 
-#define TRACE_LIBUSB(r) trace_libusb (r, __FUNCTION__, "librtlsdr.c", __LINE__)
+#define TRACE_WINUSB(func, win_err) \
+        trace_winusb(func, win_err, __FILE__, __LINE__)
 
 extern const char *_trace_file;
-extern unsigned    _trace_line;
-extern unsigned    _trace_scope;
+extern int         _trace_line;
 
 int  trace_level (void);
-int  trace_libusb (int r, const char *func, const char *file, unsigned line);
+void trace_winusb (const char *func, DWORD win_err, const char *file, unsigned line);
 void trace_printf (unsigned short col, const char *fmt, ...);
 
+#endif /* _WIN32 */
 #endif

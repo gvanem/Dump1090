@@ -4,7 +4,8 @@
  */
 #include <stdio.h>
 #include <string.h>
-#include <libusb.h>
+#include <io.h>
+
 #include "trace.h"
 
 #if (TRACE_COLOR_START == TRACE_COLOR_ARGS) || \
@@ -15,26 +16,35 @@
 
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE                     stdout_hnd;
+static CRITICAL_SECTION           cs;
+static int                        scope;
 
 const char *_trace_file = NULL;
-unsigned    _trace_line  = 0;
-unsigned    _trace_scope = 0;
+int         _trace_line  = -1;
+
+#if defined(USE_TRACE) && (USE_TRACE == 1)  /* Rest of file */
+
+static int trace_init (void)
+{
+  const char *env = getenv ("RTLSDR_TRACE");
+  int   rc = 0;
+
+  if (env)
+  {
+    InitializeCriticalSection (&cs);
+    stdout_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
+    GetConsoleScreenBufferInfo (stdout_hnd, &console_info);
+    rc = atoi (env);
+  }
+  return (rc);
+}
 
 int trace_level (void)
 {
   static int level = -1;
 
   if (level == -1)
-  {
-    const char *env = getenv ("RTLSDR_TRACE");
-
-    if (env)
-    {
-      level = atoi (env);
-      stdout_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
-      GetConsoleScreenBufferInfo (stdout_hnd, &console_info);
-    }
-  }
+     level = trace_init();
   return (level);
 }
 
@@ -49,43 +59,46 @@ void trace_printf (unsigned short col, const char *fmt, ...)
 {
   va_list args;
 
+  EnterCriticalSection (&cs);
   set_color (col);
 
   if (col == TRACE_COLOR_START)
   {
-    printf ("%*s%s(%u): ", 2*_trace_scope, "", _trace_file, _trace_line);
+    printf ("%*s%s(%u): ", 2*scope, "", _trace_file ? _trace_file : "<unknown file>" , _trace_line);
+    LeaveCriticalSection (&cs);
     return;
   }
+
   va_start (args, fmt);
   vprintf (fmt, args);
   va_end (args);
   fflush (stdout);
-  fflush (stderr);
   set_color (0);
+  LeaveCriticalSection (&cs);
 }
 
-int trace_libusb (int r, const char *func, const char *file, unsigned line)
+void trace_winusb (const char *func, DWORD win_err, const char *file, unsigned line)
 {
   int level = trace_level();
 
-  if (level < 1)
-     return (r);
+  if (level <= 0)
+     return;
 
-  _trace_scope++;
+  scope++;
+
   _trace_line = line;
   _trace_file = file;
 
-  if (level >= 1 && r < 0)
+  if (level >= 1 && win_err > 0)
   {
     trace_printf (TRACE_COLOR_START, NULL);
-    trace_printf (TRACE_COLOR_ERR, "%s() failed with %d/%s: %s\n",
-                  func, r, libusb_error_name(r), libusb_strerror(r));
+    trace_printf (TRACE_COLOR_ERR, "%s() failed with GetLastError() %lu.\n", func, win_err);
   }
-  else if (level >= 2 && r > 0)
+  else if (level >= 2 && win_err == 0)
   {
     trace_printf (TRACE_COLOR_START, NULL);
-    trace_printf (TRACE_COLOR_OK, "%s() ok; %d.\n", func, r);
+    trace_printf (TRACE_COLOR_OK, "%s(), OK.\n", func);
   }
-  _trace_scope--;
-  return (r);
+  scope--;
 }
+#endif /* USE_TRACE == 1 */
