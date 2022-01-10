@@ -15,27 +15,19 @@
  */
 void modeS_log (const char *buf)
 {
-  static bool saw_nl = true;
+  SYSTEMTIME now;
+  char tbuf [30];
 
   if (!Modes.log)
      return;
 
-  if (!saw_nl)
-     fputs (buf, Modes.log);
-  else
-  {
-    char tbuf [30];
-    SYSTEMTIME now;
+  GetLocalTime (&now);
+  snprintf (tbuf, sizeof(tbuf), "%02u:%02u:%02u.%03u",
+            now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
 
-    GetLocalTime (&now);
-    snprintf (tbuf, sizeof(tbuf), "%02u:%02u:%02u.%03u",
-              now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
-
-    if (*buf == '\n')
-       buf++;
-    fprintf (Modes.log, "%s: %s", tbuf, buf);
-  }
-  saw_nl = (strchr(buf, '\n') != NULL);
+  if (*buf == '\n')
+     buf++;
+  fprintf (Modes.log, "%s: %s", tbuf, buf);
 }
 
 /**
@@ -55,8 +47,7 @@ void modeS_flogf (FILE *f, const char *fmt, ...)
     fputs (buf, f);
     fflush (f);
   }
-  if (Modes.log)
-     modeS_log (buf);
+  modeS_log (buf);
 }
 
 /**
@@ -193,7 +184,7 @@ static uint64_t FILETIME_to_unix_epoch (const FILETIME *ft)
   return (res);
 }
 
-int gettimeofday (struct timeval *tv, void *timezone)
+int _gettimeofday (struct timeval *tv, void *timezone)
 {
   FILETIME ft;
   uint64_t tim;
@@ -204,6 +195,43 @@ int gettimeofday (struct timeval *tv, void *timezone)
   tv->tv_usec = (long) (tim % 1000000L);
   (void) timezone;
   return (0);
+}
+
+/**
+ * Parse and split a `host[:port]` string into a host and port.
+ * Set default port if the `:port` is missing.
+ */
+void set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
+{
+  mg_str  str;
+  mg_addr addr;
+  char    buf [100];
+  int     is_ip6 = -1;
+
+  str = mg_url_host (host_port);
+  memset (&addr, '\0', sizeof(addr));
+  addr.port = mg_url_port (host_port);
+  if (addr.port == 0)
+     addr.port = def_port;
+
+  if (mg_aton(str, &addr))
+  {
+    is_ip6 = addr.is_ip6;
+    mg_ntoa (&addr, buf, sizeof(buf));
+  }
+  else
+  {
+    strncpy (buf, str.ptr, min(str.len, sizeof(buf)));
+    buf [str.len] = '\0';
+  }
+
+  if (is_ip6 == -1 && strstr(host_port, "::"))
+     printf ("Illegal address: '%s'. Try '[::ffff:a.b.c.d]:port' instead.\n", host_port);
+
+  serv->host   = strdup (buf);
+  serv->port   = addr.port;
+  serv->is_ip6 = (is_ip6 == 1);
+  TRACE (DEBUG_NET, "is_ip6: %d, host: %s, port: %u.\n", is_ip6, serv->host, serv->port);
 }
 
 /*
@@ -230,9 +258,11 @@ int gettimeofday (struct timeval *tv, void *timezone)
 /**
  * \def FLAG_PERMUTE   permute non-options to the end of argv
  * \def FLAG_ALLARGS   treat non-options as args to option "-1"
+ * \def FLAG_LONGONLY  operate as `getopt_long_only()`.
  */
 #define FLAG_PERMUTE    0x01
 #define FLAG_ALLARGS    0x02
+#define FLAG_LONGONLY   0x04
 
 /** Return values
  *
@@ -417,7 +447,8 @@ static int parse_long_options (char *const *nargv, const char *options,
 
     if (match == -1)        /* first partial match */
         match = i;
-    else if (long_options[i].has_arg != long_options[match].has_arg ||
+    else if ((flags & FLAG_LONGONLY) ||
+             long_options[i].has_arg != long_options[match].has_arg ||
              long_options[i].flag != long_options[match].flag ||
              long_options[i].val != long_options[match].val)
         second_partial_match = 1;
@@ -594,7 +625,7 @@ start:
     }
 
     if (nonopt_start != -1 && nonopt_end == -1)
-      nonopt_end = optind;
+       nonopt_end = optind;
 
     /* If we have "-" do nothing, if "--" we are done.
      */
@@ -620,7 +651,7 @@ start:
    *  2) the arg is not just "-"
    *  3) either the arg starts with -- we are getopt_long_only()
    */
-  if (long_options && place != nargv[optind] && *place == '-')
+  if (long_options && place != nargv[optind] && (*place == '-' || (flags & FLAG_LONGONLY)))
   {
     short_too = 0;
     dash_prefix = D_PREFIX;
@@ -734,3 +765,12 @@ int getopt_long (int nargc, char * const *nargv, const char *options,
   return getopt_internal (nargc, nargv, options, long_options, idx, FLAG_PERMUTE);
 }
 
+/**
+ * Parse `argc` / `argv` argument vector.
+ */
+int getopt_long_only (int nargc, char * const *nargv, const char *options,
+                      const struct option *long_options, int *idx)
+{
+  return getopt_internal (nargc, nargv, options, long_options, idx,
+                          FLAG_PERMUTE|FLAG_LONGONLY);
+}

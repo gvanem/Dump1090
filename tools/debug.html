@@ -33,7 +33,7 @@ function modesChecksum(frame) {
         var bit = j%8;
         var bitmask = 1 << (7-bit);
 
-        /* If bit is set, xor with corresponding table entry. */
+        /* If bit is set, XOR with corresponding table entry. */
         if (frame.hex.charCodeAt(byte) & bitmask)
             crc ^= modes_checksum_table[j+offset];
     }
@@ -52,15 +52,15 @@ function getFrameChecksum(frame) {
 }
 
 function displayFrame(i) {
-    var div = document.getElementById("frame");
+    var div     = document.getElementById ("frame");
     var msgbits = 8+112;
-    var frame = frames[i];
-    var padding = frame.mag.length - msgbits*2;
+    var frame   = frames[i];
+    var padding = frame.mag.length - 2 * msgbits;
 
     /* Remove the old representation. */
     var nodes = div.childNodes.length;
     for(var j = 0; j < nodes; j++) {
-        div.removeChild(div.firstChild);
+        div.removeChild (div.firstChild);
     }
 
     /* Display the new one. */
@@ -68,8 +68,10 @@ function displayFrame(i) {
         var m = frame.mag[j+padding];
         var type;
 
-        if (j < 0) type = "noise";
-        if (j >= 0 && j < 16) type = "pre";
+        if (j < 0)
+           type = "noise";
+        if (j >= 0 && j < 16)
+           type = "pre";
         if (j >= 16) {
             if (!(j % 2)) {
                 var next = frame.mag[j+padding+1];
@@ -83,21 +85,22 @@ function displayFrame(i) {
                 bit == frame.fix2)
                 type = "err";
         }
-        var sample = document.createElement("div");
-        sample.setAttribute("class","sample "+type);
-        sample.setAttribute("title","sample "+j+" ("+m+")");
-        sample.style.left = ""+((j+padding)*4)+"px";
-        sample.style.height = ""+(m/256)+"px";
-        div.appendChild(sample);
+        var sample = document.createElement ("div");
+        sample.setAttribute ("class", "sample " + type);
+        sample.setAttribute ("title", "sample " + j + " (" + m + ")");
+        sample.style.left = "" + ((j+padding)*4) + "px";
+        sample.style.height = "" + (m/32) + "px";
+        div.appendChild (sample);
     }
-    document.getElementById("info").innerHTML =
-        "#"+currentFrame+" "+frame.descr+"<br>"+
-        "Bits:"+frame.bits+"<br>"+
-        "DF  : "+(frame.hex.charCodeAt(0) >> 3)+"<br>"+
-        "fix1: "+frame.fix1+"<br>"+
-        "fix2: "+frame.fix2+"<br>"+
-        "hex : "+getFrameChecksum(frame)+"<br>"+
-        "crc (computed): "+modesChecksum(frame).toString(16)+"<br>";
+
+    document.getElementById ("info").innerHTML =
+        "#" + currentFrame + " " + frame.descr + "<br>"+
+        "Bits:" + frame.bits + "<br>" +
+        "DF  : " + (frame.hex.charCodeAt(0) >> 3) + "<br>" +
+        "fix1: " + frame.fix1 + "<br>" +
+        "fix2: " + frame.fix2 + "<br>" +
+        "hex : " + getFrameChecksum(frame) + "<br>" +
+        "CRC (computed): " + modesChecksum(frame).toString(16) + "<br>";
 }
 
 function recomputeHex(frame) {
@@ -132,21 +135,24 @@ function recomputeHex(frame) {
 }
 
 window.onload = function() {
-    document.getElementById("next").onclick = function() {
-        if (currentFrame != frames.length-1) currentFrame++;
-        displayFrame(currentFrame);
+    document.getElementById ("next").onclick = function() {
+        if (currentFrame != frames.length-1)
+           currentFrame++;
+        displayFrame (currentFrame);
     }
-    document.getElementById("prev").onclick = function() {
-        if (currentFrame != 0) currentFrame--;
-        displayFrame(currentFrame);
+    document.getElementById ("prev").onclick = function() {
+        if (currentFrame != 0)
+           currentFrame--;
+        displayFrame (currentFrame);
     }
-    document.getElementById("re").onclick = function() {
-        recomputeHex(frames[currentFrame]);
-        displayFrame(currentFrame);
+    document.getElementById ("re").onclick = function() {
+        recomputeHex (frames[currentFrame]);
+        displayFrame (currentFrame);
     }
-    displayFrame(currentFrame);
+    displayFrame (currentFrame);
 }
 </script>
+
 <script src="frames.js"></script>
 <style>
 #frame {
@@ -182,10 +188,10 @@ window.onload = function() {
 }
 </style>
 </head>
+
 <div id="frame">
 </div>
-<pre id="info">
-</pre>
+<pre id="info"></pre>
 <input type="button" id="prev" value="Prev frame">
 <input type="button" id="next" value="Next frame">
 <input type="button" id="re" value="Recompute Hex">

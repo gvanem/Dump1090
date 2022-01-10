@@ -24,6 +24,8 @@ USE_CRT_DEBUG ?= 0
 #
 USE_ASAN ?= 0
 
+USE_WSOCK_TRACE ?= 1
+
 #
 # For .c-file preprocessing:
 #
@@ -52,6 +54,13 @@ endef
 #
 export CL=
 
+#
+# Undefine any gcc include-path env-vars since
+# it could confuse clang-cl.
+#
+export C_INCLUDE_PATH=
+export CPLUS_INCLUDE_PATH=
+
 OBJ_DIR = objects
 
 ifneq ($(CC),cl)
@@ -63,13 +72,12 @@ endif
 VPATH = externals \
         externals/rtl-sdr
 
-CFLAGS = -nologo -Zi -W3           \
-         -FI./dump1090_config.h    \
-         -I.                       \
-         -I./externals             \
-         -I./externals/rtl-sdr     \
-         -I./externals/SDRplay-API \
-         -DUSE_gettimeofday
+CFLAGS = -nologo -Zi -W3        \
+         -FI./dump1090_config.h \
+         -I.                    \
+         -I./externals          \
+         -I./externals/rtl-sdr  \
+         -I./externals/SDRplay-API
 
 LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib -machine:$(CPU)
 RCFLAGS = -nologo
@@ -85,7 +93,6 @@ ifeq ($(CC),clang-cl)
   CFLAGS  += -fms-compatibility -ferror-limit=5
   RCFLAGS += -D__clang__
 else
-  CFLAGS  += -wd4005 -wd4244 -wd4267
   RCFLAGS += -D_MSC_VER
 endif
 
@@ -130,7 +137,13 @@ endif
 
 RCFLAGS += -DRC_BITS=$(BITS)
 
-EX_LIBS += externals/$(CPU)/libusb-1.0.lib ws2_32.lib
+EX_LIBS += advapi32.lib setupapi.lib winusb.lib
+
+ifeq ($(USE_WSOCK_TRACE),1)
+  EX_LIBS += wsock_trace.lib
+else
+  EX_LIBS += ws2_32.lib
+endif
 
 #
 # What to build:
@@ -253,8 +266,8 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
 OTHER_JUNK = link.tmp link.args vc1*.pdb cpp_filter.py
 
 clean: docs_clean
-	rm -f $(TARGETS_JUNK) $(OTHER_JUNK) $(OBJ_DIR)/*
-	- rmdir $(OBJ_DIR)
+	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
+	rm -fr $(OBJ_DIR)
 
 vclean realclean: clean
 	rm -f $(TARGETS) dump1090.chm .depend.Windows
@@ -304,26 +317,15 @@ define dump1090_Doxyfile
   FORCE_LOCAL_INCLUDES  = yes
   QUIET                 = yes
   PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1
-  INPUT                 = ../dump1090.c                                     \
-                          ../csv.c                                          \
-                          ../csv.h                                          \
-                          ../misc.h                                         \
-                          ../sdrplay.c                                      \
-                          ../sdrplay.h                                      \
-                          ../externals/mongoose.c                           \
-                          ../externals/mongoose.h                           \
-                          ../externals/libusb.h                             \
-                          ../externals/rtl-sdr/rtl-sdr.h                    \
-                          ../externals/SDRplay-API/sdrplay_api.h            \
-                          ../externals/SDRplay-API/sdrplay_api_callback.h   \
-                          ../externals/SDRplay-API/sdrplay_api_control.h    \
-                          ../externals/SDRplay-API/sdrplay_api_dev.h        \
-                          ../externals/SDRplay-API/sdrplay_api_rsp1a.h      \
-                          ../externals/SDRplay-API/sdrplay_api_rsp2.h       \
-                          ../externals/SDRplay-API/sdrplay_api_rspDuo.h     \
-                          ../externals/SDRplay-API/sdrplay_api_rspDx.h      \
-                          ../externals/SDRplay-API/sdrplay_api_rx_channel.h \
-                          ../externals/SDRplay-API/sdrplay_api_tuner.h
+  INPUT                 = ../dump1090.c           \
+                          ../csv.c                \
+                          ../csv.h                \
+                          ../misc.h               \
+                          ../sdrplay.c            \
+                          ../sdrplay.h            \
+                          ../externals/mongoose.c \
+                          ../externals/mongoose.h \
+                        # ../externals/libusb.h
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = ..
   INLINE_SIMPLE_STRUCTS = yes

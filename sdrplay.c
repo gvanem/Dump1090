@@ -1,7 +1,7 @@
 /**
  * \file    sdrplay.c
  * \ingroup Main
- * \brief   The interface for SDRplay devices.
+ * \brief   The interface for SDRPlay devices.
  *
  * Load all needed functions from "sdrplay_api.dll" dynamically.
  */
@@ -53,7 +53,7 @@
           }                                                                     \
         } while (0)
 
-struct SDRplay_info {
+struct SDRPlay_info {
        const char                    *dll_name;
        HANDLE                         dll_hnd;
        float                          version;
@@ -94,12 +94,12 @@ struct SDRplay_info {
        sdrplay_api_GetErrorString_t   sdrplay_api_GetErrorString;
      };
 
-static struct SDRplay_info sdr = { "sdrplay_api.dll" };
+static struct SDRPlay_info sdr = { "sdrplay_api.dll" };
 
 /**
  * We support only 1 device at a time.
  */
-static struct SDRplay_info *g_sdr_device;
+static struct SDRPlay_info *g_sdr_device;
 static HANDLE               g_sdr_handle;
 
 /* 4 - 44 dB
@@ -117,7 +117,7 @@ static void sdrplay_store_error (sdrplay_api_ErrT rc)
   if (sdr.sdrplay_api_GetErrorString)
        strncpy (sdr.last_err, (*sdr.sdrplay_api_GetErrorString)(rc), sizeof(sdr.last_err));
   else if (rc == sdrplay_api_NotInitialised)
-       strncpy (sdr.last_err, "SDRplay API not initialised", sizeof(sdr.last_err));
+       strncpy (sdr.last_err, "SDRPlay API not initialised", sizeof(sdr.last_err));
   else sdr.last_err[0] = '\0';
 }
 
@@ -146,7 +146,7 @@ static const char *sdrplay_overload_name (sdrplay_api_PowerOverloadCbEventIdT ov
 }
 
 /**
- * The SDRplay event callback.
+ * The SDRPlay event callback.
  *
  * 16-bit data is received from RSP at 2MHz. It is interleaved into a circular buffer.
  * Each time the pointer passes a multiple of `MODES_RSP_BUF_SIZE`, that segment of
@@ -230,7 +230,7 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
 }
 
 /**
- * The main SDRplay stream callback.
+ * The main SDRPlay stream callback.
  */
 #define USE_8BIT_SAMPLES 0
 
@@ -356,7 +356,7 @@ static void sdrplay_callback_A (short *xi, short *xq,
 }
 
 /**
- * The secondary (?) SDRplay stream callback.
+ * The secondary (?) SDRPlay stream callback.
  *
  * Not used for anything.
  */
@@ -392,7 +392,7 @@ static bool sdrplay_select (const char *wanted_name)
   CALL_FUNC (sdrplay_api_GetDevices, sdr.devices, &sdr.num_devices, DIM(sdr.devices));
   if (sdr.num_devices == 0)
   {
-    LOG_STDERR ("No SDRplay devices found.\n");
+    LOG_STDERR ("No SDRPlay devices found.\n");
     return (false);
   }
 
@@ -623,7 +623,7 @@ const char *sdrplay_strerror (int rc)
 }
 
 /**
- * Load all needed SDRplay functions dynamically.
+ * Load all needed SDRPlay functions dynamically.
  */
 int sdrplay_init (const char *name, sdrplay_dev **device)
 {

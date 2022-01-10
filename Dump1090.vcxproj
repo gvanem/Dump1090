@@ -78,71 +78,67 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <PreprocessorDefinitions>rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
-      <AdditionalOptions>/FIdump1090_config.h -wd4005 -wd4244 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>externals\x86\libusb-1.0.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <PreprocessorDefinitions>rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>/FIdump1090_config.h -wd4005 -wd4244 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
       <OptimizeReferences>false</OptimizeReferences>
-      <AdditionalDependencies>externals\x86\libusb-1.0.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;setupapi.lib;winusb.lib;</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>/FIdump1090_config.h -wd4005 -wd4244 -wd4267 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX64</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>externals\x64\libusb-1.0.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;setupapi.lib;winusb.lib;</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>rtlsdr_STATIC;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;_CRT_NONSTDC_NO_WARNINGS;_USE_MATH_DEFINES;LIBUSB_CALL=WINAPI</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>/FIdump1090_config.h -wd4005 -wd4244 -wd4267 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX64</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>externals\x64\libusb-1.0.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;setupapi.lib;winusb.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>

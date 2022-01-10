@@ -12,8 +12,8 @@ SBS client:     Connect to host at port 30003, listen for 'MSG,' text and print 
 import sys, os, time, argparse, socket
 
 REMOTE_HOST  = "localhost"
-RAW_IN_PORT  = 30001
-RAW_OUT_PORT = 30002
+RAW_OUT_PORT = 30001
+RAW_IN_PORT  = 30002
 SBS_PORT     = 30003
 
 class cfg():
@@ -70,10 +70,37 @@ def connect_to_host (opt):
     sys.exit (1)
 
 #
-# For receiving SBS or RAW-IN messages.
+# For receiving RAW-IN messages.
 #
-def raw_sbs_in_loop (sock):
-  data = sock.readline (100)
+def raw_in_loop (sock):
+  do_sleep = True
+  try:
+    if 1:
+      data = sock.readline (10)
+    else:
+      data = sock.recv (100, socket.MSG_WAITALL)
+    # print (data)
+  except:
+    do_sleep = False
+    print ("do_sleep = False")
+    data = None
+
+  if data:
+    modes_log (data)
+    cfg.data_len += len(data)
+    time.sleep (cfg.sleep)
+  elif do_sleep:
+    time.sleep (cfg.sleep)
+  else:
+    modes_log ("Connection gone.\n")
+    cfg.quit = True
+
+#
+# For receiving SBS messages.
+#
+def sbs_in_loop (sock):
+  data = sock.readline()
+  print (data)
   if not data:
     modes_log ("Connection gone.\n")
     cfg.quit = True
@@ -140,11 +167,17 @@ if mode == "RAW-OUT":
   cfg.sleep  = 1
   cfg.loop   = raw_out_loop
   cfg.format = "Sent %d bytes\n"
+elif mode == "RAW-IN":
+  cfg.sleep  = 0.01
+  cfg.loop   = raw_in_loop
+  cfg.format = "Received %d bytes\n"
+  #cfg.sock.setblocking (False)
+  cfg.sock   = cfg.sock.makefile (mode="r")
 else:
   cfg.sleep  = 0.01
-  cfg.loop   = raw_sbs_in_loop
+  cfg.loop   = sbs_in_loop
   cfg.format = "Received %d bytes\n"
-  cfg.sock   = cfg.sock.makefile()
+  cfg.sock   = cfg.sock.makefile (mode="r")
 
 try:
   while not cfg.quit:
