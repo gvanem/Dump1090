@@ -17,8 +17,6 @@
 
 #include "mongoose.h"
 
-#define gettimeofday mg_gettimeofday
-
 #ifdef MG_ENABLE_LINES
 #line 1 "src/private.h"
 #endif
@@ -433,13 +431,6 @@ const char *mg_unlist(size_t no) {
 }
 #endif
 
-static char *packed_realpath(const char *path, char *resolved_path) {
-  if (resolved_path == NULL) resolved_path = (char *) malloc(strlen(path) + 1);
-  // while (*path == '.' || *path == '/') path++;
-  strcpy(resolved_path, path);
-  return resolved_path;
-}
-
 static int is_dir_prefix(const char *prefix, size_t n, const char *path) {
   return n < strlen(path) && memcmp(prefix, path, n) == 0 && path[n] == '/';
   //(n == 0 || path[n] == MG_DIRSEP);
@@ -517,9 +508,9 @@ static size_t packed_seek(void *fd, size_t offset) {
   return fp->pos;
 }
 
-struct mg_fs mg_fs_packed = {packed_realpath, packed_stat,  packed_list,
-                             packed_open,     packed_close, packed_read,
-                             packed_write,    packed_seek};
+struct mg_fs mg_fs_packed = {packed_stat,  packed_list, packed_open,
+                             packed_close, packed_read, packed_write,
+                             packed_seek};
 
 #ifdef MG_ENABLE_LINES
 #line 1 "src/fs_posix.c"
@@ -527,20 +518,7 @@ struct mg_fs mg_fs_packed = {packed_realpath, packed_stat,  packed_list,
 
 
 #if defined(FOPEN_MAX)
-static char *posix_realpath(const char *path, char *resolved_path) {
-#ifdef _WIN32
-  return _fullpath(resolved_path, path, _MAX_PATH);
-#elif MG_ARCH == MG_ARCH_ESP32 || MG_ARCH == MG_ARCH_ESP8266 || \
-    MG_ARCH == MG_ARCH_FREERTOS_TCP || MG_ARCH == MG_ARCH_FREERTOS_LWIP
-  if (resolved_path == NULL) resolved_path = malloc(strlen(path) + 1);
-  strcpy(resolved_path, path);
-  return resolved_path;
-#else
-  return realpath(path, resolved_path);
-#endif
-}
-
-static int posix_stat(const char *path, size_t *size, time_t *mtime) {
+static int p_stat(const char *path, size_t *size, time_t *mtime) {
 #ifdef _WIN32
   struct _stati64 st;
   wchar_t tmp[PATH_MAX];
@@ -664,8 +642,8 @@ struct dirent *readdir(DIR *d) {
 }
 #endif
 
-static void posix_list(const char *dir, void (*fn)(const char *, void *),
-                       void *userdata) {
+static void p_list(const char *dir, void (*fn)(const char *, void *),
+                   void *userdata) {
 #if MG_ENABLE_DIRLIST
   struct dirent *dp;
   DIR *dirp;
@@ -680,7 +658,7 @@ static void posix_list(const char *dir, void (*fn)(const char *, void *),
 #endif
 }
 
-static struct mg_fd *posix_open(const char *path, int flags) {
+static struct mg_fd *p_open(const char *path, int flags) {
   const char *mode = flags == (MG_FS_READ | MG_FS_WRITE) ? "r+b"
                      : flags & MG_FS_READ                ? "rb"
                      : flags & MG_FS_WRITE               ? "wb"
@@ -702,19 +680,19 @@ static struct mg_fd *posix_open(const char *path, int flags) {
   return fd;
 }
 
-static void posix_close(struct mg_fd *fd) {
+static void p_close(struct mg_fd *fd) {
   if (fd != NULL) fclose((FILE *) fd->fd), free(fd);
 }
 
-static size_t posix_read(void *fp, void *buf, size_t len) {
+static size_t p_read(void *fp, void *buf, size_t len) {
   return fread(buf, 1, len, (FILE *) fp);
 }
 
-static size_t posix_write(void *fp, const void *buf, size_t len) {
+static size_t p_write(void *fp, const void *buf, size_t len) {
   return fwrite(buf, 1, len, (FILE *) fp);
 }
 
-static size_t posix_seek(void *fp, size_t offset) {
+static size_t p_seek(void *fp, size_t offset) {
 #if _FILE_OFFSET_BITS == 64 || _POSIX_C_SOURCE >= 200112L || \
     _XOPEN_SOURCE >= 600
   fseeko((FILE *) fp, (off_t) offset, SEEK_SET);
@@ -724,49 +702,48 @@ static size_t posix_seek(void *fp, size_t offset) {
   return (size_t) ftell((FILE *) fp);
 }
 #else
-static char *posix_realpath(const char *path, char *resolved_path) {
+static char *p_realpath(const char *path, char *resolved_path) {
   (void) path, (void) resolved_path;
   return NULL;
 }
 
-static int posix_stat(const char *path, size_t *size, time_t *mtime) {
+static int p_stat(const char *path, size_t *size, time_t *mtime) {
   (void) path, (void) size, (void) mtime;
   return 0;
 }
 
-static void posix_list(const char *path, void (*fn)(const char *, void *),
-                       void *userdata) {
+static void p_list(const char *path, void (*fn)(const char *, void *),
+                   void *userdata) {
   (void) path, (void) fn, (void) userdata;
 }
 
-static struct mg_fd *posix_open(const char *path, int flags) {
+static struct mg_fd *p_open(const char *path, int flags) {
   (void) path, (void) flags;
   return NULL;
 }
 
-static void posix_close(struct mg_fd *fd) {
+static void p_close(struct mg_fd *fd) {
   (void) fd;
 }
 
-static size_t posix_read(void *fd, void *buf, size_t len) {
+static size_t p_read(void *fd, void *buf, size_t len) {
   (void) fd, (void) buf, (void) len;
   return 0;
 }
 
-static size_t posix_write(void *fd, const void *buf, size_t len) {
+static size_t p_write(void *fd, const void *buf, size_t len) {
   (void) fd, (void) buf, (void) len;
   return 0;
 }
 
-static size_t posix_seek(void *fd, size_t offset) {
+static size_t p_seek(void *fd, size_t offset) {
   (void) fd, (void) offset;
   return (size_t) ~0;
 }
 #endif
 
-struct mg_fs mg_fs_posix = {posix_realpath, posix_stat,  posix_list,
-                            posix_open,     posix_close, posix_read,
-                            posix_write,    posix_seek};
+struct mg_fs mg_fs_posix = {p_stat, p_list,  p_open, p_close,
+                            p_read, p_write, p_seek};
 
 #ifdef MG_ENABLE_LINES
 #line 1 "src/http.c"
@@ -1304,7 +1281,7 @@ void mg_http_serve_file(struct mg_connection *c, struct mg_http_message *hm,
   struct mg_str *inm = NULL;
 
   if (fd == NULL || fs->stat(path, &size, &mtime) == 0) {
-    LOG(LL_DEBUG, ("404 [%.*s] %p", (int) hm->uri.len, hm->uri.ptr, fd));
+    LOG(LL_DEBUG, ("404 [%s] %p", path, (void *) fd));
     mg_http_reply(c, 404, "", "%s", "Not found\n");
     fs->close(fd);
     // NOTE: mg_http_etag() call should go first!
@@ -1460,67 +1437,88 @@ static void listdir(struct mg_connection *c, struct mg_http_message *hm,
   memcpy(c->send.buf + off - 10, tmp, n);  // Set content length
 }
 
-static int uri_to_path(struct mg_connection *c, struct mg_http_message *hm,
-                       struct mg_http_serve_opts *opts, char *root_dir,
-                       size_t rlen, char *path, size_t plen) {
-  struct mg_fs *fs = opts->fs == NULL ? &mg_fs_posix : opts->fs;
+static void remove_double_dots(char *s) {
+  char *p = s;
+  while (*s != '\0') {
+    *p++ = *s++;
+    if (s[-1] == '/' || s[-1] == '\\') {
+      while (s[0] != '\0') {
+        if (s[0] == '/' || s[0] == '\\') {
+          s++;
+        } else if (s[0] == '.' && s[1] == '.') {
+          s += 2;
+        } else {
+          break;
+        }
+      }
+    }
+  }
+  *p = '\0';
+}
+
+// Resolve requested file into `path` and return its fs->stat() result
+static int uri_to_path2(struct mg_connection *c, struct mg_http_message *hm,
+                        struct mg_fs *fs, struct mg_str url, struct mg_str dir,
+                        char *path, size_t path_size) {
   int flags = 0, tmp;
-  if (fs->realpath(opts->root_dir, root_dir) == NULL) {
-    LOG(LL_ERROR, ("realpath(%s): %d", opts->root_dir, errno));
-    mg_http_reply(c, 400, "", "Bad web root [%s]\n", opts->root_dir);
-  } else if (!(fs->stat(root_dir, NULL, NULL) & MG_FS_DIR)) {
-    mg_http_reply(c, 400, "", "Invalid web root [%s]\n", root_dir);
+  // Append URI to the root_dir, and sanitize it
+  size_t n = (size_t) snprintf(path, path_size, "%.*s", (int) dir.len, dir.ptr);
+  if (n > path_size) n = path_size;
+  path[path_size - 1] = '\0';
+  if ((fs->stat(path, NULL, NULL) & MG_FS_DIR) == 0) {
+    mg_http_reply(c, 400, "", "Invalid web root [%.*s]\n", (int) dir.len,
+                  dir.ptr);
   } else {
-    // NOTE(lsm): Xilinx snprintf does not 0-terminate the destination for
-    // the %.*s specifier, if the length is zero. Make sure hm->uri.len > 0
-    size_t n1 = strlen(root_dir), n2;
-    // Temporarily append URI to the root_dir: that is the unresolved path
-    mg_url_decode(hm->uri.ptr, hm->uri.len, root_dir + n1, rlen - n1, 0);
-    root_dir[rlen - 1] = '\0';
-    n2 = strlen(root_dir);
-    while (n2 > 0 && root_dir[n2 - 1] == '/') root_dir[--n2] = 0;
-    // Try to resolve it...
-    if (fs->realpath(root_dir, path) == NULL ||
-        (flags = fs->stat(path, NULL, NULL)) == 0) {
-      mg_http_reply(c, 404, "", "Not found\n");
-    } else {
-      // Path is resolved successfully. It it is a directory, try to
-      // serve index.html in it
-      root_dir[n1] = '\0';  // Restore root_dir - remove appended URI
-      n2 = strlen(path);    // Memorise path length
-      if ((flags & MG_FS_DIR) &&
-          ((snprintf(path + n2, plen - n2, "/index.html") > 0 &&
+    if (n + 2 < path_size) path[n++] = '/', path[n] = '\0';
+    mg_url_decode(hm->uri.ptr + url.len, hm->uri.len - url.len, path + n,
+                  path_size - n, 0);
+    path[path_size - 1] = '\0';  // Double-check
+    remove_double_dots(path);
+    n = strlen(path);
+    LOG(LL_DEBUG, ("--> %s", path));
+    while (n > 0 && path[n - 1] == '/') path[--n] = 0;  // Trim trailing slashes
+    flags = fs->stat(path, NULL, NULL);                 // Does it exist?
+    if (flags == 0) {
+      mg_http_reply(c, 404, "", "Not found\n");  // Does not exist, doh
+    } else if (flags & MG_FS_DIR) {
+      if (((snprintf(path + n, path_size - n, "/index.html") > 0 &&
             (tmp = fs->stat(path, NULL, NULL)) != 0) ||
-           (snprintf(path + n2, plen - n2, "/index.shtml") > 0 &&
+           (snprintf(path + n, path_size - n, "/index.shtml") > 0 &&
             (tmp = fs->stat(path, NULL, NULL)) != 0))) {
         flags = tmp;
       } else {
-        path[n2] = '\0';  // Remove appended index file name
+        path[n] = '\0';  // Remove appended index file name
       }
-    }
-    // Check that the resolved file is located inside root directory
-    if (strlen(path) < n1 || memcmp(root_dir, path, n1) != 0) {
-      mg_http_reply(c, 404, "", "Invalid URI [%.*s]\n", (int) hm->uri.len,
-                    hm->uri.ptr);
-      flags = 0;
     }
   }
   return flags;
 }
 
+static int uri_to_path(struct mg_connection *c, struct mg_http_message *hm,
+                       struct mg_http_serve_opts *opts, char *path,
+                       size_t path_size) {
+  struct mg_fs *fs = opts->fs == NULL ? &mg_fs_posix : opts->fs;
+  struct mg_str k, v, s = mg_str(opts->root_dir), u = {0, 0}, p = {0, 0};
+  while (mg_commalist(&s, &k, &v)) {
+    if (v.len == 0) v = k, k = mg_str("/");
+    if (hm->uri.len < k.len) continue;
+    if (mg_strcmp(k, mg_str_n(hm->uri.ptr, k.len)) != 0) continue;
+    u = k, p = v;
+  }
+  return uri_to_path2(c, hm, fs, u, p, path, path_size);
+}
+
 void mg_http_serve_dir(struct mg_connection *c, struct mg_http_message *hm,
                        struct mg_http_serve_opts *opts) {
-  char root[MG_PATH_MAX] = "", path[sizeof(root)] = "";
-  int flags = uri_to_path(c, hm, opts, root, sizeof(root), path, sizeof(path));
-
+  char path[MG_PATH_MAX] = "";
+  const char *sp = opts->ssi_pattern;
+  int flags = uri_to_path(c, hm, opts, path, sizeof(path));
   if (flags == 0) return;
-  // LOG(LL_DEBUG, ("root [%s], path [%s] %d", root, path, flags));
+  LOG(LL_DEBUG, ("%.*s %s %d", (int) hm->uri.len, hm->uri.ptr, path, flags));
   if (flags & MG_FS_DIR) {
     listdir(c, hm, opts, path);
-  } else if (opts->ssi_pattern != NULL &&
-             mg_globmatch(opts->ssi_pattern, strlen(opts->ssi_pattern), path,
-                          strlen(path))) {
-    mg_http_serve_ssi(c, root, path);
+  } else if (sp != NULL && mg_globmatch(sp, strlen(sp), path, strlen(path))) {
+    mg_http_serve_ssi(c, opts->root_dir, path);
   } else {
     mg_http_serve_file(c, hm, path, opts);
   }
@@ -2424,8 +2422,25 @@ static bool mg_aton4(struct mg_str str, struct mg_addr *addr) {
   return true;
 }
 
+static bool mg_v4mapped(struct mg_str str, struct mg_addr *addr) {
+  int i;
+  if (str.len < 14) return false;
+  if (str.ptr[0] != ':' || str.ptr[1] != ':' || str.ptr[6] != ':') return false;
+  for (i = 2; i < 6; i++) {
+    if (str.ptr[i] != 'f' && str.ptr[i] != 'F') return false;
+  }
+  if (!mg_aton4(mg_str_n(&str.ptr[7], str.len - 7), addr)) return false;
+  memset(addr->ip6, 0, sizeof(addr->ip6));
+  addr->ip6[10] = addr->ip6[11] = 255;
+  memcpy(&addr->ip6[12], &addr->ip, 4);
+  addr->is_ip6 = true;
+  return true;
+}
+
 static bool mg_aton6(struct mg_str str, struct mg_addr *addr) {
   size_t i, j = 0, n = 0, dc = 42;
+  if (str.len > 2 && str.ptr[0] == '[') str.ptr++, str.len -= 2;
+  if (mg_v4mapped(str, addr)) return true;
   for (i = 0; i < str.len; i++) {
     if ((str.ptr[i] >= '0' && str.ptr[i] <= '9') ||
         (str.ptr[i] >= 'a' && str.ptr[i] <= 'f') ||
@@ -2435,8 +2450,8 @@ static bool mg_aton6(struct mg_str str, struct mg_addr *addr) {
       // LOG(LL_DEBUG, ("%zu %zu [%.*s]", i, j, (int) (i - j + 1),
       // &str.ptr[j]));
       val = mg_unhexn(&str.ptr[j], i - j + 1);
-      addr->ip6[n] = (uint8_t)((val >> 8) & 255);
-      addr->ip6[n + 1] = (uint8_t)(val & 255);
+      addr->ip6[n] = (uint8_t) ((val >> 8) & 255);
+      addr->ip6[n + 1] = (uint8_t) (val & 255);
     } else if (str.ptr[i] == ':') {
       j = i + 1;
       if (i > 0 && str.ptr[i - 1] == ':') {
@@ -4034,8 +4049,8 @@ long mg_tls_send(struct mg_connection *c, const void *buf, size_t len) {
 #ifdef MG_ENABLE_LINES
 #line 1 "src/url.c"
 #endif
-#include <stdlib.h>
 
+#include <stdlib.h>
 
 struct url {
   size_t key, user, pass, host, port, uri, end;
@@ -4081,10 +4096,6 @@ struct mg_str mg_url_host(const char *url) {
              : u.uri ? u.uri - u.host
                      : u.end - u.host;
   struct mg_str s = mg_str_n(url + u.host, n);
-  if (s.len > 2 && s.ptr[0] == '[' && s.ptr[s.len - 1] == ']') {
-    s.len -= 2;
-    s.ptr++;
-  }
   return s;
 }
 
@@ -4215,9 +4226,10 @@ bool mg_globmatch(const char *s1, size_t n1, const char *s2, size_t n2) {
       i++, j++;
     } else if (i < n1 && (s1[i] == '*' || s1[i] == '#')) {
       ni = i, nj = j + 1, i++;
-    } else if (nj > 0 && nj <= n2 && (s1[i - 1] == '#' || s2[j] != '/')) {
+    } else if (nj > 0 && nj <= n2 && (s1[ni] == '#' || s2[j] != '/')) {
       i = ni, j = nj;
     } else {
+      // printf(">>: [%s] [%s] %d %d %d %d\n", s1, s2, i, j, ni, nj);
       return false;
     }
   }
@@ -4549,6 +4561,9 @@ static size_t ws_process(uint8_t *buf, size_t len, struct ws_msg *msg) {
           mg_ntohl(*(uint32_t *) &buf[6]);
     }
   }
+  // Sanity check, and integer overflow protection for the boundary check below
+  // data_len should not be larger than 1 Gb
+  if (msg->data_len > 1024 * 1024 * 1024) return 0;
   if (msg->header_len + msg->data_len > len) return 0;
   if (mask_len > 0) {
     uint8_t *p = buf + msg->header_len, *m = p - mask_len;
