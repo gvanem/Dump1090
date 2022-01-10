@@ -106,7 +106,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
       <OptimizeReferences>false</OptimizeReferences>
-      <AdditionalDependencies>advapi32.lib;setupapi.lib;winusb.lib;</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;setupapi.lib;winusb.lib;;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -122,7 +122,7 @@
       <TargetMachine>MachineX64</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>advapi32.lib;setupapi.lib;winusb.lib;</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -138,7 +138,7 @@
       <TargetMachine>MachineX64</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>advapi32.lib;setupapi.lib;winusb.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
