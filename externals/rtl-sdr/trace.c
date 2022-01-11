@@ -26,13 +26,10 @@ static int trace_init (void)
   const char *env = getenv ("RTLSDR_TRACE");
   int   rc = 0;
 
-  if (env)
-  {
-    InitializeCriticalSection (&cs);
-    stdout_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
-    GetConsoleScreenBufferInfo (stdout_hnd, &console_info);
-    rc = atoi (env);
-  }
+  InitializeCriticalSection (&cs);
+  stdout_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
+  GetConsoleScreenBufferInfo (stdout_hnd, &console_info);
+  rc = env ? atoi (env) : 0;
   return (rc);
 }
 
