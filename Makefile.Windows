@@ -16,6 +16,12 @@ THIS_FILE = Makefile.Windows
 USE_CRT_DEBUG ?= 0
 
 #
+# For SDRPlay suport, load the "RTLSDR-Emul.DLL" at runtime instead.
+# Ref. https://github.com/JvanKatwijk/rtlsdr-emulator-sdrplay.git
+#
+USE_RTLSDR_EMUL ?= 1
+
+#
 # Enable "Address Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
@@ -24,6 +30,9 @@ USE_CRT_DEBUG ?= 0
 #
 USE_ASAN ?= 0
 
+#
+# For my private build; use the tracing Winsock library?
+#
 USE_WSOCK_TRACE ?= 1
 
 #
@@ -153,8 +162,14 @@ TARGETS = dump1090.exe
 SOURCES = externals/mongoose.c \
           csv.c                \
           dump1090.c           \
-          misc.c               \
-          sdrplay.c
+          misc.c
+
+ifeq ($(USE_RTLSDR_EMUL),1)
+  CFLAGS  += -DUSE_RTLSDR_EMUL
+  SOURCES += externals/rtlsdr-emul.c
+else
+  SOURCES += sdrplay.c
+endif
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
              librtlsdr.c                   \
@@ -317,15 +332,16 @@ define dump1090_Doxyfile
   FORCE_LOCAL_INCLUDES  = yes
   QUIET                 = yes
   PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1
-  INPUT                 = ../dump1090.c           \
-                          ../csv.c                \
-                          ../csv.h                \
-                          ../misc.h               \
-                          ../sdrplay.c            \
-                          ../sdrplay.h            \
-                          ../externals/mongoose.c \
-                          ../externals/mongoose.h \
-                        # ../externals/libusb.h
+  INPUT                 = ../dump1090.c              \
+                          ../csv.c                   \
+                          ../csv.h                   \
+                          ../misc.h                  \
+                          ../sdrplay.c               \
+                          ../sdrplay.h               \
+                          ../externals/mongoose.c    \
+                          ../externals/mongoose.h    \
+                          ../externals/rtlsdr-emul.c \
+                          ../externals/rtlsdr-emul.h
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = ..
   INLINE_SIMPLE_STRUCTS = yes

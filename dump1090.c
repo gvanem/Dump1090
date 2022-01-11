@@ -21,7 +21,20 @@
 #include <process.h>
 
 #include "misc.h"
-#include "sdrplay.h"
+
+#if defined(USE_RTLSDR_EMUL)
+  #include "rtlsdr-emul.h"
+
+  #define sdrplay_init(name, dev_p)                          (*emul.rtlsdr_open) ((rtlsdr_dev_t**)dev_p, 0)
+  #define sdrplay_exit(dev)                                  (*emul.rtlsdr_close) (dev)
+  #define sdrplay_set_gain(dev, gain)                        (*emul.rtlsdr_set_tuner_gain) (dev, gain)
+  #define sdrplay_cancel_async(dev)                          (*emul.rtlsdr_cancel_async) (dev)
+  #define sdrplay_strerror(rc)                               (*emul.rtlsdr_strerror) (rc)
+  #define sdrplay_read_async(dev, cb, ctx, buf_num, buf_len) (*emul.rtlsdr_read_async) (dev, cb, ctx, buf_num, buf_len)
+
+#else
+  #include "sdrplay.h"
+#endif
 
 /**
  * \addtogroup Main      Main decoder
@@ -201,6 +214,7 @@ static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE console_hnd = INVALID_HANDLE_VALUE;
 static DWORD  console_mode = 0;
 static bool   dev_selection_done = false;
+static bool   emul_loaded = false;
 
 #define COLOUR_GREEN  10  /* bright green; FOREGROUND_INTENSITY + 2 */
 #define COLOUR_RED    12  /* bright red;   FOREGROUND_INTENSITY + 4 */
@@ -872,6 +886,10 @@ int modeS_init (void)
     Modes.home_pos_ok = true;
     spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
   }
+
+#if defined(USE_RTLSDR_EMUL)
+  emul_loaded = RTLSDR_emul_load_DLL();
+#endif
 
   InitializeCriticalSection (&Modes.data_mutex);
   InitializeCriticalSection (&Modes.print_mutex);
@@ -5191,6 +5209,14 @@ int main (int argc, char **argv)
   {
     if (Modes.sdrplay.name)
     {
+#ifdef USE_RTLSDR_EMUL
+     if (!emul_loaded)
+     {
+        LOG_STDERR ("Cannot use device `%s` without RTLSDR-emul.dll loaded.\n", Modes.sdrplay.name);
+        goto quit;
+     }
+#endif
+
       rc = sdrplay_init (Modes.sdrplay.name, &Modes.sdrplay.device);
       TRACE (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
       if (rc)
