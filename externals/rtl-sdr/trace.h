@@ -1,12 +1,6 @@
 #ifndef _TRACE_WIN32H
 #define _TRACE_WIN32H
 
-#if !defined(USE_TRACE) || (USE_TRACE == 0)
-  #define TRACE(level, fmt, ...) ((void)0)
-  #define TRACE_WINUSB(func, win_err) \
-          fprintf (stderr, "%s() failed with GetLastError() %lu.\n", func, win_err)
-#else
-
 #include <windows.h>
 
 #define TRACE_COLOR_START  (FOREGROUND_INTENSITY | 3)  /* bright cyan */
@@ -37,5 +31,4 @@ int  trace_level (void);
 void trace_winusb (const char *func, DWORD win_err, const char *file, unsigned line);
 void trace_printf (unsigned short col, const char *fmt, ...);
 
-#endif /* _WIN32 */
 #endif

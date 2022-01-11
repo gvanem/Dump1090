@@ -13,7 +13,6 @@
 #if !defined(RC_INVOKED)  /* Rest of file */
 
 #define rtlsdr_STATIC    1
-#define USE_TRACE        1
 #define USE_gettimeofday 1
 
 #define HAVE_rtlsdr_cal_imr

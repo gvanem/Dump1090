@@ -21,8 +21,6 @@ static int                        scope;
 const char *_trace_file = NULL;
 int         _trace_line  = -1;
 
-#if defined(USE_TRACE) && (USE_TRACE == 1)  /* Rest of file */
-
 static int trace_init (void)
 {
   const char *env = getenv ("RTLSDR_TRACE");
@@ -100,4 +98,3 @@ void trace_winusb (const char *func, DWORD win_err, const char *file, unsigned l
   }
   scope--;
 }
-#endif /* USE_TRACE == 1 */
