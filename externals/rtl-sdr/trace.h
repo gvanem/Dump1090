@@ -25,10 +25,11 @@
         trace_winusb(func, win_err, __FILE__, __LINE__)
 
 extern const char *_trace_file;
-extern int         _trace_line;
+extern unsigned    _trace_line;
 
-int  trace_level (void);
-void trace_winusb (const char *func, DWORD win_err, const char *file, unsigned line);
-void trace_printf (unsigned short col, const char *fmt, ...);
+int         trace_level (void);
+void        trace_winusb (const char *func, DWORD win_err, const char *file, unsigned line);
+void        trace_printf (unsigned short col, const char *fmt, ...);
+const char *trace_strerror (DWORD err);
 
 #endif

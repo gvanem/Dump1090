@@ -13,23 +13,35 @@
   #error "All colours must be unique."
 #endif
 
+static int                        _trace_winusb = 0;
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE                     stdout_hnd;
 static CRITICAL_SECTION           cs;
-static int                        scope;
 
 const char *_trace_file = NULL;
-int         _trace_line  = -1;
+unsigned    _trace_line = 0;
 
 static int trace_init (void)
 {
-  const char *env = getenv ("RTLSDR_TRACE");
+  char *env = getenv ("RTLSDR_TRACE");
+  char *winusb = env ? strstr(env, ",winusb") : NULL;
   int   rc = 0;
 
   InitializeCriticalSection (&cs);
   stdout_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
   GetConsoleScreenBufferInfo (stdout_hnd, &console_info);
-  rc = env ? atoi (env) : 0;
+
+  /* Supported syntax: "level[,winsub]"
+   */
+  if (env)
+  {
+    if (winusb >= env+1)
+    {
+      _trace_winusb = 1;
+      *winusb = '\0';
+    }
+    rc = atoi (env);
+  }
   return (rc);
 }
 
@@ -44,9 +56,34 @@ int trace_level (void)
 
 static void set_color (unsigned short col)
 {
+  fflush (stdout);
+
   if (col == 0)
        SetConsoleTextAttribute (stdout_hnd, console_info.wAttributes);
   else SetConsoleTextAttribute (stdout_hnd, (console_info.wAttributes & ~7) | col);
+}
+
+/**
+ * Return err-number and string for 'err'.
+ * Only use this with `GetLastError()`.
+ */
+const char *trace_strerror (DWORD err)
+{
+  static  char buf [512+20];
+  char    err_buf [512], *p;
+
+  if (err == ERROR_SUCCESS)
+     strcpy (err_buf, "No error");
+  else
+  if (!FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err,
+                      LANG_NEUTRAL, err_buf, sizeof(err_buf)-1, NULL))
+     strcpy (err_buf, "Unknown error");
+
+  snprintf (buf, sizeof(buf), "%lu: %s", (u_long)err, err_buf);
+  p = strchr (buf, '\0');
+  if (p[-2] == '\r')
+     p[-2] = '\0';
+  return (buf);
 }
 
 void trace_printf (unsigned short col, const char *fmt, ...)
@@ -58,7 +95,7 @@ void trace_printf (unsigned short col, const char *fmt, ...)
 
   if (col == TRACE_COLOR_START)
   {
-    printf ("%*s%s(%u): ", 2*scope, "", _trace_file ? _trace_file : "<unknown file>" , _trace_line);
+    printf ("%s(%u): ", _trace_file ? _trace_file : "<unknown file>" , _trace_line);
     LeaveCriticalSection (&cs);
     return;
   }
@@ -66,7 +103,6 @@ void trace_printf (unsigned short col, const char *fmt, ...)
   va_start (args, fmt);
   vprintf (fmt, args);
   va_end (args);
-  fflush (stdout);
   set_color (0);
   LeaveCriticalSection (&cs);
 }
@@ -78,20 +114,17 @@ void trace_winusb (const char *func, DWORD win_err, const char *file, unsigned l
   if (level <= 0)
      return;
 
-  scope++;
-
   _trace_line = line;
   _trace_file = file;
 
-  if (level >= 1 && win_err > 0)
+  if (level >= 1 && win_err != ERROR_SUCCESS)
   {
     trace_printf (TRACE_COLOR_START, NULL);
-    trace_printf (TRACE_COLOR_ERR, "%s() failed with GetLastError() %lu.\n", func, win_err);
+    trace_printf (TRACE_COLOR_ERR, "%s() failed with %s.\n", func, trace_strerror(win_err));
   }
-  else if (level >= 2 && win_err == 0)
+  else if ((level >= 2 || _trace_winusb) && win_err == ERROR_SUCCESS)
   {
     trace_printf (TRACE_COLOR_START, NULL);
     trace_printf (TRACE_COLOR_OK, "%s(), OK.\n", func);
   }
-  scope--;
 }

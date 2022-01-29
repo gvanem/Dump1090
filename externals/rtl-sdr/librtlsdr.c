@@ -51,10 +51,10 @@
 #define CTRL_OUT    (WINUSB_REQUEST_TYPE_VENDOR | WINUSB_ENDPOINT_OUT)
 
 #define rtlsdr_read_array(dev, index, addr, array, len) \
-        usb_control_transfer (dev, CTRL_IN, addr, index, array, len)
+        usb_control_transfer (dev, CTRL_IN, addr, index, array, len, __LINE__)
 
 #define rtlsdr_write_array(dev, index, addr, array, len) \
-        usb_control_transfer (dev, CTRL_OUT, addr, index | 0x10, array, len)
+        usb_control_transfer (dev, CTRL_OUT, addr, index | 0x10, array, len, __LINE__)
 
 /* two raised to the power of n
  */
@@ -770,7 +770,7 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, char *DevicePath)
 
   if (dev->deviceHandle == INVALID_HANDLE_VALUE)
   {
-    TRACE (1, "CreateFile() failed with %lu.\n", GetLastError());
+    TRACE (1, "CreateFile() failed: %s.\n", trace_strerror(GetLastError()));
     return (FALSE);
   }
 
@@ -780,36 +780,29 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, char *DevicePath)
     Close_Device (dev);
     return (FALSE);
   }
-
-  BYTE  data [10];
-  DWORD length = sizeof(data);
-
-  if (!WinUsb_QueryDeviceInformation(dev->devh, DEVICE_SPEED, &length, &data))
-       TRACE_WINUSB ("WinUsb_QueryDeviceInformation", GetLastError());
-  else TRACE (2, "WinUsb_QueryDeviceInformation: speed: %d.\n", data[0]);
-
   return (TRUE);
 }
 
-static int usb_control_transfer (rtlsdr_dev_t *dev,
-                                 uint8_t       type,
-                                 uint16_t      wValue,
-                                 uint16_t      wIndex,
-                                 uint8_t      *data,
-                                 uint16_t      wLength)
+static int usb_control_transfer (rtlsdr_dev_t *dev,      /* the active device */
+                                 uint8_t       type,     /* CTRL_IN or CTRL_OUT */
+                                 uint16_t      wValue,   /* register value */
+                                 uint16_t      wIndex,   /* register block-index */
+                                 uint8_t      *data,     /* read or write control-data */
+                                 uint16_t      wLength,
+                                 unsigned      line)
 {
   WINUSB_SETUP_PACKET setupPacket;
-  BOOL  bResult;
-  ULONG written = 0;
+  ULONG  written;
+  BOOL   rc;
 
   if (!dev)
   {
-    TRACE (0, "FATAL: %s() called with 'dev == NULL'!\n", __FUNCTION__);
+    TRACE (0, "FATAL: %s() called from %u with 'dev == NULL'!\n", __FUNCTION__, line);
     return (-1);
   }
   if (!dev->devh)
   {
-    TRACE (0, "FATAL: %s() called with 'dev->devh == NULL'!\n", __FUNCTION__);
+    TRACE (0, "FATAL: %s() called from %u with 'dev->devh == NULL'!\n", __FUNCTION__, line);
     return (-1);
   }
 
@@ -817,21 +810,27 @@ static int usb_control_transfer (rtlsdr_dev_t *dev,
    */
   *(__int64 *)&setupPacket = 0;
 
-  /* Fill the setup packet. */
+  /* Fill the setup packet
+   */
   setupPacket.RequestType = type;
   setupPacket.Value       = wValue;
   setupPacket.Index       = wIndex;
   setupPacket.Length      = wLength;
 
-  TRACE (2, "%s(): type: %s data: 0x%p, wLength: %u.\n",
-         __FUNCTION__,
+  TRACE (2, "%u: type: %s data: 0x%p, wLength: %u.\n",
+         line,
          type == CTRL_IN  ? "CTRL_IN, " :
          type == CTRL_OUT ? "CTRL_OUT," : "?,",
          data, wLength);
 
-  bResult = WinUsb_ControlTransfer (dev->devh, setupPacket, data, wLength, &written, NULL);
-  if (written != wLength || bResult == FALSE)
-     return (-1);
+  written = 0;
+  rc = WinUsb_ControlTransfer (dev->devh, setupPacket, data, wLength, &written, NULL);
+  if (!rc || written != wLength)
+  {
+    TRACE (1, "%u: WinUsb_ControlTransfer() wrote only %lu bytes: %s\n",
+           line, written, trace_strerror(GetLastError()));
+    return (-1);
+  }
   return (int)written;
 }
 
@@ -854,7 +853,7 @@ static int rtlsdr_write_reg (rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, u
   assert (len == 1 || len == 2);
 
   if (len == 1)
-    data[0] = val & 0xff;
+     data[0] = val & 0xff;
   else
   {
     data[0] = val >> 8;
@@ -868,12 +867,11 @@ static int rtlsdr_write_reg (rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, u
   return (r);
 }
 
-static int rtlsdr_write_reg_mask (rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, uint8_t val,
-                                  uint8_t mask)
+static int rtlsdr_write_reg_mask (rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, uint8_t val, uint8_t mask)
 {
   uint8_t tmp = rtlsdr_read_reg (dev, index, addr);
-  val = (tmp & ~mask) | (val & mask);
 
+  val = (tmp & ~mask) | (val & mask);
   if (tmp == val)
      return (0);
   return rtlsdr_write_reg (dev, index, addr, (uint16_t)val, 1);
@@ -883,8 +881,9 @@ static uint8_t check_tuner (rtlsdr_dev_t *dev, uint8_t i2c_addr, uint8_t reg)
 {
   uint8_t data = 0;
 
-  rtlsdr_read_array (dev, TUNB, reg << 8 | i2c_addr, &data, 1);
-  return data;
+  if (rtlsdr_read_array(dev, TUNB, reg << 8 | i2c_addr, &data, 1) != 1)
+     return (0xFF);  /* signal a read-error since the address is unsupported for this tuner */
+  return (data);
 }
 
 int rtlsdr_i2c_write_fn (void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int len)
@@ -896,7 +895,7 @@ int rtlsdr_i2c_write_fn (void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int
 
   wr_len = rtlsdr_write_array ((rtlsdr_dev_t*)dev, TUNB, reg << 8 | addr, buf, len);
   TRACE (2, "I2C-bus addr: 0x%02X, reg: 0x%02X, wr_len: %d,\n", addr, reg, wr_len);
-  return wr_len;
+  return (wr_len);
 }
 
 int rtlsdr_i2c_read_fn (void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int len)
@@ -908,7 +907,7 @@ int rtlsdr_i2c_read_fn (void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int 
 
   rd_len = rtlsdr_read_array ((rtlsdr_dev_t*)dev, TUNB, reg << 8 | addr, buf, len);
   TRACE (2, "I2C-bus addr: 0x%02X, reg: 0x%02X, rd_len: %d\n", addr, reg, rd_len);
-  return rd_len;
+  return (rd_len);
 }
 
 uint16_t rtlsdr_demod_read_reg (rtlsdr_dev_t *dev, uint16_t page, uint16_t addr, uint8_t len)
@@ -920,18 +919,20 @@ uint16_t rtlsdr_demod_read_reg (rtlsdr_dev_t *dev, uint16_t page, uint16_t addr,
      TRACE (0, "%s failed with %d\n", __FUNCTION__, r);
 
   if (len == 1)
-     return data[0];
+     return (data[0]);
   return (data[0] << 8) | data[1];
 }
 
 int rtlsdr_demod_write_reg (rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint16_t val, uint8_t len)
 {
-  int r;
   uint8_t data[2];
-  addr = (addr << 8) | RTL2832_DEMOD_ADDR;
+  int     r;
 
+  assert (len == 1 || len == 2);
+
+  addr = (addr << 8) | RTL2832_DEMOD_ADDR;
   if (len == 1)
-    data[0] = val & 0xff;
+     data[0] = val & 0xff;
   else
   {
     data[0] = val >> 8;
@@ -939,7 +940,6 @@ int rtlsdr_demod_write_reg (rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint
   }
 
   r = rtlsdr_write_array (dev, page, addr, data, len);
-
   if (r != len)
     TRACE (0, "%s failed with %d\n", __FUNCTION__, r);
 
@@ -950,8 +950,8 @@ int rtlsdr_demod_write_reg (rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint
 static int rtlsdr_demod_write_reg_mask (rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint8_t val, uint8_t mask)
 {
   uint8_t tmp = rtlsdr_demod_read_reg (dev, page, addr, 1);
-  val = (tmp & ~mask) | (val & mask);
 
+  val = (tmp & ~mask) | (val & mask);
   if (tmp == val)
      return (0);
   return rtlsdr_demod_write_reg (dev, page, addr, (uint16_t) val, 1);
@@ -995,13 +995,13 @@ static int Set2 (void *dev)
     rst |= rtlsdr_demod_write_reg (dev, 0, addr, (uint16_t)FM_coe2[i], 1);
     addr--;
   }
-  return rst;
+  return (rst);
 }
 
 static const char *dump_fir_values (const uint8_t *values, size_t size)
 {
   static char ret [4 * FIR_LEN + 10];
-  char *p, *q = ret;
+  char  *p, *q = ret;
   size_t i;
 
   for (i = 0; i < size && q < ret + sizeof(ret) - 2; i++)
@@ -1047,7 +1047,7 @@ static int rtlsdr_set_fir (rtlsdr_dev_t *dev, int table)
     const int val = fir_table[i];
 
     if (val < -128 || val > 127)
-      goto fail;
+       goto fail;
 
     fir[i] = val;
   }
@@ -1059,19 +1059,18 @@ static int rtlsdr_set_fir (rtlsdr_dev_t *dev, int table)
     const int val1 = fir_table[8 + i + 1];
 
     if (val0 < -2048 || val0 > 2047 || val1 < -2048 || val1 > 2047)
-      goto fail;
+       goto fail;
 
-    fir[8 + i * 3 / 2] = val0 >> 4;
-    fir[8 + i * 3 / 2 + 1] = (val0 << 4) | ((val1 >> 8) & 0x0f);
-    fir[8 + i * 3 / 2 + 2] = val1;
+    fir [8 + i * 3 / 2] = val0 >> 4;
+    fir [8 + i * 3 / 2 + 1] = (val0 << 4) | ((val1 >> 8) & 0x0f);
+    fir [8 + i * 3 / 2 + 2] = val1;
   }
 
   for (i = 0; i < (int)sizeof(fir); i++)
   {
     r = rtlsdr_demod_write_reg (dev, 1, 0x1c + i, fir[i], 1);
-
     if (r)
-      goto fail;
+       goto fail;
   }
 
   TRACE (1, "FIR Filter %d kHz: FIR-coeff from 'fir_default[%d]':\n"
@@ -1098,7 +1097,7 @@ int rtlsdr_get_agc_val (void *dev, int *slave_demod)
 int16_t interpolate (int16_t freq, int size, const int16_t *freqs, const int16_t *gains)
 {
   int16_t gain = 0;
-  int i;
+  int     i;
 
   if (freq < freqs[0])
      freq = freqs[0];
@@ -1114,7 +1113,7 @@ int16_t interpolate (int16_t freq, int size, const int16_t *freqs, const int16_t
         break;
       }
   }
-  return gain;
+  return (gain);
 }
 
 int rtlsdr_reset_demod (rtlsdr_dev_t *dev)
@@ -1241,7 +1240,7 @@ void print_rom (rtlsdr_dev_t *dev)
 {
   uint8_t data[64];
   FILE   *pFile;
-  int     i, addr = 0, len = sizeof(data);
+  int     i, r, addr = 0, len = sizeof(data);
 
   printf ("writing file: 'rtl2832.bin'\n");
   pFile = fopen ("rtl2832.bin", "wb");
@@ -1249,7 +1248,12 @@ void print_rom (rtlsdr_dev_t *dev)
   {
     for (i = 0; i < 1024; i++)
     {
-      rtlsdr_read_array (dev, ROMB, addr, data, len);
+      r = rtlsdr_read_array (dev, ROMB, addr, data, len);
+      if (r)
+      {
+        printf ("Error reading ROM, r: %d.\n", r);
+        break;
+      }
       fwrite (data, 1, sizeof(data), pFile);
       addr += sizeof(data);
     }
@@ -1299,7 +1303,7 @@ int rtlsdr_set_if_freq (rtlsdr_dev_t *dev, int32_t freq)
   /* read corrected clock value */
   if (rtlsdr_get_xtal_freq (dev, &rtl_xtal, NULL))
   {
-    TRACE (1, "%s(): freq: %, r: %d\n", __FUNCTION__, freq, -2);
+    TRACE (1, "%s (%.3f MHz): r: %d\n", __FUNCTION__, (double)freq / 1E6, -2);
     return (-2);
   }
 
@@ -1310,8 +1314,8 @@ int rtlsdr_set_if_freq (rtlsdr_dev_t *dev, int32_t freq)
   r |= rtlsdr_demod_write_reg (dev, 1, 0x1a, tmp, 1);
   tmp = if_freq & 0xff;
   r |= rtlsdr_demod_write_reg (dev, 1, 0x1b, tmp, 1);
-  TRACE (2, "%s(): freq: %.3f MHz, IF-freq: %.3f MHz, XTAL: %.3f MHz, r: %d\n",
-         __FUNCTION__, (double) freq / 1E6, (double) if_freq / 1E6, (double) rtl_xtal / 1E6, r);
+  TRACE (2, "%s (%.3f MHz): IF-freq: %.3f MHz, XTAL: %.3f MHz, r: %d\n",
+         __FUNCTION__, (double)freq / 1E6, (double)if_freq / 1E6, (double)rtl_xtal / 1E6, r);
   return (r);
 }
 
@@ -1353,7 +1357,7 @@ int rtlsdr_set_xtal_freq (rtlsdr_dev_t *dev, uint32_t rtl_freq, uint32_t tuner_f
 
   if (dev->tun_xtal != tuner_freq)
   {
-    if (0 == tuner_freq)
+    if (tuner_freq == 0)
          dev->tun_xtal = dev->rtl_xtal;
     else dev->tun_xtal = tuner_freq;
 
@@ -1367,7 +1371,7 @@ int rtlsdr_set_xtal_freq (rtlsdr_dev_t *dev, uint32_t rtl_freq, uint32_t tuner_f
     if (dev->freq)
        r = rtlsdr_set_center_freq (dev, dev->freq);
   }
-  TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+  TRACE (1, "%s (%.3f MHz): r: %d\n", __FUNCTION__, (double)tuner_freq / 1E6, r);
   return (r);
 }
 
@@ -1476,8 +1480,8 @@ int rtlsdr_set_center_freq (rtlsdr_dev_t *dev, uint32_t freq)
   else
     dev->freq = 0;
 
-  TRACE (1, "%s(): freq: %.3f MHz, direct_sampling: %d, direct_sampling_mode: %d, r: %d\n",
-         __FUNCTION__, (double) freq / 1E6, dev->direct_sampling, dev->direct_sampling_mode, r);
+  TRACE (1, "%s (%.3f MHz): direct_sampling: %d, direct_sampling_mode: %d, r: %d\n",
+         __FUNCTION__, (double)freq / 1E6, dev->direct_sampling, dev->direct_sampling_mode, r);
   return (r);
 }
 
@@ -1510,7 +1514,7 @@ int rtlsdr_set_freq_correction_100ppm (rtlsdr_dev_t *dev, int ppm)
   if (dev->freq) /* retune to apply new correction value */
      r |= rtlsdr_set_center_freq (dev, dev->freq);
 
-  TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+  TRACE (1, "%s (%d): r: %d\n", __FUNCTION__, ppm, r);
   return (r);
 }
 
@@ -1529,9 +1533,8 @@ int rtlsdr_get_freq_correction (rtlsdr_dev_t *dev)
 enum rtlsdr_tuner rtlsdr_get_tuner_type (rtlsdr_dev_t *dev)
 {
   if (!dev)
-    return RTLSDR_TUNER_UNKNOWN;
-
-  return dev->tuner_type;
+     return (RTLSDR_TUNER_UNKNOWN);
+  return (dev->tuner_type);
 }
 
 int rtlsdr_get_tuner_gains (rtlsdr_dev_t *dev, int *gains)
@@ -1616,7 +1619,7 @@ int rtlsdr_set_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t bw)
   uint32_t applied_bw = 0;
   int      r = rtlsdr_set_and_get_tuner_bandwidth (dev, bw, &applied_bw, 1 /* =apply_bw */);
 
-  TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+  TRACE (1, "%s (%.3f MHz): r: %d\n", __FUNCTION__, (double)bw / 1E6 ,r);
   return (r);
 }
 
@@ -1638,7 +1641,7 @@ int rtlsdr_set_tuner_gain (rtlsdr_dev_t *dev, int gain)
        dev->gain = gain;
   else dev->gain = 0;
 
-  TRACE (1, "%s(): gain: %d.%d dB, r: %d\n", __FUNCTION__, dev->gain / 10, dev->gain % 10, r);
+  TRACE (1, "%s(): gain: %.1f dB, r: %d\n", __FUNCTION__, (float)gain / 10, r);
   return (r);
 }
 
@@ -1659,10 +1662,10 @@ int rtlsdr_set_tuner_if_gain (rtlsdr_dev_t *dev, int stage, int gain)
   if (dev->tuner->set_if_gain)
   {
     rtlsdr_set_i2c_repeater (dev, 1);
-    r = dev->tuner->set_if_gain (dev, stage, gain);
+    r = (*dev->tuner->set_if_gain) (dev, stage, gain);
     rtlsdr_set_i2c_repeater (dev, 0);
   }
-  TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+  TRACE (1, "%s(): gain: %.1f dB, r: %d\n", __FUNCTION__, (float)gain / 10, r);
   return (r);
 }
 
@@ -1806,7 +1809,7 @@ int rtlsdr_set_testmode (rtlsdr_dev_t *dev, int on)
      return (-1);
 
   int r = rtlsdr_demod_write_reg_mask (dev, 0, 0x19, on ? 0x02 : 0x00, 0x02);
-  TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+  TRACE (1, "%s (%d): r: %d\n", __FUNCTION__, on, r);
   return (r);
 }
 
@@ -1816,7 +1819,7 @@ int rtlsdr_set_agc_mode (rtlsdr_dev_t *dev, int on)
      return (-1);
 
   int r = rtlsdr_demod_write_reg_mask (dev, 0, 0x19, on ? 0x20 : 0x00, 0x20);
-  TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
+  TRACE (1, "%s (%d): r: %d\n", __FUNCTION__, on, r);
   return (r);
 }
 
@@ -2457,7 +2460,7 @@ int rtlsdr_close (rtlsdr_dev_t *dev)
 
   DeleteCriticalSection (&dev->cs_mutex);
 
-  TRACE (1, "%s(): dev->devh: 0x%p, dev->deviceHandle: 0x%p\n",
+  TRACE (2, "%s(): dev->devh: 0x%p, dev->deviceHandle: 0x%p\n",
          __FUNCTION__, dev->devh, dev->deviceHandle);
 
   Close_Device (dev);
