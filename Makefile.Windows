@@ -16,10 +16,10 @@ THIS_FILE = Makefile.Windows
 USE_CRT_DEBUG ?= 0
 
 #
-# For SDRPlay suport, load the "RTLSDR-Emul.DLL" at runtime instead.
+# For SDRPlay support, load the "RTLSDR-Emul.DLL" at runtime instead.
 # Ref. https://github.com/JvanKatwijk/rtlsdr-emulator-sdrplay.git
 #
-USE_RTLSDR_EMUL ?= 1
+USE_RTLSDR_EMUL ?= 0
 
 #
 # Enable "Address Sanitation".
@@ -33,7 +33,7 @@ USE_ASAN ?= 0
 #
 # For my private build; use the tracing Winsock library?
 #
-USE_WSOCK_TRACE ?= 1
+USE_WSOCK_TRACE ?= 0
 
 #
 # For .c-file preprocessing:
