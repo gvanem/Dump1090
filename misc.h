@@ -375,6 +375,7 @@ typedef struct global_data {
                                                       */
         rtlsdr_conf  rtlsdr;                        /**< RTLSDR specific settings. */
         sdrplay_conf sdrplay;                       /**< SDRPlay specific settings. */
+        bool         emul_loaded;                   /**< RTLSDR-emul.dll loaded. */
 
         /** Lists of clients for each network service
          */

@@ -21,20 +21,7 @@
 #include <process.h>
 
 #include "misc.h"
-
-#if defined(USE_RTLSDR_EMUL)
-  #include "rtlsdr-emul.h"
-
-  #define sdrplay_init(name, dev_p)                          (*emul.rtlsdr_open) ((rtlsdr_dev_t**)dev_p, 0)
-  #define sdrplay_exit(dev)                                  (*emul.rtlsdr_close) (dev)
-  #define sdrplay_set_gain(dev, gain)                        (*emul.rtlsdr_set_tuner_gain) (dev, gain)
-  #define sdrplay_cancel_async(dev)                          (*emul.rtlsdr_cancel_async) (dev)
-  #define sdrplay_strerror(rc)                               (*emul.rtlsdr_strerror) (rc)
-  #define sdrplay_read_async(dev, cb, ctx, buf_num, buf_len) (*emul.rtlsdr_read_async) (dev, cb, ctx, buf_num, buf_len)
-
-#else
-  #include "sdrplay.h"
-#endif
+#include "sdrplay.h"
 
 /**
  * \addtogroup Main      Main decoder
@@ -214,7 +201,6 @@ static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE console_hnd = INVALID_HANDLE_VALUE;
 static DWORD  console_mode = 0;
 static bool   dev_selection_done = false;
-static bool   emul_loaded = false;
 
 #define COLOUR_GREEN  10  /* bright green; FOREGROUND_INTENSITY + 2 */
 #define COLOUR_RED    12  /* bright red;   FOREGROUND_INTENSITY + 4 */
@@ -271,7 +257,7 @@ void console_title_stats (void)
   static int      ovl_count = 0;
   static char    *overload = "            ";
   uint64_t        good_CRC = Modes.stat.good_CRC + Modes.stat.fixed;
-  uint64_t        bad_CRC  = Modes.stat.bad_CRC - Modes.stat.fixed;
+  uint64_t        bad_CRC  = Modes.stat.bad_CRC  - Modes.stat.fixed;
 
   if (Modes.gain_auto)
        strcpy (gain, "auto");
@@ -887,10 +873,6 @@ int modeS_init (void)
     spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
   }
 
-#if defined(USE_RTLSDR_EMUL)
-  emul_loaded = RTLSDR_emul_load_DLL();
-#endif
-
   InitializeCriticalSection (&Modes.data_mutex);
   InitializeCriticalSection (&Modes.print_mutex);
   signal (SIGINT, sigint_handler);
@@ -1379,6 +1361,7 @@ void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint3
   printf (" (DF %d, Fixable: %d)\n", msg_type, fixable);
   dump_magnitude_vector (m, offset);
   puts ("---\n");
+
   LeaveCriticalSection (&Modes.print_mutex);
 }
 
@@ -4749,8 +4732,10 @@ void sigint_handler (int sig)
   }
   else if (Modes.sdrplay.device)
   {
+#if !defined(USE_RTLSDR_EMUL)
     rc = sdrplay_cancel_async (Modes.sdrplay.device);
     TRACE (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
+#endif
   }
 }
 
@@ -4907,6 +4892,10 @@ void modeS_exit (void)
 
   if (Modes.log)
      fclose (Modes.log);
+
+#if defined(USE_RTLSDR_EMUL)
+  RTLSDR_emul_unload_DLL();
+#endif
 
 #if defined(_DEBUG)
   crtdbug_exit();
@@ -5210,11 +5199,12 @@ int main (int argc, char **argv)
     if (Modes.sdrplay.name)
     {
 #ifdef USE_RTLSDR_EMUL
-     if (!emul_loaded)
-     {
-        LOG_STDERR ("Cannot use device `%s` without RTLSDR-emul.dll loaded.\n", Modes.sdrplay.name);
+      Modes.emul_loaded = RTLSDR_emul_load_DLL();
+      if (!Modes.emul_loaded)
+      {
+        LOG_STDERR ("Cannot use device `%s` without `%s` loaded.\n", Modes.sdrplay.name, emul.dll_name);
         goto quit;
-     }
+      }
 #endif
 
       rc = sdrplay_init (Modes.sdrplay.name, &Modes.sdrplay.device);
