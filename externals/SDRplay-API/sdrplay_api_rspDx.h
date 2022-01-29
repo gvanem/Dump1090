@@ -5,11 +5,12 @@
 
 #define RSPDX_NUM_LNA_STATES               28   // Number of LNA states in all bands (except where defined differently below)
 #define RSPDX_NUM_LNA_STATES_AMPORT2_0_12  19   // Number of LNA states when using AM Port 2 between 0 and 12MHz
-#define RSPDX_NUM_LNA_STATES_AMPORT2_12_60 20   // Number of LNA states when using AM Port 2 between 12 and 60MHz
+#define RSPDX_NUM_LNA_STATES_AMPORT2_12_50 20   // Number of LNA states when using AM Port 2 between 12 and 50MHz
+#define RSPDX_NUM_LNA_STATES_AMPORT2_50_60 25   // Number of LNA states when using AM Port 2 between 50 and 60MHz
 #define RSPDX_NUM_LNA_STATES_VHF_BAND3     27   // Number of LNA states in VHF and Band3
 #define RSPDX_NUM_LNA_STATES_420MHZ        21   // Number of LNA states in 420MHz band
 #define RSPDX_NUM_LNA_STATES_LBAND         19   // Number of LNA states in L-band
-#define RSPDX_NUM_LNA_STATES_DX            26   // Number of LNA states in DX path
+#define RSPDX_NUM_LNA_STATES_DX            22   // Number of LNA states in DX path
 
 // RSPdx parameter enums
 typedef enum
