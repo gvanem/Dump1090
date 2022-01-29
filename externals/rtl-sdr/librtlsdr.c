@@ -1514,7 +1514,7 @@ int rtlsdr_set_freq_correction_100ppm (rtlsdr_dev_t *dev, int ppm)
   if (dev->freq) /* retune to apply new correction value */
      r |= rtlsdr_set_center_freq (dev, dev->freq);
 
-  TRACE (1, "%s (%d): r: %d\n", __FUNCTION__, ppm, r);
+  TRACE (1, "%s (%d): r: %d\n", __FUNCTION__, ppm/100, r);
   return (r);
 }
 

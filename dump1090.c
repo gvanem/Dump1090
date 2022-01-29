@@ -524,7 +524,7 @@ void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
     err1 = abs (gain_in - nearest);
     err2 = abs (gain_in - Modes.rtlsdr.gains[i]);
 
-    p += snprintf (p, left, " %.0f, ", Modes.rtlsdr.gains[i] / 10.0);
+    p += snprintf (p, left, "%.1f, ", Modes.rtlsdr.gains[i] / 10.0);
     left = sizeof(gbuf) - (p - gbuf) - 1;
     if (err2 < err1)
        nearest = Modes.rtlsdr.gains[i];
