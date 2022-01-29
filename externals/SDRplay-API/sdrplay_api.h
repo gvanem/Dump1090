@@ -21,7 +21,7 @@ typedef void *HANDLE;
 
 // Application code should check that it is compiled against the same API version
 // sdrplay_api_ApiVersion() returns the API version 
-#define SDRPLAY_API_VERSION                   (float)(3.08)
+#define SDRPLAY_API_VERSION                   (float)(3.09)
 
 // API Constants
 #define SDRPLAY_MAX_DEVICES                   (16)
