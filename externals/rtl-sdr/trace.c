@@ -100,7 +100,7 @@ void trace_printf (unsigned short col, const char *fmt, ...)
     printf ("%s(%u): ", _trace_file ? _trace_file : "<unknown file>" , _trace_line);
     if (show_version)
     {
-      printf ("Version %d.%d.%d. Compiled: \"%s\".\n", RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, __TIMESTAMP__);
+      printf ("Version %d.%d.%d. Compiled: \"%s\".\n", RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, __DATE__);
       show_version = 0;
     }
     LeaveCriticalSection (&cs);
