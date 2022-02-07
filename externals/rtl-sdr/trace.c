@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "trace.h"
+#include "version.h"
 
 #if (TRACE_COLOR_START == TRACE_COLOR_ARGS) || \
     (TRACE_COLOR_START == TRACE_COLOR_OK)   || \
@@ -13,7 +14,8 @@
   #error "All colours must be unique."
 #endif
 
-static int                        _trace_winusb = 0;
+static int                        show_version = 1;
+static int                        show_winusb = 0;
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE                     stdout_hnd;
 static CRITICAL_SECTION           cs;
@@ -37,7 +39,7 @@ static int trace_init (void)
   {
     if (winusb >= env+1)
     {
-      _trace_winusb = 1;
+      show_winusb = 1;
       *winusb = '\0';
     }
     rc = atoi (env);
@@ -96,6 +98,11 @@ void trace_printf (unsigned short col, const char *fmt, ...)
   if (col == TRACE_COLOR_START)
   {
     printf ("%s(%u): ", _trace_file ? _trace_file : "<unknown file>" , _trace_line);
+    if (show_version)
+    {
+      printf ("Version %d.%d.%d. Compiled: \"%s\".\n", RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, __TIMESTAMP__);
+      show_version = 0;
+    }
     LeaveCriticalSection (&cs);
     return;
   }
@@ -122,7 +129,7 @@ void trace_winusb (const char *func, DWORD win_err, const char *file, unsigned l
     trace_printf (TRACE_COLOR_START, NULL);
     trace_printf (TRACE_COLOR_ERR, "%s() failed with %s.\n", func, trace_strerror(win_err));
   }
-  else if ((level >= 2 || _trace_winusb) && win_err == ERROR_SUCCESS)
+  else if ((level >= 2 || show_winusb) && win_err == ERROR_SUCCESS)
   {
     trace_printf (TRACE_COLOR_START, NULL);
     trace_printf (TRACE_COLOR_OK, "%s(), OK.\n", func);
