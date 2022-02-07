@@ -353,8 +353,8 @@ typedef struct global_data {
         uint16_t         *magnitude;                /**< Magnitude vector. */
         uint16_t         *magnitude_lut;            /**< I/Q -> Magnitude lookup table. */
         int               fd;                       /**< `--infile` option file descriptor. */
-        volatile int      exit;                     /**< Exit from the main loop when true. */
-        volatile int      data_ready;               /**< Data ready to be processed. */
+        volatile bool     exit;                     /**< Exit from the main loop when true. */
+        volatile bool     data_ready;               /**< Data ready to be processed. */
         uint32_t         *ICAO_cache;               /**< Recently seen ICAO addresses. */
         statistics        stat;                     /**< Decoding and network statistics. */
         aircraft         *aircrafts;                /**< Linked list of active aircrafts. */

@@ -455,7 +455,9 @@ const char *get_rtlsdr_error (int err)
 #if 0  // \todo
   return rtlsdr_error_name (err);
 #else
-  return ("WinUsb-error");
+  static char buf [100];
+  snprintf (buf, sizeof(buf), "WinUsb-error %d", err);
+  return (buf);
 #endif
 }
 
@@ -814,6 +816,8 @@ void modeS_init_config (void)
   Modes.freq        = MODES_DEFAULT_FREQ;
   Modes.interactive_ttl  = MODES_INTERACTIVE_TTL;
   Modes.interactive_rows = 25;
+
+  Modes.rtlsdr.index = -1;
 }
 
 /**
@@ -885,7 +889,7 @@ int modeS_init (void)
    * two reads.
    */
   Modes.data_len = MODES_DATA_LEN + 4*(MODES_FULL_LEN-1);
-  Modes.data_ready = 0;
+  Modes.data_ready = false;
 
   /**
    * Allocate the ICAO address cache. We use two uint32_t for every
@@ -1048,9 +1052,9 @@ int modeS_init_RTLSDR (void)
  */
 void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
 {
-  volatile int *exit = (volatile int*) ctx;
+  volatile bool exit = *(volatile bool*) ctx;
 
-  if (*exit)
+  if (exit)
      return;
 
   EnterCriticalSection (&Modes.data_mutex);
@@ -1065,7 +1069,7 @@ void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
   /* Read the new data.
    */
   memcpy (Modes.data + 4*(MODES_FULL_LEN-1), buf, len);
-  Modes.data_ready = 1;
+  Modes.data_ready = true;
   LeaveCriticalSection (&Modes.data_mutex);
 }
 
@@ -1191,7 +1195,7 @@ void main_data_loop (void)
     /* Signal to the other thread that we processed the available data
      * and we want more.
      */
-    Modes.data_ready = 0;
+    Modes.data_ready = false;
 
     /* Process data after releasing the lock, so that the capturing
      * thread can read data while we perform computationally expensive
@@ -4637,7 +4641,7 @@ void show_help (const char *fmt, ...)
           (uint32_t)(MODES_DEFAULT_FREQ / 1000000), MODES_DEFAULT_RATE/1000000);
 
   printf ("  --debug <flags>: E = Log frames decoded with errors.\n"
-          "                   D = Log frames decoded with zero errors.\n"
+          "                   D = Log frames decoded with 0 errors.\n"
           "                   c = Log frames with bad CRC.\n"
           "                   C = Log frames with good CRC.\n"
           "                   p = Log frames with bad preamble.\n"
@@ -4710,9 +4714,10 @@ void sigint_handler (int sig)
 {
   int rc;
 
-  signal (sig, SIG_DFL);   /* reset signal handler - bit extra safety */
-  Modes.exit = 1;          /* Signal to threads that we are done */
+  if (sig > 0)
+     signal (sig, SIG_DFL);   /* reset signal handler - bit extra safety */
 
+  Modes.exit = true;          /* Signal to threads that we are done */
   console_exit();
 
   if (sig == SIGINT)
@@ -4813,7 +4818,7 @@ void show_statistics (void)
     LOG_STDOUT ("Decoder statistics:\n");
     LOG_STDOUT (" %8llu valid preambles.\n", Modes.stat.valid_preamble);
     LOG_STDOUT (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
-    LOG_STDOUT (" %8llu demodulated with zero errors.\n", Modes.stat.demodulated);
+    LOG_STDOUT (" %8llu demodulated with 0 errors.\n", Modes.stat.demodulated);
     LOG_STDOUT (" %8llu with CRC okay.\n", Modes.stat.good_CRC);
     LOG_STDOUT (" %8llu with CRC failure.\n", Modes.stat.bad_CRC);
     LOG_STDOUT (" %8llu errors corrected.\n", Modes.stat.fixed);
