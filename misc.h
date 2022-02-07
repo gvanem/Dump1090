@@ -215,7 +215,7 @@ typedef struct cartesian_t {
  * Simple check for a valid geo-position
  */
 #define SMALL_VAL        0.0001
-#define VALID_POS(pos)   (pos.lon >= SMALL_VAL && pos.lat >= SMALL_VAL)
+#define VALID_POS(pos)   (fabs(pos.lon) >= SMALL_VAL && fabs(pos.lat) >= SMALL_VAL)
 #define ASSERT_POS(pos)  do {                                         \
                            assert (pos.lon >= -180 && pos.lon < 180); \
                            assert (pos.lat >= -180 && pos.lat < 180); \
