@@ -816,8 +816,6 @@ void modeS_init_config (void)
   Modes.freq        = MODES_DEFAULT_FREQ;
   Modes.interactive_ttl  = MODES_INTERACTIVE_TTL;
   Modes.interactive_rows = 25;
-
-  Modes.rtlsdr.index = -1;
 }
 
 /**
