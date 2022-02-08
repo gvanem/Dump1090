@@ -3,6 +3,7 @@
  *
  * RTLSDR emulator interface for SDRPlay.
  */
+#if defined(USE_RTLSDR_EMUL)  /* rest of file */
 
 /*
  * \def RTLSDR_EMUL_CONST
@@ -92,3 +93,7 @@ bool RTLSDR_emul_unload_DLL (void)
   emul.dll_hnd = INVALID_HANDLE_VALUE;
   return (true);
 }
+
+#else
+int rtlsdr_emul_dummy;
+#endif  /* USE_RTLSDR_EMUL */

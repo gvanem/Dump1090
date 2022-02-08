@@ -148,6 +148,7 @@
     <ClCompile Include="misc.c" />
     <ClCompile Include="sdrplay.c" />
     <ClCompile Include="externals\mongoose.c" />
+    <ClCompile Include="externals\rtlsdr-emul.c" />
     <ClCompile Include="externals\rtl-sdr\librtlsdr.c" />
     <ClCompile Include="externals\rtl-sdr\trace.c" />
     <ClCompile Include="externals\rtl-sdr\tuner_e4k.c" />
@@ -156,7 +157,6 @@
     <ClCompile Include="externals\rtl-sdr\tuner_r82xx.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="common.h" />
     <ClInclude Include="csv.h" />
     <ClInclude Include="misc.h" />
     <ClInclude Include="sdrplay.h" />
@@ -171,6 +171,8 @@
     <ClInclude Include="externals\rtl-sdr\tuner_r82xx.h" />
     <ClInclude Include="externals\rtl-sdr\rtl-sdr.h" />
     <ClInclude Include="externals\rtl-sdr\rtl-sdr_export.h" />
+    <ClInclude Include="externals\rtl-sdr\version.h" />
+    <ClInclude Include="externals\rtlsdr-emul.h" />
     <ClInclude Include="externals\SDRplay-API\sdrplay_api.h" />
     <ClInclude Include="externals\SDRplay-API\sdrplay_api_callback.h" />
     <ClInclude Include="externals\SDRplay-API\sdrplay_api_control.h" />

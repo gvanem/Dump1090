@@ -159,14 +159,14 @@ endif
 #
 TARGETS = dump1090.exe
 
-SOURCES = externals/mongoose.c \
-          csv.c                \
-          dump1090.c           \
+SOURCES = externals/mongoose.c    \
+          externals/rtlsdr-emul.c \
+          csv.c                   \
+          dump1090.c              \
           misc.c
 
 ifeq ($(USE_RTLSDR_EMUL),1)
-  CFLAGS  += -DUSE_RTLSDR_EMUL
-  SOURCES += externals/rtlsdr-emul.c
+  CFLAGS += -DUSE_RTLSDR_EMUL
 else
   SOURCES += sdrplay.c
 endif
