@@ -37,7 +37,6 @@
 #define GMAP_HTML         "web_root/gmap.html"
 
 #define ADS_B_ACRONYM     "ADS-B; Automatic Dependent Surveillance - Broadcast"
-#define AIRCRAFT_CSV      "aircraftDatabase.csv"
 
 /**
  * Definitions for network services.
@@ -380,12 +379,12 @@ typedef struct global_data {
         /** Lists of clients for each network service
          */
         connection    *connections [MODES_NET_SERVICES_NUM];
-        mg_connection *sbs_out;         /**< SBS output listening connection. */
-        mg_connection *sbs_in;          /**< SBS input active connection. */
-        mg_connection *raw_out;         /**< Raw output active/listening connection. */
-        mg_connection *raw_in;          /**< Raw input listening connection. */
-        mg_connection *http_out;        /**< HTTP listening connection. */
-        mg_mgr         mgr;             /**< Only one connection manager */
+        mg_connection *sbs_out;                /**< SBS output listening connection. */
+        mg_connection *sbs_in;                 /**< SBS input active connection. */
+        mg_connection *raw_out;                /**< Raw output active/listening connection. */
+        mg_connection *raw_in;                 /**< Raw input listening connection. */
+        mg_connection *http_out;               /**< HTTP listening connection. */
+        mg_mgr         mgr;                    /**< Only one connection manager */
 
         /** Configuration
          */

@@ -808,8 +808,7 @@ void modeS_init_config (void)
   strcpy (Modes.web_page, basename(GMAP_HTML));
   strcpy (Modes.web_root, dirname(Modes.who_am_I));
   strcat (Modes.web_root, "\\web_root");
-  snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\%s",
-            dirname(Modes.who_am_I), basename(AIRCRAFT_CSV));
+  snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\aircraftDatabase.csv", dirname(Modes.who_am_I));
 
   Modes.gain_auto   = true;
   Modes.sample_rate = MODES_DEFAULT_RATE;
@@ -4647,7 +4646,7 @@ void show_help (const char *fmt, ...)
           "                   N = A bit more network information than flag 'n'.\n"
           "                   j = Log frames to frames.js, loadable by `debug.html'.\n"
           "                   g = Log general debugging info.\n"
-          "                   G = A bit more network information than flag 'g'.\n");
+          "                   G = A bit more network information than flag 'g'.\n\n");
 
   printf ("  Your home-position for distance calculation can be set like:\n"
           "  'c:\\> set DUMP1090_HOMEPOS=51.5285578,-0.2420247' for London.\n");
