@@ -858,8 +858,9 @@ int modeS_init (void)
     }
   }
 
-  if (!(Modes.debug & (DEBUG_NET | DEBUG_NET2)))
-     mg_log_set_callback (NULL, NULL);     /* Disable all logging from Mongoose */
+  if (Modes.debug & (DEBUG_NET | DEBUG_NET2))
+       mg_log_set ("3");                   /** Enable `LL_ERROR`, `LL_INFO`, and `LL_DEBUG` messages in Mongose */
+  else mg_log_set_callback (NULL, NULL);   /** Disable all logging from Mongoose */
 
   env = getenv ("DUMP1090_HOMEPOS");
   if (env)
@@ -3755,7 +3756,15 @@ net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
  */
 const char *event_name (int ev)
 {
-  return (ev == MG_EV_POLL       ? "MG_EV_POLL" :
+  if (ev >= MG_EV_USER)
+  {
+    static char buf[20];
+    snprintf (buf, sizeof(buf), "MG_EV_USER%d", ev - MG_EV_USER);
+    return (buf);
+  }
+
+  return (ev == MG_EV_OPEN       ? "MG_EV_OPEN" :     /* Event on 'connect()', 'listen()' and 'accept()'. Ignored */
+          ev == MG_EV_POLL       ? "MG_EV_POLL" :
           ev == MG_EV_RESOLVE    ? "MG_EV_RESOLVE" :
           ev == MG_EV_CONNECT    ? "MG_EV_CONNECT" :
           ev == MG_EV_ACCEPT     ? "MG_EV_ACCEPT" :
@@ -3767,7 +3776,12 @@ const char *event_name (int ev)
           ev == MG_EV_HTTP_CHUNK ? "MG_EV_HTTP_CHUNK" :
           ev == MG_EV_WS_OPEN    ? "MG_EV_WS_OPEN" :
           ev == MG_EV_WS_MSG     ? "MG_EV_WS_MSG" :
-          ev == MG_EV_WS_CTL     ? "MG_EV_WS_CTL" : "?");
+          ev == MG_EV_WS_CTL     ? "MG_EV_WS_CTL" :
+          ev == MG_EV_MQTT_CMD   ? "MG_EV_MQTT_CMD" :   /* Can never occur here */
+          ev == MG_EV_MQTT_MSG   ? "MG_EV_MQTT_MSG" :   /* Can never occur here */
+          ev == MG_EV_MQTT_OPEN  ? "MG_EV_MQTT_OPEN" :  /* Can never occur here */
+          ev == MG_EV_SNTP_TIME  ? "MG_EV_SNTP_TIME"    /* Can never occur here */
+                                 : "?");
 }
 
 mg_connection *handler_conn (int service)
@@ -3885,7 +3899,7 @@ const char *get_client_headers (const connection *cli, const char *hdr)
 /**
  * The event handler for HTTP traffic.
  */
-void connection_handler_http (mg_connection *conn, const char *remote, int ev, void *ev_data)
+bool connection_handler_http (mg_connection *conn, const char *remote, int ev, void *ev_data)
 {
   mg_http_message *hm = ev_data;
   connection      *cli;
@@ -3894,7 +3908,7 @@ void connection_handler_http (mg_connection *conn, const char *remote, int ev, v
   char            *request, *end;
 
   if ((ev != MG_EV_HTTP_MSG && ev != MG_EV_HTTP_CHUNK) || strncmp(hm->head.ptr, "GET /", 5))
-     return;
+     return (false);
 
   request = strncpy (alloca(hm->head.len+1), hm->head.ptr, hm->head.len);
 
@@ -3904,7 +3918,7 @@ void connection_handler_http (mg_connection *conn, const char *remote, int ev, v
   {
     TRACE (DEBUG_NET, "Bad request from %s: '%.20s'...\n\n", remote, hm->head.ptr);
     conn->is_closing = 1;
-    return;
+    return (false);
   }
 
   Modes.stat.HTTP_get_requests++;
@@ -3925,7 +3939,7 @@ void connection_handler_http (mg_connection *conn, const char *remote, int ev, v
     TRACE (DEBUG_NET, "Feeding client %lu with receiver-data:\n%s\n", conn->id, data);
 
     mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
-    return;
+    return (true);
   }
 #endif
 
@@ -3945,7 +3959,7 @@ void connection_handler_http (mg_connection *conn, const char *remote, int ev, v
      */
     mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
     free (data);
-    return;
+    return (true);
   }
 
   TRACE (DEBUG_NET, "'%s' from client %lu at %s. json_data: %d.\n", request, conn->id, remote, json_data);
@@ -3965,7 +3979,7 @@ void connection_handler_http (mg_connection *conn, const char *remote, int ev, v
               "%sLocation: %s\r\n", cli->keep_alive ? "Connection: keep-alive\r\n" : "", basename(Modes.web_page));
     mg_http_reply (conn, 303, redirect, "");
     TRACE (DEBUG_NET, "Redirecting client %lu: \"%s\"...\n\n", conn->id, redirect);
-    return;
+    return (true);
   }
 
   /**
@@ -3975,7 +3989,7 @@ void connection_handler_http (mg_connection *conn, const char *remote, int ev, v
   {
     TRACE (DEBUG_NET, "Got Web-socket echo:\n'%.*s'.\n", (int)hm->head.len, hm->head.ptr);
     mg_ws_upgrade (conn, hm, "WS test");
-    return;
+    return (true);
   }
 
   ext = strrchr (uri, '.');
@@ -4022,11 +4036,12 @@ void connection_handler_http (mg_connection *conn, const char *remote, int ev, v
        Modes.stat.HTTP_keep_alive_sent++;
 
     TRACE (DEBUG_NET, "Serving HTTP client %lu with \"%s\".%s\n", conn->id, uri, comment);
-    return;
+    return (true);
   }
 
   mg_http_reply (conn, 404, cli->keep_alive ? "Connection: keep-alive\r\n" : "", "Not found\n");
   TRACE (DEBUG_NET, "HTTP 404 for URI: \"%s\".\n", uri);
+  return (false);
 }
 
 /**
@@ -4083,14 +4098,19 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
     return;
   }
 
-  if (ev == MG_EV_RESOLVE)
+  remote = mg_straddr (&this_conn->peer, remote_buf, sizeof(remote_buf));
+
+  if (ev == MG_EV_OPEN)
   {
-    remote = mg_straddr (this_conn, remote_buf, sizeof(remote_buf));
-    TRACE (DEBUG_NET, "Resolved to host %s\n", remote);
+    TRACE (DEBUG_NET2, "MG_EV_OPEN for host %s\n", remote);
     return;
   }
 
-  remote = mg_straddr (this_conn, remote_buf, sizeof(remote_buf));
+  if (ev == MG_EV_RESOLVE)
+  {
+    TRACE (DEBUG_NET, "Resolved to host %s\n", remote);
+    return;
+  }
 
   if (ev == MG_EV_CONNECT)
   {
@@ -4146,8 +4166,6 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
       conn = connection_get_addr (&this_conn->peer, service, true);
       connection_read (conn, decode_SBS_message, true);
     }
-    else
-      this_conn->recv.len = 0;   /* drain the receive buffer */
     return;
   }
 
@@ -4171,9 +4189,14 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
 
   if (service == MODES_NET_SERVICE_HTTP)
   {
+    bool rc;
+
     if (this_conn->is_websocket && (ev == MG_EV_WS_MSG || ev == MG_EV_WS_CTL))
        connection_handler_websocket (this_conn, remote, ev, ev_data);
-    connection_handler_http (this_conn, remote, ev, ev_data);
+
+    rc = connection_handler_http (this_conn, remote, ev, ev_data);
+    TRACE (DEBUG_NET2, "connection_handler_http(): rc: %d for event %d/%s and client %lu (%s)\n",
+           rc, ev, event_name(ev), this_conn->id, remote);
   }
 }
 
