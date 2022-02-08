@@ -42,7 +42,7 @@ BEGIN
       VALUE "FileVersion",      RC_VER_STRING
       VALUE "InternalName",     "Dump1090"
       VALUE "LegalCopyright",   "Copyright (c) 2012 Salvatore Sanfilippo;\n"
-                                "                        Copyright (c) 2021 Gisle Vanem"
+                                "                        Copyright (c) 2022 Gisle Vanem"
       VALUE "LegalTrademarks",  "MIT License "
       VALUE "OriginalFilename", "dump1090.exe"
       VALUE "ProductName",      "Dump1090"
