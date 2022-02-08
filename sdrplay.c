@@ -653,10 +653,7 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
 
   sdr.rx_data = malloc (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS * sizeof(short));
   if (!sdr.rx_data)
-  {
-    strncpy (sdr.last_err, "Insufficient memory for buffers", sizeof(sdr.last_err));
-    goto failed;
-  }
+     goto nomem;
 
   sdr.dll_hnd = LoadLibrary (sdr.dll_name);
   if (!sdr.dll_hnd)
@@ -722,10 +719,16 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
   /* A fixed test
    */
   Modes.sdrplay.gains = malloc (10 * sizeof(int));
+  if (!Modes.sdrplay.gains)
+      goto nomem;
+
   Modes.sdrplay.gain_count = 10;
   memcpy (Modes.sdrplay.gains, &gain_table, 10 * sizeof(int));
 
   return (sdrplay_api_Success);
+
+nomem:
+  strncpy (sdr.last_err, "Insufficient memory for buffers", sizeof(sdr.last_err));
 
 failed:
   LOG_STDERR ("%s.\n", sdr.last_err);

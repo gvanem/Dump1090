@@ -3495,7 +3495,7 @@ int strip_mode (int level)
   return (0);
 }
 
-#if 0
+#ifdef NOT_USED
 /*
  * Taken from Dump1090-FA's 'net_io.c':
  */
@@ -3510,8 +3510,9 @@ char *aircraft_json_Dump1090_OL3 (const char *url_path, int *len)
  */
 char *receiver_to_json (int *len)
 {
-  char *buf = malloc(1024), *p = buf;
-  int history_size;
+  char *buf = malloc (1024);
+  char *p = buf;
+  int   history_size;
 
   /* work out number of valid history entries
    */
@@ -3549,6 +3550,9 @@ char *aircrafts_to_json (int *len, int *num_planes, bool is_Tar1090, bool is_Dum
   char     *p = buf;
 
   *num_planes = 0;
+
+  if (!buf)
+     return (NULL);
 
   l = snprintf (p, buflen, "[\n");
   p      += l;
@@ -3598,7 +3602,12 @@ char *aircrafts_to_json (int *len, int *num_planes, bool is_Tar1090, bool is_Dum
         int used = p - buf;
 
         buflen += 1024; /* Our increment. */
-        buf = realloc (buf, used+buflen);
+        buf = realloc (buf, used + buflen);
+        if (!buf)
+        {
+          *num_planes = 0;
+          return (NULL);
+        }
         p = buf + used;
       }
     }
@@ -3936,9 +3945,13 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
     int   data_len;
     char *data = receiver_to_json (&data_len);
 
+    if (!data)
+       return (false);
+
     TRACE (DEBUG_NET, "Feeding client %lu with receiver-data:\n%s\n", conn->id, data);
 
     mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
+    free (data);
     return (true);
   }
 #endif
@@ -3949,6 +3962,12 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
   {
     int   data_len, num_planes;
     char *data = aircrafts_to_json (&data_len, &num_planes, is_Tar1090, is_Dump1090_OL3);
+
+    if (!data)
+    {
+      conn->is_closing = 1;
+      return (false);
+    }
 
     if (num_planes >= 1)
        TRACE (DEBUG_NET, "Feeding client %lu with \"%s\", num_planes: %d.\n",
@@ -4116,6 +4135,12 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
   {
     mg_timer_free (&modeS_net_services[service].timer);
     conn = calloc (sizeof(*conn), 1);
+    if (!conn)
+    {
+      this_conn->is_closing = 1;
+      return;
+    }
+
     conn->conn    = this_conn;      /* Keep a copy of the active connection */
     conn->service = service;
     conn->id      = this_conn->id;
@@ -4131,6 +4156,12 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
   if (ev == MG_EV_ACCEPT)
   {
     conn = calloc (sizeof(*conn), 1);
+    if (!conn)
+    {
+      this_conn->is_closing = 1;
+      return;
+    }
+
     conn->conn    = this_conn;      /* Keep a copy of the passive (listen) connection */
     conn->service = service;
     conn->id      = this_conn->id;
