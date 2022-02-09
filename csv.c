@@ -216,6 +216,46 @@ static int CSV_parse_file (struct CSV_context *ctx)
 }
 
 /**
+ * Try to auto-detect the number of fields in the CSV-file.
+ *
+ * Open and parse the first line and count the number of delimiters.
+ * If this line ends in a newline, this should count as the last field.
+ * Hence increment by 1.
+ *
+ * \param[in]  ctx  the CSV context to work with.
+ * \retval     0 on failure. 1 on success.
+ */
+static int CSV_autodetect_num_fields (struct CSV_context *ctx)
+{
+  unsigned num_fields = 0;
+  const char *delim, *next;
+
+  ctx->file = fopen (ctx->file_name, "rt");
+  if (!ctx->file)
+     return (0);
+
+  if (!fgets(ctx->parse_buf, ctx->line_size, ctx->file))
+     return (0);
+
+  delim = ctx->parse_buf;
+  while (*delim)
+  {
+    next = strchr (delim, ctx->delimiter);
+    if (!next)
+    {
+      if (strchr(delim, '\r') || strchr(delim, '\n'))
+         num_fields++;
+      break;
+    }
+    delim = next + 1;
+    num_fields++;
+  }
+  ctx->num_fields = num_fields;
+  fseek (ctx->file, 0, SEEK_SET);
+  return (1);
+}
+
+/**
  * Check for unset members of the CSV-context. <br>
  * Set the field-delimiter to `,` if not already done.
  *
@@ -225,7 +265,7 @@ static int CSV_parse_file (struct CSV_context *ctx)
  */
 static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
 {
-  if (ctx->num_fields == 0 || !ctx->callback || !ctx->file_name)
+  if (!ctx->callback || !ctx->file_name)
   {
     errno = EINVAL;
     return (-1);
@@ -250,7 +290,16 @@ static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
   if (!ctx->parse_buf)
      return (-1);
 
-  ctx->file = fopen (ctx->file_name, "rt");
+  if (ctx->num_fields == 0 && !CSV_autodetect_num_fields(ctx))
+  {
+    free (ctx->parse_buf);
+    errno = EINVAL;
+    return (-1);
+  }
+
+  if (!ctx->file)
+     ctx->file = fopen (ctx->file_name, "rt");
+
   if (!ctx->file)
   {
     free (ctx->parse_buf);

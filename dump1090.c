@@ -780,7 +780,6 @@ void aircraft_CSV_load (void)
   Modes.csv_ctx.delimiter  = ',';
   Modes.csv_ctx.callback   = aircraft_CSV_parse;
   Modes.csv_ctx.line_size  = 2000;
-  Modes.csv_ctx.num_fields = 27;
   if (CSV_open_and_parse_file (&Modes.csv_ctx) < 0)
   {
     LOG_STDERR ("Parsing of \"%s\" failed: %s\n", Modes.aircraft_db, strerror(errno));
