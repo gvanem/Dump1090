@@ -246,9 +246,8 @@ docs: doxy-docs doxy-docs/Doxyfile
 	cp --update doxy-docs/dump1090.chm .
 
 docs_clean:
-	rm -fR doxy-docs/*
+	rm -fr doxy-docs
 	rm -f dump1090.chw
-	- rmdir doxy-docs
 
 doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call Generate, $@, #)
