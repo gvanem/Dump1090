@@ -188,13 +188,13 @@ void background_tasks (void);
 void modeS_exit (void);
 void sigint_handler (int sig);
 
-u_short        handler_port (int service);
-const char    *handler_descr (int service);
-mg_connection *handler_conn (int service);
+u_short        handler_port (intptr_t service);
+const char    *handler_descr (intptr_t service);
+mg_connection *handler_conn (intptr_t service);
 void           connection_read (connection *conn, msg_handler handler, bool is_server);
-int            connection_send (int service, const void *msg, size_t len);
-connection    *connection_get_addr (const mg_addr *addr, int service, bool is_server);
-void           connection_free (connection *this_conn, int service);
+int            connection_send (intptr_t service, const void *msg, size_t len);
+connection    *connection_get_addr (const mg_addr *addr, intptr_t service, bool is_server);
+void           connection_free (connection *this_conn, intptr_t service);
 unsigned       connection_free_all (void);
 
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
@@ -3638,7 +3638,7 @@ char *aircrafts_to_json (int *len, int *num_planes, bool is_Tar1090, bool is_Dum
  * Returns a 'connection *' based on the remote 'addr' and 'service'.
  * This can be either client or server.
  */
-connection *connection_get_addr (const mg_addr *addr, int service, bool is_server)
+connection *connection_get_addr (const mg_addr *addr, intptr_t service, bool is_server)
 {
   connection *srv;
 
@@ -3657,7 +3657,7 @@ connection *connection_get_addr (const mg_addr *addr, int service, bool is_serve
 /**
  * Free a specific connection, client or server.
  */
-void connection_free (connection *this_conn, int service)
+void connection_free (connection *this_conn, intptr_t service)
 {
   connection *conn;
   uint32_t    conn_id = (uint32_t)-1;
@@ -3698,7 +3698,8 @@ void connection_free (connection *this_conn, int service)
  */
 unsigned connection_free_all (void)
 {
-  int service, num = 0;
+  intptr_t service;
+  int      num = 0;
 
   for (service = MODES_NET_SERVICE_RAW_OUT; service < MODES_NET_SERVICES_NUM; service++)
   {
@@ -3725,7 +3726,7 @@ unsigned connection_free_all (void)
  *  \li This function is not used for sending HTTP data.
  *  \li This function is not called when `--net-active` is used.
  */
-int connection_send (int service, const void *msg, size_t len)
+int connection_send (intptr_t service, const void *msg, size_t len)
 {
   mg_connection *conn = handler_conn (service);
   connection    *c;
@@ -3793,37 +3794,37 @@ const char *event_name (int ev)
                                  : "?");
 }
 
-mg_connection *handler_conn (int service)
+mg_connection *handler_conn (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (*modeS_net_services [service].conn);
 }
 
-uint16_t *handler_num_connections (int service)
+uint16_t *handler_num_connections (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (&modeS_net_services [service].num_connections);
 }
 
-const char *handler_descr (int service)
+const char *handler_descr (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (modeS_net_services [service].descr);
 }
 
-u_short handler_port (int service)
+u_short handler_port (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (modeS_net_services [service].port);
 }
 
-char *handler_error (int service)
+char *handler_error (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (modeS_net_services [service].last_err);
 }
 
-bool handler_sending (int service)
+bool handler_sending (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (modeS_net_services [service].active_send);
@@ -4235,7 +4236,7 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
  * Setup a connection for a service.
  * Active or passive (`listen == true`).
  */
-mg_connection *connection_setup (int service, bool listen, bool sending)
+mg_connection *connection_setup (intptr_t service, bool listen, bool sending)
 {
   mg_connection *conn = NULL;
   char           url [50];
@@ -4465,7 +4466,7 @@ void decode_hex_message (mg_iobuf *msg, int loop_cnt)
   if (!end)
   {
     if (!Modes.interactive)
-       LOG_STDOUT ("RAW(%d): Bogus msg: '%.*s'...\n", loop_cnt, msg->len, msg->buf);
+       LOG_STDOUT ("RAW(%d): Bogus msg: '%.*s'...\n", loop_cnt, (int)msg->len, msg->buf);
     Modes.stat.unrecognized_raw++;
     mg_iobuf_del (msg, 0, msg->len);
     return;
@@ -4562,7 +4563,7 @@ void decode_SBS_message (mg_iobuf *msg, int loop_cnt)
   if (!end)
   {
     if (!Modes.interactive)
-       LOG_STDOUT ("SBS(%d): Bogus msg: '%.*s'...\n", loop_cnt, msg->len, msg->buf);
+       LOG_STDOUT ("SBS(%d): Bogus msg: '%.*s'...\n", loop_cnt, (int)msg->len, msg->buf);
     Modes.stat.unrecognized_SBS++;
     mg_iobuf_del (msg, 0, msg->len);
     return;
@@ -4621,7 +4622,7 @@ void connection_read (connection *conn, msg_handler handler, bool is_server)
 
   for (loops = 0; msg->len > 0; loops++)
   {
-    TRACE (DEBUG_NET2, "%s msg(%d): '%.*s'.\n", is_server ? "server" : "client", loops, msg->len, msg->buf);
+    TRACE (DEBUG_NET2, "%s msg(%d): '%.*s'.\n", is_server ? "server" : "client", loops, (int)msg->len, msg->buf);
     (*handler) (msg, loops);
   }
 }

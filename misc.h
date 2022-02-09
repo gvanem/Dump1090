@@ -131,7 +131,7 @@ typedef void (*msg_handler) (mg_iobuf *msg, int loop_cnt);
  */
 typedef struct connection {
         mg_connection     *conn;              /**< Remember which connection this client/server is in */
-        int                service;           /**< This client's service membership */
+        intptr_t           service;           /**< This client's service membership */
         uint32_t           id;                /**< A copy of `conn->id` */
         mg_addr            addr;              /**< A copy of `conn->peer` */
         int                keep_alive;        /**< Client request contains "Connection: keep-alive" */
