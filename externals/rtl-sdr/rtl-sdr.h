@@ -497,6 +497,10 @@ RTLSDR_API int rtlsdr_set_bias_tee_gpio(rtlsdr_dev_t *dev, int gpio, int on);
  */
 RTLSDR_API int rtlsdr_set_opt_string(rtlsdr_dev_t *dev, const char *opts, int verbose);
 
+/*!
+ * Get the long or brief help for options accepted rtlsdr_set_opt_string().
+ */
+RTLSDR_API const char * rtlsdr_get_opt_help(int longInfo);
 
 /*!
  * Exposes/permits hacking of Tuner-specific I2C registers

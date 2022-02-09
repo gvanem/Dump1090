@@ -582,7 +582,7 @@ enum blocks {
   IICB   = 0x0600
 };
 
-static const rtlsdr_dongle_t *find_known_device (uint16_t vid, uint16_t pid)
+static const rtlsdr_dongle_t *find_known_device (uint16_t vid, uint16_t pid, unsigned called_from)
 {
   const rtlsdr_dongle_t *device = NULL;
   size_t i;
@@ -591,8 +591,8 @@ static const rtlsdr_dongle_t *find_known_device (uint16_t vid, uint16_t pid)
   {
     if (known_devices[i].vid == vid && known_devices[i].pid == pid)
     {
-      TRACE (1, "Found VID: 0x%04X PID: 0x%04X -> \"%s\"\n",
-             vid, pid, known_devices[i].name);
+      TRACE (1, "Found VID: 0x%04X PID: 0x%04X -> \"%s\" (line: %u)\n",
+             vid, pid, known_devices[i].name, called_from);
       device = (known_devices + i);
       break;
     }
@@ -626,7 +626,7 @@ static int List_Devices (int index, found_device *found)
     return (-1);
   }
 
-  ZeroMemory (&DeviceInfoData, sizeof(SP_DEVINFO_DATA));
+  memset (&DeviceInfoData, '\0', sizeof(SP_DEVINFO_DATA));
   DeviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
 
   while (SetupDiEnumDeviceInfo(DeviceInfoSet, DeviceIndex, &DeviceInfoData))
@@ -655,7 +655,7 @@ static int List_Devices (int index, found_device *found)
     sscanf (DeviceID + 8, "%04X", &vid);
     sscanf (DeviceID + 17, "%04X", &pid);
 
-    if (!find_known_device(vid, pid))
+    if (!find_known_device(vid, pid, __LINE__))
        continue;
 
     if (!_strnicmp(DeviceID + 22, "MI_", 3))
@@ -697,7 +697,7 @@ static int List_Devices (int index, found_device *found)
     }
 
     length = sizeof(devInterfaceGuidArray);
-    memset (devInterfaceGuidArray, 0, sizeof(devInterfaceGuidArray));
+    memset (devInterfaceGuidArray, '\0', sizeof(devInterfaceGuidArray));
 
     if (RegQueryValueExA(hkeyDevInfo, "DeviceInterfaceGUIDs", NULL, NULL, (BYTE*)devInterfaceGuidArray, &length) != ERROR_SUCCESS)
     {
@@ -752,16 +752,20 @@ static void Close_Device (rtlsdr_dev_t *dev)
   {
     WinUsb_Free (dev->devh);
     CloseHandle (dev->devh);
-    dev->devh = INVALID_HANDLE_VALUE;
   }
+
   if (dev->deviceHandle && dev->deviceHandle != INVALID_HANDLE_VALUE)
      CloseHandle (dev->deviceHandle);
+
+  dev->devh = INVALID_HANDLE_VALUE;
   dev->deviceHandle = INVALID_HANDLE_VALUE;
 }
 
-static BOOL Open_Device (rtlsdr_dev_t *dev, char *DevicePath)
+static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath)
 {
   TRACE (2, "Calling 'CreateFile (\"%s\")'.\n", DevicePath);
+
+  dev->devh = INVALID_HANDLE_VALUE;
 
   dev->deviceHandle = CreateFile (DevicePath, GENERIC_WRITE | GENERIC_READ,
                                   FILE_SHARE_WRITE | FILE_SHARE_READ, NULL,
@@ -824,7 +828,7 @@ static int usb_control_transfer (rtlsdr_dev_t *dev,      /* the active device */
          data, wLength);
 
   written = 0;
-  rc = WinUsb_ControlTransfer (dev->devh, setupPacket, data, wLength, &written, NULL);
+  rc = WinUsb_ControlTransfer(dev->devh, setupPacket, data, wLength, &written, NULL);
   if (!rc || written != wLength)
   {
     TRACE (1, "%u: WinUsb_ControlTransfer() wrote only %lu bytes: %s\n",
@@ -2058,25 +2062,25 @@ const char *rtlsdr_get_device_name (uint32_t index)
   if (List_Devices(index, &found) < 0 || !found.DevicePath[0])
      return (NULL);
 
-  device = find_known_device (found.vid, found.pid);
+  device = find_known_device (found.vid, found.pid, __LINE__);
   if (device)
      return (device->name);
   return (NULL);
 }
 
-
 int rtlsdr_get_device_usb_strings (uint32_t index, char *manufact, char *product, char *serial)
 {
-  found_device  found;
-  rtlsdr_dev_t  dev;
-  int           r, count;
+  found_device found;
+  rtlsdr_dev_t dev;
+  int          r, count;
 
   count = List_Devices (index, &found);
-  TRACE (2, "Calling 'List_Devices (%d, &found)' returned %d\n", index, count);
+  TRACE (1, "Calling 'List_Devices (%d, &found)' returned %d\n", index, count);
 
   if (count < 0 || !found.DevicePath[0])
      return (-1);
 
+  memset (&dev, '\0', sizeof(dev));
   if (!Open_Device(&dev, found.DevicePath))
        r = -1;
   else r = rtlsdr_get_usb_strings (&dev, manufact, product, serial);
@@ -2175,7 +2179,7 @@ int rtlsdr_open (rtlsdr_dev_t **out_dev, uint32_t index)
   int           r;
   uint8_t       reg;
   found_device  found;
-  rtlsdr_dev_t *dev = calloc (1, sizeof(rtlsdr_dev_t));
+  rtlsdr_dev_t *dev = calloc (1, sizeof(*dev));
 
   if (!dev)
      return (-ENOMEM);
@@ -2447,7 +2451,6 @@ int rtlsdr_close (rtlsdr_dev_t *dev)
 
   /* automatic de-activation of bias-T */
   r = rtlsdr_set_bias_tee (dev, 0);
-  TRACE (2, "%s(): r: %d\n", __FUNCTION__, r);
 
   if (!dev->dev_lost)
   {
@@ -2460,7 +2463,7 @@ int rtlsdr_close (rtlsdr_dev_t *dev)
 
   DeleteCriticalSection (&dev->cs_mutex);
 
-  TRACE (2, "%s(): dev->devh: 0x%p, dev->deviceHandle: 0x%p\n",
+  TRACE (1, "%s(): dev->devh: 0x%p, dev->deviceHandle: 0x%p\n",
          __FUNCTION__, dev->devh, dev->deviceHandle);
 
   Close_Device (dev);
@@ -2473,7 +2476,7 @@ int rtlsdr_reset_buffer (rtlsdr_dev_t *dev)
   if (!dev)
      return (-1);
 
-  if (!WinUsb_ResetPipe (dev->devh, EP_RX))
+  if (!WinUsb_ResetPipe(dev->devh, EP_RX))
      TRACE_WINUSB ("WinUsb_ResetPipe", GetLastError());
   return (0);
 }
@@ -2837,10 +2840,30 @@ int rtlsdr_set_bias_tee (rtlsdr_dev_t *dev, int on)
   return rtlsdr_set_bias_tee_gpio (dev, 0, on);
 }
 
+const char *rtlsdr_get_opt_help (int longInfo)
+{
+  if (longInfo)
+     return ("[ -O  set RTL driver options separated with ':', e.g. -O 'bw=1500:agc=0' ]\n"
+             "  f=<freqHz>            set tuner frequency\n"
+             "  bw=<bw_in_kHz>        set tuner bandwidth\n"
+             "  sb=<sideband>         set tuner sideband/mirror: '0' for lower side band,\n"
+             "                        '1' for upper side band. default for R820T/2: '0'\n"
+             "  agc=<tuner_gain_mode> activates tuner agc with '1'. deactivates with '0'\n"
+             "  gain=<tenth_dB>       set tuner gain. 400 for 40.0 dB\n"
+             "  dagc=<rtl_agc>        set RTL2832's digital agc (after ADC). 1 to activate. 0 to deactivate\n"
+             "  ds=<direct_sampling>  deactivate/bypass tuner with 1\n"
+             "  T=<bias_tee>          1 activates power at antenna one some dongles, e.g. rtl-sdr.com's V3\n");
+
+  return ("[ -O  set RTL options string separated with ':', e.g. -O 'bw=1500:agc=0' ]\n"
+          "   verbose:f=<freqHz>:bw=<bw_in_kHz>:sb=<sideband>\n"
+          "   agc=<tuner_gain_mode>:gain=<tenth_dB>:dagc=<rtl_agc>\n"
+          "   ds=<direct_sampling_mode>:T=<bias_tee>\n");
+}
+
 int rtlsdr_set_opt_string (rtlsdr_dev_t *dev, const char *opts, int verbose)
 {
   char *optStr, * optPart;
-  int retAll = 0;
+  int   retAll = 0;
 
   if (!dev)
      return (-1);
