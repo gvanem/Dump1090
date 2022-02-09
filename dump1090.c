@@ -313,7 +313,7 @@ static int gain_decrease (int gain_idx)
 }
 
 /**
- * Poll for '+/-' keypresses and adjust the RTLSDR / SDRPlay gain accordingly.
+ * Poll for '+/-' keypresses and adjust the RTLSDR / SDRplay gain accordingly.
  * But within the min/max gain settings for the device.
  */
 void console_update_gain (void)
@@ -1042,7 +1042,7 @@ int modeS_init_RTLSDR (void)
 }
 
 /**
- * This reading callback gets data from the RTLSDR or SDRPlay API asynchronously.
+ * This reading callback gets data from the RTLSDR or SDRplay API asynchronously.
  * We then populate the data buffer.
  *
  * A Mutex is used to avoid race-condition with the decoding thread.
@@ -1072,7 +1072,7 @@ void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
 
 /**
  * This is used when `--infile` is specified in order to read data from file
- * instead of using a RTLSDR / SDRPlay device.
+ * instead of using a RTLSDR / SDRplay device.
  */
 int read_from_data_file (void)
 {
@@ -1090,7 +1090,7 @@ int read_from_data_file (void)
      if (Modes.interactive)
      {
        /* When --infile and --interactive are used together, slow down
-        * mimicking the real RTLSDR / SDRPlay rate.
+        * mimicking the real RTLSDR / SDRplay rate.
         */
        Sleep (1000);
      }
@@ -1139,7 +1139,7 @@ int read_from_data_file (void)
 }
 
 /**
- * We read RTLSDR (or SDRPlay) data using a separate thread, so the main thread
+ * We read RTLSDR (or SDRplay) data using a separate thread, so the main thread
  * only handles decoding without caring about data acquisition.
  * Ref. `main_data_loop()` below.
  */
@@ -2649,7 +2649,7 @@ good_preamble:
 
 /**
  * When a new message is available, because it was decoded from the
- * RTL/SDRPlay device, file, or received in a TCP input port, or any other
+ * RTL/SDRplay device, file, or received in a TCP input port, or any other
  * way we can receive a decoded message, we call this function in order
  * to use the message.
  *
@@ -4680,7 +4680,7 @@ void show_help (const char *fmt, ...)
           MODES_NET_PORT_HTTP, MODES_NET_PORT_RAW_IN, MODES_NET_PORT_RAW_OUT,
           MODES_NET_PORT_SBS, Modes.web_root, Modes.web_page);
 
-  printf ("  RTLSDR / SDRPlay options:\n"
+  printf ("  RTLSDR / SDRplay options:\n"
           "    --agc                    Enable Digital AGC              (default: off)\n"
           "    --bias                   Enable Bias-T output            (default: off)\n"
           "    --calibrate              Enable calibrating R820 devices (default: off)\n"
@@ -5291,7 +5291,7 @@ int main (int argc, char **argv)
   }
   else if (Modes.strip_level == 0)
   {
-    /* Create the thread that will read the data from the RTLSDR or SDRPlay device.
+    /* Create the thread that will read the data from the RTLSDR or SDRplay device.
      */
     Modes.reader_thread = _beginthreadex (NULL, 0, data_thread_fn, NULL, 0, NULL);
     if (!Modes.reader_thread)

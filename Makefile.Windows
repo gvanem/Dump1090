@@ -16,7 +16,7 @@ THIS_FILE = Makefile.Windows
 USE_CRT_DEBUG ?= 0
 
 #
-# For SDRPlay support, load the "RTLSDR-Emul.DLL" at runtime instead.
+# For SDRplay support, load the "RTLSDR-Emul.DLL" at runtime instead.
 # Ref. https://github.com/JvanKatwijk/rtlsdr-emulator-sdrplay.git
 #
 USE_RTLSDR_EMUL ?= 0

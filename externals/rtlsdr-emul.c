@@ -1,7 +1,7 @@
 /**\file    rtlsdr-emul.c
  * \ingroup Misc
  *
- * RTLSDR emulator interface for SDRPlay.
+ * RTLSDR emulator interface for SDRplay.
  */
 #if defined(USE_RTLSDR_EMUL)  /* rest of file */
 

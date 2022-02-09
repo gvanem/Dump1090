@@ -60,7 +60,7 @@ on standard output, just run the program without options at all:
   c:\dev\Dump1090> dump1090
   ```
 
-To use a SDRPlay device, the option `--device` must be used. Like:
+To use a SDRplay device, the option `--device` must be used. Like:
   ```
   c:\dev\Dump1090> dump1090 --device sdrplay0
   ```

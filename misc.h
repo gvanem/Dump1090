@@ -316,11 +316,11 @@ typedef struct rtlsdr_conf {
 
 /**
  * \typedef struct sdrplay_conf
- * The device configuration for a SDRPlay device.
+ * The device configuration for a SDRplay device.
  */
 typedef struct sdrplay_conf {
-        char                            *name;      /**< Name of SDRPlay instance to use. */
-        int                              index;     /**< The index of the SDRPlay device to use. As in e.g. `"--device sdrplay1"`. */
+        char                            *name;      /**< Name of SDRplay instance to use. */
+        int                              index;     /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"`. */
         void                            *device;    /**< Device-handle from `sdrplay_init()`. */
         bool                             if_mode;
         bool                             over_sample;
@@ -360,7 +360,7 @@ typedef struct global_data {
         uint64_t          last_update_ms;           /**< Last screen update in milliseconds. */
         uint64_t          message_count;            /**< How many messages to process before quitting. */
 
-        /** Common stuff for RTLSDR and SDRPlay:
+        /** Common stuff for RTLSDR and SDRplay:
          */
         char             *selected_dev;             /**< Name of selected device. */
         bool              dig_agc;                  /**< Enable digital AGC. */
@@ -373,7 +373,7 @@ typedef struct global_data {
                                                       *        pulse-width of 0.5 usec based on a fixed rate of 2 MS/s.
                                                       */
         rtlsdr_conf  rtlsdr;                        /**< RTLSDR specific settings. */
-        sdrplay_conf sdrplay;                       /**< SDRPlay specific settings. */
+        sdrplay_conf sdrplay;                       /**< SDRplay specific settings. */
         bool         emul_loaded;                   /**< RTLSDR-emul.dll loaded. */
 
         /** Lists of clients for each network service
