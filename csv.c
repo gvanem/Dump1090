@@ -268,7 +268,7 @@ static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
   if (!ctx->callback || !ctx->file_name)
   {
     errno = EINVAL;
-    return (-1);
+    return (0);
   }
 
   if (!ctx->delimiter)
@@ -277,7 +277,7 @@ static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
   if (strchr("#\"\r\n", ctx->delimiter))
   {
     errno = EINVAL;
-    return (-1);
+    return (0);
   }
 
   if (ctx->rec_max == 0)
@@ -288,13 +288,13 @@ static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
 
   ctx->parse_buf = malloc (ctx->line_size+1);
   if (!ctx->parse_buf)
-     return (-1);
+     return (0);
 
   if (ctx->num_fields == 0 && !CSV_autodetect_num_fields(ctx))
   {
     free (ctx->parse_buf);
     errno = EINVAL;
-    return (-1);
+    return (0);
   }
 
   if (!ctx->file)
@@ -303,7 +303,7 @@ static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
   if (!ctx->file)
   {
     free (ctx->parse_buf);
-    return (-1);
+    return (0);
   }
 
   setvbuf (ctx->file, NULL, _IOFBF, 100*ctx->line_size);
@@ -318,8 +318,8 @@ static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
  */
 int CSV_open_and_parse_file (struct CSV_context *ctx)
 {
-  if (CSV_check_and_fill_ctx(ctx) < 0)
-     return (-1);
+  if (!CSV_check_and_fill_ctx(ctx))
+     return (0);
 
   while (1)
   {
