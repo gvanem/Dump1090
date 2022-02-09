@@ -297,7 +297,7 @@ define link_EXE
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.exe=.map)
   @rm -f $(1:.exe=.exp)
-  @echo
+  @$(PYTHON) check-for-unused-libraries.py link.tmp
 endef
 
 define Warning
