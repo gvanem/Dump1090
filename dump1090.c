@@ -959,8 +959,11 @@ int modeS_init_RTLSDR (void)
     char product [256];
     char serial [256];
     bool selected = false;
+    int  r = rtlsdr_get_device_usb_strings (i, manufact, product, serial);
 
-    rtlsdr_get_device_usb_strings (i, manufact, product, serial);
+    if (r != 0)
+       continue;
+
     if (Modes.rtlsdr.name && manufact[0] && !stricmp(Modes.rtlsdr.name, manufact))
     {
       selected = true;
