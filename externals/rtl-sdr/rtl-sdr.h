@@ -24,6 +24,11 @@
 extern "C" {
 #endif
 
+#if defined(_WIN32) && defined(inside_RTLSDR)
+#define usleep(usec) Sleep ((usec)/1000)
+#endif
+
+
 #include <stdint.h>
 #include <stddef.h>
 #include <rtl-sdr_export.h>
@@ -185,6 +190,14 @@ RTLSDR_API int rtlsdr_set_freq_correction_100ppm(rtlsdr_dev_t *dev, int ppm);
  * \return correction value in parts per million (ppm)
  */
 RTLSDR_API int rtlsdr_get_freq_correction(rtlsdr_dev_t *dev);
+
+/*!
+ * Get actual frequency correction value of the device.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \return correction value in parts per 100 million (ppm)
+ */
+RTLSDR_API int rtlsdr_get_freq_correction_100ppm(rtlsdr_dev_t *dev);
 
 enum rtlsdr_tuner {
 	RTLSDR_TUNER_UNKNOWN = 0,
@@ -497,9 +510,6 @@ RTLSDR_API int rtlsdr_set_bias_tee_gpio(rtlsdr_dev_t *dev, int gpio, int on);
  */
 RTLSDR_API int rtlsdr_set_opt_string(rtlsdr_dev_t *dev, const char *opts, int verbose);
 
-/*!
- * Get the long or brief help for options accepted rtlsdr_set_opt_string().
- */
 RTLSDR_API const char * rtlsdr_get_opt_help(int longInfo);
 
 /*!

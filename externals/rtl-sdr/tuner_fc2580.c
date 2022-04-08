@@ -129,7 +129,7 @@ static int fc2580_write(void *dev, unsigned char reg, unsigned char val)
 {
 	int rc = rtlsdr_i2c_write_fn(dev, FC2580_I2C_ADDR, reg, &val, 1);
 	if (rc != 1) {
-		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=1\n",
+		printf( "%s: i2c wr failed=%d reg=%02x len=1\n",
 			   __FUNCTION__, rc, reg);
 		if (rc < 0)
 			return rc;
@@ -154,7 +154,7 @@ static int fc2580_read(void *dev, unsigned char reg, unsigned char *data)
 {
 	int rc = rtlsdr_i2c_read_fn(dev, FC2580_I2C_ADDR, reg, data, 1);
 	if (rc != 1) {
-		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=1\n",
+		printf( "%s: i2c wr failed=%d reg=%02x len=1\n",
 			   __FUNCTION__, rc, reg);
 		if (rc < 0)
 			return rc;
@@ -283,7 +283,7 @@ int fc2580_init(void *dev)
 	//print_registers(dev);
 	return 0;
 err:
-	fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, ret);
+	printf( "%s: failed=%d\n", __FUNCTION__, ret);
 	return ret;
 }
 
@@ -348,7 +348,7 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 	k_cw = (f_vco % uitmp) * 0x100000 / uitmp;
 
 #if 0
-	fprintf(stderr,	"frequency=%u f_vco=%llu freq_xtal=%.1f div_ref=%u div_n=%u div_out=%u k_cw=%0x\n",
+	printf(	"frequency=%u f_vco=%llu freq_xtal=%.1f div_ref=%u div_n=%u div_out=%u k_cw=%0x\n",
 		frequency, f_vco, freq_xtal, div_ref, div_n, div_out, k_cw);
 #endif
 
@@ -396,7 +396,7 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 
 	return 0;
 err:
-	fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, ret);
+	printf( "%s: failed=%d\n", __FUNCTION__, ret);
 	return ret;
 }
 

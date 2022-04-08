@@ -71,7 +71,6 @@ struct r82xx_priv {
 	uint8_t						old_gain;
 	uint8_t						reg8[16];
 	int							has_lock;
-	int							imr_done;
 	int							init_done;
 	int							sideband;
 	void 						*rtl_dev;

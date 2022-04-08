@@ -150,7 +150,7 @@ struct rtlsdr_dev {
   uint32_t              freq;       /* Hz */
   uint32_t              bw;
   uint32_t              offs_freq;  /* Hz */
-  int                   corr;       /* ppm */
+  int                   corr;       /* 1/100 ppm */
   int                   gain;       /* tenth dB */
 
   enum rtlsdr_ds_mode   direct_sampling_mode;
@@ -774,7 +774,7 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath)
 
   if (dev->deviceHandle == INVALID_HANDLE_VALUE)
   {
-    TRACE (1, "CreateFile() failed: %s.\n", trace_strerror(GetLastError()));
+    TRACE (1, "CreateFile(\"%s\") failed: %s.\n", DevicePath, trace_strerror(GetLastError()));
     return (FALSE);
   }
 
@@ -1534,6 +1534,13 @@ int rtlsdr_get_freq_correction (rtlsdr_dev_t *dev)
   return (dev->corr / 100);
 }
 
+int rtlsdr_get_freq_correction_100ppm (rtlsdr_dev_t *dev)
+{
+  if (!dev)
+     return (-1);
+  return (dev->corr);
+}
+
 enum rtlsdr_tuner rtlsdr_get_tuner_type (rtlsdr_dev_t *dev)
 {
   if (!dev)
@@ -2168,7 +2175,7 @@ int rtlsdr_get_index_by_serial (const char *serial)
   for (i = 0; i < count; i++)
   {
     r = rtlsdr_get_device_usb_strings (i, NULL, NULL, str);
-    if (r == 0 && !strcmp(serial, str))
+    if (r == 0 && !stricmp(serial, str))
        return (i);
   }
   return (-3);
@@ -2485,6 +2492,8 @@ int rtlsdr_read_sync (rtlsdr_dev_t *dev, void *buf, int len,  int *n_read)
 {
   ULONG bytesRead = 0;
 
+  TRACE (1, "%s(): dev: 0x%p\n", __FUNCTION__, dev);
+
   if (!dev)
      return (-1);
 
@@ -2521,6 +2530,8 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
   UCHAR        policy = 1;
   OVERLAPPED **overlapped = NULL;
   uint8_t    **xfer_buf = NULL;
+
+  TRACE (1, "%s(): dev: 0x%p\n", __FUNCTION__, dev);
 
   if (!dev)
      return (-1);
@@ -2642,6 +2653,8 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
 
 int rtlsdr_cancel_async (rtlsdr_dev_t *dev)
 {
+  TRACE (1, "%s(): dev: 0x%p\n", __FUNCTION__, dev);
+
   if (!dev)
      return (-1);
 

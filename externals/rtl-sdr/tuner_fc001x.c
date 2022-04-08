@@ -34,7 +34,7 @@ static int fc001x_write(void *dev, uint8_t reg, uint8_t *buf, int len)
 {
 	int rc = rtlsdr_i2c_write_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
 	if (rc != len) {
-		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
+		printf( "%s: i2c wr failed=%d reg=%02x len=%d\n",
 			   __FUNCTION__, rc, reg, len);
 		if (rc < 0)
 			return rc;
@@ -53,7 +53,7 @@ static int fc001x_read(void *dev, uint8_t reg, uint8_t *buf, int len)
 {
 	int rc = rtlsdr_i2c_read_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
 	if (rc != len) {
-		fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
+		printf( "%s: i2c rd failed=%d reg=%02x len=%d\n",
 			   __FUNCTION__, rc, reg, len);
 		if (rc < 0)
 			return rc;
@@ -401,7 +401,7 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 	}
 
 	if ((reg[1] > 15) || (reg[2] < 0x0b)) {
-		fprintf(stderr, "[FC001X] no valid PLL combination "
+		printf( "[FC001X] no valid PLL combination "
 				"found for %u Hz!\n", freq);
 		return -1;
 	}
