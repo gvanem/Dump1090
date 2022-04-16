@@ -121,6 +121,10 @@ up to 4 times per second displaying all the recently seen aircrafts with some ad
 information such as flight number, altitude, speed, heading and position. All items extracted
 from the received *Mode S* packets. Except the above *Messages* and last *Seen*.
 
+If a `DUMP1090_HOME_POS` environment variable is defined, the distance to the place gets
+calculated. I.e. the `Dist`  column above. <br>
+E.g. a `set DUMP1090_HOMEPOS=60.3016821,5.3208769` for Bergen/Norway.
+
 ## Using files as source of data
 
 To decode data from file, use:
