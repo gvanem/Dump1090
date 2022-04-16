@@ -372,25 +372,11 @@ define C_preprocess
 endef
 
 define cpp_filter_py
-  import sys, os
-
-  try:
-    import ntpath
-  except ImportError as e:
-    print ("Failed to import ntpath: %s" % e)
-    sys.exit(1)
+  import sys, os, ntpath
 
   def _win32_abspath (path):
     path = ntpath.abspath (path)
     return path.replace ('\\', '/')
-
-  def skip_cwd (s1, s2):
-    ''' Skip the leading part that is in common with s1 and s2
-    '''
-    i = 0
-    while i < len(s1) and s1[i] == s2[i]:
-       i += 1
-    return s2[i:]
 
   cwd = _win32_abspath (os.getcwd()) + '/'
 
@@ -426,8 +412,7 @@ define cpp_filter_py
     last_line = line
 
   if empty_lines > 0:
-    sys.stderr.write ("Removed %d empty lines.\n" % empty_lines)
-
+     print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
 endef
 
 DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
