@@ -235,7 +235,10 @@ static int CSV_autodetect_num_fields (struct CSV_context *ctx)
      return (0);
 
   if (!fgets(ctx->parse_buf, ctx->line_size, ctx->file))
-     return (0);
+  {
+    fclose (ctx->file);
+    return (0);
+  }
 
   delim = ctx->parse_buf;
   while (*delim)
