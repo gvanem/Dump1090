@@ -6,10 +6,6 @@
 #ifndef _MISC_H
 #define _MISC_H
 
-/* Avoid pulling in <winsock.h> since we want <winsock2.h>.
- */
-#define _WINSOCKAPI_
-
 #include <stdio.h>
 #include <stdbool.h>
 #include <winsock2.h>
@@ -27,12 +23,12 @@
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define TWO_PI             (2 * M_PI)
 #define DIM(array)         (sizeof(array) / sizeof(array[0]))
-#define ONE_MBYTE          (1024*1024)
+#define ONE_MEGABYTE       (1024*1024)
 #define STDIN_FILENO       0
 
 /**
  * \def GMAP_HTML
- * Our default main server page relative to `Modes.who_am_I`.
+ * Our default main server page relative to `Modes.where_am_I`.
  */
 #define GMAP_HTML         "web_root/gmap.html"
 
@@ -219,6 +215,7 @@ typedef struct cartesian_t {
                            assert (pos.lon >= -180 && pos.lon < 180); \
                            assert (pos.lat >= -180 && pos.lat < 180); \
                          } while (0)
+
 /**
  * \typedef struct aircraft
  * Structure used to describe an aircraft in interactive mode.
@@ -232,7 +229,7 @@ typedef struct aircraft {
         bool     heading_is_valid;  /**< Have a valid heading. */
         uint64_t seen_first;        /**< Tick-time (in milli-sec) at which the first packet was received. */
         uint64_t seen_last;         /**< Tick-time (in milli-sec) at which the last packet was received. */
-        uint64_t EST_seen_last;     /**< Tick-time (in milli-sec) at which the last estimated positoon was done. */
+        uint64_t EST_seen_last;     /**< Tick-time (in milli-sec) at which the last estimated position was done. */
         uint32_t messages;          /**< Number of Mode S messages received. */
         int      identity;          /**< 13 bits identity (Squawk). */
         a_show_t show;              /**< The plane's show-state */
@@ -478,6 +475,7 @@ extern void   set_host_port (const char *host_port, net_service *serv, uint16_t 
 
 /**
  * \typedef struct option
+ * For `getopt()` command-line handling.
  */
 typedef struct option {
         const char *name; /**< name of long option */
