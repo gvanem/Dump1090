@@ -17,7 +17,11 @@
 /**
  * This .dll MUST be on PATH or in current working directory.
  */
-struct RTLSDR_emul emul = { "rtlsdr-emul.dll" };
+#ifdef _WIN64
+  struct RTLSDR_emul emul = { "rtlsdr-emul-x64.dll" };
+#else
+  struct RTLSDR_emul emul = { "rtlsdr-emul-x86.dll" };
+#endif
 
 /**
  * \def LOAD_FUNC(func)
@@ -31,7 +35,8 @@ struct RTLSDR_emul emul = { "rtlsdr-emul.dll" };
           {                                                                 \
             snprintf (emul.last_err, sizeof(emul.last_err),                 \
                       "Failed to find '%s()' in %s", #func, emul.dll_name); \
-             goto failed;                                                   \
+            emul.last_rc = ERROR_PROC_NOT_FOUND;                            \
+            goto failed;                                                    \
           }                                                                 \
           TRACE (DEBUG_GENERAL2, "Function: %-30s -> 0x%p.\n",              \
                  #func, emul.func); \
@@ -52,17 +57,21 @@ bool RTLSDR_emul_load_DLL (void)
 
   if (!emul.dll_hnd)
   {
-    DWORD err = GetLastError();
+    emul.last_rc = GetLastError();
 
     /* The 'LoadLibrary()' will fail with 'GetLastError() ==  ERROR_BAD_EXE_FORMAT' (193)
-     * if we're running a 32-bit Dump1090 and loaded a 64-bit "rtlsdr-emul.dll".
+     * if we're running a 32-bit Dump1090 and loaded a 64-bit "rtlsdr-emul-x64.dll".
      * And vice-versa.
      */
-    if (err == ERROR_BAD_EXE_FORMAT)
+    if (emul.last_rc == ERROR_BAD_EXE_FORMAT)
          snprintf (emul.last_err, sizeof(emul.last_err), "%s is not a %d bit version", emul.dll_name, 8*(int)sizeof(void*));
-    else snprintf (emul.last_err, sizeof(emul.last_err), "Failed to load %s; %lu", emul.dll_name, GetLastError());
+    else snprintf (emul.last_err, sizeof(emul.last_err), "Failed to load %s; %lu", emul.dll_name, emul.last_rc);
+    TRACE (DEBUG_GENERAL, "emul.dll_hnd: NULL. error: %s (%lu)\n", emul.last_err, emul.last_rc);
     return (false);
   }
+
+  emul.last_rc = 0;  /* assume success */
+  TRACE (DEBUG_GENERAL2, "emul.dll_name: %s, emul.dll_hnd: 0x%p.\n", emul.dll_name, emul.dll_hnd);
 
   /*
    * Turn off this annoying cast warnings:
