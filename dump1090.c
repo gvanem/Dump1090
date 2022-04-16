@@ -21,6 +21,7 @@
 #include <process.h>
 
 #include "misc.h"
+#include "trace.h"
 #include "sdrplay.h"
 
 /**
@@ -170,8 +171,8 @@ typedef struct modeS_message {
       } modeS_message;
 
 aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now);
-int       modeS_send_raw_output (const modeS_message *mm);
-int       modeS_send_SBS_output (const modeS_message *mm, const aircraft *a);
+void      modeS_send_raw_output (const modeS_message *mm);
+void      modeS_send_SBS_output (const modeS_message *mm, const aircraft *a);
 void      modeS_user_message (const modeS_message *mm);
 void      set_est_home_distance (aircraft *a, uint64_t now);
 void      spherical_to_cartesian (cartesian_t *cart, pos_t point);
@@ -192,7 +193,7 @@ u_short        handler_port (intptr_t service);
 const char    *handler_descr (intptr_t service);
 mg_connection *handler_conn (intptr_t service);
 void           connection_read (connection *conn, msg_handler handler, bool is_server);
-int            connection_send (intptr_t service, const void *msg, size_t len);
+void           connection_send (intptr_t service, const void *msg, size_t len);
 connection    *connection_get_addr (const mg_addr *addr, intptr_t service, bool is_server);
 void           connection_free (connection *this_conn, intptr_t service);
 unsigned       connection_free_all (void);
@@ -617,8 +618,8 @@ int aircraft_CSV_add_entry (const aircraft_CSV *rec)
 
   if (!copy)
   {
-    copy = dest = malloc (ONE_MBYTE);  /* initial buffer */
-    hi_end = copy + (ONE_MBYTE / sizeof(*rec));
+    copy = dest = malloc (ONE_MEGABYTE);  /* initial buffer */
+    hi_end = copy + (ONE_MEGABYTE / sizeof(*rec));
   }
   else if (dest == hi_end - 1)
   {
@@ -857,9 +858,15 @@ int modeS_init (void)
     }
   }
 
-  if (Modes.debug & (DEBUG_NET | DEBUG_NET2))
-       mg_log_set ("3");                   /** Enable `LL_ERROR`, `LL_INFO`, and `LL_DEBUG` messages in Mongose */
-  else mg_log_set_callback (NULL, NULL);   /** Disable all logging from Mongoose */
+  if (!Modes.interactive)
+  {
+    if (Modes.debug & DEBUG_NET)
+         mg_log_set ("2");               /** Enable `LL_ERROR`, `LL_INFO` messages in Mongose */
+    else if (Modes.debug | DEBUG_NET2)
+         mg_log_set ("3");               /** Enable `LL_DEBUG` messages in Mongose */
+  }
+  else
+    mg_log_set_callback (NULL, NULL);    /** Disable all logging from Mongoose */
 
   env = getenv ("DUMP1090_HOMEPOS");
   if (env)
@@ -955,33 +962,33 @@ int modeS_init_RTLSDR (void)
   LOG_STDERR ("Found %d device(s):\n", device_count);
   for (i = 0; i < device_count; i++)
   {
-    char manufact [256];
-    char product [256];
-    char serial [256];
+    char manufact [256] = "??";
+    char product [256]  = "??";
+    char serial [256]  = "??";
     bool selected = false;
     int  r = rtlsdr_get_device_usb_strings (i, manufact, product, serial);
 
-    if (r != 0)
-       continue;
-
-    if (Modes.rtlsdr.name && manufact[0] && !stricmp(Modes.rtlsdr.name, manufact))
+    if (r == 0)
     {
-      selected = true;
-      Modes.rtlsdr.index = i;
-    }
-    else
-      selected = (i == Modes.rtlsdr.index);
+      if (Modes.rtlsdr.name && manufact[0] && !stricmp(Modes.rtlsdr.name, manufact))
+      {
+        selected = true;
+        Modes.rtlsdr.index = i;
+      }
+      else
+        selected = (i == Modes.rtlsdr.index);
 
-    if (selected)
-    {
-      char buf [sizeof(manufact) + sizeof(product)];
+      if (selected)
+      {
+        char buf [sizeof(manufact) + sizeof(product)];
 
-      strcpy (buf, manufact);
-      strcat (buf, ": ");
-      strcat (buf, product);
-      Modes.selected_dev = strdup (buf);
+        strcpy (buf, manufact);
+        strcat (buf, ": ");
+        strcat (buf, product);
+        Modes.selected_dev = strdup (buf);
+      }
     }
-    LOG_STDERR ("%d: %s, %s, SN: %s %s\n", i, manufact, product, serial,
+    LOG_STDERR ("%d: %-10s %-20s SN: %s %s\n", i, manufact, product, serial,
                 selected ? "(currently selected)" : "");
   }
 
@@ -3728,11 +3735,10 @@ unsigned connection_free_all (void)
  *  \li This function is not used for sending HTTP data.
  *  \li This function is not called when `--net-active` is used.
  */
-int connection_send (intptr_t service, const void *msg, size_t len)
+void connection_send (intptr_t service, const void *msg, size_t len)
 {
-  mg_connection *conn = handler_conn (service);
-  connection    *c;
-  int            found = 0;
+  connection *c;
+  int         found = 0;
 
   for (c = Modes.connections[service]; c; c = c->next)
   {
@@ -3743,9 +3749,8 @@ int connection_send (intptr_t service, const void *msg, size_t len)
     found++;
   }
   if (found > 0)
-       TRACE (DEBUG_NET,  "Sent %zd bytes to %d clients in service \"%s\".\n", len, found, handler_descr(service));
-//else TRACE (DEBUG_NET2, "Sent %zd bytes to 0 clients in service \"%s\".\n", len, handler_descr(service));
-  return (found);
+     TRACE (DEBUG_NET, "Sent %zd bytes to %d clients in service \"%s\".\n",
+            len, found, handler_descr(service));
 }
 
 /**
@@ -3959,7 +3964,7 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
   }
 #endif
 
-  cli = connection_get_addr (&conn->peer, MODES_NET_SERVICE_HTTP, false);
+  cli = connection_get_addr (&conn->rem, MODES_NET_SERVICE_HTTP, false);
 
   if (json_data)
   {
@@ -4036,10 +4041,14 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
       #include "favicon.c"  /* generated array from 'xxd -i favicon.png' */
 
       TRACE (DEBUG_NET, "Sending \"favicon.png\" to cli: %lu.\n", conn->id);
-      mg_printf (conn,
-                 "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
-                 "Content-Length: %zu\r\n%s\r\n",
-                 content, favicon_png_len, cli->keep_alive ? "Connection: keep-alive\r\n" : "");
+
+      char header [1000];
+      int  header_len = snprintf (header, sizeof(header),
+                                  "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
+                                  "Content-Length: %u\r\n%s\r\n",
+                                  content, favicon_png_len,
+                                  cli->keep_alive ? "Connection: keep-alive\r\n" : "");
+      mg_send (conn, header, header_len);
       mg_send (conn, favicon_png, favicon_png_len);
     }
     else
@@ -4120,7 +4129,7 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
     return;
   }
 
-  remote = mg_straddr (&this_conn->peer, remote_buf, sizeof(remote_buf));
+  remote = mg_straddr (&this_conn->rem, remote_buf, sizeof(remote_buf));
 
   if (ev == MG_EV_OPEN)
   {
@@ -4136,7 +4145,7 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
 
   if (ev == MG_EV_CONNECT)
   {
-    mg_timer_free (&modeS_net_services[service].timer);
+    mg_timer_free (&Modes.mgr.timers, &modeS_net_services[service].timer);
     conn = calloc (sizeof(*conn), 1);
     if (!conn)
     {
@@ -4147,7 +4156,7 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
     conn->conn    = this_conn;      /* Keep a copy of the active connection */
     conn->service = service;
     conn->id      = this_conn->id;
-    conn->addr    = this_conn->peer;
+    conn->addr    = this_conn->rem;
 
     LIST_ADD_TAIL (connection, &Modes.connections[service], conn);
     ++ (*handler_num_connections (service));  /* should never go above 1 */
@@ -4168,7 +4177,7 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
     conn->conn    = this_conn;      /* Keep a copy of the passive (listen) connection */
     conn->service = service;
     conn->id      = this_conn->id;
-    conn->addr    = this_conn->peer;
+    conn->addr    = this_conn->rem;
 
     LIST_ADD_TAIL (connection, &Modes.connections[service], conn);
     ++ (*handler_num_connections (service));
@@ -4189,15 +4198,15 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
 
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
-      conn = connection_get_addr (&this_conn->peer, service, false);
+      conn = connection_get_addr (&this_conn->rem, service, false);
       connection_read (conn, decode_hex_message, false);
 
-      conn = connection_get_addr (&this_conn->peer, service, true);
+      conn = connection_get_addr (&this_conn->rem, service, true);
       connection_read (conn, decode_hex_message, true);
     }
     else if (service == MODES_NET_SERVICE_SBS_IN)
     {
-      conn = connection_get_addr (&this_conn->peer, service, true);
+      conn = connection_get_addr (&this_conn->rem, service, true);
       connection_read (conn, decode_SBS_message, true);
     }
     return;
@@ -4212,10 +4221,10 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
 
   if (ev == MG_EV_CLOSE)
   {
-    conn = connection_get_addr (&this_conn->peer, service, false);
+    conn = connection_get_addr (&this_conn->rem, service, false);
     connection_free (conn, service);
 
-    conn = connection_get_addr (&this_conn->peer, service, true);
+    conn = connection_get_addr (&this_conn->rem, service, true);
     connection_free (conn, service);
     -- (*handler_num_connections (service));
     return;
@@ -4261,7 +4270,7 @@ mg_connection *connection_setup (intptr_t service, bool listen, bool sending)
     const char *fmt = (modeS_net_services[service].is_ip6 ? "tcp://[%s]:%u" : "tcp://%s:%u");
 
     snprintf (url, sizeof(url), fmt, modeS_net_services[service].host, modeS_net_services[service].port);
-    mg_timer_init (&modeS_net_services[service].timer, MODES_CONNECT_TIMEOUT, 0, connection_timeout, (void*)service);
+    mg_timer_add (&Modes.mgr, MODES_CONNECT_TIMEOUT, 0, connection_timeout, (void*)service);
     modeS_net_services [service].active_send = sending;
 
     LOG_STDOUT ("Connecting to %s for service \"%s\".\n", url, handler_descr(service));
@@ -4336,27 +4345,26 @@ int modeS_init_net (void)
 /**
  * Write raw output to TCP clients.
  */
-int modeS_send_raw_output (const modeS_message *mm)
+void modeS_send_raw_output (const modeS_message *mm)
 {
   char  msg [10 + 2*MODES_LONG_MSG_BYTES];
   char *p = msg;
 
   if (!handler_sending(MODES_NET_SERVICE_RAW_OUT))
-     return (0);
+     return;
 
   *p++ = '*';
   mg_hex (&mm->msg, mm->msg_bits/8, p);
   p = strchr (p, '\0');
   *p++ = ';';
   *p++ = '\n';
-
-  return connection_send (MODES_NET_SERVICE_RAW_OUT, msg, p - msg);
+  connection_send (MODES_NET_SERVICE_RAW_OUT, msg, p - msg);
 }
 
 /**
  * Write SBS output to TCP clients (Base Station format).
  */
-int modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
+void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
 {
   char msg [MODES_MAX_SBS_SIZE], *p = msg;
   int  emergency = 0, ground = 0, alert = 0, spi = 0;
@@ -4425,10 +4433,10 @@ int modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
                   mm->AA1, mm->AA2, mm->AA3, mm->identity, alert, emergency, spi, ground);
   }
   else
-    return (0);
+    return;
 
   *p++ = '\n';
-  return connection_send (MODES_NET_SERVICE_SBS_OUT, msg, p - msg);
+  connection_send (MODES_NET_SERVICE_SBS_OUT, msg, p - msg);
 }
 
 /**
@@ -4654,7 +4662,7 @@ void show_help (const char *fmt, ...)
           "    --infile <filename>      Read data from file (use `-' for stdin).\n"
           "    --interactive            Interactive mode refreshing data on screen.\n"
           "    --interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
-          "    --interactive-ttl <sec>  Remove from list if idle for <sec> (default: %u).\n"
+          "    --interactive-ttl <sec>  Remove aircraft if not seen for <sec> (default: %u).\n"
           "    --logfile <file>         Enable logging to file (default: off)\n"
           "    --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
           "    --max-messages <N>       Max number of messages to process (default: Inf).\n"
@@ -4666,7 +4674,7 @@ void show_help (const char *fmt, ...)
           "    --silent                 Silent mode for testing network I/O (together with '--debug n').\n"
           "    --strip <level>          Strip IQ file removing samples below level.\n"
           "    -h, --help               Show this help.\n\n",
-          Modes.who_am_I, Modes.aircraft_db, MODES_INTERACTIVE_TTL);
+          Modes.who_am_I, Modes.aircraft_db, MODES_INTERACTIVE_TTL/1000);
 
   printf ("  Network options:\n"
           "    --net                    Enable network listening services.\n"
@@ -4688,11 +4696,11 @@ void show_help (const char *fmt, ...)
           "    --bias                   Enable Bias-T output            (default: off)\n"
           "    --calibrate              Enable calibrating R820 devices (default: off)\n"
           "    --device <N / name>      Select device                   (default: 0).\n"
-          "    --freq <Hz>              Set frequency                   (default: %u MHz).\n"
+          "    --freq <Hz>              Set frequency                   (default: %.0f MHz).\n"
           "    --gain <dB>              Set gain                        (default: AUTO)\n"
           "    --ppm <correction>       Set frequency correction        (default: 0)\n"
-          "    --samplerate <Hz>        Set sample-rate                 (default: %u MS/s).\n\n",
-          (uint32_t)(MODES_DEFAULT_FREQ / 1000000), MODES_DEFAULT_RATE/1000000);
+          "    --samplerate <Hz>        Set sample-rate                 (default: %.0f MS/s).\n\n",
+          MODES_DEFAULT_FREQ / 1E6, MODES_DEFAULT_RATE/1E6);
 
   printf ("  --debug <flags>: E = Log frames decoded with errors.\n"
           "                   D = Log frames decoded with 0 errors.\n"
@@ -4703,7 +4711,7 @@ void show_help (const char *fmt, ...)
           "                   N = A bit more network information than flag 'n'.\n"
           "                   j = Log frames to frames.js, loadable by `debug.html'.\n"
           "                   g = Log general debugging info.\n"
-          "                   G = A bit more network information than flag 'g'.\n\n");
+          "                   G = A bit more general debug info than flag 'g'.\n\n");
 
   printf ("  Your home-position for distance calculation can be set like:\n"
           "  'c:\\> set DUMP1090_HOMEPOS=51.5285578,-0.2420247' for London.\n");
@@ -5218,6 +5226,7 @@ void parse_cmd_line (int argc, char **argv)
  */
 int main (int argc, char **argv)
 {
+  int dev_opened = 0;
   int rc;
 
 #if defined(_DEBUG)
@@ -5261,7 +5270,8 @@ int main (int argc, char **argv)
       Modes.emul_loaded = RTLSDR_emul_load_DLL();
       if (!Modes.emul_loaded)
       {
-        LOG_STDERR ("Cannot use device `%s` without `%s` loaded.\n", Modes.sdrplay.name, emul.dll_name);
+        LOG_STDERR ("Cannot use device `%s` without `%s` loaded. Error: %s\n",
+                    Modes.sdrplay.name, emul.dll_name, trace_strerror(emul.last_rc));
         goto quit;
       }
 #endif
@@ -5277,6 +5287,7 @@ int main (int argc, char **argv)
       TRACE (DEBUG_GENERAL, "modeS_init_RTLSDR(): rc: %d.\n", rc);
       if (rc)
          goto quit;
+      dev_opened = 1;
     }
   }
 
@@ -5307,7 +5318,7 @@ int main (int argc, char **argv)
   }
 
 quit:
-  if (print_server_errors() == 0)
+  if (print_server_errors() == 0 && dev_opened)
      show_statistics();
   modeS_exit();
   return (0);
