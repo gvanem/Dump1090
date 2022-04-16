@@ -13,12 +13,37 @@ typedef void (*sdrplay_cb) (uint8_t *buf, uint32_t len, void *ctx);
 #if defined(USE_RTLSDR_EMUL)
   #include "rtlsdr-emul.h"
 
-  #define sdrplay_init(name, dev_p)                          (*emul.rtlsdr_open) ((rtlsdr_dev_t**)dev_p, 0)
-  #define sdrplay_exit(dev)                                  (*emul.rtlsdr_close) (dev)
-  #define sdrplay_set_gain(dev, gain)                        (*emul.rtlsdr_set_tuner_gain) (dev, gain)
-  #define sdrplay_cancel_async(dev)                          (*emul.rtlsdr_cancel_async) (dev)
-  #define sdrplay_read_async(dev, cb, ctx, buf_num, buf_len) (*emul.rtlsdr_read_async) (dev, cb, ctx, buf_num, buf_len)
-  #define sdrplay_strerror(rc)                               (*emul.rtlsdr_strerror) (rc)
+  static int __inline sdrplay_init (const char *name, sdrplay_dev **device)
+  {
+    printf ("Calling 'emul.rtlsdr_open()'.\n");
+    return (*emul.rtlsdr_open) ((rtlsdr_dev_t**)device, 0);
+  }
+
+  static int __inline sdrplay_exit (sdrplay_dev *device)
+  {
+    printf ("Calling 'emul.rtlsdr_close()'.\n");
+    return (*emul.rtlsdr_close) (device);
+  }
+
+  static int __inline sdrplay_set_gain (sdrplay_dev *device, int gain)
+  {
+    printf ("Calling 'emul.rtlsdr_set_tuner_gain()'.\n");
+    return (*emul.rtlsdr_set_tuner_gain) (device, gain);
+  }
+
+  static int __inline sdrplay_cancel_async (sdrplay_dev *device)
+  {
+    printf ("Calling 'emul.rtlsdr_cancel_async()'.\n");
+    return (*emul.rtlsdr_cancel_async) (device);
+  }
+
+  static int __inline sdrplay_read_async (sdrplay_dev *device, sdrplay_cb cb, void *ctx, uint32_t buf_num, uint32_t buf_len)
+  {
+    printf ("Calling 'emul.rtlsdr_read_async()'.\n");
+    return (*emul.rtlsdr_read_async) (device, cb, ctx, buf_num, buf_len);
+  }
+
+  #define sdrplay_strerror(rc)  (*emul.rtlsdr_strerror) (rc)
 
 #else
   extern int sdrplay_init (const char *name, sdrplay_dev **device);
