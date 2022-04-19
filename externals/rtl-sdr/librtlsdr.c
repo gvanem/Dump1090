@@ -2678,6 +2678,11 @@ int rtlsdr_cancel_async (rtlsdr_dev_t *dev)
   return (-2);
 }
 
+int rtlsdr_wait_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx)
+{
+  return rtlsdr_read_async (dev, cb, ctx, 0, 0);
+}
+
 double rtlsdr_get_tuner_clock (void *dev)
 {
   double tuner_freq;
