@@ -4,24 +4,16 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <windows.h>
 
 #include "trace.h"
 #include "version.h"
-
-#if (TRACE_COLOR_START == TRACE_COLOR_ARGS) || \
-    (TRACE_COLOR_START == TRACE_COLOR_OK)   || \
-    (TRACE_COLOR_START == TRACE_COLOR_ERR)
-  #error "All colours must be unique."
-#endif
 
 static int                        show_version = 1;
 static int                        show_winusb = 0;
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE                     stdout_hnd;
 static CRITICAL_SECTION           cs;
-
-const char *_trace_file = NULL;
-unsigned    _trace_line = 0;
 
 static int trace_init (void)
 {
@@ -71,15 +63,15 @@ static void set_color (unsigned short col)
  */
 const char *trace_strerror (DWORD err)
 {
-  static  char buf [512+20];
-  char    err_buf [512], *p;
+  static char buf [512+20];
+  char   err_buf [512], *p;
 
   if (err == ERROR_SUCCESS)
      strcpy (err_buf, "No error");
   else
-  if (!FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err,
-                      LANG_NEUTRAL, err_buf, sizeof(err_buf)-1, NULL))
-     strcpy (err_buf, "Unknown error");
+     if (!FormatMessageA (FORMAT_MESSAGE_FROM_SYSTEM, NULL, err,
+                          LANG_NEUTRAL, err_buf, sizeof(err_buf)-1, NULL))
+        strcpy (err_buf, "Unknown error");
 
   snprintf (buf, sizeof(buf), "%lu: %s", (u_long)err, err_buf);
   p = strchr (buf, '\0');
@@ -88,50 +80,51 @@ const char *trace_strerror (DWORD err)
   return (buf);
 }
 
-void trace_printf (unsigned short col, const char *fmt, ...)
+void trace_printf (const char *file, unsigned line, const char *fmt, ...)
 {
   va_list args;
 
   EnterCriticalSection (&cs);
-  set_color (col);
 
-  if (col == TRACE_COLOR_START)
+  set_color (FOREGROUND_INTENSITY | 3);  /* bright cyan */
+  printf ("%s(%u): ", file , line);
+  if (show_version)
   {
-    printf ("%s(%u): ", _trace_file ? _trace_file : "<unknown file>" , _trace_line);
-    if (show_version)
-    {
-      printf ("Version %d.%d.%d. Compiled: \"%s\".\n", RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, __DATE__);
-      show_version = 0;
-    }
-    LeaveCriticalSection (&cs);
-    return;
+    printf ("Version %d.%d.%d. Compiled: \"%s\".\n", RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, __DATE__);
+    show_version = 0;
   }
 
   va_start (args, fmt);
+
+  if (*fmt == '!')
+  {
+    set_color (FOREGROUND_INTENSITY | 4);  /* bright red */
+    fmt++;
+  }
+  else if (*fmt == '|')
+  {
+    set_color (FOREGROUND_INTENSITY | 2);  /* bright green */
+    fmt++;
+  }
+  else
+    set_color (FOREGROUND_INTENSITY | 7);  /* bright white */
+
   vprintf (fmt, args);
   va_end (args);
   set_color (0);
   LeaveCriticalSection (&cs);
 }
 
-void trace_winusb (const char *func, DWORD win_err, const char *file, unsigned line)
+void trace_winusb (const char *file, unsigned line, const char *func, DWORD win_err)
 {
   int level = trace_level();
 
   if (level <= 0)
      return;
 
-  _trace_line = line;
-  _trace_file = file;
-
   if (level >= 1 && win_err != ERROR_SUCCESS)
-  {
-    trace_printf (TRACE_COLOR_START, NULL);
-    trace_printf (TRACE_COLOR_ERR, "%s() failed with %s.\n", func, trace_strerror(win_err));
-  }
+     trace_printf (file, line, "!%s() failed with %s.\n", func, trace_strerror(win_err));
+
   else if ((level >= 2 || show_winusb) && win_err == ERROR_SUCCESS)
-  {
-    trace_printf (TRACE_COLOR_START, NULL);
-    trace_printf (TRACE_COLOR_OK, "%s(), OK.\n", func);
-  }
+     trace_printf (file, line, "|%s(), OK.\n", func);
 }
