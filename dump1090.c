@@ -112,7 +112,7 @@
 
 #define MODES_CONTENT_TYPE_CSS    "text/css;charset=utf-8"
 #define MODES_CONTENT_TYPE_HTML   "text/html;charset=utf-8"
-#define MODES_CONTENT_TYPE_JSON   "application/json;charset=utf-8"
+#define MODES_CONTENT_TYPE_JSON   "application/json"
 #define MODES_CONTENT_TYPE_JS     "application/javascript;charset=utf-8"
 #define MODES_CONTENT_TYPE_PNG    "image/png"
 
@@ -178,16 +178,16 @@ void      set_est_home_distance (aircraft *a, uint64_t now);
 void      spherical_to_cartesian (cartesian_t *cart, pos_t point);
 bool      ICAO_is_military (uint32_t addr);
 
-int  fix_single_bit_errors (uint8_t *msg, int bits);
-int  fix_two_bits_errors (uint8_t *msg, int bits);
-int  detect_modeS (uint16_t *m, uint32_t mlen);
-void decode_hex_message (mg_iobuf *msg, int loop_cnt);
-void decode_SBS_message (mg_iobuf *msg, int loop_cnt);
-int  modeS_message_len_by_type (int type);
-void compute_magnitude_vector (void);
-void background_tasks (void);
-void modeS_exit (void);
-void sigint_handler (int sig);
+int       fix_single_bit_errors (uint8_t *msg, int bits);
+int       fix_two_bits_errors (uint8_t *msg, int bits);
+int       detect_modeS (uint16_t *m, uint32_t mlen);
+void      decode_hex_message (mg_iobuf *msg, int loop_cnt);
+void      decode_SBS_message (mg_iobuf *msg, int loop_cnt);
+int       modeS_message_len_by_type (int type);
+uint16_t *compute_magnitude_vector (const uint8_t *data);
+void      background_tasks (void);
+void      modeS_exit (void);
+void      sigint_handler (int sig);
 
 u_short        handler_port (intptr_t service);
 const char    *handler_descr (intptr_t service);
@@ -269,7 +269,7 @@ void console_title_stats (void)
      overload = " (too high?)";
      ovl_count = 3;   /* let it show for 3 refreshes */
   }
-  else if (ovl_count && --ovl_count == 0)
+  else if (ovl_count > 0 && --ovl_count == 0)
     overload = "            ";
 
   snprintf (buf, sizeof(buf), "Dev: %s. CRC: %llu / %llu / %llu. Gain: %s dB%s",
@@ -331,7 +331,7 @@ void console_update_gain (void)
           break;
         }
     if (Modes.sdrplay.device)
-       gain_idx = 5;
+       gain_idx = Modes.sdrplay.gain_count / 2;
   }
 
   if (!kbhit())
@@ -829,7 +829,7 @@ void modeS_init_config (void)
  */
 int modeS_init (void)
 {
-  int         i, q;
+  int         I, Q;
   pos_t       pos;
   const char *env;
 
@@ -858,15 +858,17 @@ int modeS_init (void)
     }
   }
 
+  /** By default, disable all logging from Mongoose
+   */
+  mg_log_set ("0");
+
   if (!Modes.interactive)
   {
     if (Modes.debug & DEBUG_NET)
          mg_log_set ("2");               /** Enable `LL_ERROR`, `LL_INFO` messages in Mongose */
-    else if (Modes.debug | DEBUG_NET2)
+    else if (Modes.debug & DEBUG_NET2)
          mg_log_set ("3");               /** Enable `LL_DEBUG` messages in Mongose */
   }
-  else
-    mg_log_set_callback (NULL, NULL);    /** Disable all logging from Mongoose */
 
   env = getenv ("DUMP1090_HOMEPOS");
   if (env)
@@ -920,10 +922,10 @@ int modeS_init (void)
    * every different I/Q pair will result in a different magnitude value,
    * not losing any resolution.
    */
-  for (i = 0; i < 129; i++)
+  for (I = 0; I < 129; I++)
   {
-    for (q = 0; q < 129; q++)
-        Modes.magnitude_lut [i*129+q] = (uint16_t) round (360 * hypot(i, q));
+    for (Q = 0; Q < 129; Q++)
+       Modes.magnitude_lut [I*129+Q] = (uint16_t) round (360 * hypot(I, Q));
   }
 
   aircraft_CSV_load();
@@ -1129,7 +1131,7 @@ int read_from_data_file (void)
        memset (p, 127, toread);
      }
 
-     compute_magnitude_vector();
+     compute_magnitude_vector (Modes.data);
      detect_modeS (Modes.magnitude, Modes.data_len/2);
      background_tasks();
 
@@ -1149,7 +1151,7 @@ int read_from_data_file (void)
 }
 
 /**
- * We read RTLSDR (or SDRplay) data using a separate thread, so the main thread
+ * We read RTLSDR or SDRplay data using a separate thread, so the main thread
  * only handles decoding without caring about data acquisition.
  * Ref. `main_data_loop()` below.
  */
@@ -1164,6 +1166,8 @@ unsigned int __stdcall data_thread_fn (void *arg)
 
     TRACE (DEBUG_GENERAL, "sdrplay_read_async(): rc: %d / %s.\n",
            rc, sdrplay_strerror(rc));
+
+    sigint_handler (0);   /* break out of main_data_loop() */
   }
   else if (Modes.rtlsdr.device)
   {
@@ -1173,9 +1177,7 @@ unsigned int __stdcall data_thread_fn (void *arg)
     TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
            rc, get_rtlsdr_error(rc));
 
-    /* break out of main_data_loop()
-     */
-    sigint_handler (0);
+    sigint_handler (0);    /* break out of main_data_loop() */
   }
   MODES_NOTUSED (arg);
   return (0);
@@ -1197,7 +1199,7 @@ void main_data_loop (void)
     if (!Modes.data_ready)
        continue;
 
-    compute_magnitude_vector();
+    compute_magnitude_vector (Modes.data);
 
     /* Signal to the other thread that we processed the available data
      * and we want more.
@@ -1210,13 +1212,26 @@ void main_data_loop (void)
      * slow processors).
      */
     EnterCriticalSection (&Modes.data_mutex);
-    rc = detect_modeS (Modes.magnitude, Modes.data_len/2);
+
+#if 0     /**\todo */
+    if (Modes.sdrplay_device && Modes.sdrplay.over_sample)
+    {
+      struct mag_buf *buf = &Modes.mag_buffers [Modes.first_filled_buffer];
+      rc = demodulate_8000 (buf);
+    }
+    else
+#endif
+      rc = detect_modeS (Modes.magnitude, Modes.data_len/2);
+
     LeaveCriticalSection (&Modes.data_mutex);
 
-    if (rc > 0 && Modes.message_count > 0)
+    if (/* rc > 0 && */ Modes.max_messages > 0)
     {
-      if (--Modes.message_count == 0)
-         Modes.exit = true;
+      if (--Modes.max_messages == 0)
+      {
+        LOG_STDOUT ("'Modes.max_messages' reached 0.\n");
+        Modes.exit = true;
+       }
     }
   }
 }
@@ -1234,12 +1249,13 @@ void main_data_loop (void)
  * \li "-" is 2
  * \li "." is 1
  */
-void dump_magnitude_bar (int magnitude, int index)
+void dump_magnitude_bar (uint16_t magnitude, int index)
 {
   const char *set = " .-o";
-  char  buf [256];
-  int   div = (magnitude / 256) / 4;
-  int   rem = (magnitude / 256) % 4;
+  char        buf [256];
+  uint16_t    div = (magnitude / 256) / 4;
+  uint16_t    rem = (magnitude / 256) % 4;
+  int         markchar = ']';
 
   memset (buf, 'O', div);
   buf [div] = set[rem];
@@ -1247,8 +1263,6 @@ void dump_magnitude_bar (int magnitude, int index)
 
   if (index >= 0)
   {
-    int markchar = ']';
-
     /* preamble peaks are marked with ">"
      */
     if (index == 0 || index == 2 || index == 7 || index == 9)
@@ -1257,11 +1271,11 @@ void dump_magnitude_bar (int magnitude, int index)
     /* Data peaks are marked to distinguish pairs of bits.
      */
     if (index >= 16)
-       markchar = ((index-16)/2 & 1) ? '|' : ')';
-    printf ("[%3d%c |%-66s %d\n", index, markchar, buf, magnitude);
+       markchar = ((index - 16)/2 & 1) ? '|' : ')';
+    printf ("[%3d%c |%-66s %u\n", index, markchar, buf, magnitude);
   }
   else
-    printf ("[%3d] |%-66s %d\n", index, buf, magnitude);
+    printf ("[%3d] |%-66s %u\n", index, buf, magnitude);
 }
 
 /**
@@ -1280,10 +1294,10 @@ void dump_magnitude_vector (const uint16_t *m, uint32_t offset)
   uint32_t padding = 5;  /* Show a few samples before the actual start. */
   uint32_t start = (offset < padding) ? 0 : offset - padding;
   uint32_t end = offset + (2*MODES_PREAMBLE_US) + (2*MODES_SHORT_MSG_BITS) - 1;
-  uint32_t j;
+  uint32_t i;
 
-  for (j = start; j <= end; j++)
-      dump_magnitude_bar (m[j], j - offset);
+  for (i = start; i <= end; i++)
+      dump_magnitude_bar (m[i], i - offset);
 }
 
 /**
@@ -1451,17 +1465,17 @@ int modeS_message_len_by_type (int type)
 /**
  * Try to fix single bit errors using the checksum. On success modifies
  * the original buffer with the fixed version, and returns the position
- * of the error bit. Otherwise if fixing failed -1 is returned.
+ * of the error bit. Otherwise if fixing failed, -1 is returned.
  */
 int fix_single_bit_errors (uint8_t *msg, int bits)
 {
-  int j;
-  uint8_t aux[MODES_LONG_MSG_BITS/8];
+  int     i;
+  uint8_t aux [MODES_LONG_MSG_BITS/8];
 
-  for (j = 0; j < bits; j++)
+  for (i = 0; i < bits; i++)
   {
-    int      byte = j / 8;
-    int      bitmask = 1 << (7-(j % 8));
+    int      byte = i / 8;
+    int      bitmask = 1 << (7-(i % 8));
     uint32_t crc1, crc2;
 
     memcpy (aux, msg, bits/8);
@@ -1479,7 +1493,7 @@ int fix_single_bit_errors (uint8_t *msg, int bits)
        * position.
        */
       memcpy (msg, aux, bits/8);
-      return (j);
+      return (i);
     }
   }
   return (-1);
@@ -2277,26 +2291,26 @@ void display_modeS_message (const modeS_message *mm)
  * Turn I/Q samples pointed by `Modes.data` into the magnitude vector
  * pointed by `Modes.magnitude`.
  */
-void compute_magnitude_vector (void)
+uint16_t *compute_magnitude_vector (const uint8_t *data)
 {
   uint16_t *m = Modes.magnitude;
-  uint32_t  j;
-  const uint8_t *p = Modes.data;
+  uint32_t  i;
 
   /* Compute the magnitude vector. It's just `sqrt(I^2 + Q^2)`, but
    * we rescale to the 0-255 range to exploit the full resolution.
    */
-  for (j = 0; j < Modes.data_len; j += 2)
+  for (i = 0; i < Modes.data_len; i += 2)
   {
-    int i = p[j] - 127;
-    int q = p[j+1] - 127;
+    int I = data [i] - 127;
+    int Q = data [i+1] - 127;
 
-    if (i < 0)
-       i = -i;
-    if (q < 0)
-       q = -q;
-    m [j / 2] = Modes.magnitude_lut [129*i + q];
+    if (I < 0)
+        I = -I;
+    if (Q < 0)
+        Q = -Q;
+    m [i / 2] = Modes.magnitude_lut [129*I + Q];
   }
+  return (m);
 }
 
 /**
@@ -2637,7 +2651,7 @@ good_preamble:
     {
       if ((Modes.debug & DEBUG_DEMODERR) && use_correction)
       {
-        LOG_STDOUT ("The following message has %d demod errors\n", errors);
+        LOG_STDOUT ("The following message has %d demod errors", errors);
         dump_raw_message ("Demodulated with errors", msg, m, j);
       }
     }
@@ -3891,7 +3905,7 @@ void connection_handler_websocket (mg_connection *conn, const char *remote, int 
 {
   mg_ws_message *ws = ev_data;
 
-  TRACE (DEBUG_NET, "Web-socket event %s from client at %s has %zd bytes for us.\n",
+  TRACE (DEBUG_NET, "WebSocket event %s from client at %s has %zd bytes for us.\n",
          event_name(ev), remote, conn->recv.len);
 
   if (ev == MG_EV_WS_MSG)
@@ -4014,7 +4028,7 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
    */
   if (!stricmp(request, "GET /echo"))
   {
-    TRACE (DEBUG_NET, "Got Web-socket echo:\n'%.*s'.\n", (int)hm->head.len, hm->head.ptr);
+    TRACE (DEBUG_NET, "Got WebSocket echo:\n'%.*s'.\n", (int)hm->head.len, hm->head.ptr);
     mg_ws_upgrade (conn, hm, "WS test");
     return (true);
   }
@@ -4076,7 +4090,7 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
 }
 
 /**
- * The timer callback for an active connect()
+ * The timer callback for an active `connect()`.
  */
 void connection_timeout (void *fn_data)
 {
@@ -4119,12 +4133,12 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
     remote = modeS_net_services[service].host;
     port   = modeS_net_services[service].port;
 
-    if (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM && remote)
+    if (remote && service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM)
     {
       snprintf (err, sizeof(err), "Connection to %s:%u failed: %s", remote, port, (const char*)ev_data);
       modeS_net_services [service].last_err = strdup (err);
       TRACE (DEBUG_NET, "Error: %s\n", err);
-      sigint_handler (0);  /* break out of main_data_loop()  */
+      sigint_handler (0);   /* break out of main_data_loop()  */
     }
     return;
   }
@@ -4697,8 +4711,9 @@ void show_help (const char *fmt, ...)
           "    --calibrate              Enable calibrating R820 devices (default: off)\n"
           "    --device <N / name>      Select device                   (default: 0).\n"
           "    --freq <Hz>              Set frequency                   (default: %.0f MHz).\n"
-          "    --gain <dB>              Set gain                        (default: AUTO)\n"
-          "    --ppm <correction>       Set frequency correction        (default: 0)\n"
+          "    --gain <dB>              Set gain                        (default: AUTO).\n"
+          "    --if-mode <ZIF | LIF>    Intermediate Frequency mode     (default: ZIF).\n"
+          "    --ppm <correction>       Set frequency correction        (default: 0).\n"
           "    --samplerate <Hz>        Set sample-rate                 (default: %.0f MS/s).\n\n",
           MODES_DEFAULT_FREQ / 1E6, MODES_DEFAULT_RATE/1E6);
 
@@ -4786,6 +4801,8 @@ void sigint_handler (int sig)
      LOG_STDOUT ("Caught SIGINT, shutting down ...\n");
   else if (sig == SIGBREAK)
      LOG_STDOUT ("Caught SIGBREAK, shutting down ...\n");
+  else if (sig == 0)
+     TRACE (DEBUG_GENERAL, "Breaking 'main_data_loop()', shutting down ...\n");
 
   if (Modes.rtlsdr.device)
   {
@@ -4886,7 +4903,7 @@ void show_statistics (void)
     LOG_STDOUT (" %8llu errors corrected.\n", Modes.stat.fixed);
     LOG_STDOUT (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
     LOG_STDOUT (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
-    LOG_STDOUT (" %8llu total usable messages.\n", Modes.stat.good_CRC + Modes.stat.fixed);
+    LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
     LOG_STDOUT (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
     LOG_STDOUT (" %8llu unique aircrafts from CSV.\n", Modes.stat.unique_aircrafts_CSV);
     LOG_STDOUT (" %8llu unrecognized ME types.\n", Modes.stat.unrecognized_ME);
@@ -4907,6 +4924,7 @@ void modeS_exit (void)
   if (Modes.net)
   {
     unsigned num = connection_free_all();
+
     net_flushall();
     mg_mgr_free (&Modes.mgr);
     Modes.mgr.conns = NULL;
@@ -4987,7 +5005,7 @@ static void select_device (char *arg)
   }
 }
 
-void select_debug (const char *flags)
+static void select_debug (const char *flags)
 {
   while (*flags)
   {
@@ -5034,6 +5052,21 @@ void select_debug (const char *flags)
   }
 }
 
+static bool select_if_mode (const char *arg)
+{
+  if (!stricmp(arg, "zif"))
+  {
+    Modes.sdrplay.if_mode = false;
+    return (true);
+  }
+  if (!stricmp(arg, "lif"))
+  {
+    Modes.sdrplay.if_mode = true;
+    return (true);
+  }
+  return (false);
+}
+
 static struct option long_options[] = {
   { "agc",              no_argument,        (int*)&Modes.dig_agc,          1   },
   { "aggressive",       no_argument,        (int*)&Modes.aggressive,       1   },
@@ -5045,6 +5078,7 @@ static struct option long_options[] = {
   { "freq",             required_argument,  NULL,                          'f' },
   { "gain",             required_argument,  NULL,                          'g' },
   { "help",             no_argument,        NULL,                          'h' },
+  { "if-mode",          required_argument,  NULL,                          'I' },
   { "infile",           required_argument,  NULL,                          'i' },
   { "interactive",      no_argument,        (int*)&Modes.interactive,      1   },
   { "interactive-rows", required_argument,  NULL,                          'r' },
@@ -5131,6 +5165,11 @@ void parse_cmd_line (int argc, char **argv)
            }
            break;
 
+      case 'I':
+           if (!select_if_mode(optarg))
+              show_help ("Illegal '--if-mode': %s.\n", optarg);
+           break;
+
       case 'i':
            Modes.infile = optarg;
            break;
@@ -5144,7 +5183,7 @@ void parse_cmd_line (int argc, char **argv)
            break;
 
       case 'm':
-           Modes.message_count = _atoi64 (optarg);
+           Modes.max_messages = _atoi64 (optarg);
            break;
 
       case 'n':
