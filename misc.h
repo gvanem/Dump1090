@@ -312,13 +312,21 @@ typedef struct rtlsdr_conf {
       } rtlsdr_conf;
 
 /**
+ * \typedef struct sdrplay_priv
+ * The private data for a SDRplay device.
+ * Ref \file sdrplay.c for this.
+ */
+struct sdrplay_priv;
+
+/**
  * \typedef struct sdrplay_conf
  * The device configuration for a SDRplay device.
  */
 typedef struct sdrplay_conf {
-        char                            *name;      /**< Name of SDRplay instance to use. */
-        int                              index;     /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"`. */
-        void                            *device;    /**< Device-handle from `sdrplay_init()`. */
+        struct sdrplay_priv             *priv;
+        char                            *name;               /**< Name of SDRplay instance to use. */
+        int                              index;              /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"`. */
+        void                            *device;             /**< Device-handle from `sdrplay_init()`. */
         bool                             if_mode;
         bool                             over_sample;
         bool                             disable_broadcast_notch;
@@ -355,7 +363,7 @@ typedef struct global_data {
         statistics        stat;                     /**< Decoding and network statistics. */
         aircraft         *aircrafts;                /**< Linked list of active aircrafts. */
         uint64_t          last_update_ms;           /**< Last screen update in milliseconds. */
-        uint64_t          message_count;            /**< How many messages to process before quitting. */
+        uint64_t          max_messages;             /**< How many messages to process before quitting. */
 
         /** Common stuff for RTLSDR and SDRplay:
          */
