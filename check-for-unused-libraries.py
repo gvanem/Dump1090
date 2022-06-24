@@ -21,38 +21,30 @@ try:
 except:
   pass
 
-ignore_libs = [ "oldnames.lib" ]
-
 def report (map_file, unused):
   num = len(unused)
   plural = [ "library", "libraries" ]
   if num > 0:
-    print ("%s%d unused %s in %s:%s" % (Color.RED, num, plural[num > 1], map_file, Color.RESET))
-    for u in unused:
-      print ("  " + u)
+     print ("%s%d unused %s in %s:%s" % (Color.RED, num, plural[num > 1], map_file, Color.RESET))
+     for u in unused:
+         print ("  " + u)
   print ("%sDone.%s\n" % (Color.WHITE, Color.RESET))
 
 def process (file, state):
   unused_libs = []
   f = open (file, "rt")
-  try:
-    lines = f.readlines()
-  except IOError:
-    return []
-  finally:
-    f.close()
+  lines = f.readlines()
+  f.close()
 
   for l in lines:
-    l = l.strip()
-    if l == "Unused libraries:":
-      state = State.UNUSED
-      continue
-    if state == State.UNUSED:
-      if l == "":
-        break
-      if not os.path.basename (l).lower() in ignore_libs:
-        unused_libs.append (l)
+      l = l.strip()
+      if l == "Unused libraries:":
+        state = State.UNUSED
+        continue
+      if state == State.UNUSED:
+         if l == "":
+            break
+         unused_libs.append (l)
   return unused_libs
 
-map_file = sys.argv[1]
-report (map_file, process(map_file, State.IDLE))
+report (sys.argv[1], process(sys.argv[1], State.IDLE))

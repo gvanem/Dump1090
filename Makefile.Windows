@@ -5,8 +5,9 @@
 #
 # Ref: https://github.com/gvanem/Dump1090.git
 #
-TODAY     = $(shell date +%d-%B-%Y)
-THIS_FILE = Makefile.Windows
+TODAY      = $(shell date +%d-%B-%Y)
+THIS_FILE  = Makefile.Windows
+MAKEFLAGS += --warn-undefined-variables
 
 #
 # Choose your weapons:
@@ -81,14 +82,14 @@ endif
 VPATH = externals \
         externals/rtl-sdr
 
-CFLAGS = -nologo -Zi -W3        \
+CFLAGS = -nologo -Zi -W4        \
          -FI./dump1090_config.h \
          -I.                    \
          -I./externals          \
          -I./externals/rtl-sdr  \
          -I./externals/SDRplay-API
 
-LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:uuid.lib -machine:$(CPU)
+LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:oldnames.lib -nodefaultlib:uuid.lib -machine:$(CPU)
 RCFLAGS = -nologo
 
 ifeq ($(USE_CRT_DEBUG),1)
@@ -265,7 +266,6 @@ cpp_filter.py: $(THIS_FILE)
 	$(file >> $@,# DO NOT EDIT! This file was generated automatically)
 	$(file >> $@,# from $(realpath $<). Edit that file instead.)
 	$(file >> $@,#)
-	$(file >> $@,from __future__ import print_function)
 	$(file >> $@,if 1:)
 	$(file >> $@,$(cpp_filter_py))
 
@@ -331,16 +331,32 @@ define dump1090_Doxyfile
   FORCE_LOCAL_INCLUDES  = yes
   QUIET                 = yes
   PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1
-  INPUT                 = ../dump1090.c              \
-                          ../csv.c                   \
-                          ../csv.h                   \
-                          ../misc.h                  \
-                          ../sdrplay.c               \
-                          ../sdrplay.h               \
-                          ../externals/mongoose.c    \
-                          ../externals/mongoose.h    \
-                          ../externals/rtlsdr-emul.c \
-                          ../externals/rtlsdr-emul.h
+  INPUT                 = ../dump1090.c                         \
+                          ../csv.c                              \
+                          ../csv.h                              \
+                          ../misc.h                             \
+                          ../sdrplay.c                          \
+                          ../sdrplay.h                          \
+                          ../externals/mongoose.c               \
+                          ../externals/mongoose.h               \
+                          ../externals/rtlsdr-emul.c            \
+                          ../externals/rtlsdr-emul.h            \
+                          ../externals/rtl-sdr/librtlsdr.c      \
+                          ../externals/rtl-sdr/trace.c          \
+                          ../externals/rtl-sdr/tuner_e4k.c      \
+                          ../externals/rtl-sdr/tuner_fc001x.c   \
+                          ../externals/rtl-sdr/tuner_fc2580.c   \
+                          ../externals/rtl-sdr/tuner_r82xx.c    \
+                          ../externals/rtl-sdr/rtl-sdr.h        \
+                          ../externals/rtl-sdr/rtl-sdr_export.h \
+                          ../externals/rtl-sdr/rtlsdr_i2c.h     \
+                          ../externals/rtl-sdr/trace.h          \
+                          ../externals/rtl-sdr/tuner_e4k.h      \
+                          ../externals/rtl-sdr/tuner_fc001x.h   \
+                          ../externals/rtl-sdr/tuner_fc2580.h   \
+                          ../externals/rtl-sdr/tuner_r82xx.h    \
+                          ../externals/rtl-sdr/version.h
+
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = ..
   INLINE_SIMPLE_STRUCTS = yes
@@ -358,61 +374,58 @@ endef
 
 ifeq ($(USE_ASTYLE),1)
   C_FORMATER = | astyle
+else
+  C_FORMATER =
+endif
+
+#
+# clang-cl: /d1PP  Retain macro definitions in /E mode
+#
+ifeq ($(CC),clang-cl)
+  d1PP = -d1PP
+else
+  d1PP =
 endif
 
 define C_preprocess
   $(call green_msg, Preprocessing $(2))
-  $(file  > $(1),/* The result of preprocessing '$(strip $(2))':)
-  $(file >> $(1),   $(CC))
-  $(foreach f, -E $(CFLAGS), $(file >> $(1),    $(f)))
-  $(file >> $(1), ---------------------------------------------------------)
-  $(file >> $(1), Try to compile this output.)
-  $(file >> $(1),*/)
-  $(_CC) -E $(CFLAGS) $(2) | $(PYTHON) cpp_filter.py $(C_FORMATER) >> $(1)
+  $(file  > $(1),/* The result of preprocessing '$(strip $(2))' (USE_ASTYLE=$(USE_ASTYLE)):)
+  $(file >> $(1), *  $(CC) -E)
+  $(foreach f, $(CFLAGS) $(d1PP), $(file >> $(1), *  $(f)))
+  $(file >> $(1), *---------------------------------------------------------)
+  $(file >> $(1), * Try to compile this output.)
+  $(file >> $(1), */)
+  $(_CC) -E $(CFLAGS) $(d1PP) $(2) | $(PYTHON) cpp_filter.py $(C_FORMATER) >> $(1)
 endef
 
 define cpp_filter_py
-  import sys, os, ntpath
+  import sys, os
 
-  def _win32_abspath (path):
-    path = ntpath.abspath (path)
-    return path.replace ('\\', '/')
-
-  cwd = _win32_abspath (os.getcwd()) + '/'
-
-  last_line  = '??'
-  last_fname = '??'
   empty_lines = 0
-
   while True:
     line = sys.stdin.readline()
     if not line:
-      break
-    if line.startswith('\n') or line.startswith('\r'):
-      empty_lines += 1
-      continue
+       break
+    line = line.rstrip()
+    if line == "":
+       empty_lines += 1
+       continue
 
-    if line.lstrip().startswith("#line"):
-      line = line.replace ("\\\\", "/")
-    fname = None
-    quote = line.find ('\"')
+    #
+    # MSVC or clang-cl 'line' directive
+    #
+    if line.startswith("#line") or line.startswith("# "):
+       line = line.replace ("\\\\", "/")
 
-    if line.startswith ("#line ") and quote > 0:
-      fname = _win32_abspath (line[quote:])
-      last_fname = fname
+    print (line)
 
-    if line.strip() != '' and last_line != '':
-      if fname is None or fname != last_fname:
-        print (line, end="")
+    #
+    # Print a newline after a functions or structs
+    #
+    if line == "}" or line == "};":
+       print ("")
 
-      l2 = line.strip()
-      if l2 == '}' or l2 == '};':  # Print a newline after a functions or structs
-        print ("")
-
-    last_line = line
-
-  if empty_lines > 0:
-     print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
+  print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
 endef
 
 DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
