@@ -23,6 +23,7 @@
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define TWO_PI             (2 * M_PI)
 #define DIM(array)         (sizeof(array) / sizeof(array[0]))
+#define ARGSUSED(foo)      (void)foo
 #define ONE_MEGABYTE       (1024*1024)
 #define STDIN_FILENO       0
 

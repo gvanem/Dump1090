@@ -433,7 +433,7 @@ static bool sdrplay_select (const char *wanted_name)
     }
   }
 
-  if (i > 1 && stricmp(wanted_name, selected_dev))
+  if (i > 1 && _stricmp(wanted_name, selected_dev))
   {
     LOG_STDERR ("Wanted device %s not found.\n", wanted_name);
     return (false);
@@ -629,6 +629,7 @@ int sdrplay_read_async (sdrplay_dev *device,
 int sdrplay_set_gain (sdrplay_dev *device, int gain)
 {
   LOG_FILEONLY ("gain: %.1f dB\n", (double)gain / 10);
+  ARGSUSED (device);
   return (0);
 }
 
@@ -826,8 +827,6 @@ static int sdrplay_release (sdrplay_dev *device)
  */
 int sdrplay_exit (sdrplay_dev *device)
 {
-  sdrplay_api_ErrT rc = sdrplay_api_Success;  /* Assume success */
-
   if (device)
      sdrplay_release (device);
 

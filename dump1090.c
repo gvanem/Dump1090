@@ -334,10 +334,10 @@ void console_update_gain (void)
        gain_idx = Modes.sdrplay.gain_count / 2;
   }
 
-  if (!kbhit())
+  if (!_kbhit())
      return;
 
-  ch = getch();
+  ch = _getch();
 
   /* If we have auto-gain enabled, switch to manual gain
    * on a '-' or '+' keypress. Start with the middle gain-value.
@@ -767,7 +767,7 @@ void aircraft_CSV_load (void)
 {
   struct stat st;
 
-  if (!stricmp(Modes.aircraft_db, "NUL"))   /* User want no .csv file */
+  if (!_stricmp(Modes.aircraft_db, "NUL"))   /* User want no .csv file */
      return;
 
   if (stat(Modes.aircraft_db, &st) != 0)
@@ -972,7 +972,7 @@ int modeS_init_RTLSDR (void)
 
     if (r == 0)
     {
-      if (Modes.rtlsdr.name && manufact[0] && !stricmp(Modes.rtlsdr.name, manufact))
+      if (Modes.rtlsdr.name && manufact[0] && !_stricmp(Modes.rtlsdr.name, manufact))
       {
         selected = true;
         Modes.rtlsdr.index = i;
@@ -987,7 +987,7 @@ int modeS_init_RTLSDR (void)
         strcpy (buf, manufact);
         strcat (buf, ": ");
         strcat (buf, product);
-        Modes.selected_dev = strdup (buf);
+        Modes.selected_dev = _strdup (buf);
       }
     }
     LOG_STDERR ("%d: %-10s %-20s SN: %s %s\n", i, manufact, product, serial,
@@ -1116,7 +1116,7 @@ int read_from_data_file (void)
 
      while (toread)
      {
-       nread = read (Modes.fd, p, toread);
+       nread = _read (Modes.fd, p, toread);
        if (nread <= 0)
           break;
        p += nread;
@@ -1143,7 +1143,7 @@ int read_from_data_file (void)
       */
      if (Modes.loops > 0)
         Modes.loops--;
-     if (Modes.loops == 0 || lseek(Modes.fd, 0, SEEK_SET) == -1)
+     if (Modes.loops == 0 || _lseek(Modes.fd, 0, SEEK_SET) == -1)
         break;
   }
   while (1);
@@ -1192,8 +1192,6 @@ void main_data_loop (void)
 {
   while (!Modes.exit)
   {
-    int rc;
-
     background_tasks();
 
     if (!Modes.data_ready)
@@ -1217,11 +1215,11 @@ void main_data_loop (void)
     if (Modes.sdrplay_device && Modes.sdrplay.over_sample)
     {
       struct mag_buf *buf = &Modes.mag_buffers [Modes.first_filled_buffer];
-      rc = demodulate_8000 (buf);
+      demodulate_8000 (buf);
     }
     else
 #endif
-      rc = detect_modeS (Modes.magnitude, Modes.data_len/2);
+      detect_modeS (Modes.magnitude, Modes.data_len/2);
 
     LeaveCriticalSection (&Modes.data_mutex);
 
@@ -1639,7 +1637,7 @@ static const ICAO_range military_range[] = {
 
 bool ICAO_is_military (uint32_t addr)
 {
-  for (int i = 0; i < DIM(military_range); i++)
+  for (uint16_t i = 0; i < DIM(military_range); i++)
       if (addr >= military_range[i].low && addr <= military_range[i].high)
          return (true);
   return (false);
@@ -2874,7 +2872,7 @@ void cartesian_to_spherical (pos_t *pos, cartesian_t cart)
 /**
  * Return the distance between 2 cartesian points.
  */
-double cartesian_distance (const cartesian_t *a, const cartesian_t *b, double heading)
+double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
 {
   double dX = b->c_x - a->c_x;
   double dY = b->c_y - a->c_y;
@@ -2931,7 +2929,7 @@ void set_est_home_distance (aircraft *a, uint64_t now)
   cartesian_to_spherical (&a->EST_position, cpos);
 
   gc_distance   = great_circle_dist (a->EST_position, Modes.home_pos);
-  cart_distance = cartesian_distance (&cpos, &Modes.home_pos_cart, 360.0*heading/TWO_PI);
+  cart_distance = cartesian_distance (&cpos, &Modes.home_pos_cart);
   a->EST_distance = closest_to (a->EST_distance, gc_distance, cart_distance);
 
 #if 0
@@ -3149,7 +3147,7 @@ void decode_CPR (aircraft *a)
  */
 aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
 {
-  aircraft *a, *aux;
+  aircraft *a;
   char     *p;
   uint32_t  addr;
 
@@ -3179,9 +3177,11 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
      * otherwise with multiple aircrafts at the same time we have an
      * useless shuffle of positions on the screen.
      */
-    if (0 && Modes.aircrafts != a && (now - a->seen_last) >= 1000)
+#if 0
+    if (Modes.aircrafts != a && (now - a->seen_last) >= 1000)
     {
-      aux = Modes.aircrafts;
+      aircraft *aux = Modes.aircrafts;
+
       while (aux->next != a)
          aux = aux->next;
 
@@ -3193,6 +3193,7 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
       a->next = Modes.aircrafts;
       Modes.aircrafts = a;
     }
+#endif
   }
 
   a->seen_last = now;
@@ -3282,7 +3283,6 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
  */
 void interactive_show_aircraft (const aircraft *a, uint64_t now)
 {
-  int   i;
   int   altitude = a->altitude;
   int   speed = a->speed;
   char  alt_buf [10]       = "  - ";
@@ -3298,7 +3298,7 @@ void interactive_show_aircraft (const aircraft *a, uint64_t now)
   const char *flight       = "";
   const char *distance     = NULL;
   const char *est_distance = NULL;
-  const char *km_kts;
+  const char *km_kts = NULL;
   double  sig_avg = 0;
   int64_t ms_diff;
 
@@ -3312,7 +3312,7 @@ void interactive_show_aircraft (const aircraft *a, uint64_t now)
 
   /* Get the average RSSI from last 4 messages.
    */
-  for (i = 0; i < DIM(a->sig_levels); i++)
+  for (uint8_t i = 0; i < DIM(a->sig_levels); i++)
       sig_avg += a->sig_levels[i];
   sig_avg /= DIM(a->sig_levels);
 
@@ -3498,8 +3498,8 @@ int strip_mode (int level)
   int i, q;
   uint64_t c = 0;
 
-  setmode (fileno(stdin), O_BINARY);
-  setmode (fileno(stdout), O_BINARY);
+  _setmode (_fileno(stdin), O_BINARY);
+  _setmode (_fileno(stdout), O_BINARY);
 
   while ((i = getchar()) != EOF && (q = getchar()) != EOF)
   {
@@ -3654,6 +3654,7 @@ char *aircrafts_to_json (int *len, int *num_planes, bool is_Tar1090, bool is_Dum
   buflen -= l;
 
   *len = p - buf;
+  ARGSUSED (is_Tar1090);
   return (buf);
 }
 
@@ -3915,6 +3916,7 @@ void connection_handler_websocket (mg_connection *conn, const char *remote, int 
   {
     Modes.stat.HTTP_websockets++;
   }
+  ARGSUSED (ws);
 }
 
 const char *get_client_headers (const connection *cli, const char *hdr)
@@ -3935,7 +3937,8 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
   mg_http_message *hm = ev_data;
   connection      *cli;
   bool             json_data, is_dump1090, is_Tar1090, is_Dump1090_OL3;
-  const char      *content, *uri, *ext;
+  const char      *content = NULL;
+  const char      *uri, *ext;
   char            *request, *end;
 
   if ((ev != MG_EV_HTTP_MSG && ev != MG_EV_HTTP_CHUNK) || strncmp(hm->head.ptr, "GET /", 5))
@@ -4026,7 +4029,7 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
   /**
    * \todo Check header for a "Upgrade: websocket" and call mg_ws_upgrade()?
    */
-  if (!stricmp(request, "GET /echo"))
+  if (!_stricmp(request, "GET /echo"))
   {
     TRACE (DEBUG_NET, "Got WebSocket echo:\n'%.*s'.\n", (int)hm->head.len, hm->head.ptr);
     mg_ws_upgrade (conn, hm, "WS test");
@@ -4039,18 +4042,18 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
     char        file [MG_PATH_MAX];
     const char *comment = "";
 
-    if (!stricmp(ext, ".html"))
+    if (!_stricmp(ext, ".html"))
        content = MODES_CONTENT_TYPE_HTML;
-    else if (!stricmp(ext, ".css"))
+    else if (!_stricmp(ext, ".css"))
        content = MODES_CONTENT_TYPE_CSS;
-    else if (!stricmp(ext, ".js"))
+    else if (!_stricmp(ext, ".js"))
        content = MODES_CONTENT_TYPE_JS;
-    else if (!stricmp(ext, ".json"))
+    else if (!_stricmp(ext, ".json"))
        content = MODES_CONTENT_TYPE_JSON;
-    else if (!stricmp(ext, ".png"))
+    else if (!_stricmp(ext, ".png"))
        content = MODES_CONTENT_TYPE_PNG;
 
-    if (!stricmp(request, "GET /favicon.png"))
+    if (!_stricmp(request, "GET /favicon.png"))
     {
       #include "favicon.c"  /* generated array from 'xxd -i favicon.png' */
 
@@ -4094,17 +4097,16 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
  */
 void connection_timeout (void *fn_data)
 {
-  INT_PTR        service = (int)(INT_PTR) fn_data;
-  mg_connection *conn = handler_conn (service);
-  char           err [200];
-  char           host_port [100];
+  INT_PTR service = (int)(INT_PTR) fn_data;
+  char    err [200];
+  char    host_port [100];
 
   snprintf (host_port, sizeof(host_port), modeS_net_services[service].is_ip6 ? "[%s]:%u" : "%s:%u",
             modeS_net_services[service].host, modeS_net_services[service].port);
 
   snprintf (err, sizeof(err), "Timeout in connection to service \"%s\" on host %s",
             handler_descr(service), host_port);
-  modeS_net_services [service].last_err = strdup (err);
+  modeS_net_services [service].last_err = _strdup (err);
   TRACE (DEBUG_NET, "%s.\n", err);
 
   sigint_handler (0);  /* break out of main_data_loop()  */
@@ -4136,7 +4138,7 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
     if (remote && service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM)
     {
       snprintf (err, sizeof(err), "Connection to %s:%u failed: %s", remote, port, (const char*)ev_data);
-      modeS_net_services [service].last_err = strdup (err);
+      modeS_net_services [service].last_err = _strdup (err);
       TRACE (DEBUG_NET, "Error: %s\n", err);
       sigint_handler (0);   /* break out of main_data_loop()  */
     }
@@ -4570,6 +4572,7 @@ int modeS_recv_SBS_input (mg_iobuf *msg, modeS_message *mm)
 
 //decode 'msg' and fill 'mm'
 //modeS_user_message (&mm);
+  ARGSUSED (msg);
   return (0);
 }
 
@@ -4954,7 +4957,7 @@ void modeS_exit (void)
      CloseHandle ((HANDLE)Modes.reader_thread);
 
   if (Modes.fd > STDIN_FILENO)
-     close (Modes.fd);
+     _close (Modes.fd);
 
   free_all_aircrafts();
 
@@ -4997,7 +5000,7 @@ static void select_device (char *arg)
     Modes.rtlsdr.index = -1;  /* select on name only */
   }
 
-  if (!strnicmp(arg, "sdrplay", 7))
+  if (!_strnicmp(arg, "sdrplay", 7))
   {
     Modes.sdrplay.name = arg;
     if (isdigit(arg[+7]))
@@ -5054,12 +5057,12 @@ static void select_debug (const char *flags)
 
 static bool select_if_mode (const char *arg)
 {
-  if (!stricmp(arg, "zif"))
+  if (!_stricmp(arg, "zif"))
   {
     Modes.sdrplay.if_mode = false;
     return (true);
   }
-  if (!stricmp(arg, "lif"))
+  if (!_stricmp(arg, "lif"))
   {
     Modes.sdrplay.if_mode = true;
     return (true);
@@ -5154,7 +5157,7 @@ void parse_cmd_line (int argc, char **argv)
            break;
 
       case 'g':
-           if (!stricmp(optarg, "auto"))
+           if (!_stricmp(optarg, "auto"))
               Modes.gain_auto = true;
            else
            {
@@ -5295,7 +5298,7 @@ int main (int argc, char **argv)
     {
       Modes.fd = STDIN_FILENO;
     }
-    else if ((Modes.fd = open(Modes.infile, O_RDONLY)) == -1)
+    else if ((Modes.fd = _open(Modes.infile, O_RDONLY)) == -1)
     {
       LOG_STDERR ("Error opening `%s`: %s\n", Modes.infile, strerror(errno));
       goto quit;

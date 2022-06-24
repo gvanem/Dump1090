@@ -30,6 +30,7 @@
   #pragma clang diagnostic ignored "-Wmacro-redefined"
   #pragma clang diagnostic ignored "-Wignored-attributes"
   #pragma clang diagnostic ignored "-Wignored-pragma-optimize"
+  #pragma clang diagnostic ignored "-Wmissing-field-initializers"
 
 #elif defined(_MSC_VER)
   #pragma warning (disable:4005 4244 4267)

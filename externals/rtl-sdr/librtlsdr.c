@@ -1492,7 +1492,7 @@ int rtlsdr_set_center_freq (rtlsdr_dev_t *dev, uint32_t freq)
 uint32_t rtlsdr_get_center_freq (rtlsdr_dev_t *dev)
 {
   if (!dev)
-     return (-1);
+     return (0);
   return (dev->freq);
 }
 
@@ -1813,7 +1813,7 @@ int rtlsdr_set_sample_rate (rtlsdr_dev_t *dev, uint32_t samp_rate)
 uint32_t rtlsdr_get_sample_rate (rtlsdr_dev_t *dev)
 {
   if (!dev)
-     return (-1);
+     return (0);
   return (dev->rate);
 }
 
@@ -2178,7 +2178,7 @@ int rtlsdr_get_index_by_serial (const char *serial)
   for (i = 0; i < count; i++)
   {
     r = rtlsdr_get_device_usb_strings (i, NULL, NULL, str);
-    if (r == 0 && !stricmp(serial, str))
+    if (r == 0 && !_stricmp(serial, str))
        return (i);
   }
   return (-3);
@@ -2895,7 +2895,7 @@ int rtlsdr_set_opt_string (rtlsdr_dev_t *dev, const char *opts, int verbose)
   if (!dev)
      return (-1);
 
-  optStr = strdup (opts);
+  optStr = _strdup (opts);
   if (!optStr)
      return (-1);
 
