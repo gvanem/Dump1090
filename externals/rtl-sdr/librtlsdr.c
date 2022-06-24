@@ -131,7 +131,7 @@ static const int fir_bw [] = { 2400, 1200, 1000, 300 };
 static int cal_imr = 0;
 
 struct rtlsdr_dev {
-  WINUSB_INTERFACE_HANDLE  devh;
+  WINUSB_INTERFACE_HANDLE  usbHandle;
   HANDLE                   deviceHandle;
   enum rtlsdr_async_status async_status;
   int                      async_cancel;
@@ -611,7 +611,6 @@ static int List_Devices (int index, found_device *found)
   HKEY            hkeyDevInfo;
   DWORD           length;
   int             vid, pid;
-  char           *Serial;
   int             DeviceIndex = 0;
   int             count = 0;
   HDEVINFO        DeviceInfoSet;
@@ -667,11 +666,7 @@ static int List_Devices (int index, found_device *found)
 
       if (CM_Get_Parent(&hParentInst, DeviceInfoData.DevInst, 0) == ERROR_SUCCESS)
          CM_Get_Device_ID (hParentInst, DeviceID2, sizeof(DeviceID2) - 1, 0);
-
-      Serial = strrchr (DeviceID2, '\\') + 1;
     }
-    else
-      Serial = strrchr (DeviceID, '\\') + 1;
 
     /* Get SPDRP_SERVICE */
     if (!SetupDiGetDeviceRegistryPropertyA(DeviceInfoSet, &DeviceInfoData, SPDRP_SERVICE, NULL, (BYTE*)Service, sizeof(Service) - 1, NULL))
@@ -688,6 +683,8 @@ static int List_Devices (int index, found_device *found)
       TRACE_WINUSB ("SetupDiGetDeviceRegistryProperty", GetLastError());
       continue;
     }
+    if (found)
+       strncpy (found->mfg, Mfg, sizeof(found->mfg));
 
     hkeyDevInfo = SetupDiOpenDevRegKey (DeviceInfoSet, &DeviceInfoData, DICS_FLAG_GLOBAL, 0, DIREG_DEV, KEY_QUERY_VALUE);
     if (hkeyDevInfo == INVALID_HANDLE_VALUE)
@@ -718,11 +715,6 @@ static int List_Devices (int index, found_device *found)
       found->vid = vid;
       found->pid = pid;
 
-      if (strchr (Serial, '&'))
-           found->serial[0] = 0;
-      else strcpy (found->serial, Serial);
-
-      strcpy (found->mfg, Mfg);
       strcpy (DevicePath, "\\\\?\\");
       strcat (DevicePath, DeviceID);
       strcat (DevicePath, "#");
@@ -734,7 +726,8 @@ static int List_Devices (int index, found_device *found)
          *backslash = '#';
 
       strcpy (found->DevicePath, DevicePath);
-      TRACE (2, "count: %d, mfg: '%s', DevicePath = %s\n", count, found->mfg, DevicePath);
+      TRACE (2, "count: %d, found->mfg = %s\n"
+                "                      DevicePath = %s\n", count, found->mfg, DevicePath);
       break;
     }
     count++;
@@ -748,24 +741,30 @@ static int List_Devices (int index, found_device *found)
 
 static void Close_Device (rtlsdr_dev_t *dev)
 {
-  if (dev->devh && dev->devh != INVALID_HANDLE_VALUE)
+  if (dev->usbHandle && dev->usbHandle != INVALID_HANDLE_VALUE)
   {
-    WinUsb_Free (dev->devh);
-    CloseHandle (dev->devh);
+    WinUsb_Free (dev->usbHandle);
+
+    /* Some strange exception in NtCloseHandle() when debugger is active.
+     */
+    if (!IsDebuggerPresent())
+        CloseHandle (dev->usbHandle);
   }
 
   if (dev->deviceHandle && dev->deviceHandle != INVALID_HANDLE_VALUE)
      CloseHandle (dev->deviceHandle);
 
-  dev->devh = INVALID_HANDLE_VALUE;
+  dev->usbHandle = INVALID_HANDLE_VALUE;
   dev->deviceHandle = INVALID_HANDLE_VALUE;
 }
 
 static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath)
 {
+  BOOL rc = TRUE;
+
   TRACE (2, "Calling 'CreateFile (\"%s\")'.\n", DevicePath);
 
-  dev->devh = INVALID_HANDLE_VALUE;
+  dev->usbHandle = INVALID_HANDLE_VALUE;
 
   dev->deviceHandle = CreateFile (DevicePath, GENERIC_WRITE | GENERIC_READ,
                                   FILE_SHARE_WRITE | FILE_SHARE_READ, NULL,
@@ -775,16 +774,17 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath)
   if (dev->deviceHandle == INVALID_HANDLE_VALUE)
   {
     TRACE (1, "CreateFile(\"%s\") failed: %s.\n", DevicePath, trace_strerror(GetLastError()));
-    return (FALSE);
+    rc = FALSE;
   }
-
-  if (!WinUsb_Initialize(dev->deviceHandle, &dev->devh))
+  else if (!WinUsb_Initialize(dev->deviceHandle, &dev->usbHandle))
   {
     TRACE_WINUSB ("WinUsb_Initialize", GetLastError());
     Close_Device (dev);
-    return (FALSE);
+    rc = FALSE;
   }
-  return (TRUE);
+
+  TRACE (1, "dev->deviceHandle: 0x%p, dev->usbHandle: 0x%p.\n", dev->deviceHandle, dev->usbHandle);
+  return (rc);
 }
 
 static int usb_control_transfer (rtlsdr_dev_t *dev,      /* the active device */
@@ -804,9 +804,9 @@ static int usb_control_transfer (rtlsdr_dev_t *dev,      /* the active device */
     TRACE (0, "FATAL: %s() called from %u with 'dev == NULL'!\n", __FUNCTION__, line);
     return (-1);
   }
-  if (!dev->devh)
+  if (!dev->usbHandle)
   {
-    TRACE (0, "FATAL: %s() called from %u with 'dev->devh == NULL'!\n", __FUNCTION__, line);
+    TRACE (0, "FATAL: %s() called from %u with 'dev->usbHandle == NULL'!\n", __FUNCTION__, line);
     return (-1);
   }
 
@@ -828,7 +828,7 @@ static int usb_control_transfer (rtlsdr_dev_t *dev,      /* the active device */
          data, wLength);
 
   written = 0;
-  rc = WinUsb_ControlTransfer(dev->devh, setupPacket, data, wLength, &written, NULL);
+  rc = WinUsb_ControlTransfer(dev->usbHandle, setupPacket, data, wLength, &written, NULL);
   if (!rc || written != wLength)
   {
     TRACE (1, "%u: WinUsb_ControlTransfer() wrote only %lu bytes: %s\n",
@@ -1752,6 +1752,9 @@ int rtlsdr_set_dithering (rtlsdr_dev_t *dev, int dither)
 {
   int r = 0;
 
+  if (!dev || !dev->tuner)
+     return -1;
+
   if (dev->tuner_type == RTLSDR_TUNER_R820T || dev->tuner_type == RTLSDR_TUNER_R828D)
   {
     rtlsdr_set_i2c_repeater (dev, 1);
@@ -2102,7 +2105,7 @@ static int get_string_descriptor_ascii (rtlsdr_dev_t *dev, uint8_t index, char *
   uint8_t buffer[255];
   int     i, di = 0;
 
-  if (!WinUsb_GetDescriptor(dev->devh, USB_STRING_DESCRIPTOR_TYPE, index, 0,
+  if (!WinUsb_GetDescriptor(dev->usbHandle, USB_STRING_DESCRIPTOR_TYPE, index, 0,
                             buffer, sizeof(buffer), &LengthTransferred))
   {
     TRACE_WINUSB ("WinUsb_GetDescriptor", GetLastError());
@@ -2119,7 +2122,7 @@ int rtlsdr_get_usb_strings (rtlsdr_dev_t *dev, char *manufact, char *product, ch
 {
   int buf_max = 256;
 
-  if (!dev || !dev->devh)
+  if (!dev || !dev->usbHandle)
      return (-1);
 
   if (manufact)
@@ -2141,7 +2144,7 @@ int rtlsdr_get_usb_strings (rtlsdr_dev_t *dev, char *manufact, char *product, ch
 
     memset (serial, '\0', buf_max);
 
-    if (!WinUsb_GetDescriptor(dev->devh, USB_DEVICE_DESCRIPTOR_TYPE, 0, 0, buffer, sizeof(buffer), &LengthTransferred))
+    if (!WinUsb_GetDescriptor(dev->usbHandle, USB_DEVICE_DESCRIPTOR_TYPE, 0, 0, buffer, sizeof(buffer), &LengthTransferred))
     {
       TRACE_WINUSB ("WinUsb_GetDescriptor", GetLastError());
       return (-1);
@@ -2446,6 +2449,7 @@ err:
     *out_dev = NULL;
     free (dev);
   }
+  dev = NULL;
   return (r);
 }
 
@@ -2470,11 +2474,12 @@ int rtlsdr_close (rtlsdr_dev_t *dev)
 
   DeleteCriticalSection (&dev->cs_mutex);
 
-  TRACE (1, "%s(): dev->devh: 0x%p, dev->deviceHandle: 0x%p\n",
-         __FUNCTION__, dev->devh, dev->deviceHandle);
+  TRACE (1, "%s(): dev->deviceHandle: 0x%p, dev->usbHandle: 0x%p\n",
+         __FUNCTION__, dev->deviceHandle, dev->usbHandle);
 
   Close_Device (dev);
   free (dev);
+  dev = NULL;
   return (r);
 }
 
@@ -2483,7 +2488,7 @@ int rtlsdr_reset_buffer (rtlsdr_dev_t *dev)
   if (!dev)
      return (-1);
 
-  if (!WinUsb_ResetPipe(dev->devh, EP_RX))
+  if (!WinUsb_ResetPipe(dev->usbHandle, EP_RX))
      TRACE_WINUSB ("WinUsb_ResetPipe", GetLastError());
   return (0);
 }
@@ -2499,8 +2504,9 @@ int rtlsdr_read_sync (rtlsdr_dev_t *dev, void *buf, int len,  int *n_read)
 
   rtlsdr_write_reg (dev, USBB, USB_EPA_CTL, 0x0000, 2);
 
-  if (!WinUsb_ReadPipe(dev->devh, EP_RX, buf, len, &bytesRead, NULL))
-     TRACE_WINUSB ("WinUsb_ReadPipe", GetLastError());
+  if (!WinUsb_ReadPipe(dev->usbHandle, EP_RX, buf, len, &bytesRead, NULL))
+       TRACE_WINUSB ("WinUsb_ReadPipe", GetLastError());
+  else TRACE (3, "WinUsb_ReadPipe(): got %lu bytes.\n", bytesRead);
 
   *n_read = bytesRead;
   rtlsdr_write_reg (dev, USBB, USB_EPA_CTL, 0x1002, 2);
@@ -2509,7 +2515,7 @@ int rtlsdr_read_sync (rtlsdr_dev_t *dev, void *buf, int len,  int *n_read)
 
 static int rtlsdr_read_buffer (rtlsdr_dev_t *dev, uint8_t *xfer_buf, uint32_t buf_len, OVERLAPPED *overlapped)
 {
-  if (!WinUsb_ReadPipe(dev->devh, EP_RX, xfer_buf, buf_len, NULL, overlapped))
+  if (!WinUsb_ReadPipe(dev->usbHandle, EP_RX, xfer_buf, buf_len, NULL, overlapped))
   {
     DWORD error = GetLastError();
 
@@ -2548,10 +2554,10 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
   if (!buf_len || buf_len % 512 != 0) /* len must be multiple of 512 */
      buf_len = DEFAULT_BUF_LENGTH;
 
-  if (!WinUsb_ResetPipe(dev->devh, EP_RX))
+  if (!WinUsb_ResetPipe(dev->usbHandle, EP_RX))
      TRACE_WINUSB ("WinUsb_ResetPipe", GetLastError());
 
-  if (!WinUsb_SetPipePolicy(dev->devh, EP_RX, RAW_IO, 1, &policy))
+  if (!WinUsb_SetPipePolicy(dev->usbHandle, EP_RX, RAW_IO, 1, &policy))
      TRACE_WINUSB ("WinUsb_GetPipePolicy", GetLastError());
 
   /* Alloc async buffers
@@ -2601,10 +2607,13 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
       /* Wait for the operation to complete before continuing.
        * You could do some background work if you wanted to.
        */
-      if (WinUsb_GetOverlappedResult(dev->devh, overlapped[i], &NumberOfBytesTransferred, TRUE))
+      if (WinUsb_GetOverlappedResult(dev->usbHandle, overlapped[i], &NumberOfBytesTransferred, TRUE))
       {
         if (NumberOfBytesTransferred && callback)
-           (*callback) (xfer_buf[i], NumberOfBytesTransferred, ctx);
+        {
+          (*callback) (xfer_buf[i], NumberOfBytesTransferred, ctx);
+          TRACE (3, "WinUsb_GetOverlappedResult(): got %lu bytes overlapped.\n", NumberOfBytesTransferred);
+        }
       }
       else
       {
@@ -2622,7 +2631,7 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
    */
   rtlsdr_write_reg (dev, USBB, USB_EPA_CTL, 0x1002, 2);
 
-  if (!WinUsb_AbortPipe(dev->devh, EP_RX))
+  if (!WinUsb_AbortPipe(dev->usbHandle, EP_RX))
      TRACE_WINUSB ("WinUsb_AbortPipe", GetLastError());
 
   /* Free the buffers
