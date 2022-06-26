@@ -24,5 +24,6 @@ favicon.ico
 favicon.png
 testfiles/modes1.bin.png
 cpp_filter.py
+check-for-unused-libraries.py
 *.i
 waterfall/

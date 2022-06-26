@@ -113,16 +113,9 @@ ifeq ($(CPU),)
   CPU = x86
 endif
 
-#
-# GNU Make handles environment variables in a case-sensitive manner.
-#
-ifeq ($(CPU),X64)
-  BITS = 64
-else ifeq ($(CPU),x64)
+ifeq ($(CPU),x64)
   BITS = 64
 else ifeq ($(CPU),x86)
-  BITS = 32
-else ifeq ($(CPU),X86)
   BITS = 32
 else
   $(error Unsupported $$(CPU)=$(CPU))
@@ -160,17 +153,13 @@ endif
 #
 TARGETS = dump1090.exe
 
-SOURCES = externals/mongoose.c    \
-          externals/rtlsdr-emul.c \
-          csv.c                   \
-          dump1090.c              \
+SOURCES = csv.c      \
+          dump1090.c \
           misc.c
 
-ifeq ($(USE_RTLSDR_EMUL),1)
-  CFLAGS += -DUSE_RTLSDR_EMUL
-else
-  SOURCES += sdrplay.c
-endif
+SOURCES += $(addprefix externals/, \
+             mongoose.c            \
+             rtlsdr-emul.c)
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
              librtlsdr.c                   \
@@ -179,6 +168,12 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_fc001x.c                \
              tuner_fc2580.c                \
              tuner_r82xx.c)
+
+ifeq ($(USE_RTLSDR_EMUL),1)
+  CFLAGS += -DUSE_RTLSDR_EMUL
+else
+  SOURCES += sdrplay.c
+endif
 
 OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
 
@@ -228,7 +223,7 @@ all: $(OBJ_DIR) $(TARGETS)
 $(OBJ_DIR) doxy-docs:
 	- mkdir $@
 
-dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
+dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res | check-for-unused-libraries.py
 	$(call link_EXE, $@, $^ $(EX_LIBS))
 
 $(OBJ_DIR)/%.obj: %.c
@@ -260,14 +255,14 @@ doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 FORCE:
 
 cpp_filter.py: $(THIS_FILE)
-	$(call green_msg, Generating $@)
-	$(file >  $@,#!/usr/bin/env python)
-	$(file >> $@,#)
-	$(file >> $@,# DO NOT EDIT! This file was generated automatically)
-	$(file >> $@,# from $(realpath $<). Edit that file instead.)
-	$(file >> $@,#)
+	$(call Generate, $@, #)
 	$(file >> $@,if 1:)
 	$(file >> $@,$(cpp_filter_py))
+
+check-for-unused-libraries.py: $(THIS_FILE)
+	$(call Generate, $@, #)
+	$(file >> $@,if 1:)
+	$(file >> $@,$(check_for_unused_libraries_py))
 
 #
 # '$(sort ..)' will create a unique list.
@@ -426,6 +421,58 @@ define cpp_filter_py
        print ("")
 
   print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
+endef
+
+define check_for_unused_libraries_py
+  #
+  # Check for unused libraries in a MSVC link .map file.
+  # Prints with some colours using 'colorama'.
+  #
+  import os, sys
+
+  class State():
+    IDLE   = 0
+    UNUSED = 1
+
+  class Color():
+    RESET = RED = WHITE = ""
+
+  try:
+    from colorama import init, Fore, Style
+    init()
+    Color.RESET = Style.RESET_ALL
+    Color.RED   = Fore.RED + Style.BRIGHT
+    Color.WHITE = Fore.WHITE + Style.BRIGHT
+  except:
+    pass
+
+  def report (map_file, unused):
+    num = len(unused)
+    plural = [ "library", "libraries" ]
+    if num > 0:
+       print ("%s%d unused %s in %s:%s" % (Color.RED, num, plural[num > 1], map_file, Color.RESET))
+       for u in unused:
+           print ("  " + u)
+    print ("%sDone.%s\n" % (Color.WHITE, Color.RESET))
+
+  def process (file, state):
+    unused_libs = []
+    f = open (file, "rt")
+    lines = f.readlines()
+    f.close()
+
+    for l in lines:
+        l = l.strip()
+        if l == "Unused libraries:":
+          state = State.UNUSED
+          continue
+        if state == State.UNUSED:
+           if l == "":
+              break
+           unused_libs.append (l)
+    return unused_libs
+
+  report (sys.argv[1], process(sys.argv[1], State.IDLE))
 endef
 
 DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
