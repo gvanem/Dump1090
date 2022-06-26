@@ -1,0 +1,46 @@
+#!/bin/bash 
+#######################################################################################################################
+#SELECT 
+#    ModeS, IFNULL(`Registration`,''), IFNULL(`ICAOTypeCode`,''), IFNULL(`Type`,''), IFNULL(`ModeSCountry`,''), IFNULL(`UserBool1`,''), IFNULL(`UserString1`,''), IFNULL(`UserString2`,''), IFNULL(`UserString3`,''), IFNULL(`UserInt1`,'') ,IFNULL(`OperatorFlagCode`,'')
+#FROM
+#    Aircraft 
+#INTO OUTFILE '/var/lib/mysql-files/data1.csv'
+#FIELDS ENCLOSED BY '"' TERMINATED BY ',' ESCAPED BY '"'
+#LINES TERMINATED BY '\r\n'
+#######################################################################################################################
+#
+echo "----------------------"
+echo "|    Get new csv     |"
+echo "----------------------"
+rm data1.csv
+mv /var/lib/mysql-files/data1.csv ./
+
+echo "----------------------"
+echo "|  Add Header to csv |"
+echo "----------------------"
+sed -i '1s/^/\"icao24\",\"r\",\"t\",\"Type\",\"Country\",\"Int\",\"Image\",\"Short\",\"Force\",\"Trail\",\"Op\",\"Owner\"\n/' data1.csv
+
+echo " "
+echo "----------------------"
+echo "|  Remove old files  |"
+echo "----------------------"
+rm /root/dump1090/db/*
+
+echo " "
+echo "----------------------"
+echo "|  Build new files   |"
+echo "----------------------"
+python /root/dump1090/csv-to-json.py data1.csv /root/dump1090/db
+
+echo " "
+echo "----------------------"
+echo "| Remove live files  |"
+echo "----------------------"
+rm /usr/share/dump1090-fa/html/db/*
+
+echo " "
+echo "----------------------"
+echo "| Install new files   |"
+echo "----------------------"
+cp /root/dump1090/db/* /usr/share/dump1090-fa/html/db
+cp /root/dump1090/db/* /usr/share/dump1090-mutability/html/db

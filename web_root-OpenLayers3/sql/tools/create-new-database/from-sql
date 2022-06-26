@@ -1,0 +1,8 @@
+SELECT 
+    ModeS, IFNULL(`Registration`,''), IFNULL(`ICAOTypeCode`,''), IFNULL(`Type`,''), IFNULL(`ModeSCountry`,''), IFNULL(`UserBool1`,''), IFNULL(`UserString1`,''), IFNULL(`UserString2`,''), IFNULL(`UserString3`,''), IFNULL(`UserInt1`,'') ,IFNULL(`OperatorFlagCode`,'')
+FROM
+    Aircraft 
+INTO OUTFILE '/var/lib/mysql-files/data1.csv'
+FIELDS ENCLOSED BY '"' TERMINATED BY ',' ESCAPED BY '"'
+LINES TERMINATED BY '\r\n'
+;

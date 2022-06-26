@@ -1,0 +1,39 @@
+<html>
+  <head>
+    <script language="javascript" type="text/javascript" src="../jquery/jquery-3.0.0.min.js"></script>
+  </head>
+  <body>
+
+  <!-------------------------------------------------------------------------
+  1) Create some html content that can be accessed by jquery
+  -------------------------------------------------------------------------->
+  <h2> Dump1090 Example - Get all aircraft from mySql </h2>
+  <h3> Get all aircraft data via: aircraft_all_test.php</h3>
+  <div id="output">Results (be patient, it's a big table):<br><br></div>
+
+  <script id="source" language="javascript" type="text/javascript">
+
+  $(function () 
+  {
+    $.ajax({                                      
+      url: 'aircraft_all_test.php',     
+      async: false ,    
+      data: "icao=43C041",  
+      dataType: 'json',  
+      success: function(retData)  
+      {
+        for (var i in retData)
+        {
+        
+
+          $('#output').append(retData[i])
+                      .append("<br />");
+        } 
+      } 
+
+    });
+  }); 
+
+  </script>
+  </body>
+</html>
