@@ -258,6 +258,7 @@ static inline void *mg_calloc(int cnt, size_t size) {
 #define closesocket(x) FreeRTOS_closesocket(x)
 #define gethostbyname(x) FreeRTOS_gethostbyname(x)
 #define getsockname(a, b, c) (-1)
+#define getpeername(a, b, c) 0
 
 // Re-route calloc/free to the FreeRTOS's functions, don't use stdlib
 static inline void *mg_calloc(int cnt, size_t size) {
@@ -411,6 +412,10 @@ extern int SockSet(SOCKET hSock, int Type, int Prop, void *pbuf, int size);
 #if MG_ARCH == MG_ARCH_UNIX
 
 #define _DARWIN_UNLIMITED_SELECT 1  // No limit on file descriptors
+
+#if defined(__APPLE__)
+#include <mach/mach_time.h>
+#endif
 
 #if !defined(MG_ENABLE_POLL) && (defined(__linux__) || defined(__APPLE__))
 #define MG_ENABLE_POLL 1
@@ -715,21 +720,30 @@ bool mg_match(struct mg_str str, struct mg_str pattern, struct mg_str *caps);
 bool mg_globmatch(const char *pattern, size_t plen, const char *s, size_t n);
 bool mg_commalist(struct mg_str *s, struct mg_str *k, struct mg_str *v);
 bool mg_split(struct mg_str *s, struct mg_str *k, struct mg_str *v, char delim);
-size_t mg_vsnprintf(char *buf, size_t len, const char *fmt, va_list *ap);
-size_t mg_snprintf(char *, size_t, const char *fmt, ...);
 char *mg_hex(const void *buf, size_t len, char *dst);
 void mg_unhex(const char *buf, size_t len, unsigned char *to);
 unsigned long mg_unhexn(const char *s, size_t len);
-size_t mg_asprintf(char **, size_t, const char *fmt, ...);
-size_t mg_vasprintf(char **buf, size_t size, const char *fmt, va_list ap);
-char *mg_mprintf(const char *fmt, ...);
-char *mg_vmprintf(const char *fmt, va_list ap);
 int mg_check_ip_acl(struct mg_str acl, uint32_t remote_ip);
 int64_t mg_to64(struct mg_str str);
 uint64_t mg_tou64(struct mg_str str);
 size_t mg_lld(char *buf, int64_t val, bool is_signed, bool is_hex);
 double mg_atod(const char *buf, int len, int *numlen);
 size_t mg_dtoa(char *buf, size_t len, double d, int width);
+char *mg_remove_double_dots(char *s);
+
+typedef void (*mg_pc_t)(char, void *);                  // Custom putchar
+typedef size_t (*mg_pm_t)(mg_pc_t, void *, va_list *);  // %M printer
+void mg_putchar_realloc(char ch, void *param);          // Print to malloced str
+void mg_putchar_iobuf(char ch, void *param);            // Print to iobuf
+
+size_t mg_vrprintf(void (*)(char, void *), void *, const char *fmt, va_list *);
+size_t mg_rprintf(void (*fn)(char, void *), void *, const char *fmt, ...);
+size_t mg_vsnprintf(char *buf, size_t len, const char *fmt, va_list *ap);
+size_t mg_snprintf(char *, size_t, const char *fmt, ...);
+size_t mg_asprintf(char **, size_t, const char *fmt, ...);
+size_t mg_vasprintf(char **buf, size_t size, const char *fmt, va_list ap);
+char *mg_mprintf(const char *fmt, ...);
+char *mg_vmprintf(const char *fmt, va_list ap);
 
 
 
@@ -868,7 +882,7 @@ struct mg_str mg_url_pass(const char *url);
 const char *mg_url_uri(const char *url);
 
 
-#include <stddef.h>
+
 
 struct mg_iobuf {
   unsigned char *buf;  // Pointer to stored data
@@ -1097,8 +1111,8 @@ int mg_url_decode(const char *s, size_t n, char *to, size_t to_len, int form);
 size_t mg_url_encode(const char *s, size_t n, char *buf, size_t len);
 void mg_http_creds(struct mg_http_message *, char *, size_t, char *, size_t);
 bool mg_http_match_uri(const struct mg_http_message *, const char *glob);
-int mg_http_upload(struct mg_connection *, struct mg_http_message *hm,
-                   struct mg_fs *fs, const char *dir);
+long mg_http_upload(struct mg_connection *c, struct mg_http_message *hm,
+                    struct mg_fs *fs, const char *path, size_t max_size);
 void mg_http_bauth(struct mg_connection *, const char *user, const char *pass);
 struct mg_str mg_http_get_header_var(struct mg_str s, struct mg_str v);
 size_t mg_http_next_multipart(struct mg_str, size_t, struct mg_http_part *);
@@ -1214,6 +1228,7 @@ int64_t mg_sntp_parse(const unsigned char *buf, size_t len);
 #define MQTT_CMD_PINGREQ 12
 #define MQTT_CMD_PINGRESP 13
 #define MQTT_CMD_DISCONNECT 14
+#define MQTT_CMD_AUTH 15
 
 struct mg_mqtt_opts {
   struct mg_str user;          // Username, can be empty
@@ -1222,9 +1237,10 @@ struct mg_mqtt_opts {
   struct mg_str will_topic;    // Will topic
   struct mg_str will_message;  // Will message
   uint8_t will_qos;            // Will message quality of service
+  uint8_t version;             // Can be 4 (3.1.1), or 5. If 0, assume 4.
+  uint16_t keepalive;          // Keep-alive timer in seconds
   bool will_retain;            // Retain last will
   bool clean;                  // Use clean session, 0 or 1
-  uint16_t keepalive;          // Keep-alive timer in seconds
 };
 
 struct mg_mqtt_message {
@@ -1246,7 +1262,7 @@ void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts);
 void mg_mqtt_pub(struct mg_connection *c, struct mg_str topic,
                  struct mg_str data, int qos, bool retain);
 void mg_mqtt_sub(struct mg_connection *, struct mg_str topic, int qos);
-int mg_mqtt_parse(const uint8_t *buf, size_t len, struct mg_mqtt_message *m);
+int mg_mqtt_parse(const uint8_t *, size_t, uint8_t, struct mg_mqtt_message *);
 void mg_mqtt_send_header(struct mg_connection *, uint8_t cmd, uint8_t flags,
                          uint32_t len);
 size_t mg_mqtt_next_sub(struct mg_mqtt_message *msg, struct mg_str *topic,
@@ -1309,8 +1325,10 @@ int mg_json_get(const char *buf, int len, const char *path, int *toklen);
 
 bool mg_json_get_num(struct mg_str json, const char *path, double *v);
 bool mg_json_get_bool(struct mg_str json, const char *path, bool *v);
+long mg_json_get_long(struct mg_str json, const char *path, long dflt);
 char *mg_json_get_str(struct mg_str json, const char *path);
-char *mg_json_get_hex(struct mg_str json, const char *path);
+char *mg_json_get_hex(struct mg_str json, const char *path, int *len);
+char *mg_json_get_b64(struct mg_str json, const char *path, int *len);
 
 
 

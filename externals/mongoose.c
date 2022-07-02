@@ -23,7 +23,7 @@
 #line 1 "src/base64.c"
 #endif
 
-#include <string.h>
+
 
 static int mg_b64idx(int c) {
   if (c < 26) {
@@ -105,6 +105,145 @@ int mg_base64_decode(const char *src, int n, char *dst) {
   }
   dst[len] = '\0';
   return len;
+}
+
+#ifdef MG_ENABLE_LINES
+#line 1 "src/dbl.c"
+#endif
+
+
+double mg_atod(const char *p, int len, int *numlen) {
+  double d = 0.0;
+  int i = 0, sign = 1;
+
+  // Sign
+  if (i < len && *p == '-') {
+    sign = -1, i++;
+  } else if (i < len && *p == '+') {
+    i++;
+  }
+
+  // Decimal
+  for (; i < len && p[i] >= '0' && p[i] <= '9'; i++) {
+    d *= 10.0;
+    d += p[i] - '0';
+  }
+  d *= sign;
+
+  // Fractional
+  if (i < len && p[i] == '.') {
+    double frac = 0.0, base = 0.1;
+    i++;
+    for (; i < len && p[i] >= '0' && p[i] <= '9'; i++) {
+      frac += base * (p[i] - '0');
+      base /= 10.0;
+    }
+    d += frac * sign;
+  }
+
+  // Exponential
+  if (i < len && (p[i] == 'e' || p[i] == 'E')) {
+    int j, exp = 0, minus = 0;
+    i++;
+    if (i < len && p[i] == '-') minus = 1, i++;
+    if (i < len && p[i] == '+') i++;
+    while (i < len && p[i] >= '0' && p[i] <= '9' && exp < 308)
+      exp = exp * 10 + (p[i++] - '0');
+    if (minus) exp = -exp;
+    for (j = 0; j < exp; j++) d *= 10.0;
+    for (j = 0; j < -exp; j++) d /= 10.0;
+  }
+
+  if (numlen != NULL) *numlen = i;
+  return d;
+}
+
+static int addexp(char *buf, int e, int sign) {
+  int n = 0;
+  buf[n++] = 'e';
+  buf[n++] = (char) sign;
+  if (e > 400) return 0;
+  if (e < 10) buf[n++] = '0';
+  if (e >= 100) buf[n++] = (char) (e / 100 + '0'), e -= 100 * (e / 100);
+  if (e >= 10) buf[n++] = (char) (e / 10 + '0'), e -= 10 * (e / 10);
+  buf[n++] = (char) (e + '0');
+  return n;
+}
+
+static int xisinf(double x) {
+  union {
+    double f;
+    uint64_t u;
+  } ieee754 = {x};
+  return ((unsigned) (ieee754.u >> 32) & 0x7fffffff) == 0x7ff00000 &&
+         ((unsigned) ieee754.u == 0);
+}
+
+static int xisnan(double x) {
+  union {
+    double f;
+    uint64_t u;
+  } ieee754 = {x};
+  return ((unsigned) (ieee754.u >> 32) & 0x7fffffff) +
+             ((unsigned) ieee754.u != 0) >
+         0x7ff00000;
+}
+
+size_t mg_dtoa(char *dst, size_t dstlen, double d, int width) {
+  char buf[40];
+  int i, s = 0, n = 0, e = 0;
+  double t, mul, saved;
+  if (d == 0.0) return mg_snprintf(dst, dstlen, "%s", "0");
+  if (xisinf(d)) return mg_snprintf(dst, dstlen, "%s", d > 0 ? "inf" : "-inf");
+  if (xisnan(d)) return mg_snprintf(dst, dstlen, "%s", "nan");
+  if (d < 0.0) d = -d, buf[s++] = '-';
+
+  // Round
+  saved = d;
+  mul = 1.0;
+  while (d >= 10.0 && d / mul >= 10.0) mul *= 10.0;
+  while (d <= 1.0 && d / mul <= 1.0) mul /= 10.0;
+  for (i = 0, t = mul * 5; i < width; i++) t /= 10.0;
+  d += t;
+  // Calculate exponent, and 'mul' for scientific representation
+  mul = 1.0;
+  while (d >= 10.0 && d / mul >= 10.0) mul *= 10.0, e++;
+  while (d < 1.0 && d / mul < 1.0) mul /= 10.0, e--;
+  // printf(" --> %g %d %g %g\n", saved, e, t, mul);
+
+  if (e >= width) {
+    n = (int) mg_dtoa(buf, sizeof(buf), saved / mul, width);
+    // printf(" --> %.*g %d [%.*s]\n", 10, d / t, e, n, buf);
+    n += addexp(buf + s + n, e, '+');
+    return mg_snprintf(dst, dstlen, "%.*s", n, buf);
+  } else if (e <= -width) {
+    n = (int) mg_dtoa(buf, sizeof(buf), saved / mul, width);
+    // printf(" --> %.*g %d [%.*s]\n", 10, d / mul, e, n, buf);
+    n += addexp(buf + s + n, -e, '-');
+    return mg_snprintf(dst, dstlen, "%.*s", n, buf);
+  } else {
+    for (i = 0, t = mul; t >= 1.0 && s + n < (int) sizeof(buf); i++) {
+      int ch = (int) (d / t);
+      if (n > 0 || ch > 0) buf[s + n++] = (char) (ch + '0');
+      d -= ch * t;
+      t /= 10.0;
+    }
+    // printf(" --> [%g] -> %g %g (%d) [%.*s]\n", saved, d, t, n, s + n, buf);
+    if (n == 0) buf[s++] = '0';
+    while (t >= 1.0 && n + s < (int) sizeof(buf)) buf[n++] = '0', t /= 10.0;
+    if (s + n < (int) sizeof(buf)) buf[n + s++] = '.';
+    // printf(" 1--> [%g] -> [%.*s]\n", saved, s + n, buf);
+    for (i = 0, t = 0.1; s + n < (int) sizeof(buf) && n < width; i++) {
+      int ch = (int) (d / t);
+      buf[s + n++] = (char) (ch + '0');
+      d -= ch * t;
+      t /= 10.0;
+    }
+  }
+  while (n > 0 && buf[s + n - 1] == '0') n--;  // Trim trailing zeros
+  if (n > 0 && buf[s + n - 1] == '.') n--;     // Trim trailing dot
+  buf[s + n] = '\0';
+  return mg_snprintf(dst, dstlen, "%s", buf);
 }
 
 #ifdef MG_ENABLE_LINES
@@ -408,6 +547,288 @@ void mg_error(struct mg_connection *c, const char *fmt, ...) {
 }
 
 #ifdef MG_ENABLE_LINES
+#line 1 "src/fmt.c"
+#endif
+
+
+
+size_t mg_vasprintf(char **buf, size_t size, const char *fmt, va_list ap) {
+  va_list ap_copy;
+  size_t len;
+
+  va_copy(ap_copy, ap);
+  len = mg_vsnprintf(*buf, size, fmt, &ap_copy);
+  va_end(ap_copy);
+
+  if (len >= size) {
+    //  Allocate a buffer that is large enough
+    if ((*buf = (char *) calloc(1, len + 1)) == NULL) {
+      len = 0;
+    } else {
+      va_copy(ap_copy, ap);
+      len = mg_vsnprintf(*buf, len + 1, fmt, &ap_copy);
+      va_end(ap_copy);
+    }
+  }
+
+  return len;
+}
+
+size_t mg_asprintf(char **buf, size_t size, const char *fmt, ...) {
+  size_t ret;
+  va_list ap;
+  va_start(ap, fmt);
+  ret = mg_vasprintf(buf, size, fmt, ap);
+  va_end(ap);
+  return ret;
+}
+
+char *mg_vmprintf(const char *fmt, va_list ap) {
+  char *s = NULL;
+  mg_vasprintf(&s, 0, fmt, ap);
+  return s;
+}
+
+char *mg_mprintf(const char *fmt, ...) {
+  char *s = NULL;
+  va_list ap;
+  va_start(ap, fmt);
+  mg_vasprintf(&s, 0, fmt, ap);
+  va_end(ap);
+  return s;
+}
+
+size_t mg_rprintf(void (*out)(char, void *), void *ptr, const char *fmt, ...) {
+  size_t len = 0;
+  va_list ap;
+  va_start(ap, fmt);
+  len = mg_vrprintf(out, ptr, fmt, &ap);
+  va_end(ap);
+  return len;
+}
+
+static void mg_putchar_iobuf_static(char ch, void *param) {
+  struct mg_iobuf *io = (struct mg_iobuf *) param;
+  if (io->len + 2 <= io->size) {
+    io->buf[io->len++] = (uint8_t) ch;
+    io->buf[io->len] = 0;
+  }
+}
+
+void mg_putchar_iobuf(char ch, void *param) {
+  struct mg_iobuf *io = (struct mg_iobuf *) param;
+  if (io->len + 2 > io->size) mg_iobuf_resize(io, io->size + 64);
+  if (io->len + 2 <= io->size) {
+    io->buf[io->len++] = (uint8_t) ch;
+    io->buf[io->len] = 0;
+  }
+}
+
+// We don't use realloc() in mongoose, so resort to inefficient calloc
+// Every new character reallocates the whole string
+void mg_putchar_realloc(char ch, void *param) {
+  char *s, *buf = *(char **) param;
+  size_t len = buf == NULL ? 0 : strlen(buf);
+  if ((s = (char *) calloc(1, len + 2)) != NULL) {
+    if (buf != NULL) memcpy(s, buf, len);
+    s[len] = ch;
+    s[len + 1] = '\0';
+    free(buf);
+    *(char **) param = s;
+  }
+}
+
+size_t mg_vsnprintf(char *buf, size_t len, const char *fmt, va_list *ap) {
+  struct mg_iobuf io = {(uint8_t *) buf, len, 0};
+  size_t n = mg_vrprintf(mg_putchar_iobuf_static, &io, fmt, ap);
+  if (n < len) buf[n] = '\0';
+  return n;
+}
+
+static bool is_digit(int c) {
+  return c >= '0' && c <= '9';
+}
+
+size_t mg_lld(char *buf, int64_t val, bool is_signed, bool is_hex) {
+  const char *letters = "0123456789abcdef";
+  uint64_t v = (uint64_t) val;
+  size_t s = 0, n, i;
+  if (is_signed && val < 0) buf[s++] = '-', v = (uint64_t) (-val);
+  // This loop prints a number in reverse order. I guess this is because we
+  // write numbers from right to left: least significant digit comes last.
+  // Maybe because we use Arabic numbers, and Arabs write RTL?
+  if (is_hex) {
+    for (n = 0; v; v >>= 4) buf[s + n++] = letters[v & 15];
+  } else {
+    for (n = 0; v; v /= 10) buf[s + n++] = letters[v % 10];
+  }
+  // Reverse a string
+  for (i = 0; i < n / 2; i++) {
+    char t = buf[s + i];
+    buf[s + i] = buf[s + n - i - 1], buf[s + n - i - 1] = t;
+  }
+  if (val == 0) buf[n++] = '0';  // Handle special case
+  return n + s;
+}
+
+static size_t scpy(void (*out)(char, void *), void *ptr, char *buf,
+                   size_t len) {
+  size_t i = 0;
+  while (i < len && buf[i] != '\0') out(buf[i++], ptr);
+  return i;
+}
+
+static char mg_esc(int c, bool esc) {
+  const char *p, *esc1 = "\b\f\n\r\t\\\"", *esc2 = "bfnrt\\\"";
+  for (p = esc ? esc1 : esc2; *p != '\0'; p++) {
+    if (*p == c) return esc ? esc2[p - esc1] : esc1[p - esc2];
+  }
+  return 0;
+}
+
+static char mg_escape(int c) {
+  return mg_esc(c, true);
+}
+
+static size_t qcpy(void (*out)(char, void *), void *ptr, char *buf,
+                   size_t len) {
+  size_t i = 0, extra = 2;
+  out('"', ptr);
+  for (i = 0; i < len && buf[i] != '\0'; i++) {
+    char c = mg_escape(buf[i]);
+    if (c) {
+      out('\\', ptr), out(c, ptr), extra++;
+    } else {
+      out(buf[i], ptr);
+    }
+  }
+  out('"', ptr);
+  return i + extra;
+}
+
+static size_t bcpy(void (*out)(char, void *), void *ptr, uint8_t *buf,
+                   size_t len) {
+  size_t i, n = 0;
+  const char *t =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  out('"', ptr), n++;
+  for (i = 0; i < len; i += 3) {
+    uint8_t c1 = buf[i], c2 = i + 1 < len ? buf[i + 1] : 0,
+            c3 = i + 2 < len ? buf[i + 2] : 0;
+    char tmp[4] = {t[c1 >> 2], t[(c1 & 3) << 4 | (c2 >> 4)], '=', '='};
+    if (i + 1 < len) tmp[2] = t[(c2 & 15) << 2 | (c3 >> 6)];
+    if (i + 2 < len) tmp[3] = t[c3 & 63];
+    n += scpy(out, ptr, tmp, sizeof(tmp));
+  }
+  out('"', ptr), n++;
+  return n;
+}
+
+size_t mg_vrprintf(void (*out)(char, void *), void *param, const char *fmt,
+                   va_list *ap) {
+  size_t i = 0, n = 0;
+  while (fmt[i] != '\0') {
+    if (fmt[i] == '%') {
+      size_t j, k, x = 0, is_long = 0, w = 0 /* width */, pr = ~0U /* prec */;
+      char pad = ' ', minus = 0, c = fmt[++i];
+      if (c == '#') x++, c = fmt[++i];
+      if (c == '-') minus++, c = fmt[++i];
+      if (c == '0') pad = '0', c = fmt[++i];
+      while (is_digit(c)) w *= 10, w += (size_t) (c - '0'), c = fmt[++i];
+      if (c == '.') {
+        c = fmt[++i];
+        if (c == '*') {
+          pr = (size_t) va_arg(*ap, int);
+          c = fmt[++i];
+        } else {
+          pr = 0;
+          while (is_digit(c)) pr *= 10, pr += (size_t) (c - '0'), c = fmt[++i];
+        }
+      }
+      while (c == 'h') c = fmt[++i];  // Treat h and hh as int
+      if (c == 'l') {
+        is_long++, c = fmt[++i];
+        if (c == 'l') is_long++, c = fmt[++i];
+      }
+      if (c == 'p') x = 1, is_long = 1;
+      if (c == 'd' || c == 'u' || c == 'x' || c == 'X' || c == 'p' ||
+          c == 'g') {
+        bool s = (c == 'd'), h = (c == 'x' || c == 'X' || c == 'p');
+        char tmp[40];
+        size_t xl = x ? 2 : 0;
+        if (c == 'g' || c == 'f') {
+          double v = va_arg(*ap, double);
+          if (pr == ~0U) pr = 6;
+          k = mg_dtoa(tmp, sizeof(tmp), v, (int) pr);
+        } else if (is_long == 2) {
+          int64_t v = va_arg(*ap, int64_t);
+          k = mg_lld(tmp, v, s, h);
+        } else if (is_long == 1) {
+          long v = va_arg(*ap, long);
+          k = mg_lld(tmp, s ? (int64_t) v : (int64_t) (unsigned long) v, s, h);
+        } else {
+          int v = va_arg(*ap, int);
+          k = mg_lld(tmp, s ? (int64_t) v : (int64_t) (unsigned) v, s, h);
+        }
+        for (j = 0; j < xl && w > 0; j++) w--;
+        for (j = 0; pad == ' ' && !minus && k < w && j + k < w; j++)
+          n += scpy(out, param, &pad, 1);
+        n += scpy(out, param, (char *) "0x", xl);
+        for (j = 0; pad == '0' && k < w && j + k < w; j++)
+          n += scpy(out, param, &pad, 1);
+        n += scpy(out, param, tmp, k);
+        for (j = 0; pad == ' ' && minus && k < w && j + k < w; j++)
+          n += scpy(out, param, &pad, 1);
+      } else if (c == 'M') {
+        mg_pm_t f = va_arg(*ap, mg_pm_t);
+        n += f(out, param, ap);
+      } else if (c == 'c') {
+        int ch = va_arg(*ap, int);
+        out((char) ch, param);
+        n++;
+      } else if (c == 'H') {
+        // Print hex-encoded double-quoted string
+        size_t bl = (size_t) va_arg(*ap, int);
+        uint8_t *p = va_arg(*ap, uint8_t *), dquote = '"';
+        const char *hex = "0123456789abcdef";
+        n += scpy(out, param, (char *) &dquote, 1);
+        for (j = 0; j < bl; j++) {
+          n += scpy(out, param, (char *) &hex[(p[j] >> 4) & 15], 1);
+          n += scpy(out, param, (char *) &hex[p[j] & 15], 1);
+        }
+        n += scpy(out, param, (char *) &dquote, 1);
+      } else if (c == 'V') {
+        // Print base64-encoded double-quoted string
+        size_t len = (size_t) va_arg(*ap, int);
+        uint8_t *buf = va_arg(*ap, uint8_t *);
+        n += bcpy(out, param, buf, len);
+      } else if (c == 's' || c == 'Q') {
+        char *p = va_arg(*ap, char *);
+        size_t (*f)(void (*)(char, void *), void *, char *, size_t) =
+            c == 's' ? scpy : qcpy;
+        if (pr == ~0U) pr = p == NULL ? 0 : strlen(p);
+        for (j = 0; !minus && pr < w && j + pr < w; j++)
+          n += f(out, param, &pad, 1);
+        n += f(out, param, p, pr);
+        for (j = 0; minus && pr < w && j + pr < w; j++)
+          n += f(out, param, &pad, 1);
+      } else if (c == '%') {
+        out('%', param);
+        n++;
+      } else {
+        out('%', param);
+        out(c, param);
+        n += 2;
+      }
+      i++;
+    } else {
+      out(fmt[i], param), n++, i++;
+    }
+  }
+  return n;
+}
+
+#ifdef MG_ENABLE_LINES
 #line 1 "src/fs.c"
 #endif
 
@@ -489,6 +910,7 @@ bool mg_file_printf(struct mg_fs *fs, const char *path, const char *fmt, ...) {
 #ifdef MG_ENABLE_LINES
 #line 1 "src/fs_fat.c"
 #endif
+
 
 
 #if MG_ENABLE_FATFS
@@ -579,7 +1001,7 @@ static void ff_close(void *fp) {
 }
 
 static size_t ff_read(void *fp, void *buf, size_t len) {
-  unsigned n = 0, misalign = ((size_t) buf) & 3;
+  UINT n = 0, misalign = ((size_t) buf) & 3;
   if (misalign) {
     char aligned[4];
     f_read((FIL *) fp, aligned, len > misalign ? misalign : len, &n);
@@ -591,7 +1013,7 @@ static size_t ff_read(void *fp, void *buf, size_t len) {
 }
 
 static size_t ff_write(void *fp, const void *buf, size_t len) {
-  unsigned n = 0;
+  UINT n = 0;
   return f_write((FIL *) fp, (char *) buf, len, &n) == FR_OK ? n : 0;
 }
 
@@ -1348,45 +1770,47 @@ static void static_cb(struct mg_connection *c, int ev, void *ev_data,
   (void) ev_data;
 }
 
+// Known mime types. Keep it outside guess_content_type() function, since
+// some environments don't like it defined there.
+// clang-format off
+static struct mg_str s_known_types[] = {
+    MG_C_STR("html"), MG_C_STR("text/html; charset=utf-8"),
+    MG_C_STR("htm"), MG_C_STR("text/html; charset=utf-8"),
+    MG_C_STR("css"), MG_C_STR("text/css; charset=utf-8"),
+    MG_C_STR("js"), MG_C_STR("text/javascript; charset=utf-8"),
+    MG_C_STR("gif"), MG_C_STR("image/gif"),
+    MG_C_STR("png"), MG_C_STR("image/png"),
+    MG_C_STR("jpg"), MG_C_STR("image/jpeg"),
+    MG_C_STR("jpeg"), MG_C_STR("image/jpeg"),
+    MG_C_STR("woff"), MG_C_STR("font/woff"),
+    MG_C_STR("ttf"), MG_C_STR("font/ttf"),
+    MG_C_STR("svg"), MG_C_STR("image/svg+xml"),
+    MG_C_STR("txt"), MG_C_STR("text/plain; charset=utf-8"),
+    MG_C_STR("avi"), MG_C_STR("video/x-msvideo"),
+    MG_C_STR("csv"), MG_C_STR("text/csv"),
+    MG_C_STR("doc"), MG_C_STR("application/msword"),
+    MG_C_STR("exe"), MG_C_STR("application/octet-stream"),
+    MG_C_STR("gz"), MG_C_STR("application/gzip"),
+    MG_C_STR("ico"), MG_C_STR("image/x-icon"),
+    MG_C_STR("json"), MG_C_STR("application/json"),
+    MG_C_STR("mov"), MG_C_STR("video/quicktime"),
+    MG_C_STR("mp3"), MG_C_STR("audio/mpeg"),
+    MG_C_STR("mp4"), MG_C_STR("video/mp4"),
+    MG_C_STR("mpeg"), MG_C_STR("video/mpeg"),
+    MG_C_STR("pdf"), MG_C_STR("application/pdf"),
+    MG_C_STR("shtml"), MG_C_STR("text/html; charset=utf-8"),
+    MG_C_STR("tgz"), MG_C_STR("application/tar-gz"),
+    MG_C_STR("wav"), MG_C_STR("audio/wav"),
+    MG_C_STR("webp"), MG_C_STR("image/webp"),
+    MG_C_STR("zip"), MG_C_STR("application/zip"),
+    MG_C_STR("3gp"), MG_C_STR("video/3gpp"),
+    {0, 0},
+};
+// clang-format on
+
 static struct mg_str guess_content_type(struct mg_str path, const char *extra) {
   struct mg_str k, v, s = mg_str(extra);
   size_t i = 0;
-
-  // clang-format off
-  struct mg_str tab[] = {
-      MG_C_STR("html"), MG_C_STR("text/html; charset=utf-8"),
-      MG_C_STR("htm"), MG_C_STR("text/html; charset=utf-8"),
-      MG_C_STR("css"), MG_C_STR("text/css; charset=utf-8"),
-      MG_C_STR("js"), MG_C_STR("text/javascript; charset=utf-8"),
-      MG_C_STR("gif"), MG_C_STR("image/gif"),
-      MG_C_STR("png"), MG_C_STR("image/png"),
-      MG_C_STR("jpg"), MG_C_STR("image/jpeg"),
-      MG_C_STR("jpeg"), MG_C_STR("image/jpeg"),
-      MG_C_STR("woff"), MG_C_STR("font/woff"),
-      MG_C_STR("ttf"), MG_C_STR("font/ttf"),
-      MG_C_STR("svg"), MG_C_STR("image/svg+xml"),
-      MG_C_STR("txt"), MG_C_STR("text/plain; charset=utf-8"),
-      MG_C_STR("avi"), MG_C_STR("video/x-msvideo"),
-      MG_C_STR("csv"), MG_C_STR("text/csv"),
-      MG_C_STR("doc"), MG_C_STR("application/msword"),
-      MG_C_STR("exe"), MG_C_STR("application/octet-stream"),
-      MG_C_STR("gz"), MG_C_STR("application/gzip"),
-      MG_C_STR("ico"), MG_C_STR("image/x-icon"),
-      MG_C_STR("json"), MG_C_STR("application/json"),
-      MG_C_STR("mov"), MG_C_STR("video/quicktime"),
-      MG_C_STR("mp3"), MG_C_STR("audio/mpeg"),
-      MG_C_STR("mp4"), MG_C_STR("video/mp4"),
-      MG_C_STR("mpeg"), MG_C_STR("video/mpeg"),
-      MG_C_STR("pdf"), MG_C_STR("application/pdf"),
-      MG_C_STR("shtml"), MG_C_STR("text/html; charset=utf-8"),
-      MG_C_STR("tgz"), MG_C_STR("application/tar-gz"),
-      MG_C_STR("wav"), MG_C_STR("audio/wav"),
-      MG_C_STR("webp"), MG_C_STR("image/webp"),
-      MG_C_STR("zip"), MG_C_STR("application/zip"),
-      MG_C_STR("3gp"), MG_C_STR("video/3gpp"),
-      {0, 0},
-  };
-  // clang-format on
 
   // Shrink path to its extension only
   while (i < path.len && path.ptr[path.len - i - 1] != '.') i++;
@@ -1399,8 +1823,8 @@ static struct mg_str guess_content_type(struct mg_str path, const char *extra) {
   }
 
   // Process built-in mime types
-  for (i = 0; tab[i].ptr != NULL; i += 2) {
-    if (mg_strcmp(path, tab[i]) == 0) return tab[i + 1];
+  for (i = 0; s_known_types[i].ptr != NULL; i += 2) {
+    if (mg_strcmp(path, s_known_types[i]) == 0) return s_known_types[i + 1];
   }
 
   return mg_str("text/plain; charset=utf-8");
@@ -1467,11 +1891,12 @@ void mg_http_serve_file(struct mg_connection *c, struct mg_http_message *hm,
               opts->extra_headers ? opts->extra_headers : "");
   } else {
     int n, status = 200;
-    char range[100] = "";
+    char range[100];
     int64_t r1 = 0, r2 = 0, cl = (int64_t) size;
 
     // Handle Range header
     struct mg_str *rh = mg_http_get_header(hm, "Range");
+    range[0] = '\0';
     if (rh != NULL && (n = getrange(rh, &r1, &r2)) > 0 && r1 >= 0 && r2 >= 0) {
       // If range is specified like "400-", set second limit to content len
       if (n == 1) r2 = cl - 1;
@@ -1613,26 +2038,6 @@ static void listdir(struct mg_connection *c, struct mg_http_message *hm,
   memcpy(c->send.buf + off - 12, tmp, n);  // Set content length
 }
 
-static void remove_double_dots(char *s) {
-  char *p = s;
-  while (*s != '\0') {
-    *p++ = *s++;
-    if (s[-1] == '/' || s[-1] == '\\') {
-      while (s[0] != '\0') {
-        if (s[0] == '/' || s[0] == '\\') {
-          s++;
-        } else if (s[0] == '.' && s[1] == '.' &&
-                   (s[2] == '/' || s[2] == '\\')) {
-          s += 2;
-        } else {
-          break;
-        }
-      }
-    }
-  }
-  *p = '\0';
-}
-
 // Resolve requested file into `path` and return its fs->st() result
 static int uri_to_path2(struct mg_connection *c, struct mg_http_message *hm,
                         struct mg_fs *fs, struct mg_str url, struct mg_str dir,
@@ -1646,7 +2051,7 @@ static int uri_to_path2(struct mg_connection *c, struct mg_http_message *hm,
   mg_url_decode(hm->uri.ptr + url.len, hm->uri.len - url.len, path + n,
                 path_size - n, 0);
   path[path_size - 1] = '\0';  // Double-check
-  remove_double_dots(path);
+  mg_remove_double_dots(path);
   n = strlen(path);
   while (n > 1 && path[n - 1] == '/') path[--n] = 0;  // Trim trailing slashes
   flags = mg_vcmp(&hm->uri, "/") == 0 ? MG_FS_DIR : fs->st(path, NULL, NULL);
@@ -1692,7 +2097,7 @@ static int uri_to_path(struct mg_connection *c, struct mg_http_message *hm,
 
 void mg_http_serve_dir(struct mg_connection *c, struct mg_http_message *hm,
                        const struct mg_http_serve_opts *opts) {
-  char path[MG_PATH_MAX] = "";
+  char path[MG_PATH_MAX];
   const char *sp = opts->ssi_pattern;
   int flags = uri_to_path(c, hm, opts, path, sizeof(path));
   if (flags < 0) {
@@ -1850,31 +2255,37 @@ void mg_http_delete_chunk(struct mg_connection *c, struct mg_http_message *hm) {
   if (c->pfn_data != NULL) c->pfn_data = (char *) c->pfn_data - ch.len;
 }
 
-int mg_http_upload(struct mg_connection *c, struct mg_http_message *hm,
-                   struct mg_fs *fs, const char *dir) {
-  char offset[40] = "", name[200] = "", path[256];
-  int res = 0;
-  mg_http_get_var(&hm->query, "offset", offset, sizeof(offset));
-  mg_http_get_var(&hm->query, "name", name, sizeof(name));
-  if (name[0] == '\0') {
-    mg_http_reply(c, 400, "", "%s", "name required");
-    res = -1;
-  } else if (hm->body.len == 0) {
-    mg_http_reply(c, 200, "", "%d", res);  // Nothing to write
+long mg_http_upload(struct mg_connection *c, struct mg_http_message *hm,
+                    struct mg_fs *fs, const char *path, size_t max_size) {
+  char buf[20] = "0";
+  long res = 0, offset;
+  mg_http_get_var(&hm->query, "offset", buf, sizeof(buf));
+  offset = strtol(buf, NULL, 0);
+  if (hm->body.len == 0) {
+    mg_http_reply(c, 200, "", "%ld", res);  // Nothing to write
   } else {
     struct mg_fd *fd;
-    long oft = strtol(offset, NULL, 0);
-    mg_snprintf(path, sizeof(path), "%s%c%s", dir, MG_DIRSEP, name);
-    remove_double_dots(path);
-    MG_DEBUG(("%d bytes @ %ld [%s]", (int) hm->body.len, oft, path));
-    if (oft == 0) fs->rm(path);
-    if ((fd = mg_fs_open(fs, path, MG_FS_WRITE)) == NULL) {
-      mg_http_reply(c, 400, "", "open(%s): %d", path, errno);
+    size_t current_size = 0;
+    MG_DEBUG(("%s -> %d bytes @ %ld", path, (int) hm->body.len, offset));
+    if (offset == 0) fs->rm(path);  // If offset if 0, truncate file
+    fs->st(path, &current_size, NULL);
+    if (offset < 0) {
+      mg_http_reply(c, 400, "", "offset required");
+      res = -1;
+    } else if (offset > 0 && current_size != (size_t) offset) {
+      mg_http_reply(c, 400, "", "%s: offset mismatch", path);
       res = -2;
+    } else if ((size_t) offset + hm->body.len > max_size) {
+      mg_http_reply(c, 400, "", "%s: over max size of %lu", path,
+                    (unsigned long) max_size);
+      res = -3;
+    } else if ((fd = mg_fs_open(fs, path, MG_FS_WRITE)) == NULL) {
+      mg_http_reply(c, 400, "", "open(%s): %d", path, errno);
+      res = -4;
     } else {
-      res = (int) fs->wr(fd->fd, hm->body.ptr, hm->body.len);
+      res = offset + (long) fs->wr(fd->fd, hm->body.ptr, hm->body.len);
       mg_fs_close(fd);
-      mg_http_reply(c, 200, "", "%d", res);
+      mg_http_reply(c, 200, "", "%ld", res);
     }
   }
   return res;
@@ -1950,7 +2361,6 @@ struct mg_connection *mg_http_listen(struct mg_mgr *mgr, const char *url,
 
 
 
-#include <string.h>
 
 // Not using memset for zeroing memory, cause it can be dropped by compiler
 // See https://github.com/cesanta/mongoose/pull/1265
@@ -2024,6 +2434,7 @@ void mg_iobuf_free(struct mg_iobuf *io) {
 #ifdef MG_ENABLE_LINES
 #line 1 "src/json.c"
 #endif
+
 
 
 static const char *escapeseq(int esc) {
@@ -2246,6 +2657,38 @@ char *mg_json_get_str(struct mg_str json, const char *path) {
   return result;
 }
 
+char *mg_json_get_b64(struct mg_str json, const char *path, int *len) {
+  int n, toklen;
+  char *result = NULL;
+  if ((n = mg_json_get(json.ptr, (int) json.len, path, &toklen)) >= 0 &&
+      json.ptr[n] == '"' && toklen > 1 &&
+      (result = (char *) calloc(1, (size_t) toklen)) != NULL) {
+    int k = mg_base64_decode(json.ptr + n + 1, toklen - 2, result);
+    if (len != NULL) *len = k;
+  }
+  return result;
+}
+
+char *mg_json_get_hex(struct mg_str json, const char *path, int *len) {
+  int n, toklen;
+  char *result = NULL;
+  if ((n = mg_json_get(json.ptr, (int) json.len, path, &toklen)) >= 0 &&
+      json.ptr[n] == '"' && toklen > 1 &&
+      (result = (char *) calloc(1, (size_t) toklen / 2)) != NULL) {
+    mg_unhex(json.ptr + n + 1, (size_t) (toklen - 2), (uint8_t *) result);
+    result[(toklen - 2) / 2] = '\0';
+    if (len != NULL) *len = (toklen - 2) / 2;
+  }
+  return result;
+}
+
+long mg_json_get_long(struct mg_str json, const char *path, long dflt) {
+  double dv;
+  long result = dflt;
+  if (mg_json_get_num(json, path, &dv)) result = (long) dv;
+  return result;
+}
+
 #ifdef MG_ENABLE_LINES
 #line 1 "src/log.c"
 #endif
@@ -2254,6 +2697,7 @@ char *mg_json_get_str(struct mg_str json, const char *path) {
 
 static void default_logger(unsigned char c) {
   putchar(c);
+  (void) c;
 }
 
 static const char *s_spec = "2";
@@ -2344,7 +2788,7 @@ void mg_hexdump(const void *buf, size_t len) {
 #ifdef MG_ENABLE_LINES
 #line 1 "src/md5.c"
 #endif
-#include <string.h>
+
 
 
 #if defined(MG_ENABLE_MD5) && MG_ENABLE_MD5
@@ -2362,7 +2806,7 @@ static void mg_byte_reverse(unsigned char *buf, unsigned longs) {
 /* Forrest: MD5 expect LITTLE_ENDIAN, swap if BIG_ENDIAN */
 #if BYTE_ORDER == BIG_ENDIAN
   do {
-    uint32_t t = (uint32_t)((unsigned) buf[3] << 8 | buf[2]) << 16 |
+    uint32_t t = (uint32_t) ((unsigned) buf[3] << 8 | buf[2]) << 16 |
                  ((unsigned) buf[1] << 8 | buf[0]);
     *(uint32_t *) buf = t;
     buf += 4;
@@ -2580,43 +3024,50 @@ static void mg_send_u16(struct mg_connection *c, uint16_t value) {
 }
 
 void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
-  char rnd[9], client_id[16];
+  char rnd[10], client_id[21], zero = 0;
   struct mg_str cid = opts->client_id;
   uint32_t total_len = 7 + 1 + 2 + 2;
-  uint8_t connflag = (uint8_t) ((opts->will_qos & 3) << 3);
+  uint8_t hdr[8] = {0, 4, 'M', 'Q', 'T', 'T', opts->version, 0};
 
   if (cid.len == 0) {
     mg_random(rnd, sizeof(rnd));
-    mg_base64_encode((unsigned char *) rnd, sizeof(rnd), client_id);
+    mg_hex(rnd, sizeof(rnd), client_id);
     client_id[sizeof(client_id) - 1] = '\0';
     cid = mg_str(client_id);
   }
 
+  if (hdr[6] == 0) hdr[6] = 4;  // If version is not set, use 4 (3.1.1)
+  c->pfn_data = (void *) (size_t) hdr[6];          // Store version
+  hdr[7] = (uint8_t) ((opts->will_qos & 3) << 3);  // Connection flags
   if (opts->user.len > 0) {
     total_len += 2 + (uint32_t) opts->user.len;
-    connflag |= MQTT_HAS_USER_NAME;
+    hdr[7] |= MQTT_HAS_USER_NAME;
   }
   if (opts->pass.len > 0) {
     total_len += 2 + (uint32_t) opts->pass.len;
-    connflag |= MQTT_HAS_PASSWORD;
+    hdr[7] |= MQTT_HAS_PASSWORD;
   }
   if (opts->will_topic.len > 0 && opts->will_message.len > 0) {
     total_len +=
         4 + (uint32_t) opts->will_topic.len + (uint32_t) opts->will_message.len;
-    connflag |= MQTT_HAS_WILL;
+    hdr[7] |= MQTT_HAS_WILL;
   }
-  if (opts->clean || cid.len == 0) connflag |= MQTT_CLEAN_SESSION;
-  if (opts->will_retain) connflag |= MQTT_WILL_RETAIN;
+  if (opts->clean || cid.len == 0) hdr[7] |= MQTT_CLEAN_SESSION;
+  if (opts->will_retain) hdr[7] |= MQTT_WILL_RETAIN;
   total_len += (uint32_t) cid.len;
+  if (opts->version == 5) total_len += 1U + (hdr[7] & MQTT_HAS_WILL ? 1U : 0);
 
   mg_mqtt_send_header(c, MQTT_CMD_CONNECT, 0, total_len);
-  mg_send(c, "\00\04MQTT\04", 7);
-  mg_send(c, &connflag, sizeof(connflag));
+  mg_send(c, hdr, sizeof(hdr));
   // keepalive == 0 means "do not disconnect us!"
   mg_send_u16(c, mg_htons((uint16_t) opts->keepalive));
+
+  if (opts->version == 5) mg_send(c, &zero, sizeof(zero));  // V5 properties
   mg_send_u16(c, mg_htons((uint16_t) cid.len));
   mg_send(c, cid.ptr, cid.len);
-  if (connflag & MQTT_HAS_WILL) {
+
+  if (hdr[7] & MQTT_HAS_WILL) {
+    if (opts->version == 5) mg_send(c, &zero, sizeof(zero));  // will props
     mg_send_u16(c, mg_htons((uint16_t) opts->will_topic.len));
     mg_send(c, opts->will_topic.ptr, opts->will_topic.len);
     mg_send_u16(c, mg_htons((uint16_t) opts->will_message.len));
@@ -2635,32 +3086,37 @@ void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
 void mg_mqtt_pub(struct mg_connection *c, struct mg_str topic,
                  struct mg_str data, int qos, bool retain) {
   uint8_t flags = (uint8_t) (((qos & 3) << 1) | (retain ? 1 : 0));
-  uint32_t total_len = 2 + (uint32_t) topic.len + (uint32_t) data.len;
+  uint8_t version = (uint8_t) (size_t) c->pfn_data, zero = 0;
+  uint32_t len = 2 + (uint32_t) topic.len + (uint32_t) data.len;
   MG_DEBUG(("%lu [%.*s] -> [%.*s]", c->id, (int) topic.len, (char *) topic.ptr,
             (int) data.len, (char *) data.ptr));
-  if (qos > 0) total_len += 2;
-  mg_mqtt_send_header(c, MQTT_CMD_PUBLISH, flags, total_len);
+  if (qos > 0) len += 2;
+  if (version == 5) len++;
+  mg_mqtt_send_header(c, MQTT_CMD_PUBLISH, flags, len);
   mg_send_u16(c, mg_htons((uint16_t) topic.len));
   mg_send(c, topic.ptr, topic.len);
   if (qos > 0) {
     if (++c->mgr->mqtt_id == 0) ++c->mgr->mqtt_id;
     mg_send_u16(c, mg_htons(c->mgr->mqtt_id));
   }
+  if (version == 5) mg_send(c, &zero, sizeof(zero));
   mg_send(c, data.ptr, data.len);
 }
 
 void mg_mqtt_sub(struct mg_connection *c, struct mg_str topic, int qos) {
-  uint8_t qos_ = qos & 3;
-  uint32_t total_len = 2 + (uint32_t) topic.len + 2 + 1;
-  mg_mqtt_send_header(c, MQTT_CMD_SUBSCRIBE, 2, total_len);
+  uint8_t qos_ = qos & 3, version = (uint8_t) (size_t) c->pfn_data, zero = 0;
+  uint32_t len = 2 + (uint32_t) topic.len + 2 + 1 + (version == 5 ? 1 : 0);
+  mg_mqtt_send_header(c, MQTT_CMD_SUBSCRIBE, 2, len);
   if (++c->mgr->mqtt_id == 0) ++c->mgr->mqtt_id;
   mg_send_u16(c, mg_htons(c->mgr->mqtt_id));
+  if (version == 5) mg_send(c, &zero, sizeof(zero));
   mg_send_u16(c, mg_htons((uint16_t) topic.len));
   mg_send(c, topic.ptr, topic.len);
   mg_send(c, &qos_, sizeof(qos_));
 }
 
-int mg_mqtt_parse(const uint8_t *buf, size_t len, struct mg_mqtt_message *m) {
+int mg_mqtt_parse(const uint8_t *buf, size_t len, uint8_t version,
+                  struct mg_mqtt_message *m) {
   uint8_t lc = 0, *p, *end;
   uint32_t n = 0, len_len = 0;
 
@@ -2692,16 +3148,14 @@ int mg_mqtt_parse(const uint8_t *buf, size_t len, struct mg_mqtt_message *m) {
     case MQTT_CMD_PUBREC:
     case MQTT_CMD_PUBREL:
     case MQTT_CMD_PUBCOMP:
+    case MQTT_CMD_SUBSCRIBE:
     case MQTT_CMD_SUBACK:
-      if (p + 2 > end) return MQTT_MALFORMED;
-      m->id = (uint16_t) ((((uint16_t) p[0]) << 8) | p[1]);
-      break;
-    case MQTT_CMD_SUBSCRIBE: {
+    case MQTT_CMD_UNSUBSCRIBE:
+    case MQTT_CMD_UNSUBACK:
       if (p + 2 > end) return MQTT_MALFORMED;
       m->id = (uint16_t) ((((uint16_t) p[0]) << 8) | p[1]);
       p += 2;
       break;
-    }
     case MQTT_CMD_PUBLISH: {
       if (p + 2 > end) return MQTT_MALFORMED;
       m->topic.len = (uint16_t) ((((uint16_t) p[0]) << 8) | p[1]);
@@ -2713,6 +3167,8 @@ int mg_mqtt_parse(const uint8_t *buf, size_t len, struct mg_mqtt_message *m) {
         m->id = (uint16_t) ((((uint16_t) p[0]) << 8) | p[1]);
         p += 2;
       }
+      if (p >= end) return MQTT_MALFORMED;
+      if (version == 5) p += 1 + p[0];  // Skip options
       if (p > end) return MQTT_MALFORMED;
       m->data.ptr = (char *) p;
       m->data.len = (size_t) (end - p);
@@ -2754,8 +3210,9 @@ static void mqtt_cb(struct mg_connection *c, int ev, void *ev_data,
                     void *fn_data) {
   if (ev == MG_EV_READ) {
     for (;;) {
+      uint8_t version = (uint8_t) (size_t) c->pfn_data;
       struct mg_mqtt_message mm;
-      int rc = mg_mqtt_parse(c->recv.buf, c->recv.len, &mm);
+      int rc = mg_mqtt_parse(c->recv.buf, c->recv.len, version, &mm);
       if (rc == MQTT_MALFORMED) {
         MG_ERROR(("%lu MQTT malformed message", c->id));
         c->is_closing = 1;
@@ -2839,11 +3296,11 @@ struct mg_connection *mg_mqtt_listen(struct mg_mgr *mgr, const char *url,
 
 
 size_t mg_vprintf(struct mg_connection *c, const char *fmt, va_list ap) {
-  char mem[256], *buf = mem;
-  size_t len = mg_vasprintf(&buf, sizeof(mem), fmt, ap);
-  len = mg_send(c, buf, len);
-  if (buf != mem) free(buf);
-  return len;
+  size_t old = c->send.len;
+  va_list tmp;
+  va_copy(tmp, ap);
+  mg_vrprintf(mg_putchar_iobuf, &c->send, fmt, &tmp);
+  return c->send.len - old;
 }
 
 size_t mg_printf(struct mg_connection *c, const char *fmt, ...) {
@@ -3097,7 +3554,7 @@ void mg_mgr_init(struct mg_mgr *mgr) {
 /* Copyright(c) By Steve Reid <steve@edmweb.com> */
 /* 100% Public Domain */
 
-#include <string.h>
+
 
 /*
  * clang with std=-c99 uses __LITTLE_ENDIAN, by default
@@ -3402,9 +3859,13 @@ struct mg_connection *mg_sntp_connect(struct mg_mgr *mgr, const char *url,
 #if MG_ENABLE_SOCKET
 #if MG_ARCH == MG_ARCH_WIN32 && MG_ENABLE_WINSOCK
 #define MG_SOCK_ERRNO WSAGetLastError()
+#if defined(_MSC_VER)
+#pragma comment(lib, "ws2_32.lib")
+#define alloca(a) _alloca(a)
+#endif
+#define poll(a, b, c) WSAPoll((a), (b), (c))
 #ifndef SO_EXCLUSIVEADDRUSE
 #define SO_EXCLUSIVEADDRUSE ((int) (~SO_REUSEADDR))
-#pragma comment(lib, "ws2_32.lib")
 #endif
 #elif MG_ARCH == MG_ARCH_FREERTOS_TCP
 #define MG_SOCK_ERRNO errno
@@ -3509,7 +3970,7 @@ static void iolog(struct mg_connection *c, char *buf, long n, bool r) {
   } else if (n > 0) {
     if (c->is_hexdumping) {
       union usa usa;
-      char t1[50] = "", t2[50] = "";
+      char t1[50], t2[50];
       socklen_t slen = sizeof(usa.sin);
       struct mg_addr a;
       memset(&usa, 0, sizeof(usa));
@@ -3704,6 +4165,19 @@ static void close_conn(struct mg_connection *c) {
   mg_close_conn(c);
 }
 
+static void connect_conn(struct mg_connection *c) {
+  union usa usa;
+  socklen_t n = sizeof(usa);
+  // Use getpeername() to test whether we have connected
+  if (getpeername(FD(c), &usa.sa, &n) == 0) {
+    c->is_connecting = 0;
+    mg_call(c, MG_EV_CONNECT, NULL);
+    if (c->is_tls_hs) mg_tls_handshake(c);
+  } else {
+    mg_error(c, "socket error");
+  }
+}
+
 static void setsockopts(struct mg_connection *c) {
 #if MG_ARCH == MG_ARCH_FREERTOS_TCP || MG_ARCH == MG_ARCH_AZURERTOS || \
     MG_ARCH == MG_ARCH_TIRTOS
@@ -3742,7 +4216,7 @@ void mg_connect_resolved(struct mg_connection *c) {
     if ((rc = connect(FD(c), &usa.sa, slen)) == 0) {
       mg_call(c, MG_EV_CONNECT, NULL);
     } else if (mg_sock_would_block()) {
-      MG_DEBUG(("%lu %p connect in progress...", c->id, c->fd));
+      MG_DEBUG(("%lu %p -> %x:%hu pend", c->id, c->fd, c->rem.ip, c->rem.port));
       c->is_connecting = 1;
     } else {
       mg_error(c, "connect: %d", MG_SOCK_ERRNO);
@@ -3892,61 +4366,73 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
                     eSELECT_READ | eSELECT_EXCEPT | eSELECT_WRITE);
   }
 #elif MG_ENABLE_POLL
-  nfds_t n = 0;
+  unsigned long n = 0;
   for (struct mg_connection *c = mgr->conns; c != NULL; c = c->next) n++;
-  struct pollfd fds[n == 0 ? 1 : n];  // Avoid zero-length VLA
-
-  memset(fds, 0, sizeof(fds));
+  struct pollfd *fds = (struct pollfd *) alloca(n * sizeof(fds[0]));
+  if (n > 0) memset(fds, 0, sizeof(n * sizeof(fds[0])));
   n = 0;
   for (struct mg_connection *c = mgr->conns; c != NULL; c = c->next) {
     c->is_readable = c->is_writable = 0;
     if (skip_iotest(c)) {
       // Socket not valid, ignore
+    } else if (mg_tls_pending(c) > 0) {
+      ms = 1;  // Don't wait if TLS is ready
     } else {
       fds[n].fd = FD(c);
-      if (can_read(c)) fds[n].events = POLLIN;
+      fds[n].events = POLLERR;
+      if (can_read(c)) fds[n].events |= POLLIN;
       if (can_write(c)) fds[n].events |= POLLOUT;
       n++;
-      if (mg_tls_pending(c) > 0) ms = 0;  // Don't wait if TLS is ready
     }
   }
 
+  // MG_INFO(("poll n=%d ms=%d", (int) n, ms));
   if (poll(fds, n, ms) < 0) {
-    MG_ERROR(("poll failed, errno: %d", MG_SOCK_ERRNO));
-  } else {
-    n = 0;
-    for (struct mg_connection *c = mgr->conns; c != NULL; c = c->next) {
-      if (skip_iotest(c)) {
-        // Socket not valid, ignore
+#if MG_ARCH == MG_ARCH_WIN32
+    if (n == 0) Sleep(ms);  // On Windows, poll fails if no sockets
+#endif
+    if (n > 0) memset(fds, 0, sizeof(n * sizeof(fds[0])));
+  }
+  n = 0;
+  for (struct mg_connection *c = mgr->conns; c != NULL; c = c->next) {
+    if (skip_iotest(c)) {
+      // Socket not valid, ignore
+    } else if (mg_tls_pending(c) > 0) {
+      c->is_readable = 1;
+    } else {
+      if (fds[n].revents & POLLERR) {
+        mg_error(c, "socket error");
       } else {
-        c->is_readable = (unsigned) (fds[n].revents & POLLIN ? 1 : 0);
+        c->is_readable =
+            (unsigned) (fds[n].revents & POLLIN || fds[n].revents & POLLHUP
+                            ? 1
+                            : 0);
         c->is_writable = (unsigned) (fds[n].revents & POLLOUT ? 1 : 0);
-        if (mg_tls_pending(c) > 0) c->is_readable = 1;
-        fds[n].revents = 0;
-        n++;
       }
+      n++;
     }
   }
 #else
   struct timeval tv = {ms / 1000, (ms % 1000) * 1000}, tv_zero = {0, 0};
   struct mg_connection *c;
-  fd_set rset, wset;
+  fd_set rset, wset, eset;
   SOCKET maxfd = 0;
   int rc;
 
   FD_ZERO(&rset);
   FD_ZERO(&wset);
-
+  FD_ZERO(&eset);
   for (c = mgr->conns; c != NULL; c = c->next) {
     c->is_readable = c->is_writable = 0;
     if (skip_iotest(c)) continue;
+    FD_SET(FD(c), &eset);
     if (can_read(c)) FD_SET(FD(c), &rset);
     if (can_write(c)) FD_SET(FD(c), &wset);
     if (mg_tls_pending(c) > 0) tv = tv_zero;
     if (FD(c) > maxfd) maxfd = FD(c);
   }
 
-  if ((rc = select((int) maxfd + 1, &rset, &wset, NULL, &tv)) < 0) {
+  if ((rc = select((int) maxfd + 1, &rset, &wset, &eset, &tv)) < 0) {
 #if MG_ARCH == MG_ARCH_WIN32
     if (maxfd == 0) Sleep(ms);  // On Windows, select fails if no sockets
 #else
@@ -3954,32 +4440,19 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
 #endif
     FD_ZERO(&rset);
     FD_ZERO(&wset);
+    FD_ZERO(&eset);
   }
 
   for (c = mgr->conns; c != NULL; c = c->next) {
-    c->is_readable = FD(c) != INVALID_SOCKET && FD_ISSET(FD(c), &rset);
-    c->is_writable = FD(c) != INVALID_SOCKET && FD_ISSET(FD(c), &wset);
-    if (mg_tls_pending(c) > 0) c->is_readable = 1;
+    if (FD(c) != INVALID_SOCKET && FD_ISSET(FD(c), &eset)) {
+      mg_error(c, "socket error");
+    } else {
+      c->is_readable = FD(c) != INVALID_SOCKET && FD_ISSET(FD(c), &rset);
+      c->is_writable = FD(c) != INVALID_SOCKET && FD_ISSET(FD(c), &wset);
+      if (mg_tls_pending(c) > 0) c->is_readable = 1;
+    }
   }
 #endif
-}
-
-static void connect_conn(struct mg_connection *c) {
-  int rc = 0;
-#if (MG_ARCH != MG_ARCH_FREERTOS_TCP) && (MG_ARCH != MG_ARCH_RTX)
-  socklen_t len = sizeof(rc);
-  if (getsockopt(FD(c), SOL_SOCKET, SO_ERROR, (char *) &rc, &len)) rc = 1;
-#endif
-  if (rc == EAGAIN || rc == EWOULDBLOCK) rc = 0;
-  c->is_connecting = 0;
-  if (rc) {
-    char buf[50];
-    mg_error(c, "error connecting to %s",
-             mg_straddr(&c->rem, buf, sizeof(buf)));
-  } else {
-    if (c->is_tls_hs) mg_tls_handshake(c);
-    mg_call(c, MG_EV_CONNECT, NULL);
-  }
 }
 
 void mg_mgr_poll(struct mg_mgr *mgr, int ms) {
@@ -4036,12 +4509,14 @@ static char *mg_ssi(const char *path, const char *root, int depth) {
   struct mg_iobuf b = {NULL, 0, 0};
   FILE *fp = fopen(path, "rb");
   if (fp != NULL) {
-    char buf[MG_SSI_BUFSIZ] = "", arg[sizeof(buf)] = "";
+    char buf[MG_SSI_BUFSIZ], arg[sizeof(buf)];
     int ch, intag = 0;
     size_t len = 0, align = MG_IO_SIZE;
+    buf[0] = arg[0] = '\0';
     while ((ch = fgetc(fp)) != EOF) {
       if (intag && ch == '>' && buf[len - 1] == '-' && buf[len - 2] == '-') {
         buf[len++] = (char) (ch & 0xff);
+        buf[len] = '\0';
         if (sscanf(buf, "<!--#include file=\"%[^\"]", arg)) {
           char tmp[MG_PATH_MAX + MG_SSI_BUFSIZ + 10],
               *p = (char *) path + strlen(path), *data;
@@ -4120,7 +4595,6 @@ void mg_http_serve_ssi(struct mg_connection *c, const char *root,
 #line 1 "src/str.c"
 #endif
 
-#include <stdlib.h>
 
 struct mg_str mg_str_s(const char *s) {
   struct mg_str str = {s, s == NULL ? 0 : strlen(s)};
@@ -4202,10 +4676,6 @@ const char *mg_strstr(const struct mg_str haystack,
     }
   }
   return NULL;
-}
-
-static bool is_digit(int c) {
-  return c >= '0' && c <= '9';
 }
 
 static bool is_space(int c) {
@@ -4321,52 +4791,6 @@ void mg_unhex(const char *buf, size_t len, unsigned char *to) {
   }
 }
 
-size_t mg_vasprintf(char **buf, size_t size, const char *fmt, va_list ap) {
-  va_list ap_copy;
-  size_t len;
-
-  va_copy(ap_copy, ap);
-  len = mg_vsnprintf(*buf, size, fmt, &ap_copy);
-  va_end(ap_copy);
-
-  if (len >= size) {
-    //  Allocate a buffer that is large enough
-    if ((*buf = (char *) calloc(1, len + 1)) == NULL) {
-      len = 0;
-    } else {
-      va_copy(ap_copy, ap);
-      len = mg_vsnprintf(*buf, len + 1, fmt, &ap_copy);
-      va_end(ap_copy);
-    }
-  }
-
-  return len;
-}
-
-size_t mg_asprintf(char **buf, size_t size, const char *fmt, ...) {
-  size_t ret;
-  va_list ap;
-  va_start(ap, fmt);
-  ret = mg_vasprintf(buf, size, fmt, ap);
-  va_end(ap);
-  return ret;
-}
-
-char *mg_vmprintf(const char *fmt, va_list ap) {
-  char *s = NULL;
-  mg_vasprintf(&s, 0, fmt, ap);
-  return s;
-}
-
-char *mg_mprintf(const char *fmt, ...) {
-  char *s = NULL;
-  va_list ap;
-  va_start(ap, fmt);
-  mg_vasprintf(&s, 0, fmt, ap);
-  va_end(ap);
-  return s;
-}
-
 uint64_t mg_tou64(struct mg_str str) {
   uint64_t result = 0;
   size_t i = 0;
@@ -4393,292 +4817,25 @@ int64_t mg_to64(struct mg_str str) {
   return result * neg;
 }
 
-size_t mg_lld(char *buf, int64_t val, bool is_signed, bool is_hex) {
-  const char *letters = "0123456789abcdef";
-  uint64_t v = (uint64_t) val;
-  size_t s = 0, n, i;
-  if (is_signed && val < 0) buf[s++] = '-', v = (uint64_t) (-val);
-  // This loop prints a number in reverse order. I guess this is because we
-  // write numbers from right to left: least significant digit comes last.
-  // Maybe because we use Arabic numbers, and Arabs write RTL?
-  if (is_hex) {
-    for (n = 0; v; v >>= 4) buf[s + n++] = letters[v & 15];
-  } else {
-    for (n = 0; v; v /= 10) buf[s + n++] = letters[v % 10];
-  }
-  // Reverse a string
-  for (i = 0; i < n / 2; i++) {
-    char t = buf[s + i];
-    buf[s + i] = buf[s + n - i - 1], buf[s + n - i - 1] = t;
-  }
-  if (val == 0) buf[n++] = '0';  // Handle special case
-  return n + s;
-}
-
-static size_t mg_copys(char *buf, size_t len, size_t n, char *p, size_t k) {
-  size_t j = 0;
-  for (j = 0; j < k && p[j]; j++)
-    if (j + n < len) buf[n + j] = p[j];
-  return j;
-}
-
-static char mg_esc(int c, bool esc) {
-  const char *p, *esc1 = "\b\f\n\r\t\\\"", *esc2 = "bfnrt\\\"";
-  for (p = esc ? esc1 : esc2; *p != '\0'; p++) {
-    if (*p == c) return esc ? esc2[p - esc1] : esc1[p - esc2];
-  }
-  return 0;
-}
-
-static char mg_escape(int c) {
-  return mg_esc(c, true);
-}
-
-static size_t mg_copyq(char *buf, size_t len, size_t n, char *p, size_t k) {
-  size_t j = 0, extra = 2;
-  if (n < len) buf[n++] = '"';
-  for (j = 0; j < k && p[j]; j++) {
-    char c = mg_escape(p[j]);
-    if (c) {
-      if (j + n < len) buf[n + j] = '\\';
-      n++;
-      extra++;
-      if (j + n < len) buf[n + j] = c;
-    } else {
-      if (j + n < len) buf[n + j] = p[j];
-    }
-  }
-  if (j + n < len) buf[n + j] = '"';
-  return j + extra;
-}
-
-// %M specifier printer function
-typedef size_t (*mg_spfn_t)(char *, size_t, va_list *);
-
-size_t mg_vsnprintf(char *buf, size_t len, const char *fmt, va_list *ap) {
-  size_t i = 0, n = 0;
-  while (fmt[i] != '\0') {
-    if (fmt[i] == '%') {
-      size_t j, k, x = 0, is_long = 0, w = 0 /* width */, pr = ~0U /* prec */;
-      char pad = ' ', minus = 0, c = fmt[++i];
-      if (c == '#') x++, c = fmt[++i];
-      if (c == '-') minus++, c = fmt[++i];
-      if (c == '0') pad = '0', c = fmt[++i];
-      while (is_digit(c)) w *= 10, w += (size_t) (c - '0'), c = fmt[++i];
-      if (c == '.') {
-        c = fmt[++i];
-        if (c == '*') {
-          pr = (size_t) va_arg(*ap, int);
-          c = fmt[++i];
+char *mg_remove_double_dots(char *s) {
+  char *saved = s, *p = s;
+  while (*s != '\0') {
+    *p++ = *s++;
+    if (s[-1] == '/' || s[-1] == '\\') {
+      while (s[0] != '\0') {
+        if (s[0] == '/' || s[0] == '\\') {
+          s++;
+        } else if (s[0] == '.' && s[1] == '.' &&
+                   (s[2] == '/' || s[2] == '\\')) {
+          s += 2;
         } else {
-          pr = 0;
-          while (is_digit(c)) pr *= 10, pr += (size_t) (c - '0'), c = fmt[++i];
+          break;
         }
       }
-      while (c == 'h') c = fmt[++i];  // Treat h and hh as int
-      if (c == 'l') {
-        is_long++, c = fmt[++i];
-        if (c == 'l') is_long++, c = fmt[++i];
-      }
-      if (c == 'p') x = 1, is_long = 1;
-      if (c == 'd' || c == 'u' || c == 'x' || c == 'X' || c == 'p' ||
-          c == 'g') {
-        bool s = (c == 'd'), h = (c == 'x' || c == 'X' || c == 'p');
-        char tmp[40];
-        size_t xl = x ? 2 : 0;
-        if (c == 'g' || c == 'f') {
-          double v = va_arg(*ap, double);
-          if (pr == ~0U) pr = 6;
-          k = mg_dtoa(tmp, sizeof(tmp), v, (int) pr);
-        } else if (is_long == 2) {
-          int64_t v = va_arg(*ap, int64_t);
-          k = mg_lld(tmp, v, s, h);
-        } else if (is_long == 1) {
-          long v = va_arg(*ap, long);
-          k = mg_lld(tmp, s ? (int64_t) v : (int64_t) (unsigned long) v, s, h);
-        } else {
-          int v = va_arg(*ap, int);
-          k = mg_lld(tmp, s ? (int64_t) v : (int64_t) (unsigned) v, s, h);
-        }
-        for (j = 0; j < xl && w > 0; j++) w--;
-        for (j = 0; pad == ' ' && !minus && k < w && j + k < w; j++)
-          n += mg_copys(buf, len, n, &pad, 1);
-        n += mg_copys(buf, len, n, (char *) "0x", xl);
-        for (j = 0; pad == '0' && k < w && j + k < w; j++)
-          n += mg_copys(buf, len, n, &pad, 1);
-        n += mg_copys(buf, len, n, tmp, k);
-        for (j = 0; pad == ' ' && minus && k < w && j + k < w; j++)
-          n += mg_copys(buf, len, n, &pad, 1);
-      } else if (c == 'M') {
-        char *dst = buf ? buf + n : NULL;
-        size_t dstlen = n < len ? len - n : 0;
-        mg_spfn_t fn = va_arg(*ap, mg_spfn_t);
-        n += fn(dst, dstlen, ap);
-      } else if (c == 'c') {
-        int p = va_arg(*ap, int);
-        if (n < len) buf[n] = (char) p;
-        n++;
-      } else if (c == 's' || c == 'Q') {
-        char *p = va_arg(*ap, char *);
-        size_t (*fn)(char *, size_t, size_t, char *, size_t) =
-            c == 's' ? mg_copys : mg_copyq;
-        if (pr == ~0U) pr = p == NULL ? 0 : strlen(p);
-        for (j = 0; !minus && pr < w && j + pr < w; j++)
-          n += fn(buf, len, n, &pad, 1);
-        n += fn(buf, len, n, p, pr);
-        for (j = 0; minus && pr < w && j + pr < w; j++)
-          n += fn(buf, len, n, &pad, 1);
-      } else if (c == '%') {
-        if (n < len) buf[n] = '%';
-        n++;
-      } else {
-        if (n < len) buf[n] = '%';
-        n++;
-        if (n < len) buf[n] = c;
-        n++;
-      }
-      i++;
-    } else {
-      if (n < len) buf[n] = fmt[i];
-      n++, i++;
     }
   }
-  if (n < len) buf[n] = '\0';
-  return n;
-}
-
-double mg_atod(const char *p, int len, int *numlen) {
-  double d = 0.0;
-  int i = 0, sign = 1;
-
-  // Sign
-  if (i < len && *p == '-') {
-    sign = -1, i++;
-  } else if (i < len && *p == '+') {
-    i++;
-  }
-
-  // Decimal
-  for (; i < len && is_digit(p[i]); i++) {
-    d *= 10.0;
-    d += p[i] - '0';
-  }
-  d *= sign;
-
-  // Fractional
-  if (i < len && p[i] == '.') {
-    double frac = 0.0, base = 0.1;
-    i++;
-    for (; i < len && is_digit(p[i]); i++) {
-      frac += base * (p[i] - '0');
-      base /= 10.0;
-    }
-    d += frac * sign;
-  }
-
-  // Exponential
-  if (i < len && (p[i] == 'e' || p[i] == 'E')) {
-    int j, exp = 0, minus = 0;
-    i++;
-    if (i < len && p[i] == '-') minus = 1, i++;
-    if (i < len && p[i] == '+') i++;
-    while (i < len && is_digit(p[i]) && exp < 308)
-      exp = exp * 10 + (p[i++] - '0');
-    if (minus) exp = -exp;
-    for (j = 0; j < exp; j++) d *= 10.0;
-    for (j = 0; j < -exp; j++) d /= 10.0;
-  }
-
-  if (numlen != NULL) *numlen = i;
-  return d;
-}
-
-static int addexp(char *buf, int e, int sign) {
-  int n = 0;
-  buf[n++] = 'e';
-  buf[n++] = (char) sign;
-  if (e > 400) return 0;
-  if (e < 10) buf[n++] = '0';
-  if (e >= 100) buf[n++] = (char) (e / 100 + '0'), e -= 100 * (e / 100);
-  if (e >= 10) buf[n++] = (char) (e / 10 + '0'), e -= 10 * (e / 10);
-  buf[n++] = (char) (e + '0');
-  return n;
-}
-
-static int xisinf(double x) {
-  union {
-    double f;
-    uint64_t u;
-  } ieee754 = {x};
-  return ((unsigned) (ieee754.u >> 32) & 0x7fffffff) == 0x7ff00000 &&
-         ((unsigned) ieee754.u == 0);
-}
-
-static int xisnan(double x) {
-  union {
-    double f;
-    uint64_t u;
-  } ieee754 = {x};
-  return ((unsigned) (ieee754.u >> 32) & 0x7fffffff) +
-             ((unsigned) ieee754.u != 0) >
-         0x7ff00000;
-}
-
-size_t mg_dtoa(char *dst, size_t dstlen, double d, int width) {
-  char buf[40];
-  int i, s = 0, n = 0, e = 0;
-  double t, mul, saved;
-  if (d == 0.0) return mg_snprintf(dst, dstlen, "%s", "0");
-  if (xisinf(d)) return mg_snprintf(dst, dstlen, "%s", d > 0 ? "inf" : "-inf");
-  if (xisnan(d)) return mg_snprintf(dst, dstlen, "%s", "nan");
-  if (d < 0.0) d = -d, buf[s++] = '-';
-
-  // Round
-  saved = d;
-  mul = 1.0;
-  while (d >= 10.0 && d / mul >= 10.0) mul *= 10.0;
-  while (d <= 1.0 && d / mul <= 1.0) mul /= 10.0;
-  for (i = 0, t = mul * 5; i < width; i++) t /= 10.0;
-  d += t;
-  // Calculate exponent, and 'mul' for scientific representation
-  mul = 1.0;
-  while (d >= 10.0 && d / mul >= 10.0) mul *= 10.0, e++;
-  while (d < 1.0 && d / mul < 1.0) mul /= 10.0, e--;
-  // printf(" --> %g %d %g %g\n", saved, e, t, mul);
-
-  if (e >= width) {
-    n = (int) mg_dtoa(buf, sizeof(buf), saved / mul, width);
-    // printf(" --> %.*g %d [%.*s]\n", 10, d / t, e, n, buf);
-    n += addexp(buf + s + n, e, '+');
-    return mg_snprintf(dst, dstlen, "%.*s", n, buf);
-  } else if (e <= -width) {
-    n = (int) mg_dtoa(buf, sizeof(buf), saved / mul, width);
-    // printf(" --> %.*g %d [%.*s]\n", 10, d / mul, e, n, buf);
-    n += addexp(buf + s + n, -e, '-');
-    return mg_snprintf(dst, dstlen, "%.*s", n, buf);
-  } else {
-    for (i = 0, t = mul; t >= 1.0 && s + n < (int) sizeof(buf); i++) {
-      int ch = (int) (d / t);
-      if (n > 0 || ch > 0) buf[s + n++] = (char) (ch + '0');
-      d -= ch * t;
-      t /= 10.0;
-    }
-    // printf(" --> [%g] -> %g %g (%d) [%.*s]\n", saved, d, t, n, s + n, buf);
-    if (n == 0) buf[s++] = '0';
-    while (t >= 1.0 && n + s < (int) sizeof(buf)) buf[n++] = '0', t /= 10.0;
-    if (s + n < (int) sizeof(buf)) buf[n + s++] = '.';
-    // printf(" 1--> [%g] -> [%.*s]\n", saved, s + n, buf);
-    for (i = 0, t = 0.1; s + n < (int) sizeof(buf) && n < width; i++) {
-      int ch = (int) (d / t);
-      buf[s + n++] = (char) (ch + '0');
-      d -= ch * t;
-      t /= 10.0;
-    }
-  }
-  while (n > 0 && buf[s + n - 1] == '0') n--;  // Trim trailing zeros
-  if (n > 0 && buf[s + n - 1] == '.') n--;     // Trim trailing dot
-  buf[s + n] = '\0';
-  return mg_snprintf(dst, dstlen, "%s", buf);
+  *p = '\0';
+  return saved;
 }
 
 #ifdef MG_ENABLE_LINES
@@ -5037,7 +5194,7 @@ void mg_tls_init(struct mg_connection *c, const struct mg_tls_opts *opts) {
     SSL_set_verify(tls->ssl, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
                    NULL);
     if ((rc = SSL_CTX_load_verify_locations(tls->ctx, opts->ca, NULL)) != 1) {
-      mg_error(c, "parse(%s): err %d", opts->ca, mg_tls_err(tls, rc));
+      mg_error(c, "load('%s') %d err %d", opts->ca, rc, mg_tls_err(tls, rc));
       goto fail;
     }
   }
@@ -5053,7 +5210,7 @@ void mg_tls_init(struct mg_connection *c, const struct mg_tls_opts *opts) {
 #if OPENSSL_VERSION_NUMBER > 0x10100000L
     } else if ((rc = SSL_use_certificate_chain_file(tls->ssl, opts->cert)) !=
                1) {
-      mg_error(c, "Invalid CA, err %d", mg_tls_err(tls, rc));
+      mg_error(c, "Invalid chain, err %d", mg_tls_err(tls, rc));
       goto fail;
 #endif
     } else {
@@ -5066,9 +5223,9 @@ void mg_tls_init(struct mg_connection *c, const struct mg_tls_opts *opts) {
 #if OPENSSL_VERSION_NUMBER > 0x10002000L
   if (opts->srvname.len > 0) {
     char mem[128], *buf = mem;
-    size_t len = mg_asprintf(&buf, sizeof(mem), "%.*s", (int) opts->srvname.len,
-                             opts->srvname.ptr);
-    X509_VERIFY_PARAM_set1_host(SSL_get0_param(tls->ssl), buf, len);
+    mg_asprintf(&buf, sizeof(mem), "%.*s", (int) opts->srvname.len,
+                opts->srvname.ptr);
+    SSL_set1_host(tls->ssl, buf);
     if (buf != mem) free(buf);
   }
 #endif
@@ -5138,7 +5295,6 @@ long mg_tls_send(struct mg_connection *c, const void *buf, size_t len) {
 #line 1 "src/url.c"
 #endif
 
-#include <stdlib.h>
 
 struct url {
   size_t key, user, pass, host, port, uri, end;
@@ -5228,10 +5384,6 @@ struct mg_str mg_url_pass(const char *url) {
 #line 1 "src/util.c"
 #endif
 
-
-#if MG_ARCH == MG_ARCH_UNIX && defined(__APPLE__)
-#include <mach/mach_time.h>
-#endif
 
 #if MG_ENABLE_CUSTOM_RANDOM
 #else
