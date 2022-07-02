@@ -182,6 +182,9 @@ function processAircraft(ac, init, uat) {
     let isArray = Array.isArray(ac);
     let hex = isArray ? ac[0] : ac.hex;
 
+    if (!isArray)
+       console.log ("live ac.messages: ", ac.messages);
+
     // Do we already have this plane object in Planes?
     // If not make it.
 
@@ -287,8 +290,10 @@ function processReceiverUpdate(data, init) {
         updateMessageRate(data);
 
     // Loop through all the planes in the data packet
-    for (let j=0; j < data.aircraft.length; j++)
+    for (let j=0; j < data.aircraft.length; j++) {
+        console.log ("Processing aircraft: ", j);
         processAircraft(data.aircraft[j], init, uat);
+    }
 }
 
 let debugFetch = false;
@@ -2398,6 +2403,7 @@ function initMap() {
             return;
         }
         let oldCenter, extent, newCenter;
+
         switch (e.key) {
             case "c":
             case "Esc":
@@ -2554,6 +2560,10 @@ function initMap() {
                 loStore['noMLAT'] = noMLAT;
                 console.log('noMLAT = ' + noMLAT);
                 break;
+            case "F12":  /* Chrome's DevConsole active */
+               debugFetch = true;
+               break;
+
         }
     }, true);
 
@@ -4292,7 +4302,7 @@ function invertMap(evt){
   ctx.globalAlpha = alpha;  // alpha 0 = no effect 1 = full effect
   ctx.fillRect(0, 0, evt.ctx.canvas.width, ctx.canvas.height);
 
-  
+
 }
 //
 // Altitude Chart begin

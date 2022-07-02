@@ -629,7 +629,7 @@ int sdrplay_read_async (sdrplay_dev *device,
 int sdrplay_set_gain (sdrplay_dev *device, int gain)
 {
   LOG_FILEONLY ("gain: %.1f dB\n", (double)gain / 10);
-  ARGSUSED (device);
+  MODES_NOTUSED (device);
   return (0);
 }
 

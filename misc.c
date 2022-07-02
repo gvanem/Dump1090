@@ -90,6 +90,50 @@ double ato_hertz (const char *Hertz)
 }
 
 /**
+ * Return TRUE if string `s1` starts with `s2`.
+ *
+ * Ignore casing of both strings.
+ * And drop leading blanks in `s1` first.
+ */
+bool str_startswith (const char *s1, const char *s2)
+{
+  size_t s1_len, s2_len;
+
+  s1_len = strlen (s1);
+  s2_len = strlen (s2);
+
+  if (s2_len > s1_len)
+     return (FALSE);
+
+  if (!_strnicmp (s1, s2, s2_len))
+     return (TRUE);
+  return (FALSE);
+}
+
+/**
+ * Return TRUE if string `s1` ends with `s2`.
+ */
+bool str_endswith (const char *s1, const char *s2)
+{
+  const char *s1_end, *s2_end;
+
+  if (strlen(s2) > strlen(s1))
+     return (FALSE);
+
+  s1_end = strchr (s1, '\0') - 1;
+  s2_end = strchr (s2, '\0') - 1;
+
+  while (s2_end >= s2)
+  {
+    if (*s1_end != *s2_end)
+       break;
+    s1_end--;
+    s2_end--;
+  }
+  return (s2_end == s2 - 1);
+}
+
+/**
  * Strip drive-letter, directory and suffix from a filename.
  */
 char *basename (const char *fname)
@@ -178,7 +222,7 @@ static uint64_t FILETIME_to_unix_epoch (const FILETIME *ft)
 {
   uint64_t res = (uint64_t) ft->dwHighDateTime << 32;
 
-  res |= ft->dwLowDateTime;
+  res += ft->dwLowDateTime;
   res /= 10;                   /* from 100 nano-sec periods to usec */
   res -= DELTA_EPOCH_IN_USEC;  /* from Win epoch to Unix epoch */
   return (res);

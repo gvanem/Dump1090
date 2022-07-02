@@ -1338,6 +1338,8 @@ PlaneObject.prototype.updateData = function(now, last, data, init) {
     // get location data first, return early if only those are needed.
 
     let isArray = Array.isArray(data);
+    console.log("Got data, isArray: ", isArray);
+
     // [.hex, .alt_baro, .gs, .track, .lat, .lon, .seen_pos, "mlat"/"tisb"/.type , .flight, .messages]
     //    0      1        2     3       4     5     6                 7               8        9
     // this format is only valid for chunk loading the history

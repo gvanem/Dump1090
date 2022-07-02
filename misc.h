@@ -19,11 +19,12 @@
 /**
  * Various helper macros.
  */
+#define DUMP1090_VERSION   "0.1"
+#define ADS_B_ACRONYM      "ADS-B; Automatic Dependent Surveillance - Broadcast"
 #define MODES_NOTUSED(V)   ((void)V)
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define TWO_PI             (2 * M_PI)
 #define DIM(array)         (sizeof(array) / sizeof(array[0]))
-#define ARGSUSED(foo)      (void)foo
 #define ONE_MEGABYTE       (1024*1024)
 #define STDIN_FILENO       0
 
@@ -33,7 +34,12 @@
  */
 #define GMAP_HTML         "web_root/gmap.html"
 
-#define ADS_B_ACRONYM     "ADS-B; Automatic Dependent Surveillance - Broadcast"
+/**
+ * \def PAGE_404_HTML
+ * Our default 404 page `Modes.where_am_I`.
+ */
+#define PAGE_404_HTML     "web_root/404.html"
+
 
 /**
  * Definitions for network services.
@@ -271,6 +277,7 @@ typedef struct statistics {
         uint64_t  unique_aircrafts;
         uint64_t  unique_aircrafts_CSV;
         uint64_t  unrecognized_ME;
+        uint64_t  messages_total;
 
         /* Network statistics:
          */
@@ -286,6 +293,7 @@ typedef struct statistics {
         uint64_t  HTTP_keep_alive_recv;
         uint64_t  HTTP_keep_alive_sent;
         uint64_t  HTTP_websockets;
+        uint64_t  HTTP_404_responses;
 
         /* Network statistics for receiving raw and SBS messages:
          */
@@ -392,6 +400,12 @@ typedef struct global_data {
         mg_connection *http_out;               /**< HTTP listening connection. */
         mg_mgr         mgr;                    /**< Only one connection manager */
 
+        /** Aircraft history
+         */
+        uint64_t json_interval;
+        int      json_aircraft_history_next;
+        mg_str   json_aircraft_history [120];
+
         /** Configuration
          */
         const char *infile;                    /**< Input IQ samples from file with option `--infile file`. */
@@ -445,6 +459,8 @@ extern global_data Modes;
 extern void   modeS_log (const char *buf);
 extern void   modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
 extern double ato_hertz (const char *Hertz);
+extern bool   str_startswith (const char *s1, const char *s2);
+extern bool   str_endswith (const char *s1, const char *s2);
 extern char  *basename (const char *fname);
 extern char  *dirname (const char *fname);
 extern int   _gettimeofday (struct timeval *tv, void *timezone);
