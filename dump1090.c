@@ -4001,6 +4001,13 @@ const char *get_client_headers (const connection *cli, const char *hdr)
   return (buf);
 }
 
+/*
+ * Generated arrays from
+ *   xxd -i favicon.png
+ *   xxd -i favicon.ico
+ */
+#include "favicon.c"
+
 /**
  * The event handler for HTTP traffic.
  */
@@ -4017,6 +4024,8 @@ int connection_handler_http (mg_connection *conn,
   const char      *content = NULL;
   const char      *uri, *ext;
   char            *request, *end;
+  char             header [1000];
+  int              header_len;
 
   *ret_data = NULL;
   *request_data = '\0';
@@ -4138,18 +4147,28 @@ int connection_handler_http (mg_connection *conn,
 
     if (!_stricmp(request, "GET /favicon.png"))
     {
-      #include "favicon.c"  /* generated array from 'xxd -i favicon.png' */
 
       TRACE (DEBUG_NET, "Sending \"favicon.png\" to cli: %lu.\n", conn->id);
 
-      char header [1000];
-      int  header_len = snprintf (header, sizeof(header),
-                                  "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
-                                  "Content-Length: %u\r\n%s\r\n",
-                                  content, favicon_png_len,
-                                  cli->keep_alive ? "Connection: keep-alive\r\n" : "");
+      header_len = snprintf (header, sizeof(header),
+                             "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
+                             "Content-Length: %u\r\n%s\r\n",
+                             content, favicon_png_len,
+                             cli->keep_alive ? "Connection: keep-alive\r\n" : "");
       mg_send (conn, header, header_len);
       mg_send (conn, favicon_png, favicon_png_len);
+    }
+    else if (!_stricmp(request, "GET /favicon.ico"))  /* Other browsers may want a 'favicon.ico' file */
+    {
+      TRACE (DEBUG_NET, "Sending \"favicon.ico\" to cli: %lu.\n", conn->id);
+
+      header_len = snprintf (header, sizeof(header),
+                             "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
+                             "Content-Length: %u\r\n%s\r\n",
+                             content, favicon_ico_len,
+                             cli->keep_alive ? "Connection: keep-alive\r\n" : "");
+      mg_send (conn, header, header_len);
+      mg_send (conn, favicon_ico, favicon_ico_len);
     }
     else
     {

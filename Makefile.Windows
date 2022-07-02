@@ -234,6 +234,16 @@ $(OBJ_DIR)/dump1090.res: dump1090.rc
 	rc $(RCFLAGS) -fo $@ $<
 	@echo
 
+#
+# Not needed since 'favicon.c' is not in 'make clean'.
+#
+gen_favicons: favicon.png favicon.ico
+	$(call Generate, favicon.c, //)
+	@echo '// Generated array from favicon.png' >> favicon2.c
+	xxd -i favicon.png >> favicon.c
+	@echo '// Generated array from favicon.ico' >> favicon2.c
+	xxd -i favicon.ico >> favicon.c
+
 docs: doxy-docs doxy-docs/Doxyfile
 	cd $< ; doxygen Doxyfile 2> doxygen.log
 	$(call green_msg, Doxygen generated docs done. Look in 'doxy-docs/doxygen.log' for details.\n)
