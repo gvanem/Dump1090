@@ -125,9 +125,8 @@ If a `DUMP1090_HOME_POS` environment variable is defined, the distance to the pl
 calculated. I.e. the `Dist` column above. E.g. a `set DUMP1090_HOMEPOS=60.3016821,5.3208769`
 for Bergen/Norway.
 
-Dump1090 supports another Web-root implementation (than the default `./web_root/gmap.html`)
-using the `--web-root <HTML-file>` option. <br>
-Running it like:
+The program supports another Web-root implementation (than the default `./web_root/gmap.html`) using the<br>
+`--web-root <HTML-file>` option. Running it like:
   ```
   c:\dev\Dump1090> dump1090 --interactive --web-root c:\dev\Dump1090\web_root-Tar1090\index.html
   ```
