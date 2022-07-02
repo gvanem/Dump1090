@@ -815,6 +815,7 @@ void modeS_init_config (void)
   Modes.freq        = MODES_DEFAULT_FREQ;
   Modes.interactive_ttl  = MODES_INTERACTIVE_TTL;
   Modes.interactive_rows = 25;
+  Modes.json_interval    = 1000;
 }
 
 /**
@@ -2685,6 +2686,9 @@ void modeS_user_message (const modeS_message *mm)
   if (!mm->CRC_ok)
      return;
 
+  Modes.stat.messages_total++;
+
+
   /* Track aircrafts in interactive mode or if we have some HTTP / SBS clients.
    */
   num_clients = Modes.stat.cli_accepted [MODES_NET_SERVICE_HTTP] +
@@ -3518,103 +3522,179 @@ int strip_mode (int level)
   return (0);
 }
 
-#ifdef NOT_USED
 /*
  * Taken from Dump1090-FA's 'net_io.c':
  */
 char *aircraft_json_Dump1090_OL3 (const char *url_path, int *len)
 {
+  MODES_NOTUSED (url_path);
+  MODES_NOTUSED (len);
+  return (NULL);
 }
-
-#define MODES_DUMP1090_VERSION "0.1"
 
 /**
  * Return a description of the receiver in JSON.
+ { "version" : "0.1-gv", "refresh" : 1000, "history" : 3 }
  */
-char *receiver_to_json (int *len)
+char *receiver_to_json (void)
 {
-  char *buf = malloc (1024);
-  char *p = buf;
-  int   history_size;
+  int history_size = DIM(Modes.json_aircraft_history)-1;
 
   /* work out number of valid history entries
    */
-  if (Modes.json_aircraft_history[HISTORY_SIZE-1].content == NULL)
-       history_size = Modes.json_aircraft_history_next;
-  else history_size = HISTORY_SIZE;
+  if (!Modes.json_aircraft_history [history_size].ptr)
+     history_size = Modes.json_aircraft_history_next;
 
-  p += sprintf (p, "{ \"version\": \"%s\", \"refresh\": %.0f, \"history\": %d",
-                MODES_DUMP1090_VERSION, 1.0*Modes.json_interval, history_size);
-
-  if (Modes.home_pos_ok)
-  {
-    p += sprintf (p, ", \"lat\" : %.6f, \"lon\" : %.6f",
-                  Modes.home_pos.lat, Modes.home_pos.lon);
-  }
-  p += sprintf(p, " }\n");
-  *len = (p - buf);
-  return (buf);
+  return mg_mprintf ("{%Q: %s, "    // "version", DUMP1090_VERSION
+                      "%Q: %llu, "  // "refresh", Modes.json_interval
+                      "%Q: %d, "    // "history", history_size
+                      "%Q: %.6g, "  // "lat",     Modes.home_pos.lat; if 'Modes.home_pos_ok == false', this is 0.
+                      "%Q: %.6g}",  // "lon",     Modes.home_pos.lon; ditto
+                      "version", DUMP1090_VERSION,
+                      "refresh", Modes.json_interval,
+                      "history", history_size,
+                      "lat",     Modes.home_pos.lat,
+                      "lon",     Modes.home_pos.lon);
 }
-#endif
 
 /**
  * Return a malloced JSON description of the active planes.
  * But only those whose latitude and longitude is known.
  *
  * Since various Web-clients expects different elements in this returned
- * JSON array, add those which is approprite for that Web-clients only
+ * JSON array, add those which is approprite for that Web-clients only.
+ *
+ * E.g. an extended web-client want an empty array like this:
+ * ```
+ *  { "now": 1656176445, "messages" : 1,
+ *    "aircraft" : []
+ *  }
+ * ```
+ * Or an array with 1 element like this:
+ * ```
+ * {
+ *   "now:": 1656176445, "messages": 1,
+ *   "aircraft": [{"hex":"47807D", "flight":"", "lat":60.280609, "lon":5.223715, "altitude":875, "track":199, "speed":96}]
+ * }
+ * ```
  */
-char *aircrafts_to_json (int *len, int *num_planes, bool is_Tar1090, bool is_Dump1090_OL3)
+char *aircrafts_to_json (int *num_planes, bool extended_client)
 {
-  aircraft *a = Modes.aircrafts;
-  int       l;
-  int       buflen = 1024;        /* The initial buffer is incremented as needed. */
-  char     *buf = malloc (buflen);
-  char     *p = buf;
+  struct timeval tv_now;
+  aircraft      *a = Modes.aircrafts;
 
   *num_planes = 0;
 
-  if (!buf)
-     return (NULL);
-
-  l = snprintf (p, buflen, "[\n");
-  p      += l;
-  buflen -= l;
-
-  if (is_Dump1090_OL3)
-  {
-    l = snprintf (p, buflen, " {\"now:\":%.1lf, \"messages\": %llu, \"aircraft\": [",
-                  (double)MSEC_TIME() / 1000.0, Modes.stat.unique_aircrafts);
-    p      += l;
-    buflen -= l;
-  }
+#if 0
+  char *ret_buf;
+  int   aircraft_size = 1024;
+  char *aircraft_json = malloc (aircraft_size);
 
   while (a)
   {
-    int altitude = a->altitude;
-    int speed = a->speed;
+    int    altitude = a->altitude;
+    int    speed    = a->speed;
+    size_t f_len = strlen (a->flight);
 
     /* Convert units to metric if --metric was specified.
      * But option '--metric' has no effect on the Web-page yet.
      */
     if (Modes.metric)
     {
-      double altitudeM, speedKmH;
+      altitude = (int) (double) (a->altitude / 3.2828);
+      speed    = (int) (1.852 * (double) a->speed);
+    }
 
-      altitudeM = (double) altitude / 3.2828;
-      altitude  = (int) altitudeM;
-      speedKmH  = (double) speed * 1.852;
-      speed     = (int) speedKmH;
+    mg_asprintf (&aircraft_json, aircraft_size,
+                 "%Q: %Q"     // "hex": "addr"
+                 "%Q: %.*Q"   // "flight": a->flight
+                 "%Q: %f"     // "lat": a->position.lat
+                 "%Q: %f"     // "lon": a->position.lon
+                 "hex",      a->addr,
+                 "flight",   f_len, a->flight,
+                 "lat",      a->position.lat,
+                 "lon",      a->position.lon,
+                 "altitude", altitude,
+                 "track",    a->heading,
+                 "speed",    speed);
+
+    a = a->next;
+  }
+
+  mg_asprintf (&ret_buf, 0,
+               "{%Q: %lu.%03lu,"
+                "%Q: %llu:, "
+                "%Q: [ %s ]}",      // Json array of aircrafts
+                "now",      tv_now.tv_sec, tv_now.tv_usec/1000,
+                "messages", Modes.stat.messages_total,
+                "aircraft", aircraft_json);
+
+  free (aircraft_json);
+  return (ret_buf);
+
+#else
+  int    buflen = 1024;        /* The initial buffer is incremented as needed. */
+  char  *buf = malloc (buflen);
+  char  *p = buf;
+  int    l;
+
+  if (!buf)
+     return (NULL);
+
+  if (extended_client)
+  {
+    _gettimeofday (&tv_now, NULL);
+    l = snprintf (p, buflen, "{\"now\": %lu.%03lu, \"messages\": %llu, \"aircraft\" : [",
+                  tv_now.tv_sec, tv_now.tv_usec/1000, Modes.stat.messages_total);
+
+    p      += l;
+    buflen -= l;
+  }
+  else
+  {
+    *p++ = '[';
+    buflen--;
+  }
+
+
+  while (a)
+  {
+    int altitude = a->altitude;
+    int speed    = a->speed;
+
+    /* Convert units to metric if --metric was specified.
+     * But option '--metric' has no effect on the Web-page yet.
+     */
+    if (Modes.metric)
+    {
+      altitude = (int) (double) (a->altitude / 3.2828);
+      speed    = (int) (1.852 * (double) a->speed);
     }
 
     if (VALID_POS(a->position))
     {
+      size_t f_len = strlen (a->flight);
+
+      while (a->flight[f_len-1] == ' ') /* do not send trailing spaces */
+         f_len--;
+
       l = snprintf (p, buflen,
-                    "{\"hex\":\"%06X\", \"flight\":\"%s\", \"lat\":%f, \"lon\":%f, \"altitude\":%d, "
-                    "\"track\":%d, \"speed\":%d},\n",
-                    a->addr, a->flight, a->position.lat, a->position.lon, a->altitude, a->heading, a->speed);
+                    "{\"hex\": \"%06X\", \"flight\": \"%.*s\", \"lat\": %f, \"lon\": %f, \"altitude\": %d, \"track\": %d, \"speed\": %d",
+                    a->addr, f_len, a->flight, a->position.lat, a->position.lon, altitude, a->heading, speed);
       p      += l;
       buflen -= l;
+
+      if (extended_client)
+      {
+        l = snprintf (p, buflen, ", \"type\": \"%s\", \"messages\": %u, \"seen\": %lu, \"seen_pos\": %lu",
+                      "adsb_icao", a->messages, 2, 1 /* tv_now.tv_sec - a->seen_first/1000 */);
+        p      += l;
+        buflen -= l;
+      }
+
+      strcpy (p, "},\n");
+      p      += 3;
+      buflen -= 3;
 
       (*num_planes)++;
 
@@ -3624,7 +3704,7 @@ char *aircrafts_to_json (int *len, int *num_planes, bool is_Tar1090, bool is_Dum
       {
         int used = p - buf;
 
-        buflen += 1024; /* Our increment. */
+        buflen += 1024;    /* Our increment. */
         buf = realloc (buf, used + buflen);
         if (!buf)
         {
@@ -3637,25 +3717,17 @@ char *aircrafts_to_json (int *len, int *num_planes, bool is_Tar1090, bool is_Dum
     a = a->next;
   }
 
-  /* Remove the final comma if any, and closes the json array
+  /* Remove the final comma if any, and close the json array
    */
   if (p[-2] == ',')
-  {
-    p[-2] = '\n';
-    p--;
-    buflen++;
-  }
+     p -= 2;
 
-  if (is_Dump1090_OL3)
-       l = snprintf (p, buflen, "]}\n]\n");
-  else l = snprintf (p, buflen, "]\n");
-
-  p      += l;
-  buflen -= l;
-
-  *len = p - buf;
-  ARGSUSED (is_Tar1090);
+  *p++ = ']';
+  if (extended_client)
+     *p++ = '}';
+  *p = '\0';
   return (buf);
+#endif
 }
 
 /**
@@ -3916,7 +3988,7 @@ void connection_handler_websocket (mg_connection *conn, const char *remote, int 
   {
     Modes.stat.HTTP_websockets++;
   }
-  ARGSUSED (ws);
+  MODES_NOTUSED (ws);
 }
 
 const char *get_client_headers (const connection *cli, const char *hdr)
@@ -3932,81 +4004,93 @@ const char *get_client_headers (const connection *cli, const char *hdr)
 /**
  * The event handler for HTTP traffic.
  */
-bool connection_handler_http (mg_connection *conn, const char *remote, int ev, void *ev_data)
+int connection_handler_http (mg_connection *conn,
+                             int            ev,
+                             void          *ev_data,
+                             char          *request_data,
+                             size_t         request_size,
+                             char         **ret_data)
 {
   mg_http_message *hm = ev_data;
   connection      *cli;
-  bool             json_data, is_dump1090, is_Tar1090, is_Dump1090_OL3;
+  bool             is_dump1090, is_extended;
   const char      *content = NULL;
   const char      *uri, *ext;
   char            *request, *end;
 
+  *ret_data = NULL;
+  *request_data = '\0';
+
   if ((ev != MG_EV_HTTP_MSG && ev != MG_EV_HTTP_CHUNK) || strncmp(hm->head.ptr, "GET /", 5))
-     return (false);
+     return (400);  /* Bad Request */
 
   request = strncpy (alloca(hm->head.len+1), hm->head.ptr, hm->head.len);
+  strncpy (request_data, request, request_size);
 
   uri = request + strlen ("GET ");
   end = strchr (uri, ' ');
   if (!end)
   {
-    TRACE (DEBUG_NET, "Bad request from %s: '%.20s'...\n\n", remote, hm->head.ptr);
     conn->is_closing = 1;
-    return (false);
+    return (400);         /* Bad Request */
   }
+
+  *end = '\0';
+
+  end = strchr (request_data+4, ' '); /* extract only the important file-part */
+  if (end)
+     *end = '\0';
 
   Modes.stat.HTTP_get_requests++;
 
-  is_dump1090     = (strncmp("GET /data.json", request, 14) == 0);           /* What we normally expect */
-  is_Dump1090_OL3 = (strncmp("GET /data/aircraft.json", request, 23) == 0);  /* From a Dump1090-OpenLayers3 web-client */
-  is_Tar1090      = (strncmp("GET /chunks/chunks.json", request, 23) == 0);  /* From a Tar1090 web-client */
-
-  *end = '\0';
-  json_data = (is_dump1090 || is_Tar1090 || is_Dump1090_OL3);
-
-#if 0
-  if (!strncmp("GET /data/receiver.json", request, 23))
+  if (str_startswith(request, "GET /data/receiver.json"))
   {
-    int   data_len;
-    char *data = receiver_to_json (&data_len);
+    char *data = receiver_to_json();
 
     if (!data)
-       return (false);
+       return (444);  /* No Response */
 
+    *ret_data = data;
     TRACE (DEBUG_NET, "Feeding client %lu with receiver-data:\n%s\n", conn->id, data);
 
     mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
-    free (data);
-    return (true);
+    return (200);
   }
-#endif
 
-  cli = connection_get_addr (&conn->rem, MODES_NET_SERVICE_HTTP, false);
-
-  if (json_data)
+  if (str_startswith(request, "GET /chunks/chunks.json"))
   {
-    int   data_len, num_planes;
-    char *data = aircrafts_to_json (&data_len, &num_planes, is_Tar1090, is_Dump1090_OL3);
+  }
+
+  /* What we normally expect with the default 'web_root/gmap.html'
+   */
+  is_dump1090 = (str_startswith(request, "GET /data.json"));
+
+  /* Or From an OpenLayers3/Tar1090/FlightAware web-client
+   */
+  is_extended = str_startswith(request, "GET /data/aircraft.json");
+
+  if (is_dump1090 || is_extended)
+  {
+    int   num_planes;
+    char *data = aircrafts_to_json (&num_planes, is_extended);
 
     if (!data)
     {
       conn->is_closing = 1;
-      return (false);
+      return (444);       /* No Response */
     }
-
-    if (num_planes >= 1)
-       TRACE (DEBUG_NET, "Feeding client %lu with \"%s\", num_planes: %d.\n",
-              conn->id, uri, num_planes);
+    *ret_data = data;
 
     /* This is rather inefficient way to pump data over to the client.
      * Better use a WebSocket instead.
      */
-    mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
-    free (data);
-    return (true);
+    if (is_extended)
+         mg_http_reply (conn, 200, NULL, "%s", data);
+    else mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
+    return (200);
   }
 
-  TRACE (DEBUG_NET, "'%s' from client %lu at %s. json_data: %d.\n", request, conn->id, remote, json_data);
+  cli = connection_get_addr (&conn->rem, MODES_NET_SERVICE_HTTP, false);
 
   /* Redirect a 'GET /' to a 'GET /' + 'web_page'
    */
@@ -4022,8 +4106,7 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
     snprintf (redirect, sizeof(redirect),
               "%sLocation: %s\r\n", cli->keep_alive ? "Connection: keep-alive\r\n" : "", basename(Modes.web_page));
     mg_http_reply (conn, 303, redirect, "");
-    TRACE (DEBUG_NET, "Redirecting client %lu: \"%s\"...\n\n", conn->id, redirect);
-    return (true);
+    return (303);
   }
 
   /**
@@ -4033,14 +4116,14 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
   {
     TRACE (DEBUG_NET, "Got WebSocket echo:\n'%.*s'.\n", (int)hm->head.len, hm->head.ptr);
     mg_ws_upgrade (conn, hm, "WS test");
-    return (true);
+    return (200);
   }
 
   ext = strrchr (uri, '.');
   if (ext)
   {
-    char        file [MG_PATH_MAX];
-    const char *comment = "";
+    char file [MG_PATH_MAX];
+    int  rc = 200;        /* Assume status 200 OK */
 
     if (!_stricmp(ext, ".html"))
        content = MODES_CONTENT_TYPE_HTML;
@@ -4075,21 +4158,24 @@ bool connection_handler_http (mg_connection *conn, const char *remote, int ev, v
 
       memset (&opts, '\0', sizeof(opts));
       opts.extra_headers = get_client_headers (cli, content);
+      opts.page404       = PAGE_404_HTML;
       snprintf (file, sizeof(file), "%s\\%s", Modes.web_root, uri+1);
       mg_http_serve_file (conn, hm, file, &opts);
       if (stat(file, &st) != 0)
-         comment = " 404 not found.";
+      {
+        Modes.stat.HTTP_404_responses++;
+        rc = 404;
+      }
     }
     if (cli->keep_alive)
        Modes.stat.HTTP_keep_alive_sent++;
 
-    TRACE (DEBUG_NET, "Serving HTTP client %lu with \"%s\".%s\n", conn->id, uri, comment);
-    return (true);
+    return (rc);
   }
 
   mg_http_reply (conn, 404, cli->keep_alive ? "Connection: keep-alive\r\n" : "", "Not found\n");
-  TRACE (DEBUG_NET, "HTTP 404 for URI: \"%s\".\n", uri);
-  return (false);
+  Modes.stat.HTTP_404_responses++;
+  return (404);
 }
 
 /**
@@ -4177,7 +4263,7 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
     LIST_ADD_TAIL (connection, &Modes.connections[service], conn);
     ++ (*handler_num_connections (service));  /* should never go above 1 */
     Modes.stat.srv_connected [service]++;
-    LOG_STDOUT ("Connected to host %s (service \"%s\")\n", remote, handler_descr(service));
+    TRACE (DEBUG_NET, "Connected to host %s (service \"%s\")\n", remote, handler_descr(service));
     return;
   }
 
@@ -4248,14 +4334,19 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
 
   if (service == MODES_NET_SERVICE_HTTP)
   {
-    bool rc;
+    char  request_data [100];
+    char *response_data;
+    int   rc;
 
     if (this_conn->is_websocket && (ev == MG_EV_WS_MSG || ev == MG_EV_WS_CTL))
        connection_handler_websocket (this_conn, remote, ev, ev_data);
 
-    rc = connection_handler_http (this_conn, remote, ev, ev_data);
-    TRACE (DEBUG_NET2, "connection_handler_http(): rc: %d for event %d/%s and client %lu (%s)\n",
-           rc, ev, event_name(ev), this_conn->id, remote);
+    rc = connection_handler_http (this_conn, ev, ev_data, request_data, sizeof(request_data)-1, &response_data);
+
+    LOG_FILEONLY ("HTTP %d for '%s' (client %lu), response: '%.400s'.. \n",
+                  rc, request_data, this_conn->id, response_data ? response_data : "<none>");
+
+    free (response_data);
   }
 }
 
@@ -4572,7 +4663,7 @@ int modeS_recv_SBS_input (mg_iobuf *msg, modeS_message *mm)
 
 //decode 'msg' and fill 'mm'
 //modeS_user_message (&mm);
-  ARGSUSED (msg);
+  MODES_NOTUSED (msg);
   return (0);
 }
 
@@ -4846,6 +4937,7 @@ void show_connection_stats (void)
         continue;
       }
       LOG_STDOUT ("    %8llu HTTP GET requests received.\n", Modes.stat.HTTP_get_requests);
+      LOG_STDOUT ("    %8llu HTTP 404 replies sent.\n", Modes.stat.HTTP_404_responses);
       LOG_STDOUT ("    %8llu HTTP/WebSocket upgrades.\n", Modes.stat.HTTP_websockets);
       LOG_STDOUT ("    %8llu server connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_sent);
       LOG_STDOUT ("    %8llu client connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_recv);
