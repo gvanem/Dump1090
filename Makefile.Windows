@@ -438,7 +438,7 @@ define check_for_unused_libraries_py
     RESET = RED = WHITE = ""
 
   try:
-    from colorama import init, Fore, Style
+    from colorama2 import init, Fore, Style
     init()
     Color.RESET = Style.RESET_ALL
     Color.RED   = Fore.RED + Style.BRIGHT
@@ -446,14 +446,17 @@ define check_for_unused_libraries_py
   except:
     pass
 
+  def cprint (color, s):
+    print ("%s%s%s" % (color, s, Color.RESET))
+
   def report (map_file, unused):
     num = len(unused)
     plural = [ "library", "libraries" ]
     if num > 0:
-       print ("%s%d unused %s in %s:%s" % (Color.RED, num, plural[num > 1], map_file, Color.RESET))
+       cprint (Color.RED, "%d unused %s in %s:" % (num, plural[num > 1], map_file))
        for u in unused:
            print ("  " + u)
-    print ("%sDone.%s\n" % (Color.WHITE, Color.RESET))
+    cprint (Color.WHITE, "Done.\n")
 
   def process (file, state):
     unused_libs = []
@@ -464,8 +467,8 @@ define check_for_unused_libraries_py
     for l in lines:
         l = l.strip()
         if l == "Unused libraries:":
-          state = State.UNUSED
-          continue
+           state = State.UNUSED
+           continue
         if state == State.UNUSED:
            if l == "":
               break
