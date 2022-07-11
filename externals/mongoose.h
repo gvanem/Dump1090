@@ -40,6 +40,7 @@ extern "C" {
 #define MG_ARCH_NEWLIB 10
 #define MG_ARCH_RTX 11
 #define MG_ARCH_TIRTOS 12
+#define MG_ARCH_RP2040 13
 
 #if !defined(MG_ARCH)
 #if defined(__unix__) || defined(__APPLE__)
@@ -56,6 +57,8 @@ extern "C" {
 #define MG_ARCH MG_ARCH_AZURERTOS
 #elif defined(__ZEPHYR__)
 #define MG_ARCH MG_ARCH_ZEPHYR
+#elif defined(PICO_TARGET_NAME)
+#define MG_ARCH MG_ARCH_RP2040
 #endif
 
 #if !defined(MG_ARCH)
@@ -172,7 +175,7 @@ extern "C" {
 #if defined(__GNUC__)
 #include <sys/stat.h>
 #include <sys/time.h>
-#elif !defined(HAVE_STRUCT_TIMEVAL)
+#else
 struct timeval {
   time_t tv_sec;
   long tv_usec;
@@ -271,7 +274,7 @@ static inline void *mg_calloc(int cnt, size_t size) {
 #define malloc(a) pvPortMalloc(a)
 #define mkdir(a, b) (-1)
 
-#if !defined(__GNUC__) && !defined(HAVE_STRUCT_TIMEVAL)
+#if !defined(__GNUC__)
 // copied from GCC on ARM; for some reason useconds are signed
 struct timeval {
   time_t tv_sec;
@@ -318,6 +321,21 @@ struct timeval {
 #endif
 
 
+#if MG_ARCH == MG_ARCH_RP2040
+#include <errno.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include <pico/stdlib.h>
+int mkdir(const char *, mode_t);
+#endif
+
+
 #if MG_ARCH == MG_ARCH_RTX
 
 #include <ctype.h>
@@ -360,7 +378,7 @@ typedef int socklen_t;
 #if defined(__GNUC__)
 #include <sys/stat.h>
 #include <sys/time.h>
-#elif !defined(HAVE_STRUCT_TIMEVAL)
+#else
 struct timeval {
   time_t tv_sec;
   long tv_usec;
@@ -843,6 +861,7 @@ bool mg_file_printf(struct mg_fs *fs, const char *path, const char *fmt, ...);
 
 
 void mg_random(void *buf, size_t len);
+char *mg_random_str(char *buf, size_t len);
 uint16_t mg_ntohs(uint16_t net);
 uint32_t mg_ntohl(uint32_t net);
 uint32_t mg_crc32(uint32_t crc, const char *buf, size_t len);
@@ -1017,6 +1036,7 @@ struct mg_connection {
   unsigned is_tls_hs : 1;      // TLS handshake is in progress
   unsigned is_udp : 1;         // UDP connection
   unsigned is_websocket : 1;   // WebSocket connection
+  unsigned is_mqtt5 : 1;       // For MQTT connection, v5 indicator
   unsigned is_hexdumping : 1;  // Hexdump in/out traffic
   unsigned is_draining : 1;    // Send remaining data, then close and free
   unsigned is_closing : 1;     // Close and free the connection immediately
@@ -1229,6 +1249,8 @@ int64_t mg_sntp_parse(const unsigned char *buf, size_t len);
 #define MQTT_CMD_PINGRESP 13
 #define MQTT_CMD_DISCONNECT 14
 #define MQTT_CMD_AUTH 15
+
+enum { MQTT_OK, MQTT_INCOMPLETE, MQTT_MALFORMED };
 
 struct mg_mqtt_opts {
   struct mg_str user;          // Username, can be empty

@@ -3004,8 +3004,6 @@ void mg_md5_final(mg_md5_ctx *ctx, unsigned char digest[16]) {
 #define MQTT_HAS_PASSWORD 0x40
 #define MQTT_HAS_USER_NAME 0x80
 
-enum { MQTT_OK, MQTT_INCOMPLETE, MQTT_MALFORMED };
-
 void mg_mqtt_send_header(struct mg_connection *c, uint8_t cmd, uint8_t flags,
                          uint32_t len) {
   uint8_t buf[1 + sizeof(len)], *vlen = &buf[1];
@@ -3037,7 +3035,7 @@ void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
   }
 
   if (hdr[6] == 0) hdr[6] = 4;  // If version is not set, use 4 (3.1.1)
-  c->pfn_data = (void *) (size_t) hdr[6];          // Store version
+  c->is_mqtt5 = hdr[6] == 5;    // Set version 5 flag
   hdr[7] = (uint8_t) ((opts->will_qos & 3) << 3);  // Connection flags
   if (opts->user.len > 0) {
     total_len += 2 + (uint32_t) opts->user.len;
@@ -3055,19 +3053,19 @@ void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
   if (opts->clean || cid.len == 0) hdr[7] |= MQTT_CLEAN_SESSION;
   if (opts->will_retain) hdr[7] |= MQTT_WILL_RETAIN;
   total_len += (uint32_t) cid.len;
-  if (opts->version == 5) total_len += 1U + (hdr[7] & MQTT_HAS_WILL ? 1U : 0);
+  if (c->is_mqtt5) total_len += 1U + (hdr[7] & MQTT_HAS_WILL ? 1U : 0);
 
   mg_mqtt_send_header(c, MQTT_CMD_CONNECT, 0, total_len);
   mg_send(c, hdr, sizeof(hdr));
   // keepalive == 0 means "do not disconnect us!"
   mg_send_u16(c, mg_htons((uint16_t) opts->keepalive));
 
-  if (opts->version == 5) mg_send(c, &zero, sizeof(zero));  // V5 properties
+  if (c->is_mqtt5) mg_send(c, &zero, sizeof(zero));  // V5 properties
   mg_send_u16(c, mg_htons((uint16_t) cid.len));
   mg_send(c, cid.ptr, cid.len);
 
   if (hdr[7] & MQTT_HAS_WILL) {
-    if (opts->version == 5) mg_send(c, &zero, sizeof(zero));  // will props
+    if (c->is_mqtt5) mg_send(c, &zero, sizeof(zero));  // will props
     mg_send_u16(c, mg_htons((uint16_t) opts->will_topic.len));
     mg_send(c, opts->will_topic.ptr, opts->will_topic.len);
     mg_send_u16(c, mg_htons((uint16_t) opts->will_message.len));
@@ -3085,13 +3083,12 @@ void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
 
 void mg_mqtt_pub(struct mg_connection *c, struct mg_str topic,
                  struct mg_str data, int qos, bool retain) {
-  uint8_t flags = (uint8_t) (((qos & 3) << 1) | (retain ? 1 : 0));
-  uint8_t version = (uint8_t) (size_t) c->pfn_data, zero = 0;
+  uint8_t flags = (uint8_t) (((qos & 3) << 1) | (retain ? 1 : 0)), zero = 0;
   uint32_t len = 2 + (uint32_t) topic.len + (uint32_t) data.len;
   MG_DEBUG(("%lu [%.*s] -> [%.*s]", c->id, (int) topic.len, (char *) topic.ptr,
             (int) data.len, (char *) data.ptr));
   if (qos > 0) len += 2;
-  if (version == 5) len++;
+  if (c->is_mqtt5) len++;
   mg_mqtt_send_header(c, MQTT_CMD_PUBLISH, flags, len);
   mg_send_u16(c, mg_htons((uint16_t) topic.len));
   mg_send(c, topic.ptr, topic.len);
@@ -3099,17 +3096,17 @@ void mg_mqtt_pub(struct mg_connection *c, struct mg_str topic,
     if (++c->mgr->mqtt_id == 0) ++c->mgr->mqtt_id;
     mg_send_u16(c, mg_htons(c->mgr->mqtt_id));
   }
-  if (version == 5) mg_send(c, &zero, sizeof(zero));
+  if (c->is_mqtt5) mg_send(c, &zero, sizeof(zero));
   mg_send(c, data.ptr, data.len);
 }
 
 void mg_mqtt_sub(struct mg_connection *c, struct mg_str topic, int qos) {
-  uint8_t qos_ = qos & 3, version = (uint8_t) (size_t) c->pfn_data, zero = 0;
-  uint32_t len = 2 + (uint32_t) topic.len + 2 + 1 + (version == 5 ? 1 : 0);
+  uint8_t qos_ = qos & 3, zero = 0;
+  uint32_t len = 2 + (uint32_t) topic.len + 2 + 1 + (c->is_mqtt5 ? 1 : 0);
   mg_mqtt_send_header(c, MQTT_CMD_SUBSCRIBE, 2, len);
   if (++c->mgr->mqtt_id == 0) ++c->mgr->mqtt_id;
   mg_send_u16(c, mg_htons(c->mgr->mqtt_id));
-  if (version == 5) mg_send(c, &zero, sizeof(zero));
+  if (c->is_mqtt5) mg_send(c, &zero, sizeof(zero));
   mg_send_u16(c, mg_htons((uint16_t) topic.len));
   mg_send(c, topic.ptr, topic.len);
   mg_send(c, &qos_, sizeof(qos_));
@@ -3210,7 +3207,7 @@ static void mqtt_cb(struct mg_connection *c, int ev, void *ev_data,
                     void *fn_data) {
   if (ev == MG_EV_READ) {
     for (;;) {
-      uint8_t version = (uint8_t) (size_t) c->pfn_data;
+      uint8_t version = c->is_mqtt5 ? 5 : 4;
       struct mg_mqtt_message mm;
       int rc = mg_mqtt_parse(c->recv.buf, c->recv.len, version, &mm);
       if (rc == MQTT_MALFORMED) {
@@ -3858,6 +3855,7 @@ struct mg_connection *mg_sntp_connect(struct mg_mgr *mgr, const char *url,
 
 #if MG_ENABLE_SOCKET
 #if MG_ARCH == MG_ARCH_WIN32 && MG_ENABLE_WINSOCK
+typedef unsigned long nfds_t;
 #define MG_SOCK_ERRNO WSAGetLastError()
 #if defined(_MSC_VER)
 #pragma comment(lib, "ws2_32.lib")
@@ -4216,7 +4214,8 @@ void mg_connect_resolved(struct mg_connection *c) {
     if ((rc = connect(FD(c), &usa.sa, slen)) == 0) {
       mg_call(c, MG_EV_CONNECT, NULL);
     } else if (mg_sock_would_block()) {
-      MG_DEBUG(("%lu %p -> %x:%hu pend", c->id, c->fd, c->rem.ip, c->rem.port));
+      MG_DEBUG(("%lu %p -> %x:%hu pend", c->id, c->fd, mg_ntohl(c->rem.ip),
+                mg_ntohs(c->rem.port)));
       c->is_connecting = 1;
     } else {
       mg_error(c, "connect: %d", MG_SOCK_ERRNO);
@@ -4366,10 +4365,10 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
                     eSELECT_READ | eSELECT_EXCEPT | eSELECT_WRITE);
   }
 #elif MG_ENABLE_POLL
-  unsigned long n = 0;
+  nfds_t n = 0;
   for (struct mg_connection *c = mgr->conns; c != NULL; c = c->next) n++;
   struct pollfd *fds = (struct pollfd *) alloca(n * sizeof(fds[0]));
-  if (n > 0) memset(fds, 0, sizeof(n * sizeof(fds[0])));
+  memset(fds, 0, n * sizeof(fds[0]));
   n = 0;
   for (struct mg_connection *c = mgr->conns; c != NULL; c = c->next) {
     c->is_readable = c->is_writable = 0;
@@ -4379,7 +4378,6 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
       ms = 1;  // Don't wait if TLS is ready
     } else {
       fds[n].fd = FD(c);
-      fds[n].events = POLLERR;
       if (can_read(c)) fds[n].events |= POLLIN;
       if (can_write(c)) fds[n].events |= POLLOUT;
       n++;
@@ -4391,7 +4389,7 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
 #if MG_ARCH == MG_ARCH_WIN32
     if (n == 0) Sleep(ms);  // On Windows, poll fails if no sockets
 #endif
-    if (n > 0) memset(fds, 0, sizeof(n * sizeof(fds[0])));
+    memset(fds, 0, n * sizeof(fds[0]));
   }
   n = 0;
   for (struct mg_connection *c = mgr->conns; c != NULL; c = c->next) {
@@ -4404,9 +4402,7 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
         mg_error(c, "socket error");
       } else {
         c->is_readable =
-            (unsigned) (fds[n].revents & POLLIN || fds[n].revents & POLLHUP
-                            ? 1
-                            : 0);
+            (unsigned) (fds[n].revents & (POLLIN | POLLHUP) ? 1 : 0);
         c->is_writable = (unsigned) (fds[n].revents & POLLOUT ? 1 : 0);
       }
       n++;
@@ -5311,19 +5307,19 @@ static struct url urlparse(const char *url) {
   struct url u;
   memset(&u, 0, sizeof(u));
   for (i = 0; url[i] != '\0'; i++) {
-    if (i > 0 && u.host == 0 && url[i - 1] == '/' && url[i] == '/') {
+    if (url[i] == '/' && i > 0 && u.host == 0 && url[i - 1] == '/') {
       u.host = i + 1;
       u.port = 0;
     } else if (url[i] == ']') {
       u.port = 0;  // IPv6 URLs, like http://[::1]/bar
     } else if (url[i] == ':' && u.port == 0 && u.uri == 0) {
       u.port = i + 1;
-    } else if (url[i] == '@' && u.user == 0 && u.pass == 0) {
+    } else if (url[i] == '@' && u.user == 0 && u.pass == 0 && u.uri == 0) {
       u.user = u.host;
       u.pass = u.port;
       u.host = i + 1;
       u.port = 0;
-    } else if (u.host && u.uri == 0 && url[i] == '/') {
+    } else if (url[i] == '/' && u.host && u.uri == 0) {
       u.uri = i;
     }
   }
@@ -5406,6 +5402,19 @@ void mg_random(void *buf, size_t len) {
 }
 #endif
 
+char *mg_random_str(char *buf, size_t len) {
+  size_t i;
+  mg_random(buf, len);
+  for (i = 0; i < len; i++) {
+    uint8_t c = ((uint8_t *) buf)[i] % 62U;
+    buf[i] = i == len - 1 ? (char) '\0'            // 0-terminate last byte
+             : c < 26     ? (char) ('a' + c)       // lowercase
+             : c < 52     ? (char) ('A' + c - 26)  // uppercase
+                          : (char) ('0' + c - 52);     // numeric
+  }
+  return buf;
+}
+
 uint32_t mg_ntohl(uint32_t net) {
   uint8_t data[4] = {0, 0, 0, 0};
   memcpy(&data, &net, sizeof(data));
@@ -5464,6 +5473,8 @@ int mg_check_ip_acl(struct mg_str acl, uint32_t remote_ip) {
 uint64_t mg_millis(void) {
 #if MG_ARCH == MG_ARCH_WIN32
   return GetTickCount();
+#elif MG_ARCH == MG_ARCH_RP2040
+  return time_us_64() / 1000;
 #elif MG_ARCH == MG_ARCH_ESP32
   return esp_timer_get_time() / 1000;
 #elif MG_ARCH == MG_ARCH_ESP8266
@@ -5472,9 +5483,24 @@ uint64_t mg_millis(void) {
   return xTaskGetTickCount() * portTICK_PERIOD_MS;
 #elif MG_ARCH == MG_ARCH_AZURERTOS
   return tx_time_get() * (1000 /* MS per SEC */ / TX_TIMER_TICKS_PER_SECOND);
+#elif MG_ARCH == MG_ARCH_UNIX && defined(__APPLE__)
+  // Apple CLOCK_MONOTONIC_RAW is equivalent to CLOCK_BOOTTIME on linux
+  // Apple CLOCK_UPTIME_RAW is equivalent to CLOCK_MONOTONIC_RAW on linux
+  return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1000000;
 #elif MG_ARCH == MG_ARCH_UNIX
   struct timespec ts = {0, 0};
+  // See #1615 - prefer monotonic clock
+#if defined(CLOCK_MONOTONIC_RAW)
+  // Raw hardware-based time that is not subject to NTP adjustment
+  clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+#elif defined(CLOCK_MONOTONIC)
+  // Affected by the incremental adjustments performed by adjtime and NTP
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+#else
+  // Affected by discontinuous jumps in the system time and by the incremental
+  // adjustments performed by adjtime and NTP
   clock_gettime(CLOCK_REALTIME, &ts);
+#endif
   return ((uint64_t) ts.tv_sec * 1000 + (uint64_t) ts.tv_nsec / 1000000);
 #else
   return (uint64_t) (time(NULL) * 1000);

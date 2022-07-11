@@ -51,7 +51,7 @@
 #define _USE_MATH_DEFINES 1  /* To pull in 'M_PI' in <math.h> */
 #define MG_ENABLE_IPV6    1  /* Enable IPv6 in 'externals/mongoose.c' */
 #define MG_ENABLE_FILE    1  /* Enable logging to 'stdout' in 'externals/mongoose.c' */
-#define MG_ENABLE_POLL    0  /* Disable 'WSAPoll()' in 'externals/mongoose.c'. Not yet reliable. */
+#define MG_ENABLE_POLL    1  /* Enable 'WSAPoll()' in 'externals/mongoose.c'. */
 
 #if defined(_DEBUG)
   #include <malloc.h>
