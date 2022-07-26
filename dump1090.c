@@ -3685,7 +3685,7 @@ char *aircrafts_to_json (int *num_planes, bool extended_client)
 
       l = snprintf (p, buflen,
                     "{\"hex\": \"%06X\", \"flight\": \"%.*s\", \"lat\": %f, \"lon\": %f, \"altitude\": %d, \"track\": %d, \"speed\": %d",
-                    a->addr, f_len, a->flight, a->position.lat, a->position.lon, altitude, a->heading, speed);
+                    a->addr, (int)f_len, a->flight, a->position.lat, a->position.lon, altitude, a->heading, speed);
       p      += l;
       buflen -= l;
 
