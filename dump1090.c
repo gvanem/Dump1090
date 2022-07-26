@@ -3590,6 +3590,8 @@ char *aircrafts_to_json (int *num_planes, bool extended_client)
   int   aircraft_size = 1024;
   char *aircraft_json = malloc (aircraft_size);
 
+  MODES_NOTUSED (extended_client);
+
   while (a)
   {
     int    altitude = a->altitude;
@@ -3606,12 +3608,15 @@ char *aircrafts_to_json (int *num_planes, bool extended_client)
     }
 
     mg_asprintf (&aircraft_json, aircraft_size,
-                 "%Q: %Q"     // "hex": "addr"
-                 "%Q: %.*Q"   // "flight": a->flight
-                 "%Q: %f"     // "lat": a->position.lat
-                 "%Q: %f"     // "lon": a->position.lon
+                 "%Q: %Q"    // "hex":     "addr"
+                 "%Q: %Q"    // "flight":   a->flight
+                 "%Q: %g"    // "lat":      a->position.lat
+                 "%Q: %g"    // "lon":      a->position.lon
+                 "%Q: %d"    // "altitude": altitude
+                 "%Q: %d"    // "track":    a->heading
+                 "%Q: %d",   // "speed":    speed
                  "hex",      a->addr,
-                 "flight",   f_len, a->flight,
+                 "flight",   a->flight,
                  "lat",      a->position.lat,
                  "lon",      a->position.lon,
                  "altitude", altitude,
@@ -3622,12 +3627,12 @@ char *aircrafts_to_json (int *num_planes, bool extended_client)
   }
 
   mg_asprintf (&ret_buf, 0,
-               "{%Q: %lu.%03lu,"
-                "%Q: %llu:, "
-                "%Q: [ %s ]}",      // Json array of aircrafts
-                "now",      tv_now.tv_sec, tv_now.tv_usec/1000,
-                "messages", Modes.stat.messages_total,
-                "aircraft", aircraft_json);
+               "{%Q: %lu.%03lu,"  // "now":      sec.usec
+                "%Q: %llu:, "     // "messages": Modes.stat.messages_total
+                "%Q: [ %s ]}",    // "aircraft": aircraft_json
+                "now",            tv_now.tv_sec, tv_now.tv_usec/1000,
+                "messages",       Modes.stat.messages_total,
+                "aircraft",       aircraft_json);
 
   free (aircraft_json);
   return (ret_buf);
