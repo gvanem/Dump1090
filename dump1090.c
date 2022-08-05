@@ -115,6 +115,7 @@
 #define MODES_CONTENT_TYPE_JSON   "application/json"
 #define MODES_CONTENT_TYPE_JS     "application/javascript;charset=utf-8"
 #define MODES_CONTENT_TYPE_PNG    "image/png"
+#define MODES_CONTENT_TYPE_ICON   "image/x-icon"
 
 global_data Modes;
 
@@ -2688,7 +2689,6 @@ void modeS_user_message (const modeS_message *mm)
 
   Modes.stat.messages_total++;
 
-
   /* Track aircrafts in interactive mode or if we have some HTTP / SBS clients.
    */
   num_clients = Modes.stat.cli_accepted [MODES_NET_SERVICE_HTTP] +
@@ -3534,7 +3534,7 @@ char *aircraft_json_Dump1090_OL3 (const char *url_path, int *len)
 
 /**
  * Return a description of the receiver in JSON.
- { "version" : "0.1-gv", "refresh" : 1000, "history" : 3 }
+ *  { "version" : "0.1-gv", "refresh" : 1000, "history" : 3 }
  */
 char *receiver_to_json (void)
 {
@@ -4149,29 +4149,34 @@ int connection_handler_http (mg_connection *conn,
        content = MODES_CONTENT_TYPE_JSON;
     else if (!_stricmp(ext, ".png"))
        content = MODES_CONTENT_TYPE_PNG;
+    else if (!_stricmp(ext, ".ico"))
+       content = MODES_CONTENT_TYPE_ICON;
 
     if (!_stricmp(request, "GET /favicon.png"))
     {
-
       TRACE (DEBUG_NET, "Sending \"favicon.png\" to cli: %lu.\n", conn->id);
 
       header_len = snprintf (header, sizeof(header),
-                             "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
-                             "Content-Length: %u\r\n%s\r\n",
+                             "HTTP/1.1 200 OK\r\n"
+                             "Content-Type: %s\r\n"
+                             "Content-Length: %u\r\n"
+                             "%s\r\n",
                              content, favicon_png_len,
-                             cli->keep_alive ? "Connection: keep-alive\r\n" : "");
+                             cli->keep_alive ? "Connection: keep-alive\r\n" : "\r\n");
       mg_send (conn, header, header_len);
       mg_send (conn, favicon_png, favicon_png_len);
     }
-    else if (!_stricmp(request, "GET /favicon.ico"))  /* Other browsers may want a 'favicon.ico' file */
+    else if (!_stricmp(request, "GET /favicon.ico"))  /* Some browsers may want a 'favicon.ico' file */
     {
       TRACE (DEBUG_NET, "Sending \"favicon.ico\" to cli: %lu.\n", conn->id);
 
       header_len = snprintf (header, sizeof(header),
-                             "HTTP/1.1 200 OK\r\nContent-Type: %s\r\n"
-                             "Content-Length: %u\r\n%s\r\n",
+                             "HTTP/1.1 200 OK\r\n"
+                             "Content-Type: %s\r\n"
+                             "Content-Length: %u\r\n"
+                             "%s\r\n",
                              content, favicon_ico_len,
-                             cli->keep_alive ? "Connection: keep-alive\r\n" : "");
+                             cli->keep_alive ? "Connection: keep-alive\r\n" : "\r\n");
       mg_send (conn, header, header_len);
       mg_send (conn, favicon_ico, favicon_ico_len);
     }
