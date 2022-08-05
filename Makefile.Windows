@@ -109,16 +109,14 @@ endif
 #
 # If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
 #
-ifeq ($(CPU),)
-  CPU = x86
-endif
-
 ifeq ($(CPU),x64)
-  BITS = 64
+  BITS     = 64
+  X_SUFFIX = _x64
 else ifeq ($(CPU),x86)
-  BITS = 32
+  BITS     = 32
+  X_SUFFIX =
 else
-  $(error Unsupported $$(CPU)=$(CPU))
+  $(error Unsupported 'CPU=$(CPU)')
 endif
 
 ifeq ($(USE_ASAN),1)
@@ -143,7 +141,7 @@ RCFLAGS += -DRC_BITS=$(BITS)
 EX_LIBS += advapi32.lib setupapi.lib winusb.lib
 
 ifeq ($(USE_WSOCK_TRACE),1)
-  EX_LIBS += wsock_trace.lib
+  EX_LIBS += wsock_trace$(X_SUFFIX).lib
 else
   EX_LIBS += ws2_32.lib
 endif
@@ -239,9 +237,9 @@ $(OBJ_DIR)/dump1090.res: dump1090.rc
 #
 gen_favicons: favicon.png favicon.ico
 	$(call Generate, favicon.c, //)
-	@echo '// Generated array from favicon.png' >> favicon2.c
+	@echo -e '\n// Generated array from favicon.png' >> favicon.c
 	xxd -i favicon.png >> favicon.c
-	@echo '// Generated array from favicon.ico' >> favicon2.c
+	@echo -e '\n// Generated array from favicon.ico' >> favicon.c
 	xxd -i favicon.ico >> favicon.c
 
 docs: doxy-docs doxy-docs/Doxyfile
