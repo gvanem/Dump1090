@@ -5,14 +5,14 @@
 #include "sdrplay_api_rx_channel.h"
 #include "sdrplay_api_callback.h"
 
-#if defined(_M_X64) || defined(_M_IX86)
+#if defined(_M_X64) || defined(_M_IX86) || defined(_M_ARM64)
 #include "windows.h"
 #elif defined (__GNUC__)
 typedef void *HANDLE;
 #endif
 
 #ifndef _SDRPLAY_DLL_QUALIFIER
-#if !defined(STATIC_LIB) && (defined(_M_X64) || defined(_M_IX86)) 
+#if !defined(STATIC_LIB) && (defined(_M_X64) || defined(_M_IX86) || defined(_M_ARM64)) 
 #define _SDRPLAY_DLL_QUALIFIER __declspec(dllimport)
 #elif defined(STATIC_LIB) || defined(__GNUC__) 
 #define _SDRPLAY_DLL_QUALIFIER
@@ -21,7 +21,7 @@ typedef void *HANDLE;
 
 // Application code should check that it is compiled against the same API version
 // sdrplay_api_ApiVersion() returns the API version 
-#define SDRPLAY_API_VERSION                   (float)(3.09)
+#define SDRPLAY_API_VERSION                   (float)(3.10)
 
 // API Constants
 #define SDRPLAY_MAX_DEVICES                   (16)
