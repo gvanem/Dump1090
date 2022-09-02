@@ -326,6 +326,9 @@ let filterMaxRange = 1e8; // 100 000 km should include all planes on earth ;)
 
 let jaeroTimeout = 35 * 60; // in seconds
 
+let seenTimeout = 58; // in seconds
+let seenTimeoutMlat = 58; // in seconds
+
 let darkModeDefault = true; // turn on dark mode by default (change in browser possible)
 
 let tableInView = false; // only show aircraft in current view (V button)
@@ -364,3 +367,8 @@ let tableColors = {
         7700:      "#ff0000",
     }
 };
+
+let disableGeoLocation = false;
+
+// when data is available from both 1090 and 978, give some preference to the 978 data for up to X seconds old 978 data (set this to 15 or 30 for example)
+let prefer978 = 0;

@@ -308,6 +308,12 @@ HideCols = [
 //
 //
 //darkModeDefault = true; // turn on dark mode by default (change in browser possible)
+//
+//
+//jaeroTimeout = 35 * 60; // in seconds
+
+//seenTimeout = 58; // in seconds
+//seenTimeoutMlat = 58; // in seconds
 
 //tableInView = false; // only show aircraft in current view (V button)
 
@@ -336,3 +342,9 @@ tableColors = {
     },
 };
 */
+
+
+// disableGeoLocation = false;
+
+// when data is available from both 1090 and 978, give some preference to the 978 data for up to X seconds old 978 data (set this to 15 or 30 for example)
+//prefer978 = 0;
