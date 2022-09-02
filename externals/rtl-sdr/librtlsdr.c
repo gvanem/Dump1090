@@ -26,7 +26,7 @@
  *  2. Faking some Pthread calls using Win-SDK function.
  *  3. Changed the code-style using Astyle.
  *
- * Hence nothing here no longer depends on the libusb library.
+ * Hence nothing here depends on the libusb library.
  */
 #include <windows.h>
 #include <winusb.h>
@@ -454,6 +454,7 @@ static const rtlsdr_dongle_t known_devices [] =
 #define RTL2832_DEMOD_ADDR  0x20
 #define DUMMY_PAGE          0x0a
 #define DUMMY_ADDR          0x01
+
 
 /*
  * memory map
@@ -1314,10 +1315,13 @@ int rtlsdr_set_if_freq (rtlsdr_dev_t *dev, int32_t freq)
   if_freq = ((freq * TWO_POW (22)) / rtl_xtal) * (-1);
   tmp = (if_freq >> 16) & 0x3f;
   r = rtlsdr_demod_write_reg (dev, 1, 0x19, tmp, 1);
+
   tmp = (if_freq >> 8) & 0xff;
   r |= rtlsdr_demod_write_reg (dev, 1, 0x1a, tmp, 1);
+
   tmp = if_freq & 0xff;
   r |= rtlsdr_demod_write_reg (dev, 1, 0x1b, tmp, 1);
+
   TRACE (2, "%s (%.3f MHz): IF-freq: %.3f MHz, XTAL: %.3f MHz, r: %d\n",
          __FUNCTION__, (double)freq / 1E6, (double)if_freq / 1E6, (double)rtl_xtal / 1E6, r);
   return (r);
@@ -2200,7 +2204,7 @@ int rtlsdr_open (rtlsdr_dev_t **out_dev, uint32_t index)
 
   /* Find number of devices
    */
-  TRACE (1, "Calling 'List_Devices (%d, &found)'.\n", index);
+  TRACE (1, "%s(): Calling 'List_Devices (%d, &found)'.\n", __FUNCTION__, index);
   if (List_Devices(index, &found) < 0 || !found.DevicePath[0])
      goto err;
 

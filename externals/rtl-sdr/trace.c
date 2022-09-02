@@ -67,11 +67,11 @@ const char *trace_strerror (DWORD err)
   char   err_buf [512], *p;
 
   if (err == ERROR_SUCCESS)
-     strcpy (err_buf, "No error");
+     strcpy (err_buf, "No error.");
   else
      if (!FormatMessageA (FORMAT_MESSAGE_FROM_SYSTEM, NULL, err,
                           LANG_NEUTRAL, err_buf, sizeof(err_buf)-1, NULL))
-        strcpy (err_buf, "Unknown error");
+        strcpy (err_buf, "Unknown error.");
 
   snprintf (buf, sizeof(buf), "%lu: %s", (u_long)err, err_buf);
   p = strchr (buf, '\0');
