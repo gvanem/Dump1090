@@ -23,7 +23,7 @@ doc8643Manufacturers.csv
 favicon.ico
 favicon.png
 testfiles/modes1.bin.png
-cpp_filter.py
+cpp-filter.py
 check-for-unused-libraries.py
 *.i
 waterfall/
