@@ -1,7 +1,7 @@
 #
 # GNU Makefile for dump1090 (x86/x64, MSVC or clang-cl).
 #
-# By G. Vanem <gvanem@yahoo.no> 2021.
+# By G. Vanem <gvanem@yahoo.no> 2021 - 2022.
 #
 # Ref: https://github.com/gvanem/Dump1090.git
 #
@@ -17,8 +17,9 @@ MAKEFLAGS += --warn-undefined-variables
 USE_CRT_DEBUG ?= 0
 
 #
-# For SDRplay support, load the "RTLSDR-Emul.DLL" at runtime instead.
-# Ref. https://github.com/JvanKatwijk/rtlsdr-emulator-sdrplay.git
+# For SDRplay support, load the "rtlsdr-emul-$(CPU).DLL" at runtime instead.
+# Ref:
+#   https://github.com/JvanKatwijk/rtlsdr-emulator-sdrplay.git
 #
 USE_RTLSDR_EMUL ?= 0
 
@@ -30,6 +31,16 @@ USE_RTLSDR_EMUL ?= 0
 # But 'USE_CRT_DEBUG = 1' and 'CC = cl' works.
 #
 USE_ASAN ?= 0
+
+#
+# Enable "Visual Leak Detector".
+# Ref:
+#   https://github.com/KindDragon/vld/
+#
+# Can be used for Release mode too.
+#
+USE_VLD  ?= 0
+VLD_ROOT ?= f:/ProgramFiler/VisualLeakDetector/src
 
 #
 # For my private build; use the tracing Winsock library?
@@ -73,6 +84,8 @@ export CPLUS_INCLUDE_PATH=
 
 OBJ_DIR = objects
 
+EX_LIBS =
+
 ifneq ($(CC),cl)
   ifneq ($(CC),clang-cl)
     $(error $(Usage))
@@ -106,15 +119,18 @@ else
   RCFLAGS += -D_MSC_VER
 endif
 
+ifeq ($(USE_VLD),1)
+  CFLAGS  += -DUSE_VLD -DVLD_FORCE_ENABLE -I$(VLD_ROOT)/src
+  EX_LIBS += $(VLD_ROOT)/vld_$(CPU).lib
+endif
+
 #
 # If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
 #
 ifeq ($(CPU),x64)
-  BITS     = 64
-  X_SUFFIX = _x64
+  BITS = 64
 else ifeq ($(CPU),x86)
-  BITS     = 32
-  X_SUFFIX =
+  BITS = 32
 else
   $(error Unsupported 'CPU=$(CPU)')
 endif
@@ -141,7 +157,8 @@ RCFLAGS += -DRC_BITS=$(BITS)
 EX_LIBS += advapi32.lib setupapi.lib winusb.lib
 
 ifeq ($(USE_WSOCK_TRACE),1)
-  EX_LIBS += wsock_trace$(X_SUFFIX).lib
+  EX_LIBS += wsock_trace-$(CPU).lib
+  LDFLAGS += -nodefaultlib:ws2_32.lib
 else
   EX_LIBS += ws2_32.lib
 endif
@@ -153,11 +170,8 @@ TARGETS = dump1090.exe
 
 SOURCES = csv.c      \
           dump1090.c \
-          misc.c
-
-SOURCES += $(addprefix externals/, \
-             mongoose.c            \
-             rtlsdr-emul.c)
+          misc.c     \
+          externals/mongoose.c
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
              librtlsdr.c                   \
@@ -168,7 +182,8 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_r82xx.c)
 
 ifeq ($(USE_RTLSDR_EMUL),1)
-  CFLAGS += -DUSE_RTLSDR_EMUL
+  CFLAGS  += -DUSE_RTLSDR_EMUL
+  SOURCES += externals/rtlsdr-emul.c
 else
   SOURCES += sdrplay.c
 endif
@@ -225,7 +240,7 @@ dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res | check-for-unused-libraries.py
 	$(call link_EXE, $@, $^ $(EX_LIBS))
 
 $(OBJ_DIR)/%.obj: %.c
-	$(_CC) -c $(CFLAGS) -Fo$@ $<
+	$(_CC) -c $(CFLAGS) -Fo./$@ $<
 	@echo
 
 $(OBJ_DIR)/dump1090.res: dump1090.rc
@@ -257,12 +272,12 @@ doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call Generate, $@, #)
 	$(file >> $@,$(dump1090_Doxyfile))
 
-%.i: %.c cpp_filter.py FORCE
+%.i: %.c cpp-filter.py FORCE
 	$(call C_preprocess, $@, $<)
 
 FORCE:
 
-cpp_filter.py: $(THIS_FILE)
+cpp-filter.py: $(THIS_FILE)
 	$(call Generate, $@, #)
 	$(file >> $@,if 1:)
 	$(file >> $@,$(cpp_filter_py))
@@ -280,7 +295,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
                       $(TARGETS:.exe=.exp) \
                       $(TARGETS:.exe=.lib))
 
-OTHER_JUNK = link.tmp link.args vc1*.pdb cpp_filter.py
+OTHER_JUNK = link.tmp link.args vc1*.pdb cpp-filter.py
 
 clean: docs_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
@@ -398,7 +413,7 @@ define C_preprocess
   $(file >> $(1), *---------------------------------------------------------)
   $(file >> $(1), * Try to compile this output.)
   $(file >> $(1), */)
-  $(_CC) -E $(CFLAGS) $(d1PP) $(2) | $(PYTHON) cpp_filter.py $(C_FORMATER) >> $(1)
+  $(_CC) -E $(CFLAGS) $(d1PP) $(2) | $(PYTHON) cpp-filter.py $(C_FORMATER) >> $(1)
 endef
 
 define cpp_filter_py
@@ -438,6 +453,8 @@ define check_for_unused_libraries_py
   #
   import os, sys
 
+  map_file = sys.argv[1]
+
   class State():
     IDLE   = 0
     UNUSED = 1
@@ -446,7 +463,7 @@ define check_for_unused_libraries_py
     RESET = RED = WHITE = ""
 
   try:
-    from colorama2 import init, Fore, Style
+    from colorama import init, Fore, Style
     init()
     Color.RESET = Style.RESET_ALL
     Color.RED   = Fore.RED + Style.BRIGHT
@@ -457,7 +474,7 @@ define check_for_unused_libraries_py
   def cprint (color, s):
     print ("%s%s%s" % (color, s, Color.RESET))
 
-  def report (map_file, unused):
+  def report (unused):
     num = len(unused)
     plural = [ "library", "libraries" ]
     if num > 0:
@@ -466,12 +483,11 @@ define check_for_unused_libraries_py
            print ("  " + u)
     cprint (Color.WHITE, "Done.\n")
 
-  def process (file, state):
+  def process (state):
     unused_libs = []
-    f = open (file, "rt")
+    f = open (map_file, "rt")
     lines = f.readlines()
     f.close()
-
     for l in lines:
         l = l.strip()
         if l == "Unused libraries:":
@@ -483,7 +499,7 @@ define check_for_unused_libraries_py
            unused_libs.append (l)
     return unused_libs
 
-  report (sys.argv[1], process(sys.argv[1], State.IDLE))
+  report (process(State.IDLE))
 endef
 
 DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
