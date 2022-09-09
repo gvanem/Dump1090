@@ -38,7 +38,7 @@
             emul.last_rc = ERROR_PROC_NOT_FOUND;                            \
             goto failed;                                                    \
           }                                                                 \
-          TRACE (DEBUG_GENERAL2, "Function: %-30s -> 0x%p.\n",              \
+          DEBUG (DEBUG_GENERAL2, "Function: %-30s -> 0x%p.\n",              \
                  #func, emul.func); \
         } while (0)
 
@@ -66,12 +66,12 @@ bool RTLSDR_emul_load_DLL (void)
     if (emul.last_rc == ERROR_BAD_EXE_FORMAT)
          snprintf (emul.last_err, sizeof(emul.last_err), "%s is not a %d bit version", emul.dll_name, 8*(int)sizeof(void*));
     else snprintf (emul.last_err, sizeof(emul.last_err), "Failed to load %s; %lu", emul.dll_name, emul.last_rc);
-    TRACE (DEBUG_GENERAL, "emul.dll_hnd: NULL. error: %s (%lu)\n", emul.last_err, emul.last_rc);
+    DEBUG (DEBUG_GENERAL, "emul.dll_hnd: NULL. error: %s (%lu)\n", emul.last_err, emul.last_rc);
     return (false);
   }
 
   emul.last_rc = 0;  /* assume success */
-  TRACE (DEBUG_GENERAL2, "emul.dll_name: %s, emul.dll_hnd: 0x%p.\n", emul.dll_name, emul.dll_hnd);
+  DEBUG (DEBUG_GENERAL2, "emul.dll_name: %s, emul.dll_hnd: 0x%p.\n", emul.dll_name, emul.dll_hnd);
 
   /*
    * Turn off this annoying cast warnings:
