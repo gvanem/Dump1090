@@ -787,11 +787,11 @@ typedef size_t (*mg_pm_t)(mg_pfn_t, void *, va_list *);  // %M printer
 void mg_pfn_iobuf(char ch, void *param);                 // iobuf printer
 
 size_t mg_vxprintf(void (*)(char, void *), void *, const char *fmt, va_list *);
-size_t mg_xprintf(void (*fn)(char, void *), void *, _Printf_format_string_ const char *fmt, ...);
+size_t mg_xprintf(void (*fn)(char, void *), void *, const char *fmt, ...);
 size_t mg_vsnprintf(char *buf, size_t len, const char *fmt, va_list *ap);
-size_t mg_snprintf(char *, size_t,  _Printf_format_string_ const char *fmt, ...);
+size_t mg_snprintf(char *, size_t, const char *fmt, ...);
 char *mg_vmprintf(const char *fmt, va_list *ap);
-char *mg_mprintf(_Printf_format_string_ const char *fmt, ...);
+char *mg_mprintf(const char *fmt, ...);
 
 
 
@@ -799,7 +799,7 @@ char *mg_mprintf(_Printf_format_string_ const char *fmt, ...);
 
 
 enum { MG_LL_NONE, MG_LL_ERROR, MG_LL_INFO, MG_LL_DEBUG, MG_LL_VERBOSE };
-void mg_log(_Printf_format_string_ const char *fmt, ...);
+void mg_log(const char *fmt, ...);
 bool mg_log_prefix(int ll, const char *file, int line, const char *fname);
 void mg_log_set(int log_level);
 void mg_hexdump(const void *buf, size_t len);
@@ -885,7 +885,7 @@ struct mg_fd *mg_fs_open(struct mg_fs *fs, const char *path, int flags);
 void mg_fs_close(struct mg_fd *fd);
 char *mg_file_read(struct mg_fs *fs, const char *path, size_t *size);
 bool mg_file_write(struct mg_fs *fs, const char *path, const void *, size_t);
-bool mg_file_printf(struct mg_fs *fs, const char *path, _Printf_format_string_ const char *fmt, ...);
+bool mg_file_printf(struct mg_fs *fs, const char *path, const char *fmt, ...);
 
 
 
@@ -984,7 +984,7 @@ struct mg_connection;
 typedef void (*mg_event_handler_t)(struct mg_connection *, int ev,
                                    void *ev_data, void *fn_data);
 void mg_call(struct mg_connection *c, int ev, void *ev_data);
-void mg_error(struct mg_connection *c, _Printf_format_string_ const char *fmt, ...);
+void mg_error(struct mg_connection *c, const char *fmt, ...);
 
 enum {
   MG_EV_ERROR,       // Error                        char *error_message
@@ -1093,7 +1093,7 @@ struct mg_connection *mg_wrapfd(struct mg_mgr *mgr, int fd,
                                 mg_event_handler_t fn, void *fn_data);
 void mg_connect_resolved(struct mg_connection *);
 bool mg_send(struct mg_connection *, const void *, size_t);
-size_t mg_printf(struct mg_connection *, _Printf_format_string_ const char *fmt, ...);
+size_t mg_printf(struct mg_connection *, const char *fmt, ...);
 size_t mg_vprintf(struct mg_connection *, const char *fmt, va_list ap);
 char *mg_straddr(struct mg_addr *, char *, size_t);
 bool mg_aton(struct mg_str str, struct mg_addr *addr);
@@ -1159,7 +1159,7 @@ void mg_http_serve_dir(struct mg_connection *, struct mg_http_message *hm,
 void mg_http_serve_file(struct mg_connection *, struct mg_http_message *hm,
                         const char *path, const struct mg_http_serve_opts *);
 void mg_http_reply(struct mg_connection *, int status_code, const char *headers,
-                   _Printf_format_string_ const char *body_fmt, ...);
+                   const char *body_fmt, ...);
 struct mg_str *mg_http_get_header(struct mg_http_message *, const char *name);
 struct mg_str mg_http_var(struct mg_str buf, struct mg_str name);
 int mg_http_get_var(const struct mg_str *, const char *name, char *, size_t);
@@ -1250,12 +1250,12 @@ struct mg_ws_message {
 
 struct mg_connection *mg_ws_connect(struct mg_mgr *, const char *url,
                                     mg_event_handler_t fn, void *fn_data,
-                                    _Printf_format_string_ const char *fmt, ...);
+                                    const char *fmt, ...);
 void mg_ws_upgrade(struct mg_connection *, struct mg_http_message *,
-                   _Printf_format_string_ const char *fmt, ...);
+                   const char *fmt, ...);
 size_t mg_ws_send(struct mg_connection *, const void *buf, size_t len, int op);
 size_t mg_ws_wrap(struct mg_connection *, size_t len, int op);
-size_t mg_ws_printf(struct mg_connection *c, int op, _Printf_format_string_ const char *fmt, ...);
+size_t mg_ws_printf(struct mg_connection *c, int op, const char *fmt, ...);
 size_t mg_ws_vprintf(struct mg_connection *c, int op, const char *fmt,
                      va_list *);
 
@@ -1423,7 +1423,7 @@ void mg_rpc_list(struct mg_rpc_req *r);
 
 
 struct mip_driver {
-  void (*init)(uint8_t *mac, void *data);           // Initialise driver
+  bool (*init)(uint8_t *mac, void *data);           // Initialise driver
   size_t (*tx)(const void *, size_t, void *data);   // Transmit frame
   size_t (*rx)(void *buf, size_t len, void *data);  // Receive frame (polling)
   bool (*up)(void *data);                           // Up/down status
@@ -1440,13 +1440,14 @@ void mip_init(struct mg_mgr *, struct mip_cfg *, struct mip_driver *, void *);
 
 extern struct mip_driver mip_driver_stm32;
 extern struct mip_driver mip_driver_enc28j60;
+extern struct mip_driver mip_driver_w5500;
 
 // Drivers that require SPI, can use this SPI abstraction
 struct mip_spi {
   void *spi;                        // Opaque SPI bus descriptor
-  uint8_t (*txn)(void *, uint8_t);  // SPI transaction: write 1 byte, read reply
   void (*begin)(void *);            // SPI begin: slave select low
   void (*end)(void *);              // SPI end: slave select high
+  uint8_t (*txn)(void *, uint8_t);  // SPI transaction: write 1 byte, read reply
 };
 
 #ifdef __cplusplus
