@@ -76,10 +76,10 @@ print (full_cmd)
 
 try:
   if opt.sbs or opt.raw:
-    os.system ("start %s" % full_cmd)
-    os.system ("%s tools\\SBS_client.py --host localhost --wait 10 --port %s %s" % (py_launcher, sbs_port, sbs_mode))
+     os.system ("start %s" % full_cmd)
+     os.system ("%s tools\\SBS_client.py --host localhost --wait 10 --port %s %s" % (py_launcher, sbs_port, sbs_mode))
   else:
-    os.system (full_cmd)
+     os.system (full_cmd)
 
 except KeyboardInterrupt:
   pass
