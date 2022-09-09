@@ -17,11 +17,10 @@
   #define RC_FILEFLAGS  0
 #endif
 
-#define _STR2(x) #x
-#define _STR(x)  _STR2(x)
-
-#define RC_VER_STRING  _STR(VER_MAJOR) "." _STR(VER_MINOR) "." _STR(VER_MICRO) ".0 (" \
-                       RC_BUILDER ", " _STR(RC_BITS) "-bits," RC_DBG_REL ")"
+/*
+ * 'RC_BITS' is defined Makefile.Windows to '32' or '64'.
+ */
+#define RC_VER_STRING  PROG_VERSION  " (" RC_BUILDER ", " _STR(RC_BITS) "-bits," RC_DBG_REL ")"
 
 VS_VERSION_INFO VERSIONINFO
   FILEVERSION     RC_VERSION

@@ -8,6 +8,7 @@
 #endif
 
 #include <stdint.h>
+#include <sys/utime.h>
 #include "misc.h"
 
 /**
@@ -31,6 +32,16 @@ void modeS_log (const char *buf)
 }
 
 /**
+ * Print a character `c` to `Modes.log` or `stdout`.
+ * Used only if `(Modes.debug & DEBUG_MONGOOSE)" is enabled by `--debug m`.
+ */
+void modeS_logc (char c, void *param)
+{
+  fputc (c, Modes.log ? Modes.log : stdout);
+  MODES_NOTUSED (param);
+}
+
+/**
  * Print to `f` and optionally to `Modes.log`.
  */
 void modeS_flogf (FILE *f, const char *fmt, ...)
@@ -47,21 +58,23 @@ void modeS_flogf (FILE *f, const char *fmt, ...)
     fputs (buf, f);
     fflush (f);
   }
-  modeS_log (buf);
+  if (Modes.log)
+     modeS_log (buf);
 }
 
 /**
- * Convert standard suffixes (k, M, G) to double
+ * Convert standard suffixes (k, M, G) to an `uint32_t`
  *
  * \param in Hertz   a string to be parsed
  * \retval   the frequency as a `double`
  * \note Taken from Osmo-SDR's `convenience.c` and modified.
  */
-double ato_hertz (const char *Hertz)
+uint32_t ato_hertz (const char *Hertz)
 {
-  char   tmp [20], last_ch;
-  int    len;
-  double multiplier;
+  char     tmp [20], *end, last_ch;
+  int      len;
+  double   multiplier = 1.0;
+  uint32_t ret;
 
   strncpy (tmp, Hertz, sizeof(tmp));
   len = strlen (tmp);
@@ -82,11 +95,11 @@ double ato_hertz (const char *Hertz)
     case 'K':
           multiplier = 1E3;
           break;
-    default:
-          multiplier = 1.0;
-          break;
   }
-  return (multiplier * atof(tmp));
+  ret = (uint32_t) strtof (tmp, &end);
+  if (end == tmp || *end != '\0')
+     return (0);
+  return (uint32_t) (multiplier * ret);
 }
 
 /**
@@ -212,7 +225,93 @@ char *dirname (const char *fname)
   return (dir);
 }
 
+/**
+ * Return a filename on Unix form:
+ * All `\\` characters replaces with `/`.
+ */
+char *slashify (char *fname)
+{
+  char *p = fname;
+
+  while (*p)
+  {
+    if (*p == '\\')
+       *p = '/';
+    p++;
+  }
+  return (fname);
+}
+
+#if MG_ENABLE_FILE
 /*
+ * Internals of 'externals/mongoose.c':
+ */
+typedef struct dirent {
+        char d_name [MAX_PATH];
+      } dirent;
+
+typedef struct win32_dir {
+        HANDLE           handle;
+        WIN32_FIND_DATAW info;
+        dirent           result;
+      } DIR;
+
+extern DIR    *opendir (const char *name);
+extern int     closedir (DIR *d);
+extern dirent *readdir (DIR *d);
+
+/**
+ * Touch a file to current time.
+ */
+int touch_file (const char *file)
+{
+  return _utime (file, NULL);
+}
+
+/**
+ * Touch all files in a directory to current time.
+ * Works reqursively if `recurse == true`.
+ */
+int touch_dir (const char *directory, bool recurse)
+{
+  dirent *d;
+  DIR    *dir = opendir (directory);
+  int     rc = 0;
+
+  if (!dir)
+  {
+    DEBUG (DEBUG_GENERAL, "GetLastError(): %lu\n", GetLastError());
+    return (0);
+  }
+
+  while ((d = readdir(dir)) != NULL)
+  {
+    char  full_name [MAX_PATH];
+    DWORD attrs;
+    bool  is_dir;
+
+    if (!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
+       continue;
+
+    snprintf (full_name, sizeof(full_name), "%s\\%s", directory, d->d_name);
+    attrs = GetFileAttributesA (full_name);
+    is_dir = (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY));
+
+    if (!is_dir && !recurse)
+       continue;
+
+    if (is_dir)
+         rc += touch_dir (full_name, true);
+    else rc += touch_file (full_name);
+  }
+  closedir (dir);
+  return (rc);
+}
+#endif /* MG_ENABLE_FILE */
+
+/**
+ * \def DELTA_EPOCH_IN_USEC
+ *
  * Number of micro-seconds between the beginning of the Windows epoch
  * (Jan. 1, 1601) and the Unix epoch (Jan. 1, 1970).
  */
@@ -240,6 +339,17 @@ int _gettimeofday (struct timeval *tv, void *timezone)
   (void) timezone;
   return (0);
 }
+
+/**
+ * Use 64-bit tick-time for Mongoose?
+ */
+#if MG_ENABLE_CUSTOM_MILLIS
+uint64_t mg_millis (void)
+{
+  return MSEC_TIME();
+}
+#endif
+
 
 /**
  * Parse and split a `host[:port]` string into a host and port.
@@ -275,7 +385,7 @@ void set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
   serv->host   = strdup (buf);
   serv->port   = addr.port;
   serv->is_ip6 = (is_ip6 == 1);
-  TRACE (DEBUG_NET, "is_ip6: %d, host: %s, port: %u.\n", is_ip6, serv->host, serv->port);
+  DEBUG (DEBUG_NET, "is_ip6: %d, host: %s, port: %u.\n", is_ip6, serv->host, serv->port);
 }
 
 /*

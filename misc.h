@@ -10,16 +10,15 @@
 #include <stdbool.h>
 #include <winsock2.h>
 #include <windows.h>
-#include <mongoose.h>
 #include <rtl-sdr.h>
 #include <sdrplay_api.h>
+#include <mongoose.h>
 
 #include "csv.h"
 
 /**
  * Various helper macros.
  */
-#define DUMP1090_VERSION   "0.1"
 #define ADS_B_ACRONYM      "ADS-B; Automatic Dependent Surveillance - Broadcast"
 #define MODES_NOTUSED(V)   ((void)V)
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
@@ -29,17 +28,16 @@
 #define STDIN_FILENO       0
 
 /**
- * \def GMAP_HTML
+ * \def INDEX_HTML
  * Our default main server page relative to `Modes.where_am_I`.
  */
-#define GMAP_HTML         "web_root/gmap.html"
+#define INDEX_HTML         "web_root/index.html"
 
 /**
  * \def PAGE_404_HTML
  * Our default 404 page `Modes.where_am_I`.
  */
 #define PAGE_404_HTML     "web_root/404.html"
-
 
 /**
  * Definitions for network services.
@@ -81,22 +79,24 @@
 /**
  * Bits for 'Modes.debug':
  */
-#define DEBUG_DEMOD      (1 << 0)
-#define DEBUG_DEMODERR   (1 << 1)
-#define DEBUG_BADCRC     (1 << 2)
-#define DEBUG_GOODCRC    (1 << 3)
-#define DEBUG_NOPREAMBLE (1 << 4)
-#define DEBUG_JS         (1 << 5)
-#define DEBUG_NET        (1 << 6)
-#define DEBUG_NET2       (1 << 7)
-#define DEBUG_GENERAL    (1 << 8)
-#define DEBUG_GENERAL2   (1 << 9)
+#define DEBUG_BADCRC     0x0001
+#define DEBUG_GOODCRC    0x0002
+#define DEBUG_DEMOD      0x0004
+#define DEBUG_DEMODERR   0x0008
+#define DEBUG_GENERAL    0x0010
+#define DEBUG_GENERAL2   0x0020
+#define DEBUG_MONGOOSE   0x0040
+#define DEBUG_MONGOOSE2  0x0080
+#define DEBUG_NOPREAMBLE 0x0100
+#define DEBUG_JS         0x0200
+#define DEBUG_NET        0x0400
+#define DEBUG_NET2       0x0800
 
 /**
- * \def TRACE(bit, fmt, ...)
+ * \def DEBUG(bit, fmt, ...)
  * A more compact tracing macro
  */
-#define TRACE(bit, fmt, ...)                       \
+#define DEBUG(bit, fmt, ...)                       \
         do {                                       \
           if (Modes.debug & (bit))                 \
              modeS_flogf (stdout, "%s(%u): " fmt,  \
@@ -105,7 +105,7 @@
 
 /**
  * \def LOG_STDOUT(fmt, ...)
- * Print to both `stdout` and optionally to `Modes.log`.
+ *  Print to both `stdout` and optionally to `Modes.log`.
  *
  * \def LOG_STDERR(fmt, ...)
  *  Print to both `stderr` and optionally to `Modes.log`.
@@ -137,9 +137,20 @@ typedef struct connection {
         intptr_t           service;           /**< This client's service membership */
         uint32_t           id;                /**< A copy of `conn->id` */
         mg_addr            addr;              /**< A copy of `conn->peer` */
-        int                keep_alive;        /**< Client request contains "Connection: keep-alive" */
+        bool               redirect_sent;     /**< Sent a "301 Moved" to HTTP client */
+        bool               keep_alive;        /**< Client request contains "Connection: keep-alive" */
+        bool               encoding_gzip;     /**< Gzip compressed client data (not yet) */
         struct connection *next;
       } connection;
+
+/**
+ * \typedef mg_listen_func
+ * A function-pointer for either `mg_listen()` or `mg_http_listen()`.
+ */
+typedef struct mg_connection *(*mg_listen_func) (struct mg_mgr     *mgr,
+                                                 const char        *url,
+                                                 mg_event_handler_t fn,
+                                                 void              *fn_data);
 
 /**
  * \typedef struct net_service
@@ -187,6 +198,13 @@ typedef enum a_show_t {
         A_SHOW_NORMAL,
         A_SHOW_NONE,
       } a_show_t;
+
+typedef enum metric_unit_t {
+        MODES_UNIT_FEET   = 1,
+        MODES_UNIT_METERS = 2
+      } metric_unit_t;
+
+#define UNIT_NAME(unit) (unit == MODES_UNIT_METERS ? "meters" : "feet")
 
 /**
  * \typedef struct pos_t
@@ -293,7 +311,9 @@ typedef struct statistics {
         uint64_t  HTTP_keep_alive_recv;
         uint64_t  HTTP_keep_alive_sent;
         uint64_t  HTTP_websockets;
+        uint64_t  HTTP_400_responses;
         uint64_t  HTTP_404_responses;
+        uint64_t  HTTP_500_responses;
 
         /* Network statistics for receiving raw and SBS messages:
          */
@@ -315,7 +335,7 @@ typedef struct rtlsdr_conf {
         int           index;           /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"`. */
         rtlsdr_dev_t *device;          /**< The RTLSDR handle from `rtlsdr_open()`. */
         int           ppm_error;       /**< Set RTLSDR frequency correction. */
-        bool          calibrate;       /**< Enable calibration for R820T/R828D type devices */
+        int           calibrate;       /**< Enable calibration for R820T/R828D type devices */
         int          *gains;           /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
         int           gain_count;      /**< Number of gain values in above array */
       } rtlsdr_conf;
@@ -377,9 +397,9 @@ typedef struct global_data {
         /** Common stuff for RTLSDR and SDRplay:
          */
         char             *selected_dev;             /**< Name of selected device. */
-        bool              dig_agc;                  /**< Enable digital AGC. */
-        bool              bias_tee;                 /**< Enable bias-T voltage on coax input. */
-        bool              gain_auto;                /**< Use auto-gain */
+        int               dig_agc;                  /**< Enable digital AGC. */
+        int               bias_tee;                 /**< Enable bias-T voltage on coax input. */
+        int               gain_auto;                /**< Use auto-gain */
         uint16_t          gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
         uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
         uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE.
@@ -398,7 +418,7 @@ typedef struct global_data {
         mg_connection *raw_out;                /**< Raw output active/listening connection. */
         mg_connection *raw_in;                 /**< Raw input listening connection. */
         mg_connection *http_out;               /**< HTTP listening connection. */
-        mg_mgr         mgr;                    /**< Only one connection manager */
+        mg_mgr         mgr;                    /**< Only one connection manager. */
 
         /** Aircraft history
          */
@@ -412,25 +432,26 @@ typedef struct global_data {
         const char *logfile;                   /**< Write debug/info to file with option `--logfile file`. */
         FILE       *log;
         uint64_t    loops;                     /**< Read input file in a loop. */
-        uint32_t    debug;                     /**< Debugging mode bits. */
-        bool        raw;                       /**< Raw output format. */
-        bool        net;                       /**< Enable networking. */
-        bool        net_only;                  /**< Enable just networking. */
-        bool        net_active;                /**< With `Modes.net`, call `connect()` (not `listen()`). */
-        bool        silent;                    /**< Silent mode for network testing */
-        bool        interactive;               /**< Interactive mode */
+        uint32_t    debug;                     /**< `DEBUG()` mode bits. */
+        int         raw;                       /**< Raw output format. */
+        int         net;                       /**< Enable networking. */
+        int         net_only;                  /**< Enable just networking. */
+        int         net_active;                /**< With `Modes.net`, call `connect()` (not `listen()`). */
+        int         silent;                    /**< Silent mode for network testing. */
+        int         interactive;               /**< Interactive mode */
         uint16_t    interactive_rows;          /**< Interactive mode: max number of rows. */
         uint32_t    interactive_ttl;           /**< Interactive mode: TTL before deletion. */
-        bool        only_addr;                 /**< Print only ICAO addresses. */
-        bool        metric;                    /**< Use metric units. */
-        bool        aggressive;                /**< Aggressive detection algorithm. */
-        char        web_page [MG_PATH_MAX];    /**< The base-name of the web-page to server for HTTP clients */
-        char        web_root [MG_PATH_MAX];    /**< And it's directory */
-        char        aircraft_db [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file */
-        int         strip_level;               /**< For '--strip X' mode */
-        pos_t       home_pos;                  /**< Coordinates of home position */
-        cartesian_t home_pos_cart;             /**< Coordinates of home position (cartesian) */
-        bool        home_pos_ok;               /**< We have a good home position */
+        int         only_addr;                 /**< Print only ICAO addresses. */
+        int         metric;                    /**< Use metric units. */
+        int         aggressive;                /**< Aggressive detection algorithm. */
+        char        web_page [MG_PATH_MAX];    /**< The base-name of the web-page to server for HTTP clients. */
+        char        web_root [MG_PATH_MAX];    /**< And it's directory. */
+        int         touch_web_root;            /**< Touch all files in `web_root` first. */
+        char        aircraft_db [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file. */
+        int         strip_level;               /**< For '--strip X' mode. */
+        pos_t       home_pos;                  /**< Coordinates of home position. */
+        cartesian_t home_pos_cart;             /**< Coordinates of home position (cartesian). */
+        bool        home_pos_ok;               /**< We have a good home position. */
 
         /** For parsing a `Modes.aircraft_db` file:
          */
@@ -450,21 +471,26 @@ extern global_data Modes;
 
 #if defined(__clang__)
   #define ATTR_PRINTF(_1, _2)  __attribute__((format(printf, _1, _2)))
-  #define ATTR_FALLTHROUGH()   __attribute__((fallthrough))
 #else
   #define ATTR_PRINTF(_1, _2)
-  #define ATTR_FALLTHROUGH()   ((void)0)
 #endif
 
-extern void   modeS_log (const char *buf);
-extern void   modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
-extern double ato_hertz (const char *Hertz);
-extern bool   str_startswith (const char *s1, const char *s2);
-extern bool   str_endswith (const char *s1, const char *s2);
-extern char  *basename (const char *fname);
-extern char  *dirname (const char *fname);
-extern int   _gettimeofday (struct timeval *tv, void *timezone);
-extern void   set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+extern void     modeS_log (const char *buf);
+extern void     modeS_logc (char c, void *param);
+extern void     modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
+extern uint32_t ato_hertz (const char *Hertz);
+extern bool     str_startswith (const char *s1, const char *s2);
+extern bool     str_endswith (const char *s1, const char *s2);
+extern char    *basename (const char *fname);
+extern char    *dirname (const char *fname);
+extern char    *slashify (char *fname);
+extern int     _gettimeofday (struct timeval *tv, void *timezone);
+extern void     set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+
+#if MG_ENABLE_FILE
+  extern int    touch_file (const char *file);
+  extern int    touch_dir (const char *dir, bool recurse);
+#endif
 
 /**
  * \def MSEC_TIME()

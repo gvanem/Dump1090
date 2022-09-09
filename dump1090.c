@@ -94,8 +94,6 @@
 
 #define MODES_ICAO_CACHE_LEN       1024   /* Power of two required. */
 #define MODES_ICAO_CACHE_TTL         60   /* Time to live of cached addresses (sec). */
-#define MODES_UNIT_FEET               0
-#define MODES_UNIT_METERS             1
 
 /**
  * When debug is set to DEBUG_NOPREAMBLE, the first sample must be
@@ -110,10 +108,7 @@
 
 #define MG_NET_POLL_TIME             (MODES_INTERACTIVE_REFRESH_TIME / 2)
 
-#define MODES_CONTENT_TYPE_CSS    "text/css;charset=utf-8"
-#define MODES_CONTENT_TYPE_HTML   "text/html;charset=utf-8"
 #define MODES_CONTENT_TYPE_JSON   "application/json"
-#define MODES_CONTENT_TYPE_JS     "application/javascript;charset=utf-8"
 #define MODES_CONTENT_TYPE_PNG    "image/png"
 #define MODES_CONTENT_TYPE_ICON   "image/x-icon"
 
@@ -168,41 +163,41 @@ typedef struct modeS_message {
 
         /** Fields used by multiple message types.
          */
-        int altitude, unit;
+        int           altitude;
+        metric_unit_t unit;
       } modeS_message;
 
-aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now);
-void      modeS_send_raw_output (const modeS_message *mm);
-void      modeS_send_SBS_output (const modeS_message *mm, const aircraft *a);
-void      modeS_user_message (const modeS_message *mm);
-void      set_est_home_distance (aircraft *a, uint64_t now);
-void      spherical_to_cartesian (cartesian_t *cart, pos_t point);
-bool      ICAO_is_military (uint32_t addr);
+static aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now);
+static void      modeS_send_raw_output (const modeS_message *mm);
+static void      modeS_send_SBS_output (const modeS_message *mm, const aircraft *a);
+static void      modeS_user_message (const modeS_message *mm);
+static void      set_est_home_distance (aircraft *a, uint64_t now);
+static void      spherical_to_cartesian (cartesian_t *cart, pos_t point);
+static bool      ICAO_is_military (uint32_t addr);
 
-int       fix_single_bit_errors (uint8_t *msg, int bits);
-int       fix_two_bits_errors (uint8_t *msg, int bits);
-int       detect_modeS (uint16_t *m, uint32_t mlen);
-void      decode_hex_message (mg_iobuf *msg, int loop_cnt);
-void      decode_SBS_message (mg_iobuf *msg, int loop_cnt);
-int       modeS_message_len_by_type (int type);
-uint16_t *compute_magnitude_vector (const uint8_t *data);
-void      background_tasks (void);
-void      modeS_exit (void);
-void      sigint_handler (int sig);
+static int       fix_single_bit_errors (uint8_t *msg, int bits);
+static int       fix_two_bits_errors (uint8_t *msg, int bits);
+static int       detect_modeS (uint16_t *m, uint32_t mlen);
+static void      decode_hex_message (mg_iobuf *msg, int loop_cnt);
+static void      decode_SBS_message (mg_iobuf *msg, int loop_cnt);
+static int       modeS_message_len_by_type (int type);
+static uint16_t *compute_magnitude_vector (const uint8_t *data);
+static void      background_tasks (void);
+static void      modeS_exit (void);
+static void      sigint_handler (int sig);
 
-u_short        handler_port (intptr_t service);
-const char    *handler_descr (intptr_t service);
-mg_connection *handler_conn (intptr_t service);
-void           connection_read (connection *conn, msg_handler handler, bool is_server);
-void           connection_send (intptr_t service, const void *msg, size_t len);
-connection    *connection_get_addr (const mg_addr *addr, intptr_t service, bool is_server);
-void           connection_free (connection *this_conn, intptr_t service);
-unsigned       connection_free_all (void);
+static u_short        handler_port (intptr_t service);
+static const char    *handler_descr (intptr_t service);
+static mg_connection *handler_conn (intptr_t service);
+static void           connection_read (connection *conn, msg_handler handler, bool is_server);
+static void           connection_send (intptr_t service, const void *msg, size_t len);
+static void           connection_free (connection *this_conn, intptr_t service);
+static unsigned       connection_free_all (void);
 
-static CONSOLE_SCREEN_BUFFER_INFO console_info;
-static HANDLE console_hnd = INVALID_HANDLE_VALUE;
-static DWORD  console_mode = 0;
-static bool   dev_selection_done = false;
+static CONSOLE_SCREEN_BUFFER_INFO  console_info;
+static HANDLE                      console_hnd = INVALID_HANDLE_VALUE;
+static DWORD                       console_mode = 0;
+static bool                        dev_selection_done = false;
 
 #define COLOUR_GREEN  10  /* bright green; FOREGROUND_INTENSITY + 2 */
 #define COLOUR_RED    12  /* bright red;   FOREGROUND_INTENSITY + 4 */
@@ -235,7 +230,7 @@ static void clrscr (void)
   }
 }
 
-void setcolor (int color)
+static void setcolor (int color)
 {
   WORD attr;
 
@@ -251,7 +246,7 @@ void setcolor (int color)
   SetConsoleTextAttribute (console_hnd, attr);
 }
 
-void console_title_stats (void)
+static void console_title_stats (void)
 {
   char            buf [100];
   char            gain [10];
@@ -318,7 +313,7 @@ static int gain_decrease (int gain_idx)
  * Poll for '+/-' keypresses and adjust the RTLSDR / SDRplay gain accordingly.
  * But within the min/max gain settings for the device.
  */
-void console_update_gain (void)
+static void console_update_gain (void)
 {
   static int gain_idx = -1;
   int i, ch;
@@ -378,10 +373,9 @@ void console_update_gain (void)
     }
   }
 #endif
-
 }
 
-int console_init (void)
+static int console_init (void)
 {
   console_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
   if (console_hnd == INVALID_HANDLE_VALUE)
@@ -392,12 +386,11 @@ int console_init (void)
   if (console_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)
      SetConsoleMode (console_hnd, console_mode | DISABLE_NEWLINE_AUTO_RETURN);
 
-  if (Modes.interactive_rows == 0)  /* Option `--interactive-rows` not used */
-     Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
+  Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
   return (0);
 }
 
-void console_exit (void)
+static void console_exit (void)
 {
   gotoxy (1, Modes.interactive_rows);
   setcolor (0);
@@ -407,25 +400,24 @@ void console_exit (void)
 }
 
 #if defined(_DEBUG)
-static _CrtMemState last_state;
+static _CrtMemState start_state;
 
-void crtdbug_exit (void)
+static void crtdbug_exit (void)
 {
-  _CrtMemState new_state, diff_state;
+  _CrtMemState end_state, diff_state;
 
-  _CrtMemCheckpoint (&new_state);
-  if (!_CrtMemDifference(&diff_state, &last_state, &new_state))
+  _CrtMemCheckpoint (&end_state);
+  if (!_CrtMemDifference(&diff_state, &start_state, &end_state))
+     LOG_STDERR ("No mem-leaks detected.\n");
+  else
   {
-    LOG_STDERR ("No mem-leaks detected.\n");
-    return;
+    _CrtCheckMemory();
+    _CrtSetDbgFlag (0);
+    _CrtDumpMemoryLeaks();
   }
-  LOG_STDERR ("Mem-leak report:\n");
-  _CrtCheckMemory();
-  _CrtSetDbgFlag (0);
-  _CrtDumpMemoryLeaks();
 }
 
-void crtdbug_init (void)
+static void crtdbug_init (void)
 {
   _HFILE file  = _CRTDBG_FILE_STDERR;
   int    mode  = _CRTDBG_MODE_FILE;
@@ -438,7 +430,7 @@ void crtdbug_init (void)
   _CrtSetReportFile (_CRT_WARN, file);
   _CrtSetReportMode (_CRT_WARN, mode);
   _CrtSetDbgFlag (flags | _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG));
-  _CrtMemCheckpoint (&last_state);
+  _CrtMemCheckpoint (&start_state);
 }
 #endif  /* _DEBUG */
 
@@ -447,7 +439,7 @@ void crtdbug_init (void)
  *
  * This can be from `librtlsdr` itself or from `WinUsb`.
  */
-const char *get_rtlsdr_error (int err)
+static const char *get_rtlsdr_error (int err)
 {
   if (err >= 0)
      return ("No error");
@@ -466,7 +458,7 @@ const char *get_rtlsdr_error (int err)
 /**
  * Set the RTLSDR gain verbosively.
  */
-void verbose_gain_set (rtlsdr_dev_t *dev, int gain)
+static void verbose_gain_set (rtlsdr_dev_t *dev, int gain)
 {
   int r = rtlsdr_set_tuner_gain_mode (dev, 1);
 
@@ -484,7 +476,7 @@ void verbose_gain_set (rtlsdr_dev_t *dev, int gain)
 /**
  * Set the RTLSDR gain verbosively to AUTO.
  */
-void verbose_gain_auto (rtlsdr_dev_t *dev)
+static void verbose_gain_auto (rtlsdr_dev_t *dev)
 {
   int r = rtlsdr_set_tuner_gain_mode (dev, 0);
 
@@ -497,7 +489,7 @@ void verbose_gain_auto (rtlsdr_dev_t *dev)
  * Set the RTLSDR gain verbosively to the nearest available
  * gain value given in `*target_gain`.
  */
-void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
+static void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
 {
   int    gain_in;
   int    i, err1, err2, nearest;
@@ -541,7 +533,7 @@ void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
 /**
  * Enable RTLSDR direct sampling mode (not used yet).
  */
-void verbose_direct_sampling (rtlsdr_dev_t *dev, int on)
+static void verbose_direct_sampling (rtlsdr_dev_t *dev, int on)
 {
   int r = rtlsdr_set_direct_sampling (dev, on);
 
@@ -561,7 +553,7 @@ void verbose_direct_sampling (rtlsdr_dev_t *dev, int on)
 /**
  * Set RTLSDR PPM error-correction.
  */
-void verbose_ppm_set (rtlsdr_dev_t *dev, int ppm_error)
+static void verbose_ppm_set (rtlsdr_dev_t *dev, int ppm_error)
 {
   double tuner_freq = 0.0;
   int    r;
@@ -579,7 +571,7 @@ void verbose_ppm_set (rtlsdr_dev_t *dev, int ppm_error)
 /**
  * Set RTLSDR automatic gain control.
  */
-void verbose_agc_set (rtlsdr_dev_t *dev, int agc)
+static void verbose_agc_set (rtlsdr_dev_t *dev, int agc)
 {
   int r = rtlsdr_set_agc_mode (dev, agc);
 
@@ -591,7 +583,7 @@ void verbose_agc_set (rtlsdr_dev_t *dev, int agc)
 /**
  * Set RTLSDR Bias-T
  */
-void verbose_bias_tee (rtlsdr_dev_t *dev, int bias_t)
+static void verbose_bias_tee (rtlsdr_dev_t *dev, int bias_t)
 {
   int r = rtlsdr_set_bias_tee (dev, bias_t);
 
@@ -606,7 +598,7 @@ void verbose_bias_tee (rtlsdr_dev_t *dev, int bias_t)
 /**
  * Add an aircraft record to `Modes.aircraft_list`.
  */
-int aircraft_CSV_add_entry (const aircraft_CSV *rec)
+static int aircraft_CSV_add_entry (const aircraft_CSV *rec)
 {
   static aircraft_CSV *copy = NULL;
   static aircraft_CSV *dest = NULL;
@@ -645,7 +637,7 @@ int aircraft_CSV_add_entry (const aircraft_CSV *rec)
 /**
  * The compare function for `qsort()` and `bsearch()`.
  */
-int aircraft_CSV_compare_on_addr (const void *_a, const void *_b)
+static int aircraft_CSV_compare_on_addr (const void *_a, const void *_b)
 {
   const aircraft_CSV *a = (const aircraft_CSV*) _a;
   const aircraft_CSV *b = (const aircraft_CSV*) _b;
@@ -660,7 +652,7 @@ int aircraft_CSV_compare_on_addr (const void *_a, const void *_b)
 /**
  * Do a binary search for an aircraft in `Modes.aircraft_list`.
  */
-const aircraft_CSV *aircraft_CSV_lookup_entry (uint32_t addr)
+static const aircraft_CSV *aircraft_CSV_lookup_entry (uint32_t addr)
 {
   aircraft_CSV key = { addr, "" };
 
@@ -673,7 +665,7 @@ const aircraft_CSV *aircraft_CSV_lookup_entry (uint32_t addr)
 /**
  * If `Modes.debug != 0`, do a simple test on the `Modes.aircraft_list`.
  */
-void aircraft_CSV_test (void)
+static void aircraft_CSV_test (void)
 {
   const aircraft_CSV *a_CSV;
   const char  *reg_num, *manufact;
@@ -696,6 +688,7 @@ void aircraft_CSV_test (void)
 #endif
 
   LOG_STDOUT ("5 random records from \"%s\":\n", Modes.aircraft_db);
+
   for (i = num_ok = 0; i < DIM(a_tests); i++)
   {
     addr = a_tests[i].addr;
@@ -731,7 +724,7 @@ void aircraft_CSV_test (void)
  *
  * 27 fields!
  */
-int aircraft_CSV_parse (struct CSV_context *ctx, const char *value)
+static int aircraft_CSV_parse (struct CSV_context *ctx, const char *value)
 {
   static aircraft_CSV rec = { 0, "" };
   int    rc = 1;
@@ -764,11 +757,11 @@ int aircraft_CSV_parse (struct CSV_context *ctx, const char *value)
 /**
  * Initialize the aircraft-database from .csv file.
  */
-void aircraft_CSV_load (void)
+static void aircraft_CSV_load (void)
 {
   struct stat st;
 
-  if (!_stricmp(Modes.aircraft_db, "NUL"))   /* User want no .csv file */
+  if (!stricmp(Modes.aircraft_db, "NUL"))   /* User want no .csv file */
      return;
 
   if (stat(Modes.aircraft_db, &st) != 0)
@@ -788,7 +781,7 @@ void aircraft_CSV_load (void)
     return;
   }
 
-  TRACE (DEBUG_GENERAL, "Parsed %u records from: \"%s\"\n", Modes.aircraft_num_CSV, Modes.aircraft_db);
+  DEBUG (DEBUG_GENERAL, "Parsed %u records from: \"%s\"\n", Modes.aircraft_num_CSV, Modes.aircraft_db);
   if (Modes.aircraft_num_CSV > 0)
   {
     qsort (Modes.aircraft_list, Modes.aircraft_num_CSV, sizeof(*Modes.aircraft_list), aircraft_CSV_compare_on_addr);
@@ -800,23 +793,24 @@ void aircraft_CSV_load (void)
 /**
  * Step 1: Initialize the program with default values.
  */
-void modeS_init_config (void)
+static void modeS_init_config (void)
 {
   memset (&Modes, '\0', sizeof(Modes));
   GetCurrentDirectoryA (sizeof(Modes.where_am_I), Modes.where_am_I);
   GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
 
-  strcpy (Modes.web_page, basename(GMAP_HTML));
+  strcpy (Modes.web_page, basename(INDEX_HTML));
   strcpy (Modes.web_root, dirname(Modes.who_am_I));
   strcat (Modes.web_root, "\\web_root");
+  slashify (Modes.web_root);
   snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\aircraftDatabase.csv", dirname(Modes.who_am_I));
+  slashify (Modes.aircraft_db);
 
-  Modes.gain_auto   = true;
-  Modes.sample_rate = MODES_DEFAULT_RATE;
-  Modes.freq        = MODES_DEFAULT_FREQ;
-  Modes.interactive_ttl  = MODES_INTERACTIVE_TTL;
-  Modes.interactive_rows = 25;
-  Modes.json_interval    = 1000;
+  Modes.gain_auto       = true;
+  Modes.sample_rate     = MODES_DEFAULT_RATE;
+  Modes.freq            = MODES_DEFAULT_FREQ;
+  Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
+  Modes.json_interval   = 1000;
 }
 
 /**
@@ -829,7 +823,7 @@ void modeS_init_config (void)
  *  \li Allocate and initialize the needed buffers.
  *  \li Open and parse the `Modes.aircraft_db` file (unless `NUL`).
  */
-int modeS_init (void)
+static int modeS_init (void)
 {
   int         I, Q;
   pos_t       pos;
@@ -862,15 +856,23 @@ int modeS_init (void)
 
   /** By default, disable all logging from Mongoose
    */
-  mg_log_set ("0");
+  mg_log_set (0);
 
-  if (!Modes.interactive)
+  if (Modes.debug & DEBUG_MONGOOSE)
   {
-    if (Modes.debug & DEBUG_NET)
-         mg_log_set ("2");               /** Enable `LL_ERROR`, `LL_INFO` messages in Mongose */
-    else if (Modes.debug & DEBUG_NET2)
-         mg_log_set ("3");               /** Enable `LL_DEBUG` messages in Mongose */
+    mg_log_set_fn (modeS_logc, NULL);
+    mg_log_set (MG_LL_DEBUG);
   }
+  else if (Modes.debug & DEBUG_MONGOOSE2)
+  {
+    mg_log_set_fn (modeS_logc, NULL);
+    mg_log_set (MG_LL_VERBOSE);
+  }
+
+#if MG_ENABLE_FILE
+  if (Modes.touch_web_root)
+     touch_dir (Modes.web_root, true);
+#endif
 
   env = getenv ("DUMP1090_HOMEPOS");
   if (env)
@@ -932,7 +934,7 @@ int modeS_init (void)
 
   aircraft_CSV_load();
 
-  if (Modes.interactive && Modes.debug == 0)
+  if (Modes.interactive)
      return console_init();
   return (0);
 }
@@ -940,18 +942,18 @@ int modeS_init (void)
 /**
  * Step 3: Initialize the RTLSDR device.
  *
- * If `Modes.rtlsdr.name` is specified, select the device that matches `manufact`.
+ * If `Modes.rtlsdr.name` is specified, select the device that matches `product`.
  * Otherwise select on `Modes.rtlsdr.index` where 0 is the first device found.
  *
- * If one have > 1 RTLSDR device with the same product name and serial-number,
- * then the program `rtl_eeprom -d 1 -M "name"` is handy to set them apart.
+ * If you have > 1 RTLSDR device with the same product name and serial-number,
+ * then the command `rtl_eeprom -d 1 -p RTL2838-Silver` is handy to set them apart.
  * Like:
  *  ```
- *   manufact: Silver, product: RTL2838UHIDIR, serial: 00000001
- *   manufact: Blue, product: RTL2838UHIDIR, serial: 00000001
+ *   product: RTL2838-Silver, serial: 00000001
+ *   product: RTL2838-Blue,   serial: 00000001
  *  ```
  */
-int modeS_init_RTLSDR (void)
+static int modeS_init_RTLSDR (void)
 {
   int    i, rc, device_count;
   double gain;
@@ -967,14 +969,14 @@ int modeS_init_RTLSDR (void)
   for (i = 0; i < device_count; i++)
   {
     char manufact [256] = "??";
-    char product [256]  = "??";
-    char serial [256]  = "??";
+    char product  [256] = "??";
+    char serial   [256] = "??";
     bool selected = false;
     int  r = rtlsdr_get_device_usb_strings (i, manufact, product, serial);
 
     if (r == 0)
     {
-      if (Modes.rtlsdr.name && manufact[0] && !_stricmp(Modes.rtlsdr.name, manufact))
+      if (Modes.rtlsdr.name && product[0] && !stricmp(Modes.rtlsdr.name, product))
       {
         selected = true;
         Modes.rtlsdr.index = i;
@@ -983,17 +985,10 @@ int modeS_init_RTLSDR (void)
         selected = (i == Modes.rtlsdr.index);
 
       if (selected)
-      {
-        char buf [sizeof(manufact) + sizeof(product)];
-
-        strcpy (buf, manufact);
-        strcat (buf, ": ");
-        strcat (buf, product);
-        Modes.selected_dev = _strdup (buf);
-      }
+         Modes.selected_dev = mg_mprintf ("%s (%s)", product, manufact);
     }
-    LOG_STDERR ("%d: %-10s %-20s SN: %s %s\n", i, manufact, product, serial,
-                selected ? "(currently selected)" : "");
+    LOG_STDERR ("%d: %-10s %-20s SN: %s%s\n", i, manufact, product, serial,
+                selected ? " (currently selected)" : "");
   }
 
 #if defined(HAVE_rtlsdr_cal_imr)
@@ -1061,7 +1056,7 @@ int modeS_init_RTLSDR (void)
  *
  * A Mutex is used to avoid race-condition with the decoding thread.
  */
-void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
+static void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
 {
   volatile bool exit = *(volatile bool*) ctx;
 
@@ -1088,7 +1083,7 @@ void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
  * This is used when `--infile` is specified in order to read data from file
  * instead of using a RTLSDR / SDRplay device.
  */
-int read_from_data_file (void)
+static int read_from_data_file (void)
 {
   if (Modes.loops > 0 && Modes.fd == STDIN_FILENO)
   {
@@ -1157,7 +1152,7 @@ int read_from_data_file (void)
  * only handles decoding without caring about data acquisition.
  * Ref. `main_data_loop()` below.
  */
-unsigned int __stdcall data_thread_fn (void *arg)
+static unsigned int __stdcall data_thread_fn (void *arg)
 {
   int rc;
 
@@ -1166,7 +1161,7 @@ unsigned int __stdcall data_thread_fn (void *arg)
     rc = sdrplay_read_async (Modes.sdrplay.device, rx_callback, (void*)&Modes.exit,
                              MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
 
-    TRACE (DEBUG_GENERAL, "sdrplay_read_async(): rc: %d / %s.\n",
+    DEBUG (DEBUG_GENERAL, "sdrplay_read_async(): rc: %d / %s.\n",
            rc, sdrplay_strerror(rc));
 
     sigint_handler (0);   /* break out of main_data_loop() */
@@ -1176,7 +1171,7 @@ unsigned int __stdcall data_thread_fn (void *arg)
     rc = rtlsdr_read_async (Modes.rtlsdr.device, rx_callback, (void*)&Modes.exit,
                             MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
 
-    TRACE (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
+    DEBUG (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
            rc, get_rtlsdr_error(rc));
 
     sigint_handler (0);    /* break out of main_data_loop() */
@@ -1190,7 +1185,7 @@ unsigned int __stdcall data_thread_fn (void *arg)
  *
  * This runs in the main thread of the program.
  */
-void main_data_loop (void)
+static void main_data_loop (void)
 {
   while (!Modes.exit)
   {
@@ -1249,7 +1244,7 @@ void main_data_loop (void)
  * \li "-" is 2
  * \li "." is 1
  */
-void dump_magnitude_bar (uint16_t magnitude, int index)
+static void dump_magnitude_bar (uint16_t magnitude, int index)
 {
   const char *set = " .-o";
   char        buf [256];
@@ -1289,7 +1284,7 @@ void dump_magnitude_bar (uint16_t magnitude, int index)
  * If possible a few samples before the start of the messsage are included
  * for context.
  */
-void dump_magnitude_vector (const uint16_t *m, uint32_t offset)
+static void dump_magnitude_vector (const uint16_t *m, uint32_t offset)
 {
   uint32_t padding = 5;  /* Show a few samples before the actual start. */
   uint32_t start = (offset < padding) ? 0 : offset - padding;
@@ -1304,7 +1299,7 @@ void dump_magnitude_vector (const uint16_t *m, uint32_t offset)
  * Produce a raw representation of the message as a Javascript file
  * loadable by `debug.html`.
  */
-void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t *m, uint32_t offset, int fixable)
+static void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t *m, uint32_t offset, int fixable)
 {
   int   padding = 5;     /* Show a few samples before the actual start. */
   int   start = offset - padding;
@@ -1353,7 +1348,7 @@ void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t *m, ui
  * display packets in a graphical format if the Javascript output was
  * enabled.
  */
-void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint32_t offset)
+static void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint32_t offset)
 {
   int j;
   int msg_type = msg[0] >> 3;
@@ -1411,24 +1406,24 @@ void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint3
  * the CRC *XOR-ed* with the sender address as they are replies to interrogations,
  * but a casual listener can't split the address from the checksum.
  */
-const uint32_t modeS_checksum_table [MODES_LONG_MSG_BITS] = {
-               0x3935EA, 0x1C9AF5, 0xF1B77E, 0x78DBBF, 0xC397DB, 0x9E31E9, 0xB0E2F0, 0x587178,
-               0x2C38BC, 0x161C5E, 0x0B0E2F, 0xFA7D13, 0x82C48D, 0xBE9842, 0x5F4C21, 0xD05C14,
-               0x682E0A, 0x341705, 0xE5F186, 0x72F8C3, 0xC68665, 0x9CB936, 0x4E5C9B, 0xD8D449,
-               0x939020, 0x49C810, 0x24E408, 0x127204, 0x093902, 0x049C81, 0xFDB444, 0x7EDA22,
-               0x3F6D11, 0xE04C8C, 0x702646, 0x381323, 0xE3F395, 0x8E03CE, 0x4701E7, 0xDC7AF7,
-               0x91C77F, 0xB719BB, 0xA476D9, 0xADC168, 0x56E0B4, 0x2B705A, 0x15B82D, 0xF52612,
-               0x7A9309, 0xC2B380, 0x6159C0, 0x30ACE0, 0x185670, 0x0C2B38, 0x06159C, 0x030ACE,
-               0x018567, 0xFF38B7, 0x80665F, 0xBFC92B, 0xA01E91, 0xAFF54C, 0x57FAA6, 0x2BFD53,
-               0xEA04AD, 0x8AF852, 0x457C29, 0xDD4410, 0x6EA208, 0x375104, 0x1BA882, 0x0DD441,
-               0xF91024, 0x7C8812, 0x3E4409, 0xE0D800, 0x706C00, 0x383600, 0x1C1B00, 0x0E0D80,
-               0x0706C0, 0x038360, 0x01C1B0, 0x00E0D8, 0x00706C, 0x003836, 0x001C1B, 0xFFF409,
-               0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
-               0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
-               0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
-             };
+static const uint32_t modeS_checksum_table [MODES_LONG_MSG_BITS] = {
+             0x3935EA, 0x1C9AF5, 0xF1B77E, 0x78DBBF, 0xC397DB, 0x9E31E9, 0xB0E2F0, 0x587178,
+             0x2C38BC, 0x161C5E, 0x0B0E2F, 0xFA7D13, 0x82C48D, 0xBE9842, 0x5F4C21, 0xD05C14,
+             0x682E0A, 0x341705, 0xE5F186, 0x72F8C3, 0xC68665, 0x9CB936, 0x4E5C9B, 0xD8D449,
+             0x939020, 0x49C810, 0x24E408, 0x127204, 0x093902, 0x049C81, 0xFDB444, 0x7EDA22,
+             0x3F6D11, 0xE04C8C, 0x702646, 0x381323, 0xE3F395, 0x8E03CE, 0x4701E7, 0xDC7AF7,
+             0x91C77F, 0xB719BB, 0xA476D9, 0xADC168, 0x56E0B4, 0x2B705A, 0x15B82D, 0xF52612,
+             0x7A9309, 0xC2B380, 0x6159C0, 0x30ACE0, 0x185670, 0x0C2B38, 0x06159C, 0x030ACE,
+             0x018567, 0xFF38B7, 0x80665F, 0xBFC92B, 0xA01E91, 0xAFF54C, 0x57FAA6, 0x2BFD53,
+             0xEA04AD, 0x8AF852, 0x457C29, 0xDD4410, 0x6EA208, 0x375104, 0x1BA882, 0x0DD441,
+             0xF91024, 0x7C8812, 0x3E4409, 0xE0D800, 0x706C00, 0x383600, 0x1C1B00, 0x0E0D80,
+             0x0706C0, 0x038360, 0x01C1B0, 0x00E0D8, 0x00706C, 0x003836, 0x001C1B, 0xFFF409,
+             0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
+             0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
+             0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
+           };
 
-uint32_t modeS_checksum (const uint8_t *msg, int bits)
+static uint32_t modeS_checksum (const uint8_t *msg, int bits)
 {
   uint32_t crc = 0;
   int      offset = 0;
@@ -1455,7 +1450,7 @@ uint32_t modeS_checksum (const uint8_t *msg, int bits)
  * Given the Downlink Format (DF) of the message, return the message length
  * in bits.
  */
-int modeS_message_len_by_type (int type)
+static int modeS_message_len_by_type (int type)
 {
   if (type == 16 || type == 17 || type == 19 || type == 20 || type == 21)
      return (MODES_LONG_MSG_BITS);
@@ -1467,7 +1462,7 @@ int modeS_message_len_by_type (int type)
  * the original buffer with the fixed version, and returns the position
  * of the error bit. Otherwise if fixing failed, -1 is returned.
  */
-int fix_single_bit_errors (uint8_t *msg, int bits)
+static int fix_single_bit_errors (uint8_t *msg, int bits)
 {
   int     i;
   uint8_t aux [MODES_LONG_MSG_BITS/8];
@@ -1505,7 +1500,7 @@ int fix_single_bit_errors (uint8_t *msg, int bits)
  * This is very slow and should be tried only against DF17 messages that
  * don't pass the checksum, and only in Aggressive Mode.
  */
-int fix_two_bits_errors (uint8_t *msg, int bits)
+static int fix_two_bits_errors (uint8_t *msg, int bits)
 {
   int     j, i;
   uint8_t aux [MODES_LONG_MSG_BITS/8];
@@ -1555,7 +1550,7 @@ int fix_two_bits_errors (uint8_t *msg, int bits)
  * Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
  * elements, that is assumed to be a power of two.
  */
-uint32_t ICAO_cache_hash_address (uint32_t a)
+static uint32_t ICAO_cache_hash_address (uint32_t a)
 {
   /* The following three rounds will make sure that every bit affects
    * every output bit with ~ 50% of probability.
@@ -1572,7 +1567,7 @@ uint32_t ICAO_cache_hash_address (uint32_t a)
  * Note that we also add a timestamp so that we can make sure that the
  * entry is only valid for `MODES_ICAO_CACHE_TTL` seconds.
  */
-void ICAO_cache_add_address (uint32_t addr)
+static void ICAO_cache_add_address (uint32_t addr)
 {
   uint32_t h = ICAO_cache_hash_address (addr);
 
@@ -1585,7 +1580,7 @@ void ICAO_cache_add_address (uint32_t addr)
  * proper checksum (not XORed with address) no more than
  * `MODES_ICAO_CACHE_TTL` seconds ago. Otherwise returns 0.
  */
-int ICAO_address_recently_seen (uint32_t addr)
+static int ICAO_address_recently_seen (uint32_t addr)
 {
   uint32_t h = ICAO_cache_hash_address (addr);
   uint32_t a = Modes.ICAO_cache [h*2];
@@ -1637,7 +1632,7 @@ static const ICAO_range military_range[] = {
      { 0xE40000,  0xE41FFF }
    };
 
-bool ICAO_is_military (uint32_t addr)
+static bool ICAO_is_military (uint32_t addr)
 {
   for (uint16_t i = 0; i < DIM(military_range); i++)
       if (addr >= military_range[i].low && addr <= military_range[i].high)
@@ -1662,7 +1657,7 @@ bool ICAO_is_military (uint32_t addr)
  * \retval 1 successfully recovered a message with a correct checksum.
  * \retval 0 failed to recover a message with a correct checksum.
  */
-int brute_force_AP (uint8_t *msg, modeS_message *mm)
+static int brute_force_AP (uint8_t *msg, modeS_message *mm)
 {
   uint8_t aux [MODES_LONG_MSG_BYTES];
   int     msg_type = mm->msg_type;
@@ -1717,7 +1712,7 @@ int brute_force_AP (uint8_t *msg, modeS_message *mm)
  * \param out unit  set to either `MODES_UNIT_METERS` or `MDOES_UNIT_FEETS`.
  * \retval the altitude.
  */
-int decode_AC13_field (const uint8_t *msg, int *unit)
+static int decode_AC13_field (const uint8_t *msg, metric_unit_t *unit)
 {
   int m_bit = msg[3] & (1 << 6);
   int q_bit = msg[3] & (1 << 4);
@@ -1734,8 +1729,8 @@ int decode_AC13_field (const uint8_t *msg, int *unit)
               ((msg[3] & 0x20) >> 1) |
                (msg[3] & 15);
 
-      /** The final altitude is due to the resulting number multiplied
-       * by 25, minus 1000.
+      /**
+       * The final altitude is due to the resulting number multiplied by 25, minus 1000.
        */
       return (25*n - 1000);
     }
@@ -1758,7 +1753,7 @@ int decode_AC13_field (const uint8_t *msg, int *unit)
  * Decode the 12 bit AC altitude field (in DF 17 and others).
  * Returns the altitude or 0 if it can't be decoded.
  */
-int decode_AC12_field (uint8_t *msg, int *unit)
+static int decode_AC12_field (uint8_t *msg, metric_unit_t *unit)
 {
   int n, q_bit = msg[5] & 1;
 
@@ -1780,7 +1775,7 @@ int decode_AC12_field (uint8_t *msg, int *unit)
 /**
  * Capability table.
  */
-const char *capability_str[8] = {
+static const char *capability_str[8] = {
     /* 0 */ "Level 1 (Surveillance Only)",
     /* 1 */ "Level 2 (DF0,4,5,11)",
     /* 2 */ "Level 3 (DF0,4,5,11,20,21)",
@@ -1794,7 +1789,7 @@ const char *capability_str[8] = {
 /**
  * Flight status table.
  */
-const char *flight_status_str[8] = {
+static const char *flight_status_str[8] = {
     /* 0 */ "Normal, Airborne",
     /* 1 */ "Normal, On the ground",
     /* 2 */ "ALERT,  Airborne",
@@ -1811,7 +1806,7 @@ const char *flight_status_str[8] = {
  *
  * and 1090-DO-260B_FRAC
  */
-const char *emerg_state_str[8] = {
+static const char *emerg_state_str[8] = {
     /* 0 */ "No emergency",
     /* 1 */ "General emergency (Squawk 7700)",
     /* 2 */ "Lifeguard/Medical",
@@ -1822,7 +1817,7 @@ const char *emerg_state_str[8] = {
     /* 7 */ "Reserved"
 };
 
-const char *get_ME_description (const modeS_message *mm)
+static const char *get_ME_description (const modeS_message *mm)
 {
   if (mm->ME_type >= 1 && mm->ME_type <= 4)
      return ("Aircraft Identification and Category");
@@ -1868,7 +1863,7 @@ const char *get_ME_description (const modeS_message *mm)
  *
  * And split it into fields populating a `modeS_message` structure.
  */
-void decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
+static void decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
 {
   uint32_t    crc2;   /* Computed CRC, used to verify the message CRC. */
   const char *AIS_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
@@ -2089,19 +2084,19 @@ void decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
 }
 
 /**
- * Return the hex-string for a 24-bit ICAO address.
+ * Return the hex-string for he 24-bit ICAO address in `*mm`.
  * Also look for the registration number and manufacturer from
  * the `Modes.aircraft_list`.
  */
-const char *get_ICAO_details (int AA1, int AA2, int AA3)
+static const char *get_ICAO_details (const modeS_message *mm)
 {
-  static char ret_buf[100];
+  static char         ret_buf[100];
   const aircraft_CSV *a;
-  char  *p = ret_buf;
-  size_t n, left = sizeof(ret_buf);
-  uint32_t addr = (AA1 << 16) + (AA2 << 8) + AA3;
+  char               *p = ret_buf;
+  size_t              n, left = sizeof(ret_buf);
+  uint32_t            addr = (mm->AA1 << 16) + (mm->AA2 << 8) + mm->AA3;
 
-  n = snprintf (p, left, "%02X%02X%02X", AA1, AA2, AA3);
+  n = snprintf (p, left, "%02X%02X%02X", mm->AA1, mm->AA2, mm->AA3);
   p    += n;
   left -= n;
 
@@ -2117,7 +2112,7 @@ const char *get_ICAO_details (int AA1, int AA2, int AA3)
  * This function gets a decoded Mode S Message and prints it on the screen
  * in a human readable format.
  */
-void display_modeS_message (const modeS_message *mm)
+static void display_modeS_message (const modeS_message *mm)
 {
   char   buf [200];
   char  *p = buf;
@@ -2128,7 +2123,7 @@ void display_modeS_message (const modeS_message *mm)
    */
   if (Modes.only_addr)
   {
-    puts (get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
+    puts (get_ICAO_details(mm));
     return;
   }
 
@@ -2161,8 +2156,8 @@ void display_modeS_message (const modeS_message *mm)
   {
     /* DF 0 */
     LOG_STDOUT ("DF 0: Short Air-Air Surveillance.\n");
-    LOG_STDOUT ("  Altitude       : %d %s\n", mm->altitude, mm->unit == MODES_UNIT_METERS ? "meters" : "feet");
-    LOG_STDOUT ("  ICAO Address   : %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
+    LOG_STDOUT ("  Altitude       : %d %s\n", mm->altitude, UNIT_NAME(mm->unit));
+    LOG_STDOUT ("  ICAO Address   : %s\n", get_ICAO_details(mm));
   }
   else if (mm->msg_type == 4 || mm->msg_type == 20)
   {
@@ -2170,8 +2165,8 @@ void display_modeS_message (const modeS_message *mm)
     LOG_STDOUT ("  Flight Status  : %s\n", flight_status_str [mm->flight_status]);
     LOG_STDOUT ("  DR             : %d\n", mm->DR_status);
     LOG_STDOUT ("  UM             : %d\n", mm->UM_status);
-    LOG_STDOUT ("  Altitude       : %d %s\n", mm->altitude, mm->unit == MODES_UNIT_METERS ? "meters" : "feet");
-    LOG_STDOUT ("  ICAO Address   : %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
+    LOG_STDOUT ("  Altitude       : %d %s\n", mm->altitude, UNIT_NAME(mm->unit));
+    LOG_STDOUT ("  ICAO Address   : %s\n", get_ICAO_details(mm));
 
     if (mm->msg_type == 20)
     {
@@ -2185,7 +2180,7 @@ void display_modeS_message (const modeS_message *mm)
     LOG_STDOUT ("  DR             : %d\n", mm->DR_status);
     LOG_STDOUT ("  UM             : %d\n", mm->UM_status);
     LOG_STDOUT ("  Squawk         : %d\n", mm->identity);
-    LOG_STDOUT ("  ICAO Address   : %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
+    LOG_STDOUT ("  ICAO Address   : %s\n", get_ICAO_details(mm));
 
     if (mm->msg_type == 21)
     {
@@ -2197,14 +2192,14 @@ void display_modeS_message (const modeS_message *mm)
     /* DF 11 */
     LOG_STDOUT ("DF 11: All Call Reply.\n");
     LOG_STDOUT ("  Capability  : %s\n", capability_str[mm->ca]);
-    LOG_STDOUT ("  ICAO Address: %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
+    LOG_STDOUT ("  ICAO Address: %s\n", get_ICAO_details(mm));
   }
   else if (mm->msg_type == 17)
   {
     /* DF 17 */
     LOG_STDOUT ("DF 17: ADS-B message.\n");
     LOG_STDOUT ("  Capability     : %d (%s)\n", mm->ca, capability_str[mm->ca]);
-    LOG_STDOUT ("  ICAO Address   : %s\n", get_ICAO_details(mm->AA1, mm->AA2, mm->AA3));
+    LOG_STDOUT ("  ICAO Address   : %s\n", get_ICAO_details(mm));
     LOG_STDOUT ("  Extended Squitter Type: %d\n", mm->ME_type);
     LOG_STDOUT ("  Extended Squitter Sub : %d\n", mm->ME_subtype);
     LOG_STDOUT ("  Extended Squitter Name: %s\n", get_ME_description(mm));
@@ -2291,7 +2286,7 @@ void display_modeS_message (const modeS_message *mm)
  * Turn I/Q samples pointed by `Modes.data` into the magnitude vector
  * pointed by `Modes.magnitude`.
  */
-uint16_t *compute_magnitude_vector (const uint8_t *data)
+static uint16_t *compute_magnitude_vector (const uint8_t *data)
 {
   uint16_t *m = Modes.magnitude;
   uint32_t  i;
@@ -2321,7 +2316,7 @@ uint16_t *compute_magnitude_vector (const uint8_t *data)
  * Note: this function will access m[-1], so the caller should make sure to
  * call it only if we are not at the start of the current buffer.
  */
-int detect_out_of_phase (const uint16_t *m)
+static int detect_out_of_phase (const uint16_t *m)
 {
   if (m[3] > m[2]/3)
      return (1);
@@ -2364,7 +2359,7 @@ int detect_out_of_phase (const uint16_t *m)
  * In this way similar levels will be interpreted more likely in the
  * correct way.
  */
-void apply_phase_correction (uint16_t *m)
+static void apply_phase_correction (uint16_t *m)
 {
   int j;
 
@@ -2389,7 +2384,7 @@ void apply_phase_correction (uint16_t *m)
  * size `mlen` bytes. Every detected Mode S message is converted into a
  * stream of bits and passed to the function to display it.
  */
-int detect_modeS (uint16_t *m, uint32_t mlen)
+static int detect_modeS (uint16_t *m, uint32_t mlen)
 {
   uint8_t  bits [MODES_LONG_MSG_BITS];
   uint8_t  msg [MODES_LONG_MSG_BITS/2];
@@ -2680,7 +2675,7 @@ good_preamble:
  * Basically this function passes a raw message to the upper layers for
  * further processing and visualization.
  */
-void modeS_user_message (const modeS_message *mm)
+static void modeS_user_message (const modeS_message *mm)
 {
   uint64_t num_clients;
 
@@ -2732,7 +2727,7 @@ void modeS_user_message (const modeS_message *mm)
  * \param in addr  the specific ICAO address.
  * \param in now   the current tick-time in milli-seconds.
  */
-aircraft *aircraft_create (uint32_t addr, uint64_t now)
+static aircraft *aircraft_create (uint32_t addr, uint64_t now)
 {
   aircraft *a = calloc (sizeof(*a), 1);
 
@@ -2759,7 +2754,7 @@ aircraft *aircraft_create (uint32_t addr, uint64_t now)
  *
  * \param in addr  the specific ICAO address.
  */
-aircraft *aircraft_find (uint32_t addr)
+static aircraft *aircraft_find (uint32_t addr)
 {
   aircraft *a = Modes.aircrafts;
 
@@ -2775,7 +2770,7 @@ aircraft *aircraft_find (uint32_t addr)
 /**
  * Return the number of aircrafts we have now.
  */
-int aircraft_numbers (void)
+static int aircraft_numbers (void)
 {
   aircraft *a = Modes.aircrafts;
   int       num;
@@ -2792,7 +2787,7 @@ int aircraft_numbers (void)
  *
  * \ref https://en.wikipedia.org/wiki/Great-circle_distance
  */
-double great_circle_dist (pos_t pos1, pos_t pos2)
+static double great_circle_dist (pos_t pos1, pos_t pos2)
 {
   double lat1 = TWO_PI * pos1.lat / 360.0;  /* convert to radians */
   double lon1 = TWO_PI * pos1.lon / 360.0;
@@ -2817,7 +2812,7 @@ double great_circle_dist (pos_t pos1, pos_t pos2)
  *
  * The reference time-tick is the latest of `a->odd_CPR_time` and `a->even_CPR_time`.
  */
-void set_home_distance (aircraft *a)
+static void set_home_distance (aircraft *a)
 {
   if (VALID_POS(Modes.home_pos) && VALID_POS(a->position))
   {
@@ -2838,7 +2833,7 @@ void set_home_distance (aircraft *a)
  *
  * https://en.wikipedia.org/wiki/Latitude#Geocentric_latitude
  */
-double geocentric_latitude (double lat)
+static double geocentric_latitude (double lat)
 {
   double e2 = 0.00669437999014;
 
@@ -2849,7 +2844,7 @@ double geocentric_latitude (double lat)
  * Convert spherical coordinate to cartesian.
  * Also calculates radius and a normal vector
  */
-void spherical_to_cartesian (cartesian_t *cart, pos_t pos)
+static void spherical_to_cartesian (cartesian_t *cart, pos_t pos)
 {
   double lat  = TWO_PI * pos.lat / 360.0;
   double lon  = TWO_PI * pos.lon / 360.0;
@@ -2863,7 +2858,7 @@ void spherical_to_cartesian (cartesian_t *cart, pos_t pos)
 /**
  * \ref https://keisan.casio.com/exec/system/1359533867
  */
-void cartesian_to_spherical (pos_t *pos, cartesian_t cart)
+static void cartesian_to_spherical (pos_t *pos, cartesian_t cart)
 {
   /* We do not need this; close to earth's radius = 6371000 m.
    *
@@ -2876,7 +2871,7 @@ void cartesian_to_spherical (pos_t *pos, cartesian_t cart)
 /**
  * Return the distance between 2 cartesian points.
  */
-double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
+static double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
 {
   double dX = b->c_x - a->c_x;
   double dY = b->c_y - a->c_y;
@@ -2887,7 +2882,7 @@ double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
 /**
  * Return the closest of `val1` and `val2` to `val`.
  */
-double closest_to (double val, double val1, double val2)
+static double closest_to (double val, double val1, double val2)
 {
   double diff1 = fabs (val1 - val);
   double diff2 = fabs (val2 - val);
@@ -2901,7 +2896,7 @@ double closest_to (double val, double val1, double val2)
  * Assuming a constant good last heading and speed, calculate the
  * new position from that using the elapsed time.
  */
-void set_est_home_distance (aircraft *a, uint64_t now)
+static void set_est_home_distance (aircraft *a, uint64_t now)
 {
   double      heading, distance, gc_distance, cart_distance, dX, dY;
   cartesian_t cpos;
@@ -2948,7 +2943,7 @@ void set_est_home_distance (aircraft *a, uint64_t now)
  * If `Modes.metric == true`, return it in kilo-meters. <br>
  * Otherwise Knots.
  */
-const char *get_home_distance (const aircraft *a, const char **km_kts)
+static const char *get_home_distance (const aircraft *a, const char **km_kts)
 {
   static char buf [20];
   double divisor = Modes.metric ? 1000.0 : 1852.0;
@@ -2966,7 +2961,7 @@ const char *get_home_distance (const aircraft *a, const char **km_kts)
 /**
  * As for `get_home_distance()`, but return the estimated distance.
  */
-const char *get_est_home_distance (const aircraft *a, const char **km_kts)
+static const char *get_est_home_distance (const aircraft *a, const char **km_kts)
 {
   static char buf [20];
   double divisor = Modes.metric ? 1000.0 : 1852.0;
@@ -2985,7 +2980,7 @@ const char *get_est_home_distance (const aircraft *a, const char **km_kts)
  * Helper function for decoding the **CPR** (*Compact Position Reporting*). <br>
  * Always positive MOD operation, used for CPR decoding.
  */
-int CPR_mod_func (int a, int b)
+static int CPR_mod_func (int a, int b)
 {
   int res = a % b;
 
@@ -3003,7 +2998,7 @@ int CPR_mod_func (int a, int b)
  * The NL function uses the precomputed table from 1090-WP-9-14. <br>
  * Refer [The-1090MHz-riddle](./The-1090MHz-riddle.pdf), page 45 for the exact equation.
  */
-int CPR_NL_func (double lat)
+static int CPR_NL_func (double lat)
 {
   if (lat < 0) lat = -lat;   /* Table is symmetric about the equator. */
   if (lat < 10.47047130) return (59);
@@ -3067,18 +3062,18 @@ int CPR_NL_func (double lat)
   return (1);
 }
 
-int CPR_N_func (double lat, int isodd)
+static int CPR_N_func (double lat, int is_odd)
 {
-  int nl = CPR_NL_func (lat) - isodd;
+  int nl = CPR_NL_func (lat) - is_odd;
 
   if (nl < 1)
      nl = 1;
   return (nl);
 }
 
-double CPR_Dlong_func (double lat, int isodd)
+static double CPR_Dlong_func (double lat, int is_odd)
 {
-  return 360.0 / CPR_N_func (lat, isodd);
+  return 360.0 / CPR_N_func (lat, is_odd);
 }
 
 /**
@@ -3093,7 +3088,7 @@ double CPR_Dlong_func (double lat, int isodd)
  * \li We assume that we always received the odd packet as last packet for
  *     simplicity. This may provide a position that is less fresh of a few seconds.
  */
-void decode_CPR (aircraft *a)
+static void decode_CPR (aircraft *a)
 {
   const double AirDlat0 = 360.0 / 60;
   const double AirDlat1 = 360.0 / 59;
@@ -3149,7 +3144,7 @@ void decode_CPR (aircraft *a)
 /**
  * Receive new messages and populate the interactive mode with more info.
  */
-aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
+static aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
 {
   aircraft *a;
   char     *p;
@@ -3285,7 +3280,7 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
  * \param in a    the aircraft to show.
  * \param in now  the currect tick-timer in milli-seconds.
  */
-void interactive_show_aircraft (const aircraft *a, uint64_t now)
+static void interactive_show_aircraft (const aircraft *a, uint64_t now)
 {
   int   altitude = a->altitude;
   int   speed = a->speed;
@@ -3326,10 +3321,10 @@ void interactive_show_aircraft (const aircraft *a, uint64_t now)
   if (altitude)
      snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
 
-  if (a->position.lat)
+  if (a->position.lat != 0.0)
      snprintf (lat_buf, sizeof(lat_buf), "% +7.03f", a->position.lat);
 
-  if (a->position.lon)
+  if (a->position.lon != 0.0)
      snprintf (lon_buf, sizeof(lon_buf), "% +8.03f", a->position.lon);
 
   if (speed)
@@ -3391,7 +3386,7 @@ void interactive_show_aircraft (const aircraft *a, uint64_t now)
  * Show the currently captured aircraft information on screen.
  * \param in now  the currect tick-timer in mill-seconds
  */
-void interactive_show_data (uint64_t now)
+static void interactive_show_data (uint64_t now)
 {
   static int spin_idx = 0;
   static int old_count = -1;
@@ -3444,7 +3439,7 @@ void interactive_show_data (uint64_t now)
  * If we don't receive new nessages within `Modes.interactive_ttl`
  * milli-seconds, we remove the aircraft from the list.
  */
-void remove_stale_aircrafts (uint64_t now)
+static void remove_stale_aircrafts (uint64_t now)
 {
   aircraft *a, *a_next;
 
@@ -3473,7 +3468,7 @@ void remove_stale_aircrafts (uint64_t now)
 /**
  * Remove all active aircrafts from the list.
  */
-void free_all_aircrafts (void)
+static void free_all_aircrafts (void)
 {
   aircraft *a = Modes.aircrafts;
   aircraft *prev = NULL;
@@ -3497,7 +3492,7 @@ void free_all_aircrafts (void)
  *
  * Will print to `stdout` in BINARY-mode.
  */
-int strip_mode (int level)
+static int strip_mode (int level)
 {
   int i, q;
   uint64_t c = 0;
@@ -3525,7 +3520,7 @@ int strip_mode (int level)
 /*
  * Taken from Dump1090-FA's 'net_io.c':
  */
-char *aircraft_json_Dump1090_OL3 (const char *url_path, int *len)
+static char *aircraft_json_Dump1090_OL3 (const char *url_path, int *len)
 {
   MODES_NOTUSED (url_path);
   MODES_NOTUSED (len);
@@ -3534,9 +3529,9 @@ char *aircraft_json_Dump1090_OL3 (const char *url_path, int *len)
 
 /**
  * Return a description of the receiver in JSON.
- *  { "version" : "0.1-gv", "refresh" : 1000, "history" : 3 }
+ *  { "version" : "0.2", "refresh" : 1000, "history" : 3 }
  */
-char *receiver_to_json (void)
+static char *receiver_to_json (void)
 {
   int history_size = DIM(Modes.json_aircraft_history)-1;
 
@@ -3545,12 +3540,12 @@ char *receiver_to_json (void)
   if (!Modes.json_aircraft_history [history_size].ptr)
      history_size = Modes.json_aircraft_history_next;
 
-  return mg_mprintf ("{%Q: %s, "    // "version", DUMP1090_VERSION
+  return mg_mprintf ("{%Q: %Q, "    // "version", PROG_VERSION
                       "%Q: %llu, "  // "refresh", Modes.json_interval
                       "%Q: %d, "    // "history", history_size
                       "%Q: %.6g, "  // "lat",     Modes.home_pos.lat; if 'Modes.home_pos_ok == false', this is 0.
                       "%Q: %.6g}",  // "lon",     Modes.home_pos.lon; ditto
-                      "version", DUMP1090_VERSION,
+                      "version", PROG_VERSION,
                       "refresh", Modes.json_interval,
                       "history", history_size,
                       "lat",     Modes.home_pos.lat,
@@ -3559,17 +3554,19 @@ char *receiver_to_json (void)
 
 /**
  * Return a malloced JSON description of the active planes.
- * But only those whose latitude and longitude is known.
+ * But only those whose latitude and longitude are known.
  *
  * Since various Web-clients expects different elements in this returned
  * JSON array, add those which is approprite for that Web-clients only.
  *
- * E.g. an extended web-client want an empty array like this:
+ * E.g. an extended web-client wants an empty array like this:
  * ```
- *  { "now": 1656176445, "messages" : 1,
- *    "aircraft" : []
+ *  {
+ *    "now": 1656176445, "messages": 1,
+ *    "aircraft": []
  *  }
  * ```
+ *
  * Or an array with 1 element like this:
  * ```
  * {
@@ -3578,70 +3575,13 @@ char *receiver_to_json (void)
  * }
  * ```
  */
-char *aircrafts_to_json (int *num_planes, bool extended_client)
+static char *aircrafts_to_json (bool extended_client)
 {
   struct timeval tv_now;
   aircraft      *a = Modes.aircrafts;
-
-  *num_planes = 0;
-
-#if 0
-  char *ret_buf;
-  int   aircraft_size = 1024;
-  char *aircraft_json = malloc (aircraft_size);
-
-  MODES_NOTUSED (extended_client);
-
-  while (a)
-  {
-    int    altitude = a->altitude;
-    int    speed    = a->speed;
-    size_t f_len = strlen (a->flight);
-
-    /* Convert units to metric if --metric was specified.
-     * But option '--metric' has no effect on the Web-page yet.
-     */
-    if (Modes.metric)
-    {
-      altitude = (int) (double) (a->altitude / 3.2828);
-      speed    = (int) (1.852 * (double) a->speed);
-    }
-
-    mg_asprintf (&aircraft_json, aircraft_size,
-                 "%Q: %Q"    // "hex":     "addr"
-                 "%Q: %Q"    // "flight":   a->flight
-                 "%Q: %g"    // "lat":      a->position.lat
-                 "%Q: %g"    // "lon":      a->position.lon
-                 "%Q: %d"    // "altitude": altitude
-                 "%Q: %d"    // "track":    a->heading
-                 "%Q: %d",   // "speed":    speed
-                 "hex",      a->addr,
-                 "flight",   a->flight,
-                 "lat",      a->position.lat,
-                 "lon",      a->position.lon,
-                 "altitude", altitude,
-                 "track",    a->heading,
-                 "speed",    speed);
-
-    a = a->next;
-  }
-
-  mg_asprintf (&ret_buf, 0,
-               "{%Q: %lu.%03lu,"  // "now":      sec.usec
-                "%Q: %llu:, "     // "messages": Modes.stat.messages_total
-                "%Q: [ %s ]}",    // "aircraft": aircraft_json
-                "now",            tv_now.tv_sec, tv_now.tv_usec/1000,
-                "messages",       Modes.stat.messages_total,
-                "aircraft",       aircraft_json);
-
-  free (aircraft_json);
-  return (ret_buf);
-
-#else
-  int    buflen = 1024;        /* The initial buffer is incremented as needed. */
-  char  *buf = malloc (buflen);
-  char  *p = buf;
-  int    l;
+  int            l, buflen = 1024;        /* The initial buffer is incremented as needed. */
+  char          *buf = malloc (buflen);
+  char          *p = buf;
 
   if (!buf)
      return (NULL);
@@ -3661,7 +3601,6 @@ char *aircrafts_to_json (int *num_planes, bool extended_client)
     buflen--;
   }
 
-
   while (a)
   {
     int altitude = a->altitude;
@@ -3680,7 +3619,7 @@ char *aircrafts_to_json (int *num_planes, bool extended_client)
     {
       size_t f_len = strlen (a->flight);
 
-      while (a->flight[f_len-1] == ' ') /* do not send trailing spaces */
+      while (a->flight[f_len-1] == ' ')   /* do not send trailing spaces */
          f_len--;
 
       l = snprintf (p, buflen,
@@ -3701,8 +3640,6 @@ char *aircrafts_to_json (int *num_planes, bool extended_client)
       p      += 3;
       buflen -= 3;
 
-      (*num_planes)++;
-
       /* Resize if needed.
        */
       if (buflen < 256)
@@ -3712,10 +3649,8 @@ char *aircrafts_to_json (int *num_planes, bool extended_client)
         buflen += 1024;    /* Our increment. */
         buf = realloc (buf, used + buflen);
         if (!buf)
-        {
-          *num_planes = 0;
-          return (NULL);
-        }
+           return (NULL);
+
         p = buf + used;
       }
     }
@@ -3732,14 +3667,13 @@ char *aircrafts_to_json (int *num_planes, bool extended_client)
      *p++ = '}';
   *p = '\0';
   return (buf);
-#endif
 }
 
 /**
  * Returns a 'connection *' based on the remote 'addr' and 'service'.
  * This can be either client or server.
  */
-connection *connection_get_addr (const mg_addr *addr, intptr_t service, bool is_server)
+static connection *connection_get_addr (const mg_addr *addr, intptr_t service, bool is_server)
 {
   connection *srv;
 
@@ -3758,7 +3692,7 @@ connection *connection_get_addr (const mg_addr *addr, intptr_t service, bool is_
 /**
  * Free a specific connection, client or server.
  */
-void connection_free (connection *this_conn, intptr_t service)
+static void connection_free (connection *this_conn, intptr_t service)
 {
   connection *conn;
   uint32_t    conn_id = (uint32_t)-1;
@@ -3788,7 +3722,7 @@ void connection_free (connection *this_conn, intptr_t service)
     break;
   }
 
-  TRACE (DEBUG_NET2, "Freeing %s %u for service \"%s\".\n",
+  DEBUG (DEBUG_NET2, "Freeing %s %u for service \"%s\".\n",
          is_server == 1 ? "server" :
          is_server == 0 ? "client" : "?",
          conn_id, handler_descr(service));
@@ -3797,7 +3731,7 @@ void connection_free (connection *this_conn, intptr_t service)
 /*
  * Free all connections in all services.
  */
-unsigned connection_free_all (void)
+static unsigned connection_free_all (void)
 {
   intptr_t service;
   int      num = 0;
@@ -3827,7 +3761,7 @@ unsigned connection_free_all (void)
  *  \li This function is not used for sending HTTP data.
  *  \li This function is not called when `--net-active` is used.
  */
-void connection_send (intptr_t service, const void *msg, size_t len)
+static void connection_send (intptr_t service, const void *msg, size_t len)
 {
   connection *c;
   int         found = 0;
@@ -3841,7 +3775,7 @@ void connection_send (intptr_t service, const void *msg, size_t len)
     found++;
   }
   if (found > 0)
-     TRACE (DEBUG_NET, "Sent %zd bytes to %d clients in service \"%s\".\n",
+     DEBUG (DEBUG_NET, "Sent %zd bytes to %d clients in service \"%s\".\n",
             len, found, handler_descr(service));
 }
 
@@ -3853,21 +3787,23 @@ void connection_send (intptr_t service, const void *msg, size_t len)
  *
  * Keep the data for our 4 network services in this structure.
  */
-net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
-          { &Modes.raw_out,  NULL, "Raw TCP output", MODES_NET_PORT_RAW_OUT },
-          { &Modes.raw_in,   NULL, "Raw TCP input",  MODES_NET_PORT_RAW_IN },
-          { &Modes.sbs_out,  NULL, "SBS TCP output", MODES_NET_PORT_SBS },
-          { &Modes.sbs_in,   NULL, "SBS TCP input",  MODES_NET_PORT_SBS },
-          { &Modes.http_out, NULL, "HTTP server",    MODES_NET_PORT_HTTP }
-        };
+static net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
+                 { &Modes.raw_out,  NULL, "Raw TCP output", MODES_NET_PORT_RAW_OUT },
+                 { &Modes.raw_in,   NULL, "Raw TCP input",  MODES_NET_PORT_RAW_IN },
+                 { &Modes.sbs_out,  NULL, "SBS TCP output", MODES_NET_PORT_SBS },
+                 { &Modes.sbs_in,   NULL, "SBS TCP input",  MODES_NET_PORT_SBS },
+                 { &Modes.http_out, NULL, "HTTP server",    MODES_NET_PORT_HTTP }
+               };
 
-/* Mongoose event names.
+/**
+ * Mongoose event names.
  */
-const char *event_name (int ev)
+static const char *event_name (int ev)
 {
+  static char buf [20];
+
   if (ev >= MG_EV_USER)
   {
-    static char buf[20];
     snprintf (buf, sizeof(buf), "MG_EV_USER%d", ev - MG_EV_USER);
     return (buf);
   }
@@ -3893,43 +3829,43 @@ const char *event_name (int ev)
                                  : "?");
 }
 
-mg_connection *handler_conn (intptr_t service)
+static mg_connection *handler_conn (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (*modeS_net_services [service].conn);
 }
 
-uint16_t *handler_num_connections (intptr_t service)
+static uint16_t *handler_num_connections (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (&modeS_net_services [service].num_connections);
 }
 
-const char *handler_descr (intptr_t service)
+static const char *handler_descr (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (modeS_net_services [service].descr);
 }
 
-u_short handler_port (intptr_t service)
+static u_short handler_port (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (modeS_net_services [service].port);
 }
 
-char *handler_error (intptr_t service)
+static char *handler_error (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (modeS_net_services [service].last_err);
 }
 
-bool handler_sending (intptr_t service)
+static bool handler_sending (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
   return (modeS_net_services [service].active_send);
 }
 
-void net_flushall (void)
+static void net_flushall (void)
 {
   mg_connection *conn;
   unsigned       num_active  = 0;
@@ -3952,12 +3888,12 @@ void net_flushall (void)
          num_active++;
     else num_unknown++;
   }
-  TRACE (DEBUG_NET,
+  DEBUG (DEBUG_NET,
          "Flushed %u active connections, %u passive, %u unknown. Remaining bytes: %u Rx, %u Tx.\n",
          num_active, num_passive, num_unknown, total_rx, total_tx);
 }
 
-int print_server_errors (void)
+static int print_server_errors (void)
 {
   int   service, num = 0;
   char *err;
@@ -3979,11 +3915,11 @@ int print_server_errors (void)
  * \todo
  * The event handler for WebSocket control messages.
  */
-void connection_handler_websocket (mg_connection *conn, const char *remote, int ev, void *ev_data)
+static void connection_handler_websocket (mg_connection *conn, const char *remote, int ev, void *ev_data)
 {
   mg_ws_message *ws = ev_data;
 
-  TRACE (DEBUG_NET, "WebSocket event %s from client at %s has %zd bytes for us.\n",
+  DEBUG (DEBUG_NET, "WebSocket event %s from client at %s has %zd bytes for us.\n",
          event_name(ev), remote, conn->recv.len);
 
   if (ev == MG_EV_WS_MSG)
@@ -3996,14 +3932,29 @@ void connection_handler_websocket (mg_connection *conn, const char *remote, int 
   MODES_NOTUSED (ws);
 }
 
-const char *get_client_headers (const connection *cli, const char *hdr)
+static const char *set_headers (const connection *cli,
+                                const char       *content_type)
 {
-  static char buf[100];
-  int    len = snprintf (buf, sizeof(buf), "%s\r\n", hdr);
+  static char headers [200];
+  char       *p = headers;
+
+  *p = '\0';
+  if (content_type)
+  {
+    strcpy (headers, "Content-Type: ");
+    p += strlen ("Content-Type: ");
+    strcpy (headers, content_type);
+    p += strlen (content_type);
+    strcpy (p, "\r\n");
+    p += 2;
+  }
 
   if (cli->keep_alive)
-     strncpy (buf + len, "Connection: keep-alive\r\n", sizeof(buf) - len - 1);
-  return (buf);
+  {
+    strcpy (p, "Connection: keep-alive\r\n");
+    Modes.stat.HTTP_keep_alive_sent++;
+  }
+  return (headers);
 }
 
 /*
@@ -4013,182 +3964,169 @@ const char *get_client_headers (const connection *cli, const char *hdr)
  */
 #include "favicon.c"
 
+static void send_favicon (mg_connection *conn,
+                          connection    *cli,
+                          const uint8_t *data,
+                          size_t         data_len,
+                          const char    *content_type)
+{
+  DEBUG (DEBUG_NET, "Sending favicon (%s, %zu bytes) to client %lu.\n", content_type, data_len, conn->id);
+
+  mg_printf (conn,
+             "HTTP/1.1 200 OK\r\n"
+             "Content-Length: %lu\r\n"
+             "%s\r\n", data_len, set_headers(cli, content_type));
+  mg_send (conn, data, data_len);
+  conn->is_resp = 0;
+}
+
 /**
- * The event handler for HTTP traffic.
+ * The event handler for all HTTP traffic.
  */
-int connection_handler_http (mg_connection *conn,
-                             int            ev,
-                             void          *ev_data,
-                             char          *request_data,
-                             size_t         request_size,
-                             char         **ret_data)
+static int connection_handler_http (mg_connection *conn,
+                                    int            ev,
+                                    void          *ev_data,
+                                    char          *request_uri,
+                                    size_t         request_uri_size)
 {
   mg_http_message *hm = ev_data;
+  mg_str          *head;
   connection      *cli;
   bool             is_dump1090, is_extended;
-  const char      *content = NULL;
+  const char      *content_type = NULL;
   const char      *uri, *ext;
-  char            *request, *end;
-  char             header [1000];
-  int              header_len;
 
-  *ret_data = NULL;
-  *request_data = '\0';
+  request_uri[0] = '\0';
 
-  if ((ev != MG_EV_HTTP_MSG && ev != MG_EV_HTTP_CHUNK) || strncmp(hm->head.ptr, "GET /", 5))
-     return (400);  /* Bad Request */
-
-  request = strncpy (alloca(hm->head.len+1), hm->head.ptr, hm->head.len);
-  strncpy (request_data, request, request_size);
-
-  uri = request + strlen ("GET ");
-  end = strchr (uri, ' ');
-  if (!end)
+  if (strncmp(hm->head.ptr, "GET /", 5))
   {
-    conn->is_closing = 1;
-    return (400);         /* Bad Request */
-  }
-
-  *end = '\0';
-
-  end = strchr (request_data+4, ' '); /* extract only the important file-part */
-  if (end)
-     *end = '\0';
-
-  Modes.stat.HTTP_get_requests++;
-
-  if (str_startswith(request, "GET /data/receiver.json"))
-  {
-    char *data = receiver_to_json();
-
-    if (!data)
-       return (444);  /* No Response */
-
-    *ret_data = data;
-    TRACE (DEBUG_NET, "Feeding client %lu with receiver-data:\n%s\n", conn->id, data);
-
-    mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
-    return (200);
-  }
-
-  if (str_startswith(request, "GET /chunks/chunks.json"))
-  {
-  }
-
-  /* What we normally expect with the default 'web_root/gmap.html'
-   */
-  is_dump1090 = (str_startswith(request, "GET /data.json"));
-
-  /* Or From an OpenLayers3/Tar1090/FlightAware web-client
-   */
-  is_extended = str_startswith(request, "GET /data/aircraft.json");
-
-  if (is_dump1090 || is_extended)
-  {
-    int   num_planes;
-    char *data = aircrafts_to_json (&num_planes, is_extended);
-
-    if (!data)
-    {
-      conn->is_closing = 1;
-      return (444);       /* No Response */
-    }
-    *ret_data = data;
-
-    /* This is rather inefficient way to pump data over to the client.
-     * Better use a WebSocket instead.
-     */
-    if (is_extended)
-         mg_http_reply (conn, 200, NULL, "%s", data);
-    else mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
-    return (200);
+    DEBUG (DEBUG_NET, "Bad Request from client %lu: '%.*s'\n",
+           conn->id, (int)hm->head.len, hm->head.ptr);
+    Modes.stat.HTTP_400_responses++;
+    return (400);
   }
 
   cli = connection_get_addr (&conn->rem, MODES_NET_SERVICE_HTTP, false);
 
+  /* Make a copy of the request for the caller
+   */
+  uri = strncpy (request_uri, hm->uri.ptr, request_uri_size-1);
+  request_uri [hm->uri.len] = '\0';
+  DEBUG (DEBUG_NET, "ev: %s, uri: '%s'\n", event_name(ev), uri);
+
+  Modes.stat.HTTP_get_requests++;
+
+  head = mg_http_get_header (hm, "Connection");
+  if (head && !mg_vcasecmp(head, "keep-alive"))
+  {
+    DEBUG (DEBUG_NET2, "Connection: '%.*s'\n", (int)head->len, head->ptr);
+    Modes.stat.HTTP_keep_alive_recv++;
+    cli->keep_alive = true;
+  }
+
+  head = mg_http_get_header (hm, "Accept-Encoding");
+  if (head && !mg_vcasecmp(head, "gzip"))
+  {
+    DEBUG (DEBUG_NET, "Accept-Encoding: '%.*s'\n", head->len, head->ptr);
+    cli->encoding_gzip = true;  /**\todo Add gzip compression */
+  }
+
   /* Redirect a 'GET /' to a 'GET /' + 'web_page'
    */
-  if (!strcmp(request, "GET /"))
+  if (!strcmp(uri, "/"))
   {
-    char redirect [50+MG_PATH_MAX];
+    const char *base_name;
 
-    if (hm->proto.len >= 9 && strncmp(hm->proto.ptr, "HTTP/1.1", 8))
-    {
-      Modes.stat.HTTP_keep_alive_recv++;
-      cli->keep_alive = 1;
-    }
-    snprintf (redirect, sizeof(redirect),
-              "%sLocation: %s\r\n", cli->keep_alive ? "Connection: keep-alive\r\n" : "", basename(Modes.web_page));
-    mg_http_reply (conn, 303, redirect, "");
-    return (303);
+    if (cli->redirect_sent)
+       return (0);
+
+    cli->redirect_sent = true;
+    base_name = basename (Modes.web_page);
+    mg_printf (conn,
+               "HTTP/1.1 301 Moved\r\n"
+               "Location: %s\r\n"
+               "Content-Length: 0\r\n\r\n", base_name);
+
+    DEBUG (DEBUG_NET, "301 redirect to: '%s/%s'\n", Modes.web_root, base_name);
+    return (301);
   }
 
   /**
    * \todo Check header for a "Upgrade: websocket" and call mg_ws_upgrade()?
    */
-  if (!_stricmp(request, "GET /echo"))
+  if (!stricmp(uri, "/echo"))
   {
-    TRACE (DEBUG_NET, "Got WebSocket echo:\n'%.*s'.\n", (int)hm->head.len, hm->head.ptr);
+    DEBUG (DEBUG_NET, "Got WebSocket echo:\n'%.*s'.\n", (int)hm->head.len, hm->head.ptr);
     mg_ws_upgrade (conn, hm, "WS test");
+    return (200);
+  }
+
+  if (!stricmp(uri, "/data/receiver.json"))
+  {
+    char *data = receiver_to_json();
+
+    DEBUG (DEBUG_NET, "Feeding client %lu with receiver-data:\n%.100s\n", conn->id, data);
+
+    mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
+    free (data);
+    return (200);
+  }
+
+  /* What we normally expect with the default 'web_root/index.html'
+   */
+  is_dump1090 = stricmp (uri, "/data.json") == 0;
+
+  /* Or From an OpenLayers3/Tar1090/FlightAware web-client
+   */
+  is_extended = (stricmp (uri, "/data/aircraft.json") == 0) ||
+                (stricmp (uri, "/chunks/chunks.json") == 0);
+
+  if (is_dump1090 || is_extended)
+  {
+    char *data = aircrafts_to_json (is_extended);
+
+    if (!data)
+    {
+      conn->is_closing = 1;
+      Modes.stat.HTTP_500_responses++;   /* malloc() failed -> "Internal Server Error" */
+      return (500);
+    }
+
+    /* This is rather inefficient way to pump data over to the client.
+     * Better use a WebSocket instead.
+     */
+    if (is_extended)
+         mg_http_reply (conn, 200, NULL, data);
+    else mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
+    free (data);
     return (200);
   }
 
   ext = strrchr (uri, '.');
   if (ext)
   {
-    char file [MG_PATH_MAX];
-    int  rc = 200;        /* Assume status 200 OK */
+    int rc = 200;        /* Assume status 200 OK */
 
-    if (!_stricmp(ext, ".html"))
-       content = MODES_CONTENT_TYPE_HTML;
-    else if (!_stricmp(ext, ".css"))
-       content = MODES_CONTENT_TYPE_CSS;
-    else if (!_stricmp(ext, ".js"))
-       content = MODES_CONTENT_TYPE_JS;
-    else if (!_stricmp(ext, ".json"))
-       content = MODES_CONTENT_TYPE_JSON;
-    else if (!_stricmp(ext, ".png"))
-       content = MODES_CONTENT_TYPE_PNG;
-    else if (!_stricmp(ext, ".ico"))
-       content = MODES_CONTENT_TYPE_ICON;
+    if (!stricmp(uri, "/favicon.png"))
+       send_favicon (conn, cli, favicon_png, favicon_png_len, MODES_CONTENT_TYPE_PNG);
 
-    if (!_stricmp(request, "GET /favicon.png"))
-    {
-      TRACE (DEBUG_NET, "Sending \"favicon.png\" to cli: %lu.\n", conn->id);
+    else if (!stricmp(uri, "/favicon.ico"))   /* Some browsers may want a 'favicon.ico' file */
+       send_favicon (conn, cli, favicon_ico, favicon_ico_len, MODES_CONTENT_TYPE_ICON);
 
-      header_len = snprintf (header, sizeof(header),
-                             "HTTP/1.1 200 OK\r\n"
-                             "Content-Type: %s\r\n"
-                             "Content-Length: %u\r\n"
-                             "%s\r\n",
-                             content, favicon_png_len,
-                             cli->keep_alive ? "Connection: keep-alive\r\n" : "\r\n");
-      mg_send (conn, header, header_len);
-      mg_send (conn, favicon_png, favicon_png_len);
-    }
-    else if (!_stricmp(request, "GET /favicon.ico"))  /* Some browsers may want a 'favicon.ico' file */
-    {
-      TRACE (DEBUG_NET, "Sending \"favicon.ico\" to cli: %lu.\n", conn->id);
-
-      header_len = snprintf (header, sizeof(header),
-                             "HTTP/1.1 200 OK\r\n"
-                             "Content-Type: %s\r\n"
-                             "Content-Length: %u\r\n"
-                             "%s\r\n",
-                             content, favicon_ico_len,
-                             cli->keep_alive ? "Connection: keep-alive\r\n" : "\r\n");
-      mg_send (conn, header, header_len);
-      mg_send (conn, favicon_ico, favicon_ico_len);
-    }
     else
     {
       struct mg_http_serve_opts opts;
       struct stat st;
+      char   file [MG_PATH_MAX];
 
       memset (&opts, '\0', sizeof(opts));
-      opts.extra_headers = get_client_headers (cli, content);
-      opts.page404       = PAGE_404_HTML;
-      snprintf (file, sizeof(file), "%s\\%s", Modes.web_root, uri+1);
+      opts.page404       = NULL;
+      opts.extra_headers = set_headers (cli, content_type);
+
+      snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
+      DEBUG (DEBUG_NET, "Serving file: '%s'.\n", uri);
+      DEBUG (DEBUG_NET, "extra-headers: '%s'.\n", opts.extra_headers);
+
       mg_http_serve_file (conn, hm, file, &opts);
       if (stat(file, &st) != 0)
       {
@@ -4196,21 +4134,18 @@ int connection_handler_http (mg_connection *conn,
         rc = 404;
       }
     }
-    if (cli->keep_alive)
-       Modes.stat.HTTP_keep_alive_sent++;
-
     return (rc);
   }
 
-  mg_http_reply (conn, 404, cli->keep_alive ? "Connection: keep-alive\r\n" : "", "Not found\n");
-  Modes.stat.HTTP_404_responses++;
+  mg_http_reply (conn, 404, set_headers(cli, NULL), "Not found\n");
+  DEBUG (DEBUG_NET, "Unhandled URI '%.20s' from client %lu.\n", uri, conn->id);
   return (404);
 }
 
 /**
  * The timer callback for an active `connect()`.
  */
-void connection_timeout (void *fn_data)
+static void connection_timeout (void *fn_data)
 {
   INT_PTR service = (int)(INT_PTR) fn_data;
   char    err [200];
@@ -4221,8 +4156,8 @@ void connection_timeout (void *fn_data)
 
   snprintf (err, sizeof(err), "Timeout in connection to service \"%s\" on host %s",
             handler_descr(service), host_port);
-  modeS_net_services [service].last_err = _strdup (err);
-  TRACE (DEBUG_NET, "%s.\n", err);
+  modeS_net_services [service].last_err = strdup (err);
+  DEBUG (DEBUG_NET, "%s.\n", err);
 
   sigint_handler (0);  /* break out of main_data_loop()  */
 }
@@ -4230,7 +4165,7 @@ void connection_timeout (void *fn_data)
 /**
  * The event handler for ALL network I/O.
  */
-void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *fn_data)
+static void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *fn_data)
 {
   connection *conn;
   char       *remote, remote_buf [100];
@@ -4253,8 +4188,8 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
     if (remote && service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM)
     {
       snprintf (err, sizeof(err), "Connection to %s:%u failed: %s", remote, port, (const char*)ev_data);
-      modeS_net_services [service].last_err = _strdup (err);
-      TRACE (DEBUG_NET, "Error: %s\n", err);
+      modeS_net_services [service].last_err = strdup (err);
+      DEBUG (DEBUG_NET, "Error: %s\n", err);
       sigint_handler (0);   /* break out of main_data_loop()  */
     }
     return;
@@ -4264,13 +4199,13 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
 
   if (ev == MG_EV_OPEN)
   {
-    TRACE (DEBUG_NET2, "MG_EV_OPEN for host %s\n", remote);
+    DEBUG (DEBUG_NET, "MG_EV_OPEN for host %s%s\n", remote, this_conn->is_listening ? " (listen socket)" : "");
     return;
   }
 
   if (ev == MG_EV_RESOLVE)
   {
-    TRACE (DEBUG_NET, "Resolved to host %s\n", remote);
+    DEBUG (DEBUG_NET, "Resolved to host %s\n", remote);
     return;
   }
 
@@ -4292,7 +4227,8 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
     LIST_ADD_TAIL (connection, &Modes.connections[service], conn);
     ++ (*handler_num_connections (service));  /* should never go above 1 */
     Modes.stat.srv_connected [service]++;
-    TRACE (DEBUG_NET, "Connected to host %s (service \"%s\")\n", remote, handler_descr(service));
+
+    DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\")\n", remote, handler_descr(service));
     return;
   }
 
@@ -4314,7 +4250,7 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
     ++ (*handler_num_connections (service));
     Modes.stat.cli_accepted [service]++;
 
-    TRACE (DEBUG_NET, "New client %u (service \"%s\") from %s.\n",
+    DEBUG (DEBUG_NET, "New client %u (service \"%s\") from %s.\n",
            conn->id, handler_descr(service), remote);
     return;
   }
@@ -4325,7 +4261,7 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
 
     Modes.stat.bytes_recv [service] += data->len;
 
-    TRACE (DEBUG_NET2, "MG_EV_READ from %s (service \"%s\")\n", remote, handler_descr(service));
+    DEBUG (DEBUG_NET2, "MG_EV_READ from %s (service \"%s\")\n", remote, handler_descr(service));
 
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
@@ -4346,7 +4282,7 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
   if (ev == MG_EV_WRITE)         /* Increment our own send() bytes */
   {
     Modes.stat.bytes_sent[service] += *(const int*) ev_data;
-    TRACE (DEBUG_NET2, "writing %d bytes to client %lu (%s)\n", *(const int*)ev_data, this_conn->id, remote);
+    DEBUG (DEBUG_NET2, "writing %d bytes to client %lu (%s)\n", *(const int*)ev_data, this_conn->id, remote);
     return;
   }
 
@@ -4363,19 +4299,22 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
 
   if (service == MODES_NET_SERVICE_HTTP)
   {
-    char  request_data [100];
-    char *response_data;
-    int   rc;
+    char request_uri [200];
+    int  status;
 
     if (this_conn->is_websocket && (ev == MG_EV_WS_MSG || ev == MG_EV_WS_CTL))
        connection_handler_websocket (this_conn, remote, ev, ev_data);
 
-    rc = connection_handler_http (this_conn, ev, ev_data, request_data, sizeof(request_data)-1, &response_data);
-
-    LOG_FILEONLY ("HTTP %d for '%s' (client %lu), response: '%.400s'.. \n",
-                  rc, request_data, this_conn->id, response_data ? response_data : "<none>");
-
-    free (response_data);
+    else if (ev == MG_EV_HTTP_MSG /* || ev == MG_EV_HTTP_CHUNK */)
+    {
+      status = connection_handler_http (this_conn, ev, ev_data,
+                                        request_uri, sizeof(request_uri));
+      DEBUG (DEBUG_NET, "HTTP %d for '%.30s' (client %lu)\n",
+             status, request_uri, this_conn->id);
+    }
+    else
+      DEBUG (DEBUG_NET2, "Ignoring HTTP event '%s' (client %lu)\n",
+             event_name(ev), this_conn->id);
   }
 }
 
@@ -4383,17 +4322,17 @@ void connection_handler (mg_connection *this_conn, int ev, void *ev_data, void *
  * Setup a connection for a service.
  * Active or passive (`listen == true`).
  */
-mg_connection *connection_setup (intptr_t service, bool listen, bool sending)
+static mg_connection *connection_setup (intptr_t service, bool listen, bool sending)
 {
   mg_connection *conn = NULL;
   char           url [50];
 
   if (listen)
   {
+    mg_listen_func passive = (service == MODES_NET_SERVICE_HTTP) ? mg_http_listen : mg_listen;
+
     snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modeS_net_services[service].port);
-    if (service == MODES_NET_SERVICE_HTTP)
-         conn = mg_http_listen (&Modes.mgr, url, connection_handler, (void*) service);
-    else conn = mg_listen (&Modes.mgr, url, connection_handler, (void*) service);
+    conn = (*passive) (&Modes.mgr, url, connection_handler, (void*)service);
     modeS_net_services [service].active_send = sending;
   }
   else
@@ -4409,11 +4348,11 @@ mg_connection *connection_setup (intptr_t service, bool listen, bool sending)
     mg_timer_add (&Modes.mgr, MODES_CONNECT_TIMEOUT, 0, connection_timeout, (void*)service);
     modeS_net_services [service].active_send = sending;
 
-    LOG_STDOUT ("Connecting to %s for service \"%s\".\n", url, handler_descr(service));
+    DEBUG (DEBUG_NET, "Connecting to %s for service \"%s\".\n", url, handler_descr(service));
     conn = mg_connect (&Modes.mgr, url, connection_handler, (void*) service);
   }
 
-  if (conn && (Modes.debug & DEBUG_NET2))
+  if (conn && (Modes.debug & DEBUG_MONGOOSE2))
      conn->is_hexdumping = 1;
   return (conn);
 }
@@ -4423,7 +4362,7 @@ mg_connection *connection_setup (intptr_t service, bool listen, bool sending)
  *  \li start the 2 active network services.
  *  \li or start the 4 listening (passive) network services.
  */
-int modeS_init_net (void)
+static int modeS_init_net (void)
 {
   struct stat st;
 
@@ -4461,8 +4400,8 @@ int modeS_init_net (void)
   {
     char full_name [MG_PATH_MAX];
 
-    snprintf (full_name, sizeof(full_name), "%s\\%s", Modes.web_root, basename(Modes.web_page));
-    TRACE (DEBUG_NET, "Web-page: \"%s\"\n", full_name);
+    snprintf (full_name, sizeof(full_name), "%s/%s", Modes.web_root, basename(Modes.web_page));
+    DEBUG (DEBUG_NET, "Web-page: \"%s\"\n", full_name);
 
     if (stat(full_name, &st) != 0)
     {
@@ -4481,7 +4420,7 @@ int modeS_init_net (void)
 /**
  * Write raw output to TCP clients.
  */
-void modeS_send_raw_output (const modeS_message *mm)
+static void modeS_send_raw_output (const modeS_message *mm)
 {
   char  msg [10 + 2*MODES_LONG_MSG_BYTES];
   char *p = msg;
@@ -4500,7 +4439,7 @@ void modeS_send_raw_output (const modeS_message *mm)
 /**
  * Write SBS output to TCP clients (Base Station format).
  */
-void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
+static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
 {
   char msg [MODES_MAX_SBS_SIZE], *p = msg;
   int  emergency = 0, ground = 0, alert = 0, spi = 0;
@@ -4550,7 +4489,7 @@ void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
   }
   else if (mm->msg_type == 17 && mm->ME_type >= 9 && mm->ME_type <= 18)
   {
-    if (a->position.lat == 0 && a->position.lon == 0)
+    if (!VALID_POS(a->position))
          p += sprintf (p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,,,,,0,0,0,0",
                        mm->AA1, mm->AA2, mm->AA3, mm->altitude);
     else p += sprintf (p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
@@ -4579,7 +4518,7 @@ void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
  * Turn an hex digit into its 4 bit decimal value.
  * Returns -1 if the digit is not in the 0-F range.
  */
-int hex_digit_val (int c)
+static int hex_digit_val (int c)
 {
   c = tolower (c);
   if (c >= '0' && c <= '9')
@@ -4601,7 +4540,7 @@ int hex_digit_val (int c)
  *
  * If the message looks invalid, it is silently discarded.
  */
-void decode_hex_message (mg_iobuf *msg, int loop_cnt)
+static void decode_hex_message (mg_iobuf *msg, int loop_cnt)
 {
   modeS_message mm;
   uint8_t       bin_msg [MODES_LONG_MSG_BYTES];
@@ -4686,7 +4625,7 @@ void decode_hex_message (mg_iobuf *msg, int loop_cnt)
  * \todo
  * Ref: http://woodair.net/sbs/article/barebones42_socket_data.htm
  */
-int modeS_recv_SBS_input (mg_iobuf *msg, modeS_message *mm)
+static int modeS_recv_SBS_input (mg_iobuf *msg, modeS_message *mm)
 {
   memset (mm, '\0', sizeof(*mm));
 
@@ -4702,7 +4641,7 @@ int modeS_recv_SBS_input (mg_iobuf *msg, modeS_message *mm)
  *
  * It accepts both '\n' and '\r\n' terminated records.
  */
-void decode_SBS_message (mg_iobuf *msg, int loop_cnt)
+static void decode_SBS_message (mg_iobuf *msg, int loop_cnt)
 {
   modeS_message mm;
   uint8_t      *end = memchr (msg->buf, '\n', msg->len);
@@ -4752,7 +4691,7 @@ void decode_SBS_message (mg_iobuf *msg, int loop_cnt)
  * This message shows up as ICAO "4B9696" and Reg-num "TC-ETV" in
  * `--interactive` mode.
  */
-void connection_read (connection *conn, msg_handler handler, bool is_server)
+static void connection_read (connection *conn, msg_handler handler, bool is_server)
 {
   mg_iobuf *msg;
   int       loops;
@@ -4763,13 +4702,13 @@ void connection_read (connection *conn, msg_handler handler, bool is_server)
   msg = &conn->conn->recv;
   if (msg->len == 0)
   {
-    TRACE (DEBUG_NET2, "No msg for %s.\n", is_server ? "server" : "client");
+    DEBUG (DEBUG_NET2, "No msg for %s.\n", is_server ? "server" : "client");
     return;
   }
 
   for (loops = 0; msg->len > 0; loops++)
   {
-    TRACE (DEBUG_NET2, "%s msg(%d): '%.*s'.\n", is_server ? "server" : "client", loops, (int)msg->len, msg->buf);
+    DEBUG (DEBUG_NET2, "%s msg(%d): '%.*s'.\n", is_server ? "server" : "client", loops, (int)msg->len, msg->buf);
     (*handler) (msg, loops);
   }
 }
@@ -4777,7 +4716,7 @@ void connection_read (connection *conn, msg_handler handler, bool is_server)
 /**
  * Show the program usage
  */
-void show_help (const char *fmt, ...)
+static void show_help (const char *fmt, ...)
 {
   if (fmt)
   {
@@ -4798,7 +4737,6 @@ void show_help (const char *fmt, ...)
           "    --debug <flags>          Debug mode; see below for details.\n"
           "    --infile <filename>      Read data from file (use `-' for stdin).\n"
           "    --interactive            Interactive mode refreshing data on screen.\n"
-          "    --interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
           "    --interactive-ttl <sec>  Remove aircraft if not seen for <sec> (default: %u).\n"
           "    --logfile <file>         Enable logging to file (default: off)\n"
           "    --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
@@ -4815,16 +4753,16 @@ void show_help (const char *fmt, ...)
 
   printf ("  Network options:\n"
           "    --net                    Enable network listening services.\n"
-          "    --net-active             Enable network active services. `--net-only` is implied.\n"
+          "    --net-active             Enable network active services.\n"
           "    --net-only               Enable just networking, no physical device or file.\n"
-          "    --net-http-port <port>   HTTP server port (default: %u).\n"
-          "    --net-ri-port <port>     TCP listening port for raw input  (default: %u).\n"
-          "    --net-ro-port <port>     TCP listening port for raw output (default: %u).\n"
-          "    --net-sbs-port <port>    TCP listening port for SBS output (default: %u).\n"
+          "    --net-http-port <port>   TCP listening port for HTTP server (default: %u).\n"
+          "    --net-ri-port <port>     TCP listening port for raw input   (default: %u).\n"
+          "    --net-ro-port <port>     TCP listening port for raw output  (default: %u).\n"
+          "    --net-sbs-port <port>    TCP listening port for SBS output  (default: %u).\n"
           "    --host-raw <addr:port>   Remote host/port for raw input with `--net-active`.\n"
           "    --host-sbs <addr:port>   Remote host/port for SBS input with `--net-active`.\n"
           "    --web-page <file>        The Web-page to serve for HTTP clients\n"
-          "                             (default: \"%s\\%s\").\n\n",
+          "                             (default: \"%s/%s\").\n\n",
           MODES_NET_PORT_HTTP, MODES_NET_PORT_RAW_IN, MODES_NET_PORT_RAW_OUT,
           MODES_NET_PORT_SBS, Modes.web_root, Modes.web_page);
 
@@ -4840,16 +4778,18 @@ void show_help (const char *fmt, ...)
           "    --samplerate <Hz>        Set sample-rate                 (default: %.0f MS/s).\n\n",
           MODES_DEFAULT_FREQ / 1E6, MODES_DEFAULT_RATE/1E6);
 
-  printf ("  --debug <flags>: E = Log frames decoded with errors.\n"
-          "                   D = Log frames decoded with 0 errors.\n"
-          "                   c = Log frames with bad CRC.\n"
+  printf ("  --debug <flags>: c = Log frames with bad CRC.\n"
           "                   C = Log frames with good CRC.\n"
-          "                   p = Log frames with bad preamble.\n"
-          "                   n = Log network debugging information.\n"
-          "                   N = A bit more network information than flag 'n'.\n"
-          "                   j = Log frames to frames.js, loadable by `debug.html'.\n"
+          "                   D = Log frames decoded with 0 errors.\n"
+          "                   E = Log frames decoded with errors.\n"
           "                   g = Log general debugging info.\n"
-          "                   G = A bit more general debug info than flag 'g'.\n\n");
+          "                   G = A bit more general debug info than flag `g'.\n"
+          "                   j = Log frames to `frames.js', loadable by `debug.html'.\n"
+          "                   m = Log activity in `externals/mongoose.c'.\n"
+          "                   M = Log more activity in `externals/mongoose.c'.\n"
+          "                   n = Log network debugging information.\n"
+          "                   N = A bit more network information than flag `n'.\n"
+          "                   p = Log frames with bad preamble.\n\n");
 
   printf ("  Your home-position for distance calculation can be set like:\n"
           "  'c:\\> set DUMP1090_HOMEPOS=51.5285578,-0.2420247' for London.\n");
@@ -4866,13 +4806,13 @@ void show_help (const char *fmt, ...)
  *  *) Refreshes interactive data 4 times per second (`MODES_INTERACTIVE_REFRESH_TIME`).
  *  *) Refreshes the console-title with some statistics (also 4 times per second).
  */
-void background_tasks (void)
+static void background_tasks (void)
 {
   bool     refresh;
   uint64_t now;
 
   if (Modes.net)
-     mg_mgr_poll (&Modes.mgr, MG_NET_POLL_TIME); /* Poll Mongoose for network events */
+     mg_mgr_poll (&Modes.mgr, MG_NET_POLL_TIME);   /* Poll Mongoose for network events */
 
   if (Modes.exit)
      return;
@@ -4910,7 +4850,7 @@ void background_tasks (void)
  * The handler called in for `SIGINT` or `SIGBREAK` . <br>
  * I.e. user presses `^C`.
  */
-void sigint_handler (int sig)
+static void sigint_handler (int sig)
 {
   int rc;
 
@@ -4925,13 +4865,13 @@ void sigint_handler (int sig)
   else if (sig == SIGBREAK)
      LOG_STDOUT ("Caught SIGBREAK, shutting down ...\n");
   else if (sig == 0)
-     TRACE (DEBUG_GENERAL, "Breaking 'main_data_loop()', shutting down ...\n");
+     DEBUG (DEBUG_GENERAL, "Breaking 'main_data_loop()', shutting down ...\n");
 
   if (Modes.rtlsdr.device)
   {
     EnterCriticalSection (&Modes.data_mutex);
     rc = rtlsdr_cancel_async (Modes.rtlsdr.device);
-    TRACE (DEBUG_GENERAL, "rtlsdr_cancel_async(): rc: %d.\n", rc);
+    DEBUG (DEBUG_GENERAL, "rtlsdr_cancel_async(): rc: %d.\n", rc);
 
     if (rc == -2)  /* RTLSDR is not streaming data */
        Sleep (5);
@@ -4941,12 +4881,12 @@ void sigint_handler (int sig)
   {
 #if !defined(USE_RTLSDR_EMUL)
     rc = sdrplay_cancel_async (Modes.sdrplay.device);
-    TRACE (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
+    DEBUG (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
 #endif
   }
 }
 
-void show_connection_stats (void)
+static void show_connection_stats (void)
 {
   const char *cli_srv = (Modes.net_active ? "server" : "client");
   uint64_t    sum;
@@ -4966,6 +4906,7 @@ void show_connection_stats (void)
         continue;
       }
       LOG_STDOUT ("    %8llu HTTP GET requests received.\n", Modes.stat.HTTP_get_requests);
+      LOG_STDOUT ("    %8llu HTTP 400 replies sent.\n", Modes.stat.HTTP_400_responses);
       LOG_STDOUT ("    %8llu HTTP 404 replies sent.\n", Modes.stat.HTTP_404_responses);
       LOG_STDOUT ("    %8llu HTTP/WebSocket upgrades.\n", Modes.stat.HTTP_websockets);
       LOG_STDOUT ("    %8llu server connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_sent);
@@ -5003,7 +4944,7 @@ void show_connection_stats (void)
   }
 }
 
-void show_raw_SBS_stats (void)
+static void show_raw_SBS_stats (void)
 {
   LOG_STDOUT ("  SBS-in:  %8llu good messages.\n", Modes.stat.good_SBS);
   LOG_STDOUT ("           %8llu unrecognized messages.\n", Modes.stat.unrecognized_SBS);
@@ -5014,7 +4955,7 @@ void show_raw_SBS_stats (void)
   LOG_STDOUT ("  Unknown: %8llu empty messages.\n", Modes.stat.empty_unknown);
 }
 
-void show_statistics (void)
+static void show_statistics (void)
 {
   if (!Modes.net_only)
   {
@@ -5041,7 +4982,7 @@ void show_statistics (void)
 /**
  * Our exit function. Free all resources here.
  */
-void modeS_exit (void)
+static void modeS_exit (void)
 {
   int rc;
 
@@ -5064,14 +5005,14 @@ void modeS_exit (void)
     rc = rtlsdr_close (Modes.rtlsdr.device);
     free (Modes.rtlsdr.gains);
     Modes.rtlsdr.device = NULL;
-    TRACE (DEBUG_GENERAL2, "rtlsdr_close(), rc: %d.\n", rc);
+    DEBUG (DEBUG_GENERAL2, "rtlsdr_close(), rc: %d.\n", rc);
   }
   else if (Modes.sdrplay.device)
   {
     rc = sdrplay_exit (Modes.sdrplay.device);
     free (Modes.sdrplay.gains);
     Modes.sdrplay.device = NULL;
-    TRACE (DEBUG_GENERAL2, "sdrplay_exit(), rc: %d.\n", rc);
+    DEBUG (DEBUG_GENERAL2, "sdrplay_exit(), rc: %d.\n", rc);
   }
 
   if (Modes.reader_thread)
@@ -5129,27 +5070,39 @@ static void select_device (char *arg)
   }
 }
 
-static void select_debug (const char *flags)
+static void set_debug_bits (const char *flags)
 {
   while (*flags)
   {
     switch (*flags)
     {
-      case 'D':
-           Modes.debug |= DEBUG_DEMOD;
-           break;
-      case 'E':
-           Modes.debug |= DEBUG_DEMODERR;
-           break;
       case 'C':
            Modes.debug |= DEBUG_GOODCRC;
            break;
       case 'c':
            Modes.debug |= DEBUG_BADCRC;
            break;
-      case 'p':
-      case 'P':
-           Modes.debug |= DEBUG_NOPREAMBLE;
+      case 'D':
+           Modes.debug |= DEBUG_DEMOD;
+           break;
+      case 'E':
+           Modes.debug |= DEBUG_DEMODERR;
+           break;
+      case 'g':
+           Modes.debug |= DEBUG_GENERAL;
+           break;
+      case 'G':
+           Modes.debug |= (DEBUG_GENERAL2 | DEBUG_GENERAL);
+           break;
+      case 'j':
+      case 'J':
+           Modes.debug |= DEBUG_JS;
+           break;
+      case 'm':
+           Modes.debug |= DEBUG_MONGOOSE;
+           break;
+      case 'M':
+           Modes.debug |= DEBUG_MONGOOSE2;
            break;
       case 'n':
            Modes.debug |= DEBUG_NET;
@@ -5157,15 +5110,9 @@ static void select_debug (const char *flags)
       case 'N':
            Modes.debug |= (DEBUG_NET2 | DEBUG_NET);  /* A bit more network details */
            break;
-      case 'j':
-      case 'J':
-           Modes.debug |= DEBUG_JS;
-           break;
-      case 'g':
-           Modes.debug |= DEBUG_GENERAL;
-           break;
-      case 'G':
-           Modes.debug |= (DEBUG_GENERAL2 | DEBUG_GENERAL);
+      case 'p':
+      case 'P':
+           Modes.debug |= DEBUG_NOPREAMBLE;
            break;
       default:
            show_help ("Unknown debugging flag: %c\n", *flags);
@@ -5178,12 +5125,12 @@ static void select_debug (const char *flags)
 
 static bool select_if_mode (const char *arg)
 {
-  if (!_stricmp(arg, "zif"))
+  if (!stricmp(arg, "zif"))
   {
     Modes.sdrplay.if_mode = false;
     return (true);
   }
-  if (!_stricmp(arg, "lif"))
+  if (!stricmp(arg, "lif"))
   {
     Modes.sdrplay.if_mode = true;
     return (true);
@@ -5192,42 +5139,44 @@ static bool select_if_mode (const char *arg)
 }
 
 static struct option long_options[] = {
-  { "agc",              no_argument,        (int*)&Modes.dig_agc,          1   },
-  { "aggressive",       no_argument,        (int*)&Modes.aggressive,       1   },
-  { "database",         required_argument,  NULL,                          'b' },
-  { "bias",             no_argument,        (int*)&Modes.bias_tee,         1   },
-  { "calibrate",        no_argument,        (int*)&Modes.rtlsdr.calibrate, 1   },
-  { "debug",            required_argument,  NULL,                          'd' },
-  { "device",           required_argument,  NULL,                          'D' },
-  { "freq",             required_argument,  NULL,                          'f' },
-  { "gain",             required_argument,  NULL,                          'g' },
-  { "help",             no_argument,        NULL,                          'h' },
-  { "if-mode",          required_argument,  NULL,                          'I' },
-  { "infile",           required_argument,  NULL,                          'i' },
-  { "interactive",      no_argument,        (int*)&Modes.interactive,      1   },
-  { "interactive-rows", required_argument,  NULL,                          'r' },
-  { "interactive-ttl",  required_argument,  NULL,                          't' },
-  { "logfile",          required_argument,  NULL,                          'L' },
-  { "loop",             optional_argument,  NULL,                          'l' },
-  { "max-messages",     required_argument,  NULL,                          'm' },
-  { "metric",           no_argument,        (int*)&Modes.metric,           1   },
-  { "net",              no_argument,        (int*)&Modes.net,              1   },
-  { "net-active",       no_argument,        (int*)&Modes.net_active,       1   },
-  { "net-only",         no_argument,        (int*)&Modes.net_only,         1   },
-  { "net-http-port",    required_argument,  NULL,                          'x' + MODES_NET_SERVICE_HTTP },
-  { "net-ri-port",      required_argument,  NULL,                          'x' + MODES_NET_SERVICE_RAW_IN },
-  { "net-ro-port",      required_argument,  NULL,                          'x' + MODES_NET_SERVICE_RAW_OUT },
-  { "net-sbs-port",     required_argument,  NULL,                          'x' + MODES_NET_SERVICE_SBS_OUT },
-  { "host-raw",         required_argument,  NULL,                          'Y' + MODES_NET_SERVICE_RAW_IN },
-  { "host-sbs",         required_argument,  NULL,                          'Y' + MODES_NET_SERVICE_SBS_IN },
-  { "only-addr",        no_argument,        (int*)&Modes.only_addr,        1   },
-  { "ppm",              required_argument,  NULL,                          'p' },
-  { "raw",              no_argument,        (int*)&Modes.raw,              1   },
-  { "samplerate",       required_argument,  NULL,                          's' },
-  { "silent",           no_argument,        (int*)&Modes.silent,           1   },
-  { "strip",            required_argument,  NULL,                          'S' },
-  { "web-page",         required_argument,  NULL,                          'w' },
-  { NULL,               no_argument,        NULL,                          0   }
+  { "agc",              no_argument,        &Modes.dig_agc,          1   },
+  { "aggressive",       no_argument,        &Modes.aggressive,       1   },
+  { "database",         required_argument,  NULL,                    'b' },
+  { "bias",             no_argument,        &Modes.bias_tee,         1   },
+  { "calibrate",        no_argument,        &Modes.rtlsdr.calibrate, 1   },
+  { "debug",            required_argument,  NULL,                    'd' },
+  { "device",           required_argument,  NULL,                    'D' },
+  { "freq",             required_argument,  NULL,                    'f' },
+  { "gain",             required_argument,  NULL,                    'g' },
+  { "help",             no_argument,        NULL,                    'h' },
+  { "if-mode",          required_argument,  NULL,                    'I' },
+  { "infile",           required_argument,  NULL,                    'i' },
+  { "interactive",      no_argument,        &Modes.interactive,      1   },
+  { "interactive-ttl",  required_argument,  NULL,                    't' },
+  { "logfile",          required_argument,  NULL,                    'L' },
+  { "loop",             optional_argument,  NULL,                    'l' },
+  { "max-messages",     required_argument,  NULL,                    'm' },
+  { "metric",           no_argument,        &Modes.metric,           1   },
+  { "net",              no_argument,        &Modes.net,              1   },
+  { "net-active",       no_argument,        &Modes.net_active,       1   },
+  { "net-only",         no_argument,        &Modes.net_only,         1   },
+  { "net-http-port",    required_argument,  NULL,                    'x' + MODES_NET_SERVICE_HTTP },
+  { "net-ri-port",      required_argument,  NULL,                    'x' + MODES_NET_SERVICE_RAW_IN },
+  { "net-ro-port",      required_argument,  NULL,                    'x' + MODES_NET_SERVICE_RAW_OUT },
+  { "net-sbs-port",     required_argument,  NULL,                    'x' + MODES_NET_SERVICE_SBS_OUT },
+  { "host-raw",         required_argument,  NULL,                    'Y' + MODES_NET_SERVICE_RAW_IN },
+  { "host-sbs",         required_argument,  NULL,                    'Y' + MODES_NET_SERVICE_SBS_IN },
+  { "only-addr",        no_argument,        &Modes.only_addr,        1   },
+  { "ppm",              required_argument,  NULL,                    'p' },
+  { "raw",              no_argument,        &Modes.raw,              1   },
+  { "samplerate",       required_argument,  NULL,                    's' },
+  { "silent",           no_argument,        &Modes.silent,           1   },
+  { "strip",            required_argument,  NULL,                    'S' },
+  { "web-page",         required_argument,  NULL,                    'w' },
+#if MG_ENABLE_FILE
+  { "touch",            no_argument,        &Modes.touch_web_root,   1   },
+#endif
+  { NULL,               no_argument,        NULL,                    0   }
 };
 
 #ifdef NOT_YET
@@ -5242,14 +5191,14 @@ static void set_long_option (int idx, const char *arg)
 }
 #endif
 
-void parse_cmd_line (int argc, char **argv)
+static void parse_cmd_line (int argc, char **argv)
 {
   char *end;
   int   c, idx = 0;
 
   while ((c = getopt_long (argc, argv, "+h?", long_options, &idx)) != EOF)
   {
- // printf ("c: '%c' / %d, long_options[%d]: '%s'\n", c, c, idx, long_options[idx].name);
+//  printf ("c: '%c' / %d, long_options[%d]: '%s'\n", c, c, idx, long_options[idx].name);
 
     switch (c)
     {
@@ -5270,19 +5219,21 @@ void parse_cmd_line (int argc, char **argv)
            break;
 
       case 'd':
-           select_debug (optarg);
+           set_debug_bits (optarg);
            break;
 
       case 'f':
-           Modes.freq = (uint32_t) ato_hertz (optarg);
+           Modes.freq = ato_hertz (optarg);
+           if (Modes.freq == 0)
+              show_help ("Illegal frequency: %s\n", optarg);
            break;
 
       case 'g':
-           if (!_stricmp(optarg, "auto"))
+           if (!stricmp(optarg, "auto"))
               Modes.gain_auto = true;
            else
            {
-             Modes.gain = (int) (10.0 * strtof(optarg, &end));  /* Gain is in tens of dBs */
+             Modes.gain = (uint16_t) (10.0 * strtof(optarg, &end));  /* Gain is in tens of dBs */
              if (end == optarg || *end != '\0')
                 show_help ("Illegal gain: %s.\n", optarg);
              Modes.gain_auto = false;
@@ -5319,19 +5270,19 @@ void parse_cmd_line (int argc, char **argv)
            break;
 
       case 'x' + MODES_NET_SERVICE_RAW_OUT:
-           modeS_net_services [MODES_NET_SERVICE_RAW_OUT].port = atoi (optarg);
+           modeS_net_services [MODES_NET_SERVICE_RAW_OUT].port = (uint16_t) atoi (optarg);
            break;
 
       case 'x' + MODES_NET_SERVICE_RAW_IN:
-           modeS_net_services [MODES_NET_SERVICE_RAW_IN].port = atoi (optarg);
+           modeS_net_services [MODES_NET_SERVICE_RAW_IN].port = (uint16_t) atoi (optarg);
            break;
 
       case 'x' + MODES_NET_SERVICE_HTTP:
-           modeS_net_services [MODES_NET_SERVICE_HTTP].port = atoi (optarg);
+           modeS_net_services [MODES_NET_SERVICE_HTTP].port = (uint16_t) atoi (optarg);
            break;
 
       case 'x' + MODES_NET_SERVICE_SBS_OUT:
-           modeS_net_services [MODES_NET_SERVICE_SBS_OUT].port = atoi (optarg);
+           modeS_net_services [MODES_NET_SERVICE_SBS_OUT].port = (uint16_t) atoi (optarg);
            break;
 
       case 'Y' + MODES_NET_SERVICE_RAW_OUT:
@@ -5350,12 +5301,10 @@ void parse_cmd_line (int argc, char **argv)
            Modes.rtlsdr.ppm_error = atoi (optarg);
            break;
 
-      case 'r':
-           Modes.interactive_rows = atoi (optarg);
-           break;
-
       case 's':
-           Modes.sample_rate = (uint32_t) ato_hertz (optarg);
+           Modes.sample_rate = ato_hertz (optarg);
+           if (Modes.sample_rate == 0)
+              show_help ("Illegal sample_rate: %s\n", optarg);
            break;
 
       case 'S':
@@ -5371,6 +5320,7 @@ void parse_cmd_line (int argc, char **argv)
       case 'w':
            strncpy (Modes.web_root, dirname(optarg), sizeof(Modes.web_root)-1);
            strncpy (Modes.web_page, basename(optarg), sizeof(Modes.web_page)-1);
+           slashify (Modes.web_root);
            break;
 #endif
 
@@ -5440,14 +5390,14 @@ int main (int argc, char **argv)
 #endif
 
       rc = sdrplay_init (Modes.sdrplay.name, &Modes.sdrplay.device);
-      TRACE (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
+      DEBUG (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
       if (rc)
          goto quit;
     }
     else
     {
       rc = modeS_init_RTLSDR();
-      TRACE (DEBUG_GENERAL, "modeS_init_RTLSDR(): rc: %d.\n", rc);
+      DEBUG (DEBUG_GENERAL, "modeS_init_RTLSDR(): rc: %d.\n", rc);
       if (rc)
          goto quit;
       dev_opened = 1;
@@ -5457,7 +5407,7 @@ int main (int argc, char **argv)
   if (Modes.net)
   {
     rc = modeS_init_net();
-    TRACE (DEBUG_GENERAL, "modeS_init_net(): rc: %d.\n", rc);
+    DEBUG (DEBUG_GENERAL, "modeS_init_net(): rc: %d.\n", rc);
     if (rc)
        goto quit;
   }
