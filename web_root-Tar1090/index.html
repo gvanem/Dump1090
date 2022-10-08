@@ -9,6 +9,8 @@
 
     <meta name="viewport" content="user-scalable=no, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, minimal-ui" />
 
+    <!-- HEAD_ANCHOR -->
+
     <!-- CSS_ANCHOR -->
     <link rel="stylesheet" href="libs/jquery-ui-1.13.2.min.css" type="text/css">
     <link rel="stylesheet" href="libs/ol-6.14.1.css" type="text/css" />
@@ -21,6 +23,7 @@
   </head>
 
   <body>
+    <!-- BODY_ANCHOR -->
     <div id="layout_container">
 
       <div id="highlighted_infoblock">
@@ -717,15 +720,13 @@
       </div> <!-- selected_infoblock -->
 
       <div id="map_container" style="background-color:#D2D2D2;">
+        <!-- MAP_CONTAINER_ANCHOR -->
         <div id="map_canvas" style="background-color:#D2D2D2;">
           <div id="loader">
             <progress id="loader_progress"></progress>
           </div>
         </div>
 
-        <div id="geoFindMeDialog" title="Update Location?" class="hidden">
-          <p><span class="ui-icon ui-icon-alert" style="float:left; margin:12px 12px 20px 0;"></span>Use your device's location to show a location marker?</p>
-        </div>
         <div id="settings_infoblock">
           <div id="settings_close" class="settingsCloseBox"></div>
           <div class="settingsOptionContainer">
@@ -848,7 +849,7 @@
                   <div class="rSpacer"></div>
                   <div>
                     <span class="largeText">
-                      <a id="premium_text" class="largeText" target="_blank" href="https://store.adsbexchange.com/pages/subscription">Get Premium: no ads / Sat. Layer</a>
+                      <a id="premium_text" class="largeText" href="https://store.adsbexchange.com/pages/subscription">Premium Login: no ads / Sat. Layer</a>
                     </span>
                   </div>
                   <div class="rSpacer"></div>
@@ -888,6 +889,8 @@
               </tr>
             </table>
 
+            <!-- ABOVE_TABS_ANCHOR -->
+
             <div id="tabs" style="min-height: 10px; overflow: auto">
               <ul>
                 <li><a href="#tab-search">Search</a></li>
@@ -895,7 +898,7 @@
                 <li><a href="#tab-columns">Columns</a></li>
               </ul>
               <div id="tab-search">
-                <table cellpadding="0" cellspacing="0">
+                <table id="tab-search-table" cellpadding="0" cellspacing="0">
                   <tr>
                     <td>
                       <form id="search_form">
@@ -922,86 +925,62 @@
               </div>
               <div id="tab-filters">
                 <table cellpadding="0" cellspacing="0" id="filterTable">
-                  <tr>
-                    <td>
-                      <form id="altitude_filter_form">
-                        <div class="infoBlockTitleText">Filter by altitude:</div>
-                        <input id="altitude_filter_min" name="minAltitude" type="text" class="altitudeFilterInput" maxlength="5">
-                        <label for="minAltitude" class="altitudeUnit"></label>
-                        <span> to </span>
-                        <input id="altitude_filter_max" name="maxAltitude" type="text" class="altitudeFilterInput" maxlength="5">
-                        <label for="maxAltitude" class="altitudeUnit"></label>
-                        <button class="formButton" type="submit">Filter</button>
-                        <button class="formButton" id="altitude_filter_reset_button">Reset</button>
-                      </form>
-                    </td>
-                  </tr>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <form id="altitude_filter_form">
+                          <div class="infoBlockTitleText">Filter by altitude:</div>
+                          <input id="altitude_filter_min" name="minAltitude" type="text" class="altitudeFilterInput" maxlength="5">
+                          <label for="minAltitude" class="altitudeUnit"></label>
+                          <span> to </span>
+                          <input id="altitude_filter_max" name="maxAltitude" type="text" class="altitudeFilterInput" maxlength="5">
+                          <label for="maxAltitude" class="altitudeUnit"></label>
+                          <button class="formButton" type="submit">Filter</button>
+                          <button class="formButton" id="altitude_filter_reset_button">Reset</button>
+                        </form>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <table style="width: 100%" cellpadding="0" cellspacing="0" id="filterTable2">
+                  <tbody>
 
-                  <tr>
-                    <td>
-                      <form id="callsign_filter_form">
-                        <div class="infoBlockTitleText">Filter by callsign or squawk:</div>
-                        <input id="callsign_filter" name="callsign" type="text" class="searchInput" maxlength="1024">
-                        <button class="formButton" type="submit">Filter</button>
-                        <button class="formButton" id="callsign_filter_reset_button">Reset</button>
-                      </form>
-                    </td>
-                  </tr>
+                    <tr>
+                      <td>
+                        <form id="source_filter_form">
+                          <div class="infoBlockTitleText">Filter by source:</div>
+                          <table>
+                            <tr><td>
+                              <ol id="sourceFilter" class="buttonFilter"></ol>
+                            </td></tr>
+                            <tr><td>
+                              <button class="formButton" type="submit">Filter</button>
+                              <button class="formButton" id="source_filter_reset_button">Reset</button>
+                            </td></tr>
+                          </table>
+                        </form>
+                      </td>
+                    </tr>
 
-                  <tr>
-                    <td>
-                      <form id="type_filter_form">
-                        <div title="ICAO type code (A320, B738, etc.)" class="infoBlockTitleText">Filter by type code:</div>
-                        <input id="type_filter" name="type" type="text" class="searchInput" maxlength="1024">
-                        <button class="formButton" type="submit">Filter</button>
-                        <button class="formButton" id="type_filter_reset_button">Reset</button>
-                      </form>
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td>
-                      <form id="description_filter_form">
-                        <div title="ICAO type description (L/S/H Landplane/Seaplane/Helicopter 1/2/3/4 Number of P/T/J Reciprocating/Turboprop/Jet Engines" class="infoBlockTitleText">Filter by type description:</div>
-                        <input id="description_filter" name="description" type="text" class="searchInput" maxlength="1024">
-                        <button class="formButton" type="submit">Filter</button>
-                        <button class="formButton" id="description_filter_reset_button">Reset</button>
-                      </form>
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td>
-                      <form id="icao_filter_form">
-                        <div class="infoBlockTitleText">Filter by ICAO hex ID:</div>
-                        <input id="icao_filter" name="description" type="text" class="searchInput" maxlength="1024">
-                        <button class="formButton" type="submit">Filter</button>
-                        <button class="formButton" id="icao_filter_reset_button">Reset</button>
-                      </form>
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td>
-                      <form id="source_filter_form">
-                        <div class="infoBlockTitleText">Filter by source:</div>
-                        <ol id="sourceFilter" class="buttonFilter"></ol>
-                        <button class="formButton" type="submit">Filter</button>
-                        <button class="formButton" id="source_filter_reset_button">Reset</button>
-                      </form>
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td>
-                      <form id="flag_filter_form">
-                        <div class="infoBlockTitleText">Filter by DB flags:</div>
-                        <ol id="flagFilter" class="buttonFilter"></ol>
-                        <button class="formButton" type="submit">Filter</button>
-                        <button class="formButton" id="flag_filter_reset_button">Reset</button>
-                      </form>
-                    </td>
-                  </tr>
+                    <tr>
+                      <td>
+                        <form id="flag_filter_form">
+                          <div class="infoBlockTitleText">Filter by DB flags:</div>
+                            <tr><td>
+                              <ol id="flagFilter" class="buttonFilter"></ol>
+                            </td></tr>
+                            <tr><td>
+                              <button class="formButton" type="submit">Filter</button>
+                              <button class="formButton" id="flag_filter_reset_button">Reset</button>
+                            </td></tr>
+                        </form>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <table cellpadding="0" cellspacing="0" id="filterTable3">
+                  <tbody>
+                  </tbody>
                 </table>
               </div>
               <div id="tab-columns">
@@ -1014,6 +993,8 @@
 
             <div id="legend" class="legend">
             </div>
+
+            <!-- BELOW_LEGEND_ANCHOR -->
           </div>
 
         </div> <!-- sidebar_canvas -->
@@ -1035,30 +1016,18 @@
       <span id="generic_error_detail"></span><br>
     </div>
 
-    <div id="inaccurate_warning" class='identSmall hidden inaccurate_warning' >
-      <br>
-      This map includes inaccurate / very approximate positions, errors of 200 nmi or more are not unusual.
-      <br>
-      If no ADS-B / MLAT info is available but at least 1 receiver is receiving ModeS data from a hex, the aircraft is placed where the receiving station on average receives planes which do have a location.
-      <br>
-      Please add a disclaimer to any screenshots of this website or better yet just report that an aircraft was spotted in the approximate area WITHOUT using screenshots.
-      <br>
-      <br>
-    </div>
-
-    <div id="js_error" class="hidden">
-    </div>
-
+    <div id="inaccurate_warning" class='identSmall hidden inaccurate_warning' ></div>
+    <div id="js_error" class="hidden"></div>
     <div id="container_splitter"></div>
 
     <script>let databaseFolder = "db2";</script>
     <!-- JS_ANCHOR1 -->
-    <script src="libs/jquery-3.6.0.min.js"></script>
+    <script src="libs/jquery-3.6.1.min.js"></script>
     <script src="libs/elm-pep-01.js"></script>
     <script src="libs/jquery-ui-1.13.2.min.js"></script>
     <script src="libs/jquery.ui.touch-punch-1.0.8.js"></script>
     <script src="libs/zstddec-tar1090-0.0.5.js"></script>
-    <script src="libs/ol-custom020.js"></script>
+    <script src="libs/ol-custom021.js"></script>
 
     <!-- JS_ANCHOR2 -->
     <script src="early.js"></script>
