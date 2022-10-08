@@ -828,7 +828,6 @@ void mg_log_set_fn(mg_pfn_t fn, void *param);
 struct mg_timer {
   unsigned long id;         // Timer ID
   uint64_t period_ms;       // Timer period in milliseconds
-  uint64_t prev_ms;         // Timestamp of a previous poll
   uint64_t expire;          // Expiration timestamp in milliseconds
   unsigned flags;           // Possible flags values below
 #define MG_TIMER_ONCE 0     // Call function once
@@ -844,6 +843,7 @@ void mg_timer_init(struct mg_timer **head, struct mg_timer *timer,
                    void *arg);
 void mg_timer_free(struct mg_timer **head, struct mg_timer *);
 void mg_timer_poll(struct mg_timer **head, uint64_t new_ms);
+bool mg_timer_expired(uint64_t *expiration, uint64_t period, uint64_t now);
 
 
 
@@ -989,11 +989,11 @@ void mg_error(struct mg_connection *c, const char *fmt, ...);
 enum {
   MG_EV_ERROR,       // Error                        char *error_message
   MG_EV_OPEN,        // Connection created           NULL
-  MG_EV_POLL,        // mg_mgr_poll iteration        uint64_t *milliseconds
+  MG_EV_POLL,        // mg_mgr_poll iteration        uint64_t *uptime_millis
   MG_EV_RESOLVE,     // Host name is resolved        NULL
   MG_EV_CONNECT,     // Connection established       NULL
   MG_EV_ACCEPT,      // Connection accepted          NULL
-  MG_EV_READ,        // Data received from socket    struct mg_str *
+  MG_EV_READ,        // Data received from socket    long *bytes_read
   MG_EV_WRITE,       // Data written to socket       long *bytes_written
   MG_EV_CLOSE,       // Connection closed            NULL
   MG_EV_HTTP_MSG,    // HTTP request/response        struct mg_http_message *
@@ -1004,7 +1004,7 @@ enum {
   MG_EV_MQTT_CMD,    // MQTT low-level command       struct mg_mqtt_message *
   MG_EV_MQTT_MSG,    // MQTT PUBLISH received        struct mg_mqtt_message *
   MG_EV_MQTT_OPEN,   // MQTT CONNACK received        int *connack_status_code
-  MG_EV_SNTP_TIME,   // SNTP time received           uint64_t *milliseconds
+  MG_EV_SNTP_TIME,   // SNTP time received           uint64_t *epoch_millis
   MG_EV_USER,        // Starting ID for user events
 };
 
@@ -1106,6 +1106,11 @@ void mg_close_conn(struct mg_connection *c);
 bool mg_open_listener(struct mg_connection *c, const char *url);
 struct mg_timer *mg_timer_add(struct mg_mgr *mgr, uint64_t milliseconds,
                               unsigned flags, void (*fn)(void *), void *arg);
+
+// Low-level IO primives used by TLS layer
+enum { MG_IO_ERR = -1, MG_IO_WAIT = -2, MG_IO_RESET = -3 };
+long mg_io_send(struct mg_connection *c, const void *buf, size_t len);
+long mg_io_recv(struct mg_connection *c, void *buf, size_t len);
 
 
 
@@ -1448,6 +1453,39 @@ struct mip_spi {
   void (*begin)(void *);            // SPI begin: slave select low
   void (*end)(void *);              // SPI end: slave select high
   uint8_t (*txn)(void *, uint8_t);  // SPI transaction: write 1 byte, read reply
+};
+
+#ifdef MIP_QPROFILE
+enum {
+  QP_IRQTRIGGERED = 0,  // payload is number of interrupts so far
+  QP_FRAMEPUSHED,       // available space in the frame queue
+  QP_FRAMEPOPPED,       // available space in the frame queue
+  QP_FRAMEDONE,         // available space in the frame queue
+  QP_FRAMEDROPPED,      // number of dropped frames
+  QP_QUEUEOVF  // profiling queue is full, payload is number of frame drops
+};
+
+void qp_mark(unsigned int type, int len);
+void qp_log(void);  // timestamp, type, payload
+void qp_init(void);
+#else
+#define qp_mark(a, b)
+#endif
+
+
+struct mip_driver_stm32 {
+  // MDC clock divider. MDC clock is derived from HCLK, must not exceed 2.5MHz
+  //    HCLK range    DIVIDER    mdc_cr VALUE
+  //    -------------------------------------
+  //                                -1  <-- tell driver to guess the value
+  //    60-100 MHz    HCLK/42        0
+  //    100-150 MHz   HCLK/62        1
+  //    20-35 MHz     HCLK/16        2
+  //    35-60 MHz     HCLK/26        3
+  //    150-216 MHz   HCLK/102       4  <-- value for Nucleo-F* on max speed
+  //    216-310 MHz   HCLK/124       5
+  //    110, 111 Reserved
+  int mdc_cr;  // Valid values: -1, 0, 1, 2, 3, 4, 5
 };
 
 #ifdef __cplusplus
