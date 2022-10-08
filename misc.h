@@ -444,6 +444,7 @@ typedef struct global_data {
         int         only_addr;                 /**< Print only ICAO addresses. */
         int         metric;                    /**< Use metric units. */
         int         aggressive;                /**< Aggressive detection algorithm. */
+        int         keep_alive;                /**< Send "Connection: keep-alive" if HTTP client sends it. */
         char        web_page [MG_PATH_MAX];    /**< The base-name of the web-page to server for HTTP clients. */
         char        web_root [MG_PATH_MAX];    /**< And it's directory. */
         int         touch_web_root;            /**< Touch all files in `web_root` first. */
