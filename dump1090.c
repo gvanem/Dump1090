@@ -796,7 +796,7 @@ static void modeS_init_config (void)
   strcpy (Modes.web_root, dirname(Modes.who_am_I));
   strcat (Modes.web_root, "\\web_root");
   slashify (Modes.web_root);
-  snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\aircraftDatabase.csv", dirname(Modes.who_am_I));
+  snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\%s", dirname(Modes.who_am_I), AIRCRAFT_DATABASE_CSV);
   slashify (Modes.aircraft_db);
 
   Modes.gain_auto       = true;
@@ -805,6 +805,9 @@ static void modeS_init_config (void)
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
   Modes.json_interval   = 1000;
   Modes.keep_alive      = 1;
+
+  InitializeCriticalSection (&Modes.data_mutex);
+  InitializeCriticalSection (&Modes.print_mutex);
 }
 
 /**
@@ -881,8 +884,6 @@ static int modeS_init (void)
     spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
   }
 
-  InitializeCriticalSection (&Modes.data_mutex);
-  InitializeCriticalSection (&Modes.print_mutex);
   signal (SIGINT, sigint_handler);
   signal (SIGBREAK, sigint_handler);
 

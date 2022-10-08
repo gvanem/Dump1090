@@ -31,13 +31,13 @@
  * \def INDEX_HTML
  * Our default main server page relative to `Modes.where_am_I`.
  */
-#define INDEX_HTML         "web_root/index.html"
+#define INDEX_HTML     "web_root/index.html"
 
 /**
- * \def PAGE_404_HTML
- * Our default 404 page `Modes.where_am_I`.
+ * \def AIRCRAFT_DATABASE_CSV
+ * Our default aircraft-database relative to `Modes.where_am_I`.
  */
-#define PAGE_404_HTML     "web_root/404.html"
+#define AIRCRAFT_DATABASE_CSV   "aircraftDatabase.csv"
 
 /**
  * Definitions for network services.
