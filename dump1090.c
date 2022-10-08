@@ -439,20 +439,13 @@ static void crtdbug_init (void)
  *
  * This can be from `librtlsdr` itself or from `WinUsb`.
  */
-static const char *get_rtlsdr_error (int err)
+static const char *get_rtlsdr_error (void)
 {
-  if (err >= 0)
-     return ("No error");
-  if (err == -ENOMEM)
-     return strerror (-err);
+  uint32_t err = rtlsdr_last_error();
 
-#if 0  // \todo
-  return rtlsdr_error_name (err);
-#else
-  static char buf [100];
-  snprintf (buf, sizeof(buf), "WinUsb-error %d", err);
-  return (buf);
-#endif
+  if (err == 0)
+     return ("No error");
+  return trace_strerror (err);
 }
 
 /**
@@ -811,6 +804,7 @@ static void modeS_init_config (void)
   Modes.freq            = MODES_DEFAULT_FREQ;
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
   Modes.json_interval   = 1000;
+  Modes.keep_alive      = 1;
 }
 
 /**
@@ -959,9 +953,9 @@ static int modeS_init_RTLSDR (void)
   double gain;
 
   device_count = rtlsdr_get_device_count();
-  if (!device_count)
+  if (device_count <= 0)
   {
-    LOG_STDERR ("No supported RTLSDR devices found.\n");
+    LOG_STDERR ("No supported RTLSDR devices found. Error: %s\n", get_rtlsdr_error());
     return (1);
   }
 
@@ -997,9 +991,13 @@ static int modeS_init_RTLSDR (void)
 #endif
 
   rc = rtlsdr_open (&Modes.rtlsdr.device, Modes.rtlsdr.index);
-  if (rc < 0)
+  if (rc)
   {
-    LOG_STDERR ("Error opening the RTLSDR device %d: %s.\n", Modes.rtlsdr.index, get_rtlsdr_error(rc));
+    const char *err = get_rtlsdr_error();
+
+    if (Modes.rtlsdr.name)
+         LOG_STDERR ("Error opening the RTLSDR device %s: %s.\n", Modes.rtlsdr.name, err);
+    else LOG_STDERR ("Error opening the RTLSDR device %d: %s.\n", Modes.rtlsdr.index, err);
     return (1);
   }
 
@@ -1172,7 +1170,7 @@ static unsigned int __stdcall data_thread_fn (void *arg)
                             MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
 
     DEBUG (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
-           rc, get_rtlsdr_error(rc));
+           rc, get_rtlsdr_error());
 
     sigint_handler (0);    /* break out of main_data_loop() */
   }
@@ -1819,6 +1817,8 @@ static const char *emerg_state_str[8] = {
 
 static const char *get_ME_description (const modeS_message *mm)
 {
+  static char buf [100];
+
   if (mm->ME_type >= 1 && mm->ME_type <= 4)
      return ("Aircraft Identification and Category");
 
@@ -1855,7 +1855,8 @@ static const char *get_ME_description (const modeS_message *mm)
   if (mm->ME_type == 31 && (mm->ME_subtype == 0 || mm->ME_subtype == 1))
      return ("Aircraft Operational Status Message");
 
-  return ("Unknown");
+  snprintf (buf, sizeof(buf), "Unknown: %d/%d", mm->ME_type, mm->ME_subtype);
+  return (buf);
 }
 
 /**
@@ -3949,7 +3950,7 @@ static const char *set_headers (const connection *cli,
     p += 2;
   }
 
-  if (cli->keep_alive)
+  if (Modes.keep_alive && cli->keep_alive)
   {
     strcpy (p, "Connection: keep-alive\r\n");
     Modes.stat.HTTP_keep_alive_sent++;
@@ -4027,7 +4028,7 @@ static int connection_handler_http (mg_connection *conn,
   head = mg_http_get_header (hm, "Accept-Encoding");
   if (head && !mg_vcasecmp(head, "gzip"))
   {
-    DEBUG (DEBUG_NET, "Accept-Encoding: '%.*s'\n", head->len, head->ptr);
+    DEBUG (DEBUG_NET, "Accept-Encoding: '%.*s'\n", (int)head->len, head->ptr);
     cli->encoding_gzip = true;  /**\todo Add gzip compression */
   }
 
@@ -4182,8 +4183,8 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
   {
     char err [200];
 
-    remote = modeS_net_services[service].host;
-    port   = modeS_net_services[service].port;
+    remote = modeS_net_services [service].host;
+    port   = modeS_net_services [service].port;
 
     if (remote && service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM)
     {
@@ -4257,9 +4258,7 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
 
   if (ev == MG_EV_READ)
   {
-    const mg_str *data = (const mg_str*) ev_data;
-
-    Modes.stat.bytes_recv [service] += data->len;
+    Modes.stat.bytes_recv [service] += *(const long*) ev_data;
 
     DEBUG (DEBUG_NET2, "MG_EV_READ from %s (service \"%s\")\n", remote, handler_descr(service));
 
@@ -4281,7 +4280,7 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
 
   if (ev == MG_EV_WRITE)         /* Increment our own send() bytes */
   {
-    Modes.stat.bytes_sent[service] += *(const int*) ev_data;
+    Modes.stat.bytes_sent[service] += *(const long*) ev_data;
     DEBUG (DEBUG_NET2, "writing %d bytes to client %lu (%s)\n", *(const int*)ev_data, this_conn->id, remote);
     return;
   }
@@ -4637,7 +4636,10 @@ static int modeS_recv_SBS_input (mg_iobuf *msg, modeS_message *mm)
 
 /**
  * This function decodes a string representing a Mode S message in
- * SBS format (Base Station) like: `MSG,5,1,1,4CC52B,1,2021/09/20,23:30:43.897,2021/09/20,23:30:43.901,,38000,,,,,,,0,,0,`
+ * SBS format (Base Station) like:
+ * ```
+ * MSG,5,1,1,4CC52B,1,2021/09/20,23:30:43.897,2021/09/20,23:30:43.901,,38000,,,,,,,0,,0,
+ * ```
  *
  * It accepts both '\n' and '\r\n' terminated records.
  */
@@ -4759,6 +4761,7 @@ static void show_help (const char *fmt, ...)
           "    --net-ri-port <port>     TCP listening port for raw input   (default: %u).\n"
           "    --net-ro-port <port>     TCP listening port for raw output  (default: %u).\n"
           "    --net-sbs-port <port>    TCP listening port for SBS output  (default: %u).\n"
+          "    --no-keep-alive          Ignore \"Connection: keep-alive\" from HTTP clients.\n"
           "    --host-raw <addr:port>   Remote host/port for raw input with `--net-active`.\n"
           "    --host-sbs <addr:port>   Remote host/port for SBS input with `--net-active`.\n"
           "    --web-page <file>        The Web-page to serve for HTTP clients\n"
@@ -5166,6 +5169,7 @@ static struct option long_options[] = {
   { "net-sbs-port",     required_argument,  NULL,                    'x' + MODES_NET_SERVICE_SBS_OUT },
   { "host-raw",         required_argument,  NULL,                    'Y' + MODES_NET_SERVICE_RAW_IN },
   { "host-sbs",         required_argument,  NULL,                    'Y' + MODES_NET_SERVICE_SBS_IN },
+  { "no-keep-alive",    no_argument,        &Modes.keep_alive,       0   },
   { "only-addr",        no_argument,        &Modes.only_addr,        1   },
   { "ppm",              required_argument,  NULL,                    'p' },
   { "raw",              no_argument,        &Modes.raw,              1   },
