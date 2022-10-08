@@ -279,23 +279,36 @@ typedef struct aircraft {
         struct aircraft    *next; /**< Next aircraft in our linked list. */
       } aircraft;
 
+#define MAX_ME_TYPE    37
+#define MAX_ME_SUBTYPE  8
+
+/**
+ * \typedef struct unrecognized_ME
+ *
+ * Statistics on unrecognized ME types and sub-types.
+ * The sum of a type [0..36] is the sum of the `sub_type[]` array.
+ */
+typedef struct unrecognized_ME {
+        uint64_t  sub_type [MAX_ME_SUBTYPE];    /** unrecognized subtypes [0..7] of this type */
+      } unrecognized_ME;
+
 /**
  * \typedef struct statistics
  * Keep all collected statistics in this structure.
  */
 typedef struct statistics {
-        uint64_t  valid_preamble;
-        uint64_t  demodulated;
-        uint64_t  good_CRC;
-        uint64_t  bad_CRC;
-        uint64_t  fixed;
-        uint64_t  single_bit_fix;
-        uint64_t  two_bits_fix;
-        uint64_t  out_of_phase;
-        uint64_t  unique_aircrafts;
-        uint64_t  unique_aircrafts_CSV;
-        uint64_t  unrecognized_ME;
-        uint64_t  messages_total;
+        uint64_t        valid_preamble;
+        uint64_t        demodulated;
+        uint64_t        good_CRC;
+        uint64_t        bad_CRC;
+        uint64_t        fixed;
+        uint64_t        single_bit_fix;
+        uint64_t        two_bits_fix;
+        uint64_t        out_of_phase;
+        uint64_t        unique_aircrafts;
+        uint64_t        unique_aircrafts_CSV;
+        uint64_t        messages_total;
+        unrecognized_ME unrecognized_ME [MAX_ME_TYPE];
 
         /* Network statistics:
          */

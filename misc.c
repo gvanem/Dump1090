@@ -12,23 +12,32 @@
 #include "misc.h"
 
 /**
- * Log a message to the `Modes.log` file.
+ * Log a message to the `Modes.log` file with a timestamp.
+ * But no timestamp if `buf` starts with a `!`.
  */
 void modeS_log (const char *buf)
 {
   SYSTEMTIME now;
-  char tbuf [30];
+  char tbuf [30] = { '\0' };
 
   if (!Modes.log)
      return;
 
-  GetLocalTime (&now);
-  snprintf (tbuf, sizeof(tbuf), "%02u:%02u:%02u.%03u",
-            now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
+  if (*buf == '!')
+     buf++;
+  else
+  {
+    GetLocalTime (&now);
+    snprintf (tbuf, sizeof(tbuf), "%02u:%02u:%02u.%03u",
+              now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
+  }
 
   if (*buf == '\n')
      buf++;
-  fprintf (Modes.log, "%s: %s", tbuf, buf);
+
+  if (tbuf[0])
+       fprintf (Modes.log, "%s: %s", tbuf, buf);
+  else fputs (buf, Modes.log);
 }
 
 /**
@@ -55,7 +64,9 @@ void modeS_flogf (FILE *f, const char *fmt, ...)
 
   if (f && f != Modes.log)
   {
-    fputs (buf, f);
+    if (buf[0] == '!')
+         fputs (buf+1, f);
+    else fputs (buf, f);
     fflush (f);
   }
   if (Modes.log)

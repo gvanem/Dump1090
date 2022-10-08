@@ -2110,6 +2110,92 @@ static const char *get_ICAO_details (const modeS_message *mm)
 }
 
 /**
+ * Accumulate statistics of unrecognized ME types and sub-types.
+ */
+static void add_unrecognized_ME (int type, int subtype)
+{
+  if (type >= 0 && type < MAX_ME_TYPE && subtype >= 0 && subtype < MAX_ME_SUBTYPE)
+  {
+    unrecognized_ME *me = &Modes.stat.unrecognized_ME [type];
+
+    me->sub_type [subtype]++;
+  }
+}
+
+/**
+ * Sum the number of unrecognized ME sub-types for a type.
+ */
+static uint64_t sum_unrecognized_ME (int type)
+{
+  unrecognized_ME *me = &Modes.stat.unrecognized_ME [type];
+  uint64_t         sum = 0;
+  int              i;
+
+  for (i = 0; i < MAX_ME_SUBTYPE; i++)
+      sum += me->sub_type [i];
+  return (sum);
+}
+
+/**
+ * Print statistics of unrecognized ME types and sub-types.
+ */
+static void print_unrecognized_ME (void)
+{
+  int      i;
+  uint64_t totals = 0;
+  int      num_totals = 0;
+
+  for (i = 0; i < MAX_ME_TYPE; i++)
+      totals += sum_unrecognized_ME (i);
+
+  if (totals == 0ULL)
+  {
+    LOG_STDOUT (" %8llu unrecognized ME types.\n", 0ULL);
+    return;
+  }
+
+  LOG_STDOUT (" %8llu unrecognized ME types:", totals);
+
+  for (i = 0; i < MAX_ME_TYPE; i++)
+  {
+    const unrecognized_ME *me = &Modes.stat.unrecognized_ME [i];
+    char   sub_types [200];
+    char  *p = sub_types;
+    size_t j, left = sizeof(sub_types);
+    int    n;
+
+    totals = sum_unrecognized_ME (i);
+    if (totals == 0ULL)
+       continue;
+
+    *p = '\0';
+    for (j = 0; j < MAX_ME_SUBTYPE; j++)
+        if (me->sub_type[j] > 0ULL)
+        {
+          n = snprintf (p, left, "%d,", j);
+          left -= n;
+          p    += n;
+        }
+
+    if (p > sub_types) /* remove the comma */
+         p[-1] = '\0';
+    else *p = '\0';
+
+    /* indent next line to print like:
+     *   45 unrecognized ME types: 29: 20 (2)
+     *                             31: 25 (3)
+     */
+    if (++num_totals > 1)
+       LOG_STDOUT ("! \n                                ");
+
+    if (sub_types[0])
+         LOG_STDOUT ("! %2d: %llu (%s)", i, totals, sub_types);
+    else LOG_STDOUT ("! %2d: %llu", i, totals);
+  }
+  LOG_STDOUT ("! \n");
+}
+
+/**
  * This function gets a decoded Mode S Message and prints it on the screen
  * in a human readable format.
  */
@@ -2274,7 +2360,7 @@ static void display_modeS_message (const modeS_message *mm)
     else
     {
       LOG_STDOUT ("    Unrecognized ME type: %d, subtype: %d\n", mm->ME_type, mm->ME_subtype);
-      Modes.stat.unrecognized_ME++;
+      add_unrecognized_ME (mm->ME_type, mm->ME_subtype);
     }
   }
   else
@@ -4974,7 +5060,7 @@ static void show_statistics (void)
     LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
     LOG_STDOUT (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
     LOG_STDOUT (" %8llu unique aircrafts from CSV.\n", Modes.stat.unique_aircrafts_CSV);
-    LOG_STDOUT (" %8llu unrecognized ME types.\n", Modes.stat.unrecognized_ME);
+    print_unrecognized_ME();
   }
   if (Modes.net)
      show_connection_stats();
