@@ -35,6 +35,8 @@ extern "C" {
 
 typedef struct rtlsdr_dev rtlsdr_dev_t;
 
+RTLSDR_API uint32_t rtlsdr_last_error (void);
+
 RTLSDR_API uint32_t rtlsdr_get_device_count(void);
 
 RTLSDR_API const char* rtlsdr_get_device_name(uint32_t index);
