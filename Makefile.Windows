@@ -63,7 +63,7 @@ CLANG_VER ?= 11.0.0
 
 define Usage
 
-  Usage: "make -f $(THIS_FILE) [CC=cl | clang-cl] [CPU=x86 | x64] [all | clean | vclean | depend]")
+  Usage: "make -f $(THIS_FILE) [CC=cl | clang-cl] <CPU=x86 | x64> [all | clean | vclean | depend]")
   Specify CC=cl       - build with MSVC
   Specify CC=clang-cl - build with clang-cl
   Specify CPU=x86     - build for 32-bit
@@ -218,13 +218,17 @@ endif
 LDFLAGS += -libpath:$(TOOLS_ROOT)/lib/$(CPU)
 
 #
+# The path for the "Windows Kit" libraries.
+#
 # E.g. the User-Mode libraries for 'x86' are in:
 #   $(WK_ROOT)/Lib/$(WK_VER)/um/x86/
 #
 LDFLAGS += -libpath:$(realpath $(WK_ROOT))/Lib/$(WK_VER)/um/$(CPU)
 
 #
-# Ditto mess for the Universal CRT libraries: for 'x86' the UCRT libs are in:
+# The path for the "Universal CRT" (UCRT) libraries.
+#
+# E.g. the UCRT libraries for 'x86' are in:
 #   $(WK_ROOT)/Lib/$(WK_VER)/ucrt/x86/
 #
 LDFLAGS += -libpath:$(realpath $(WK_ROOT))/Lib/$(WK_VER)/ucrt/$(CPU)
