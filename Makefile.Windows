@@ -191,12 +191,6 @@ endif
 OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
 
 #
-# This assumes you have an MSys/Cygwin 'echo.exe' with colour support.
-#
-BRIGHT_GREEN = \e[1;32m
-green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
-
-#
 # Select currect MSVC / clang-cl compiler w/o the 'vcvarsall.bat' non-sense.
 #
 # E.g.:
@@ -307,6 +301,14 @@ clean: docs_clean
 
 vclean realclean: clean
 	rm -f $(TARGETS) dump1090.chm .depend.Windows
+
+#
+# GNU-make macros:
+#
+# This assumes you have an MSys/Cygwin 'echo.exe' with colour support.
+#
+BRIGHT_GREEN = \e[1;32m
+green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
 
 #
 # .obj -> .exe macro

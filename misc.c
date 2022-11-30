@@ -11,22 +11,26 @@
 #include <sys/utime.h>
 #include "misc.h"
 
+#define TSIZE (int)(sizeof("HH:MM:SS.MMM: ") - 1)
+
 /**
  * Log a message to the `Modes.log` file with a timestamp.
  * But no timestamp if `buf` starts with a `!`.
  */
 void modeS_log (const char *buf)
 {
-  SYSTEMTIME now;
-  char tbuf [30] = { '\0' };
+  char tbuf [30];
 
   if (!Modes.log)
      return;
 
+  tbuf[0] = '\0';
   if (*buf == '!')
      buf++;
   else
   {
+    SYSTEMTIME now;
+
     GetLocalTime (&now);
     snprintf (tbuf, sizeof(tbuf), "%02u:%02u:%02u.%03u",
               now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
@@ -37,7 +41,7 @@ void modeS_log (const char *buf)
 
   if (tbuf[0])
        fprintf (Modes.log, "%s: %s", tbuf, buf);
-  else fputs (buf, Modes.log);
+  else fprintf (Modes.log, "%*.*s%s", TSIZE, TSIZE, "", buf);
 }
 
 /**
@@ -55,7 +59,8 @@ void modeS_logc (char c, void *param)
  */
 void modeS_flogf (FILE *f, const char *fmt, ...)
 {
-  char buf [1000];
+  char    buf [1000];
+  char   *p = buf;
   va_list args;
 
   va_start (args, fmt);
@@ -64,9 +69,9 @@ void modeS_flogf (FILE *f, const char *fmt, ...)
 
   if (f && f != Modes.log)
   {
-    if (buf[0] == '!')
-         fputs (buf+1, f);
-    else fputs (buf, f);
+    if (*p == '!')
+       p++;
+    fputs (p, f);
     fflush (f);
   }
   if (Modes.log)

@@ -670,7 +670,7 @@ static void aircraft_CSV_test (void)
                { 0xAB34DE, "N821DA",  "Beech"  },
                { 0x800737, "VT-ANQ",  "Boeing" },
                { 0xA713D5, "N555UW",  "Piper" },
-               { 0x3532C1, "T.23-01", "AIRBUS" },  // Spanish Air Force
+               { 0x3532C1, "T.23-01", "AIRBUS" },  /* Spanish Air Force */
              };
 #if 0
   for (i = 0; i < min(100, Modes.aircraft_num_CSV); i++)
@@ -684,7 +684,7 @@ static void aircraft_CSV_test (void)
 
   for (i = num_ok = 0; i < DIM(a_tests); i++)
   {
-    addr = a_tests[i].addr;
+    addr  = a_tests[i].addr;
     a_CSV = aircraft_CSV_lookup_entry (addr);
     reg_num = manufact = "?";
     if (a_CSV && a_CSV->reg_num[0])
@@ -2190,8 +2190,8 @@ static void print_unrecognized_ME (void)
        LOG_STDOUT ("! \n                                ");
 
     if (sub_types[0])
-         LOG_STDOUT ("! %2d: %llu (%s)", i, totals, sub_types);
-    else LOG_STDOUT ("! %2d: %llu", i, totals);
+         LOG_STDOUT ("! %3llu: %2d (%s)", totals, i, sub_types);
+    else LOG_STDOUT ("! %3llu: %2d", totals, i);
   }
   LOG_STDOUT ("! \n");
 }
@@ -3344,7 +3344,7 @@ static aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now
 
       if (llabs(t_diff) <= 60*10*1000)
            decode_CPR (a);
-   // else LOG_FILEONLY ("t_diff for '%04X' too large: %lld sec.\n", a->addr, t_diff/1000);
+   /* else LOG_FILEONLY ("t_diff for '%04X' too large: %lld sec.\n", a->addr, t_diff/1000); */
     }
     else if (mm->ME_type == 19)
     {
@@ -3628,11 +3628,11 @@ static char *receiver_to_json (void)
   if (!Modes.json_aircraft_history [history_size].ptr)
      history_size = Modes.json_aircraft_history_next;
 
-  return mg_mprintf ("{%Q: %Q, "    // "version", PROG_VERSION
-                      "%Q: %llu, "  // "refresh", Modes.json_interval
-                      "%Q: %d, "    // "history", history_size
-                      "%Q: %.6g, "  // "lat",     Modes.home_pos.lat; if 'Modes.home_pos_ok == false', this is 0.
-                      "%Q: %.6g}",  // "lon",     Modes.home_pos.lon; ditto
+  return mg_mprintf ("{%Q: %Q, "    /* "version", PROG_VERSION */
+                      "%Q: %llu, "  /* "refresh", Modes.json_interval */
+                      "%Q: %d, "    /* "history", history_size */
+                      "%Q: %.6g, "  /* "lat",     Modes.home_pos.lat; if 'Modes.home_pos_ok == false', this is 0. */
+                      "%Q: %.6g}",  /* "lon",     Modes.home_pos.lon; ditto */
                       "version", PROG_VERSION,
                       "refresh", Modes.json_interval,
                       "history", history_size,
@@ -4715,8 +4715,12 @@ static int modeS_recv_SBS_input (mg_iobuf *msg, modeS_message *mm)
 {
   memset (mm, '\0', sizeof(*mm));
 
-//decode 'msg' and fill 'mm'
-//modeS_user_message (&mm);
+#if 0
+  /* decode 'msg' and fill 'mm'
+   */
+  modeS_user_message (&mm);
+#endif
+
   MODES_NOTUSED (msg);
   return (0);
 }
@@ -5289,7 +5293,7 @@ static void parse_cmd_line (int argc, char **argv)
 
   while ((c = getopt_long (argc, argv, "+h?", long_options, &idx)) != EOF)
   {
-//  printf ("c: '%c' / %d, long_options[%d]: '%s'\n", c, c, idx, long_options[idx].name);
+ /* printf ("c: '%c' / %d, long_options[%d]: '%s'\n", c, c, idx, long_options[idx].name); */
 
     switch (c)
     {
