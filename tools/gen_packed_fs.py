@@ -1,7 +1,7 @@
 #!/usr/env python
 """
- A tool to generate a .c-file for a built-in "Packed FileSystem"
- Inspired by Mongoose' 'test/pack.c' program.
+A tool to generate a .c-file for a built-in "Packed FileSystem".
+Inspired by Mongoose' 'test/pack.c' program.
 """
 
 import os, sys, stat, time, fnmatch, argparse
@@ -18,6 +18,7 @@ C_TOP = """//
 #include <time.h>
 #include <ctype.h>
 
+int         mg_pack_case (int on);
 const char *mg_unlist (size_t i);
 const char *mg_unpack (const char *name, size_t *size, time_t *mtime);
 """
@@ -148,7 +149,6 @@ def walktree (top, callback, cb_data):
 def add_file (file, cb_data):
   f = file.replace ("\\", "/")
   match = [ fnmatch.fnmatch, fnmatch.fnmatchcase] [opt.casesensitive]
-
   if match(f, opt.spec):
      trace ("Adding '%s'" % f)
      cb_data.append (f)
