@@ -316,7 +316,7 @@ static int gain_decrease (int gain_idx)
 static void console_update_gain (void)
 {
   static int gain_idx = -1;
-  int i, ch;
+  int    i, ch;
 
   if (gain_idx == -1)
   {
@@ -385,7 +385,6 @@ static int console_init (void)
   GetConsoleMode (console_hnd, &console_mode);
   if (console_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)
      SetConsoleMode (console_hnd, console_mode | DISABLE_NEWLINE_AUTO_RETURN);
-
   Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
   return (0);
 }
@@ -793,8 +792,7 @@ static void modeS_init_config (void)
   GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
 
   strcpy (Modes.web_page, basename(INDEX_HTML));
-  strcpy (Modes.web_root, dirname(Modes.who_am_I));
-  strcat (Modes.web_root, "\\web_root");
+  snprintf (Modes.web_root, sizeof(Modes.web_root), "%s\\web_root", dirname(Modes.who_am_I));
   slashify (Modes.web_root);
   snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\%s", dirname(Modes.who_am_I), AIRCRAFT_DATABASE_CSV);
   slashify (Modes.aircraft_db);
@@ -865,11 +863,6 @@ static int modeS_init (void)
     mg_log_set_fn (modeS_logc, NULL);
     mg_log_set (MG_LL_VERBOSE);
   }
-
-#if MG_ENABLE_FILE
-  if (Modes.touch_web_root)
-     touch_dir (Modes.web_root, true);
-#endif
 
   env = getenv ("DUMP1090_HOMEPOS");
   if (env)
@@ -2173,7 +2166,7 @@ static void print_unrecognized_ME (void)
     for (j = 0; j < MAX_ME_SUBTYPE; j++)
         if (me->sub_type[j] > 0ULL)
         {
-          n = snprintf (p, left, "%d,", j);
+          n = snprintf (p, left, "%zd,", j);
           left -= n;
           p    += n;
         }
@@ -3471,6 +3464,28 @@ static void interactive_show_aircraft (const aircraft *a, uint64_t now)
 }
 
 /**
+ * \todo
+ * Check if the console has scrolled (due to a QuickEdit action).
+ * Do it by 'ReadConsoleOutputCharacter()' and look for "ICAO  "
+ * at lines > 1.
+ */
+static bool console_messed_up (void)
+{
+#if 0
+  if (console_hnd != INVALID_HANDLE_VALUE)
+  {
+    char  buf [sizeof("ICAO  ")];
+    COORD coord = { 0, 20 };
+    DWORD read  = 0;
+
+    ReadConsoleOutputCharacter (console_hnd, buf, sizeof(buf), coord, &read);
+    LOG_FILEONLY ("buf: '%.*s'\n", (int)read, buf);
+  }
+#endif
+  return (false);
+}
+
+/**
  * Show the currently captured aircraft information on screen.
  * \param in now  the currect tick-timer in mill-seconds
  */
@@ -3488,7 +3503,7 @@ static void interactive_show_data (uint64_t now)
    */
   if (Modes.debug == 0)
   {
-    if (old_count == -1 || aircraft_numbers() < old_count)
+    if (old_count == -1 || aircraft_numbers() < old_count || console_messed_up())
        clrscr();
     gotoxy (1, 1);
   }
@@ -3694,10 +3709,10 @@ static char *aircrafts_to_json (bool extended_client)
     int altitude = a->altitude;
     int speed    = a->speed;
 
-    /* Convert units to metric if --metric was specified.
-     * But option '--metric' has no effect on the Web-page yet.
+    /* Convert units to metric if '--metric' was specified.
+     * But an 'extended_client' wants altitude and speed in aeronatical units.
      */
-    if (Modes.metric)
+    if (Modes.metric && !extended_client)
     {
       altitude = (int) (double) (a->altitude / 3.2828);
       speed    = (int) (1.852 * (double) a->speed);
@@ -3947,6 +3962,19 @@ static char *handler_error (intptr_t service)
   return (modeS_net_services [service].last_err);
 }
 
+static char *handler_store_error (intptr_t service, const char *err)
+{
+  assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
+  free (modeS_net_services [service].last_err);
+  modeS_net_services [service].last_err = NULL;
+  if (err)
+  {
+    modeS_net_services [service].last_err = strdup (err);
+    DEBUG (DEBUG_NET, "%s\n", err);
+  }
+  return (modeS_net_services [service].last_err);
+}
+
 static bool handler_sending (intptr_t service)
 {
   assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
@@ -3989,12 +4017,12 @@ static int print_server_errors (void)
   for (service = MODES_NET_SERVICE_RAW_OUT; service < MODES_NET_SERVICES_NUM; service++)
   {
     err = handler_error (service);
-    if (err)
-    {
-      LOG_STDERR ("%s\n", err);
-      free (err);
-      num++;
-    }
+    if (!err)
+       continue;
+
+    LOG_STDERR ("%s\n", err);
+    handler_store_error (service, NULL);
+    num++;
   }
   return (num);
 }
@@ -4129,7 +4157,7 @@ static int connection_handler_http (mg_connection *conn,
        return (0);
 
     cli->redirect_sent = true;
-    base_name = basename (Modes.web_page);
+    base_name = Modes.web_page;
     mg_printf (conn,
                "HTTP/1.1 301 Moved\r\n"
                "Location: %s\r\n"
@@ -4205,14 +4233,21 @@ static int connection_handler_http (mg_connection *conn,
     {
       struct mg_http_serve_opts opts;
       struct stat st;
-      char   file [MG_PATH_MAX];
+      char        file [MG_PATH_MAX];
 
       memset (&opts, '\0', sizeof(opts));
       opts.page404       = NULL;
       opts.extra_headers = set_headers (cli, content_type);
 
+#if MG_ENABLE_PACKED_FS
+      opts.fs = &mg_fs_packed;
       snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
-      DEBUG (DEBUG_NET, "Serving file: '%s'.\n", uri);
+      DEBUG (DEBUG_NET, "Serving packed file: '%s'.\n", file);
+#else
+      snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
+      DEBUG (DEBUG_NET, "Serving file: '%s'.\n", file);
+#endif
+
       DEBUG (DEBUG_NET, "extra-headers: '%s'.\n", opts.extra_headers);
 
       mg_http_serve_file (conn, hm, file, &opts);
@@ -4244,8 +4279,7 @@ static void connection_timeout (void *fn_data)
 
   snprintf (err, sizeof(err), "Timeout in connection to service \"%s\" on host %s",
             handler_descr(service), host_port);
-  modeS_net_services [service].last_err = strdup (err);
-  DEBUG (DEBUG_NET, "%s.\n", err);
+  handler_store_error (service, err);
 
   sigint_handler (0);  /* break out of main_data_loop()  */
 }
@@ -4276,8 +4310,7 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
     if (remote && service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM)
     {
       snprintf (err, sizeof(err), "Connection to %s:%u failed: %s", remote, port, (const char*)ev_data);
-      modeS_net_services [service].last_err = strdup (err);
-      DEBUG (DEBUG_NET, "Error: %s\n", err);
+      handler_store_error (service, err);
       sigint_handler (0);   /* break out of main_data_loop()  */
     }
     return;
@@ -4444,13 +4477,115 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
 }
 
 /**
+ * Functions for a Web Packed Filesystem
+ */
+#if MG_ENABLE_PACKED_FS
+/*
+ * In the generated '$(OBJ_DIR)/packed_webfs.c'
+ */
+extern const char *mg_unlist (size_t i);
+static size_t num_packed = 0;
+static bool   has_index_html = false;
+
+static void count_packed_fs (void)
+{
+  const char *fname;
+  size_t      i;
+
+  if (Modes.debug & DEBUG_NET)
+     printf ("  Size  Date                 Filename\n"
+             "-----------------------------------------------------------------\n");
+
+  for (i = 0; (fname = mg_unlist(i)) != NULL; i++)
+  {
+    struct tm *tm;
+    size_t fsize;
+    time_t ftime;
+    int    st;
+    char   t_str [20];
+
+    if (!strcmp(basename(fname), "index.html"))
+       has_index_html = true;
+
+    if (!(Modes.debug & DEBUG_NET))
+       continue;
+
+    st = (*mg_fs_packed.st) (fname, &fsize, &ftime);
+    if (st & MG_FS_DIR)
+    {
+      fsize = 0;
+      strcpy (t_str, "<DIR>");
+    }
+    else
+    {
+      tm = localtime (&ftime);
+      strftime (t_str, sizeof(t_str), "%Y/%m/%d %H:%M:%S", tm);
+    }
+    printf ("%6zu  %-20s %s\n", fsize, t_str, fname);
+  }
+  num_packed = i;
+}
+
+static bool check_web_page (void)
+{
+  if (num_packed == 0)
+  {
+    LOG_STDERR ("The Packed Filesystem has no files!\n");
+    return (false);
+  }
+  if (!has_index_html)
+  {
+    LOG_STDERR ("The Packed Filesystem has no 'index.html' file!\n");
+    return (false);
+  }
+  return (true);
+}
+
+#else
+static bool check_web_page (void)
+{
+  struct stat st;
+  char full_name [MG_PATH_MAX];
+
+  snprintf (full_name, sizeof(full_name), "%s/%s", Modes.web_root, Modes.web_page);
+  DEBUG (DEBUG_NET, "Web-page: \"%s\"\n", full_name);
+
+  if (stat(full_name, &st) != 0)
+  {
+    LOG_STDERR ("Web-page \"%s\" does not exist.\n", full_name);
+    return (false);
+  }
+  if (((st.st_mode) & _S_IFMT) != _S_IFREG)
+  {
+    LOG_STDERR ("Web-page \"%s\" is not a regular file.\n", full_name);
+    return (false);
+  }
+  return (true);
+}
+#endif
+
+/**
  * Initialize the Mongoose network manager and:
  *  \li start the 2 active network services.
  *  \li or start the 4 listening (passive) network services.
  */
 static int modeS_init_net (void)
 {
-  struct stat st;
+#if MG_ENABLE_PACKED_FS
+  Modes.touch_web_root = false;
+  printf ("Ignoring the '--web-page %s/%s' option\n"
+          "since we use a built-in 'Packed Filesystem'.\n",
+          Modes.web_root, Modes.web_page);
+
+  strncpy (Modes.web_root, PACKED_WEB_ROOT, sizeof(Modes.web_root));
+  strcpy (Modes.web_page, "index.html");
+  count_packed_fs();
+#endif
+
+#if MG_ENABLE_FILE
+  if (Modes.touch_web_root)
+     touch_dir (Modes.web_root, true);
+#endif
 
   mg_mgr_init (&Modes.mgr);
 
@@ -4481,25 +4616,8 @@ static int modeS_init_net (void)
       return (1);
     }
   }
-
-  if (Modes.http_out)
-  {
-    char full_name [MG_PATH_MAX];
-
-    snprintf (full_name, sizeof(full_name), "%s/%s", Modes.web_root, basename(Modes.web_page));
-    DEBUG (DEBUG_NET, "Web-page: \"%s\"\n", full_name);
-
-    if (stat(full_name, &st) != 0)
-    {
-      LOG_STDERR ("Web-page \"%s\" does not exist.\n", full_name);
-      return (1);
-    }
-    if (((st.st_mode) & _S_IFMT) != _S_IFREG)
-    {
-      LOG_STDERR ("Web-page \"%s\" is not a regular file.\n", full_name);
-      return (1);
-    }
-  }
+  if (Modes.http_out && !check_web_page())
+     return (1);
   return (0);
 }
 
@@ -5049,24 +5167,27 @@ static void show_raw_SBS_stats (void)
   LOG_STDOUT ("  Unknown: %8llu empty messages.\n", Modes.stat.empty_unknown);
 }
 
+static void show_decoder_stats (void)
+{
+  LOG_STDOUT ("Decoder statistics:\n");
+  LOG_STDOUT (" %8llu valid preambles.\n", Modes.stat.valid_preamble);
+  LOG_STDOUT (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
+  LOG_STDOUT (" %8llu demodulated with 0 errors.\n", Modes.stat.demodulated);
+  LOG_STDOUT (" %8llu with CRC okay.\n", Modes.stat.good_CRC);
+  LOG_STDOUT (" %8llu with CRC failure.\n", Modes.stat.bad_CRC);
+  LOG_STDOUT (" %8llu errors corrected.\n", Modes.stat.fixed);
+  LOG_STDOUT (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
+  LOG_STDOUT (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
+  LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
+  LOG_STDOUT (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
+  LOG_STDOUT (" %8llu unique aircrafts from CSV.\n", Modes.stat.unique_aircrafts_CSV);
+  print_unrecognized_ME();
+}
+
 static void show_statistics (void)
 {
   if (!Modes.net_only)
-  {
-    LOG_STDOUT ("Decoder statistics:\n");
-    LOG_STDOUT (" %8llu valid preambles.\n", Modes.stat.valid_preamble);
-    LOG_STDOUT (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
-    LOG_STDOUT (" %8llu demodulated with 0 errors.\n", Modes.stat.demodulated);
-    LOG_STDOUT (" %8llu with CRC okay.\n", Modes.stat.good_CRC);
-    LOG_STDOUT (" %8llu with CRC failure.\n", Modes.stat.bad_CRC);
-    LOG_STDOUT (" %8llu errors corrected.\n", Modes.stat.fixed);
-    LOG_STDOUT (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
-    LOG_STDOUT (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
-    LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
-    LOG_STDOUT (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
-    LOG_STDOUT (" %8llu unique aircrafts from CSV.\n", Modes.stat.unique_aircrafts_CSV);
-    print_unrecognized_ME();
-  }
+     show_decoder_stats();
   if (Modes.net)
      show_connection_stats();
   if (Modes.net_active)
@@ -5434,8 +5555,9 @@ static void parse_cmd_line (int argc, char **argv)
  */
 int main (int argc, char **argv)
 {
-  int dev_opened = 0;
-  int rc;
+  bool dev_opened = false;
+  bool net_opened = false;
+  int  rc;
 
 #if defined(_DEBUG)
   crtdbug_init();
@@ -5495,7 +5617,7 @@ int main (int argc, char **argv)
       DEBUG (DEBUG_GENERAL, "modeS_init_RTLSDR(): rc: %d.\n", rc);
       if (rc)
          goto quit;
-      dev_opened = 1;
+      dev_opened = true;
     }
   }
 
@@ -5505,6 +5627,7 @@ int main (int argc, char **argv)
     DEBUG (DEBUG_GENERAL, "modeS_init_net(): rc: %d.\n", rc);
     if (rc)
        goto quit;
+    net_opened = true;
   }
 
   if (Modes.infile)
@@ -5526,7 +5649,7 @@ int main (int argc, char **argv)
   }
 
 quit:
-  if (print_server_errors() == 0 && dev_opened)
+  if (print_server_errors() == 0 && dev_opened && net_opened)
      show_statistics();
   modeS_exit();
   return (0);
