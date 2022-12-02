@@ -54,6 +54,12 @@ available, developed by **Malcolm Robb**.
 
 ## Normal usage
 
+Since the uncompress `aircraftDatabase.csv` file is too big to be allowed on Github, first
+uncompress `aircraftDatabase.csv.gz` (listed above) into `aircraftDatabase.csv` using:
+ ```
+  c:\dev\Dump1090> gzip -d aircraftDatabase.csv.gz
+ ```
+
 To capture traffic directly from your RTLSDR device and show the captured traffic
 on standard output, just run the program without options at all:
   ```
