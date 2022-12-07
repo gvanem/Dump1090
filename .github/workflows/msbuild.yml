@@ -4,7 +4,6 @@ on: [push]
 
 env:
   SOLUTION_FILE_PATH: Dump1090.sln
-
 jobs:
   build:
     runs-on: windows-latest
@@ -22,7 +21,7 @@ jobs:
 
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.BUILD_PLATFORM}} ${{env.SOLUTION_FILE_PATH}}
+      run: set PlatformToolset=v142 & msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.BUILD_PLATFORM}} ${{env.SOLUTION_FILE_PATH}}
 
 # test:
 #   steps:
