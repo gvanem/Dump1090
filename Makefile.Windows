@@ -138,7 +138,7 @@ ifeq ($(CPU),x64)
 else ifeq ($(CPU),x86)
   BITS = 32
 else
-  $(error Unsupported 'CPU=$(CPU)')
+  $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
 endif
 
 ifeq ($(USE_ASAN),1)
