@@ -11,3 +11,8 @@
 * UAT; Universal Access Transceiver for 978 MHz datalink.
 * Kerberos SDR; Directional Finding Feature:
    ref: https://github.com/rfjohnso/kerberossdr/tree/PyQt5
+
+* GPS support using "Windows Location API":
+   Refs: https://learn.microsoft.com/en-us/windows/win32/api/locationapi/nn-locationapi-ilocation
+         https://www.codeproject.com/Articles/13601/COM-in-plain-C
+         https://github.com/Nkyoku/ros2_location_api/blob/master/src/location_api_node.cpp
