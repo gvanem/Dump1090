@@ -826,27 +826,27 @@ static int modeS_init (void)
 
   if (Modes.logfile)
   {
+    char   args [1000] = "";
+    char   buf [sizeof(args)+MG_PATH_MAX+10];
+    char  *p = args;
+    size_t n, left = sizeof(args);
+    int    i;
+
     Modes.log = fopen (Modes.logfile, "a");
     if (!Modes.log)
-       LOG_STDERR ("Failed to create/append to \"%s\".\n", Modes.logfile);
-    else
     {
-      char   args [1000] = "";
-      char   buf [sizeof(args)+MG_PATH_MAX+10];
-      char  *p = args;
-      size_t n, left = sizeof(args);
-      int    i;
-
-      for (i = 1; i < __argc && left > 2; i++)
-      {
-        n = snprintf (p, left, " %s", __argv[i]);
-        p    += n;
-        left -= n;
-      }
-      fputc ('\n', Modes.log);
-      snprintf (buf, sizeof(buf), "------- Starting '%s%s' -----------\n", Modes.who_am_I, args);
-      modeS_log (buf);
+      LOG_STDERR ("Failed to create/append to \"%s\".\n", Modes.logfile);
+      return (1);
     }
+    for (i = 1; i < __argc && left > 2; i++)
+    {
+      n = snprintf (p, left, " %s", __argv[i]);
+      p    += n;
+      left -= n;
+    }
+    fputc ('\n', Modes.log);
+    snprintf (buf, sizeof(buf), "------- Starting '%s%s' -----------\n", Modes.who_am_I, args);
+    modeS_log (buf);
   }
 
   /** By default, disable all logging from Mongoose
@@ -4579,9 +4579,9 @@ static int modeS_init_net (void)
 {
 #if MG_ENABLE_PACKED_FS
   Modes.touch_web_root = false;
-  printf ("Ignoring the '--web-page %s/%s' option\n"
-          "since we use a built-in 'Packed Filesystem'.\n",
-          Modes.web_root, Modes.web_page);
+  LOG_STDOUT ("Ignoring the '--web-page %s/%s' option\n"
+              "since we use a built-in 'Packed Filesystem'.\n",
+              Modes.web_root, Modes.web_page);
 
   strncpy (Modes.web_root, PACKED_WEB_ROOT, sizeof(Modes.web_root));
   strcpy (Modes.web_page, "index.html");
