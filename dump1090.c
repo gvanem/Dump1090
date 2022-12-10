@@ -4321,7 +4321,7 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
     return;
   }
 
-  remote = mg_straddr (&this_conn->rem, remote_buf, sizeof(remote_buf));
+  remote = _mg_straddr (&this_conn->rem, remote_buf, sizeof(remote_buf));
 
   if (ev == MG_EV_OPEN)
   {

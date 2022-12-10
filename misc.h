@@ -499,6 +499,7 @@ extern char    *basename (const char *fname);
 extern char    *dirname (const char *fname);
 extern char    *slashify (char *fname);
 extern int     _gettimeofday (struct timeval *tv, void *timezone);
+extern char    *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
 extern void     set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
 
 #if MG_ENABLE_FILE

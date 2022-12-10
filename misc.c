@@ -366,6 +366,16 @@ uint64_t mg_millis (void)
 }
 #endif
 
+/**
+ * Since 'mg_straddr()' was removed in latest version
+ */
+char *_mg_straddr (struct mg_addr *a, char *buf, size_t len)
+{
+  if (a->is_ip6)
+       mg_snprintf (buf, len, "[%I]:%hu", 6, &a->ip6, mg_ntohs(a->port));
+  else mg_snprintf (buf, len, "%I:%hu", 4, &a->ip, mg_ntohs(a->port));
+  return (buf);
+}
 
 /**
  * Parse and split a `host[:port]` string into a host and port.
@@ -387,7 +397,7 @@ void set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
   if (mg_aton(str, &addr))
   {
     is_ip6 = addr.is_ip6;
-    mg_ntoa (&addr, buf, sizeof(buf));
+    _mg_straddr (&addr, buf, sizeof(buf));
   }
   else
   {
