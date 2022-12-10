@@ -4201,6 +4201,11 @@ static int connection_handler_http (mg_connection *conn,
   {
     char *data = aircrafts_to_json (is_extended);
 
+    /* "Cross Origin Resource Sharing":
+     * https://www.freecodecamp.org/news/access-control-allow-origin-header-explained/
+     */
+    #define CORS_HEADER "Access-Control-Allow-Origin: *\r\n"
+
     if (!data)
     {
       conn->is_closing = 1;
@@ -4212,8 +4217,8 @@ static int connection_handler_http (mg_connection *conn,
      * Better use a WebSocket instead.
      */
     if (is_extended)
-         mg_http_reply (conn, 200, NULL, data);
-    else mg_http_reply (conn, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
+         mg_http_reply (conn, 200, CORS_HEADER, data);
+    else mg_http_reply (conn, 200, CORS_HEADER MODES_CONTENT_TYPE_JSON "\r\n", data);
     free (data);
     return (200);
   }
@@ -4484,6 +4489,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
  * In the generated '$(OBJ_DIR)/packed_webfs.c'
  */
 extern const char *mg_unlist (size_t i);
+
 static size_t num_packed = 0;
 static bool   has_index_html = false;
 
