@@ -128,7 +128,6 @@ typedef struct mg_ws_message   mg_ws_message;
 typedef void (*msg_handler) (mg_iobuf *msg, int loop_cnt);
 
 /**
- * \typedef struct connection
  * Structure used to describe a networking client.
  * And also a server when `--net-connect` is used.
  */
@@ -144,7 +143,6 @@ typedef struct connection {
       } connection;
 
 /**
- * \typedef mg_listen_func
  * A function-pointer for either `mg_listen()` or `mg_http_listen()`.
  */
 typedef struct mg_connection *(*mg_listen_func) (struct mg_mgr     *mgr,
@@ -153,7 +151,6 @@ typedef struct mg_connection *(*mg_listen_func) (struct mg_mgr     *mgr,
                                                  void              *fn_data);
 
 /**
- * \typedef struct net_service
  * A structure defining a passive or active network service.
  */
 typedef struct net_service {
@@ -169,7 +166,6 @@ typedef struct net_service {
       } net_service;
 
 /**
- * \typedef struct aircraft_CSV
  * Describes an aircraft from a .CSV-file.
  */
 typedef struct aircraft_CSV {
@@ -180,7 +176,6 @@ typedef struct aircraft_CSV {
       } aircraft_CSV;
 
 /**
- * \typedef ICAO_range
  * The low and high values used to lookup military ranges.
  */
 typedef struct ICAO_range {
@@ -207,8 +202,6 @@ typedef enum metric_unit_t {
 #define UNIT_NAME(unit) (unit == MODES_UNIT_METERS ? "meters" : "feet")
 
 /**
- * \typedef struct pos_t
- *
  * Latitude (East-West) and Longitude (North-South) coordinates.
  * (ignoring altitude).
  */
@@ -218,8 +211,6 @@ typedef struct pos_t {
       } pos_t;
 
 /**
- * \typedef struct cartesian_t
- *
  * A point in Cartesian coordinates.
  */
 typedef struct cartesian_t {
@@ -242,7 +233,6 @@ typedef struct cartesian_t {
                          } while (0)
 
 /**
- * \typedef struct aircraft
  * Structure used to describe an aircraft in interactive mode.
  */
 typedef struct aircraft {
@@ -283,17 +273,14 @@ typedef struct aircraft {
 #define MAX_ME_SUBTYPE  8
 
 /**
- * \typedef struct unrecognized_ME
- *
  * Statistics on unrecognized ME types and sub-types.
  * The sum of a type [0..36] is the sum of the `sub_type[]` array.
  */
 typedef struct unrecognized_ME {
-        uint64_t  sub_type [MAX_ME_SUBTYPE];    /** unrecognized subtypes [0..7] of this type */
+        uint64_t  sub_type [MAX_ME_SUBTYPE];    /**< unrecognized subtypes [0..7] of this type */
       } unrecognized_ME;
 
 /**
- * \typedef struct statistics
  * Keep all collected statistics in this structure.
  */
 typedef struct statistics {
@@ -340,7 +327,6 @@ typedef struct statistics {
       } statistics;
 
 /**
- * \typedef struct rtlsdr_conf
  * The device configuration for a RTLSDR device.
  */
 typedef struct rtlsdr_conf {
@@ -354,14 +340,12 @@ typedef struct rtlsdr_conf {
       } rtlsdr_conf;
 
 /**
- * \typedef struct sdrplay_priv
  * The private data for a SDRplay device.
  * Ref \file sdrplay.c for this.
  */
 struct sdrplay_priv;
 
 /**
- * \typedef struct sdrplay_conf
  * The device configuration for a SDRplay device.
  */
 typedef struct sdrplay_conf {
@@ -385,7 +369,6 @@ typedef struct sdrplay_conf {
       } sdrplay_conf;
 
 /**
- * \typedef struct global_data
  * All program global state is in this structure.
  */
 typedef struct global_data {
@@ -540,8 +523,7 @@ extern void     set_host_port (const char *host_port, net_service *serv, uint16_
 #define optional_argument  2
 
 /**
- * \typedef struct option
- * For `getopt()` command-line handling.
+ * A typedef for `getopt()` command-line handling.
  */
 typedef struct option {
         const char *name; /**< name of long option */

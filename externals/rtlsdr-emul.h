@@ -9,6 +9,9 @@
 extern bool RTLSDR_emul_load_DLL (void);
 extern bool RTLSDR_emul_unload_DLL (void);
 
+/**
+ * Structure for the RTLSDR emulator.
+ */
 struct RTLSDR_emul {
        const char  *dll_name;
        HANDLE       dll_hnd;

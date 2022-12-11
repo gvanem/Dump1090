@@ -258,7 +258,7 @@ $(OBJ_DIR)/dump1090.res: dump1090.rc
 $(OBJ_DIR)/%.obj: %.c
 	$(call C_compile, $@, $<)
 
-$(OBJ_DIR)/packed_webfs.c: tools/gen_packed_fs.py $(THIS_FILE)
+$(OBJ_DIR)/packed_webfs.c: tools/gen_packed_fs.py
 	$(call Generate, $@, //)
 	$(PYTHON) tools/gen_packed_fs.py --verbose --outfile $@ --recursive $(PACKED_WEB_ROOT)/
 
@@ -273,7 +273,7 @@ gen_favicons: favicon.png favicon.ico
 	xxd -i favicon.ico >> favicon.c
 
 docs: doxy-docs doxy-docs/Doxyfile
-	cd $< ; doxygen Doxyfile 2> doxygen.log
+	cd $< ; doxygen Doxyfile
 	$(call green_msg, Doxygen generated docs done. Look in 'doxy-docs/doxygen.log' for details.\n)
 	- (cd $< ; hhc index.hhp)
 	$(call green_msg, dump1090.chm generation done.)
@@ -377,31 +377,14 @@ define dump1090_Doxyfile
   FORCE_LOCAL_INCLUDES  = yes
   QUIET                 = yes
   PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1
-  INPUT                 = ../dump1090.c                         \
-                          ../csv.c                              \
-                          ../csv.h                              \
-                          ../misc.h                             \
-                          ../sdrplay.c                          \
-                          ../sdrplay.h                          \
-                          ../externals/mongoose.c               \
-                          ../externals/mongoose.h               \
-                          ../externals/rtlsdr-emul.c            \
-                          ../externals/rtlsdr-emul.h            \
-                          ../externals/rtl-sdr/librtlsdr.c      \
-                          ../externals/rtl-sdr/trace.c          \
-                          ../externals/rtl-sdr/tuner_e4k.c      \
-                          ../externals/rtl-sdr/tuner_fc001x.c   \
-                          ../externals/rtl-sdr/tuner_fc2580.c   \
-                          ../externals/rtl-sdr/tuner_r82xx.c    \
-                          ../externals/rtl-sdr/rtl-sdr.h        \
-                          ../externals/rtl-sdr/rtl-sdr_export.h \
-                          ../externals/rtl-sdr/rtlsdr_i2c.h     \
-                          ../externals/rtl-sdr/trace.h          \
-                          ../externals/rtl-sdr/tuner_e4k.h      \
-                          ../externals/rtl-sdr/tuner_fc001x.h   \
-                          ../externals/rtl-sdr/tuner_fc2580.h   \
-                          ../externals/rtl-sdr/tuner_r82xx.h    \
-                          ../externals/rtl-sdr/version.h
+  INPUT                 = ../dump1090.c              \
+                          ../csv.c                   \
+                          ../csv.h                   \
+                          ../misc.h                  \
+                          ../sdrplay.c               \
+                          ../sdrplay.h               \
+                          ../externals/rtlsdr-emul.c \
+                          ../externals/rtlsdr-emul.h
 
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = ..
@@ -412,9 +395,12 @@ define dump1090_Doxyfile
   HAVE_DOT              = yes
   OUTPUT_DIRECTORY      = $(realpath .)/doxy-docs
   HTML_OUTPUT           = .
+  HTML_DYNAMIC_MENUS    = no
   GENERATE_HTMLHELP     = yes
   GENERATE_LATEX        = no
   SEARCHENGINE          = no
+  WARNINGS              = yes
+  WARN_LOGFILE          = $(realpath .)/doxy-docs/doxygen.log
   CHM_FILE              = dump1090.chm
 endef
 

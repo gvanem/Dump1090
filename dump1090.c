@@ -115,8 +115,7 @@
 global_data Modes;
 
 /**
- * \typedef struct modeS_message
- * The structure we use to store information about a decoded message.
+  * The structure we use to store information about a decoded message.
  */
 typedef struct modeS_message {
         uint8_t  msg [MODES_LONG_MSG_BYTES]; /**< Binary message. */
@@ -5606,7 +5605,7 @@ int main (int argc, char **argv)
       Modes.emul_loaded = RTLSDR_emul_load_DLL();
       if (!Modes.emul_loaded)
       {
-        LOG_STDERR ("Cannot use device `%s` without `%s` loaded. Error: %s\n",
+        LOG_STDERR ("Cannot use device `%s` without `%s` loaded.\nError: %s\n",
                     Modes.sdrplay.name, emul.dll_name, trace_strerror(emul.last_rc));
         goto quit;
       }
