@@ -14,8 +14,14 @@
 #include <errno.h>
 #include "csv.h"
 
+/**
+ * The default size of a CSV_context::parse_buf.
+ */
 #define DEFAULT_BUF_SIZE 1000
 
+/**
+ * Macro for getting a character into the CSV_context::parse_buf.
+ */
 #define PUTC(c)  do {                                                    \
                    if (ctx->parse_ptr < ctx->parse_buf + ctx->line_size) \
                       *ctx->parse_ptr++ = c;                             \
@@ -33,6 +39,7 @@ static void state_normal (struct CSV_context *ctx)
     ctx->state = STATE_STOP;
     return;
   }
+
   switch (ctx->c_in)
   {
     case -1:
