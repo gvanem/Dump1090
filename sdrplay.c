@@ -234,6 +234,10 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
          DEBUG (DEBUG_GENERAL2, "%s(): sdrplay_api_DeviceRemoved.\n", __FUNCTION__);
          break;
 
+    case sdrplay_api_DeviceFailure:
+         DEBUG (DEBUG_GENERAL2, "%s(): sdrplay_api_DeviceFailure.\n", __FUNCTION__);
+         break;
+
     default:
          DEBUG (DEBUG_GENERAL2, "%s(): unknown event %d\n", __FUNCTION__, event_id);
          break;
@@ -393,9 +397,9 @@ static void sdrplay_callback_B (short *xi, short *xq,
  */
 static bool sdrplay_select (const char *wanted_name)
 {
-  unsigned i;
   sdrplay_api_DeviceT *device;
-  char selected_dev [100];
+  unsigned i;
+  char     selected_dev [100];
 
   CALL_FUNC (sdrplay_api_LockDeviceApi);
   if (sdr.last_rc != sdrplay_api_Success)
@@ -510,7 +514,7 @@ int sdrplay_read_async (sdrplay_dev *device,
   sdr.chParams->tunerParams.dcOffsetTuner.trackTime = 63;
 
   if (sdr.dev->hwVer != SDRPLAY_RSPduo_ID || sdr.dev->rspDuoMode != sdrplay_api_RspDuoMode_Slave)
-     sdr.deviceParams->devParams->fsFreq.fsHz = 8 * 1E6; // Modes.sample_rate;
+     sdr.deviceParams->devParams->fsFreq.fsHz = Modes.sample_rate;  // was '8 * 1E6'
 
   if (sdr.dev->hwVer == SDRPLAY_RSPduo_ID && (sdr.dev->rspDuoMode & sdrplay_api_RspDuoMode_Slave))
   {
@@ -676,7 +680,7 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
   g_sdr_device = NULL;
   g_sdr_handle = NULL;
 
-  Modes.sdrplay.priv = calloc (sizeof(struct sdrplay_priv), 1);
+  Modes.sdrplay.priv = calloc (sizeof(*Modes.sdrplay.priv), 1);
   if (!Modes.sdrplay.priv)
      goto nomem;
 
@@ -694,7 +698,7 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
   Modes.sdrplay.mode            = sdrplay_api_RspDuoMode_Master; /* RSPduo default */
   Modes.sdrplay.BW_mode         = 1;  /* 5 MHz */
   Modes.sdrplay.ADSB_mode       = 1;  /* for Zero-IF */
-//Modes.sdrplay.over_sample     = true;
+  Modes.sdrplay.over_sample     = true;
 
   sdr.rx_data = malloc (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS * sizeof(short));
   if (!sdr.rx_data)
@@ -747,7 +751,11 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
      goto failed;
 
   DEBUG (DEBUG_GENERAL, "sdrplay_api_ApiVersion(): '%.2f', build version: '%.2f'.\n", sdr.version, SDRPLAY_API_VERSION);
-  if (sdr.version != SDRPLAY_API_VERSION || sdr.version < 3.06F)
+
+  if (sdr.version == 3.10 && SDRPLAY_API_VERSION == 3.10)
+     DEBUG (DEBUG_GENERAL, "ver 3.10 and ver 3.11 should be compatible.\n");
+
+  else if (sdr.version != SDRPLAY_API_VERSION || sdr.version < 3.06F)
   {
     snprintf (sdr.last_err, sizeof(sdr.last_err), "Wrong sdrplay_api_ApiVersion(): '%.2f', build version: '%.2f'.\n",
               sdr.version, SDRPLAY_API_VERSION);
@@ -784,7 +792,7 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
   return (sdrplay_api_Success);
 
 nomem:
-  strncpy (sdr.last_err, "Insufficient memory for buffers", sizeof(sdr.last_err));
+  strncpy (sdr.last_err, "Insufficient memory", sizeof(sdr.last_err));
 
 failed:
   LOG_STDERR ("%s.\n", sdr.last_err);

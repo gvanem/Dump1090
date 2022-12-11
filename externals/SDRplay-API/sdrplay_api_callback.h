@@ -25,6 +25,7 @@ typedef enum
     sdrplay_api_PowerOverloadChange   = 1,
     sdrplay_api_DeviceRemoved         = 2,
     sdrplay_api_RspDuoModeChange      = 3,
+    sdrplay_api_DeviceFailure         = 4,
 } sdrplay_api_EventT;
 
 // Event callback parameter structs
