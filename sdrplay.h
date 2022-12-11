@@ -16,6 +16,7 @@ typedef void (*sdrplay_cb) (uint8_t *buf, uint32_t len, void *ctx);
   static int __inline sdrplay_init (const char *name, sdrplay_dev **device)
   {
     printf ("Calling 'emul.rtlsdr_open()'.\n");
+    MODES_NOTUSED (name);
     return (*emul.rtlsdr_open) ((rtlsdr_dev_t**)device, 0);
   }
 
