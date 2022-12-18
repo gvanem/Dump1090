@@ -124,8 +124,10 @@ to your browser to **http://localhost:8080**, use this command:
 
 In this interactive mode there is a more compact output. Where the screen is refreshed
 up to 4 times per second displaying all the recently seen aircrafts with some additional
-information such as flight number, altitude, speed, heading and position. All items extracted
-from the received *Mode S* packets. Except the above *Messages* and last *Seen*.
+information such as flight number, altitude, speed, heading and position. All items are
+extracted from the received *Mode S* packets. Except the above *Messages*, *RSSI* and
+last *Seen* fields. *RSSI* (logaritmic *Received Signal Strength Indicator*) is calculated
+from the 4 last messages.
 
 If a `DUMP1090_HOME_POS` environment variable is defined, the distance to the place gets
 calculated. I.e. the `Dist` column above. E.g. a `set DUMP1090_HOMEPOS=60.3016821,5.3208769`
