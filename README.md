@@ -44,13 +44,13 @@ available, developed by **Malcolm Robb**.
 
 ## Building
 
+  Assuming you have downloaded this package to `c:\dev\Dump1090`, then do:
+
   * Using GNU-make, type:
     * `c:\dev\Dump1090> make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
   * Or using Visual Studio tools:
     * `c:\dev\Dump1090> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
     * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`.
-
-  (assuming you have downloaded this package to `c:\dev\Dump1090`).
 
 ## Normal usage
 
