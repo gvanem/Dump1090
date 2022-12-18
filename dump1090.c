@@ -199,9 +199,12 @@ static HANDLE                      console_hnd = INVALID_HANDLE_VALUE;
 static DWORD                       console_mode = 0;
 static bool                        dev_selection_done = false;
 
-#define COLOUR_GREEN  10  /* bright green; FOREGROUND_INTENSITY + 2 */
-#define COLOUR_RED    12  /* bright red;   FOREGROUND_INTENSITY + 4 */
-#define COLOUR_WHITE  15  /* bright white; FOREGROUND_INTENSITY + 7 */
+#define COLOUR_GREEN   10  /* bright green;  FOREGROUND_INTENSITY + 2 */
+#define COLOUR_RED     12  /* bright red;    FOREGROUND_INTENSITY + 4 */
+#define COLOUR_YELLOW  14  /* bright yellow; FOREGROUND_INTENSITY + 6 */
+#define COLOUR_WHITE   15  /* bright white;  FOREGROUND_INTENSITY + 7 */
+
+static int alternate_colours = 1;
 
 static void gotoxy (int x, int y)
 {
@@ -230,7 +233,7 @@ static void clrscr (void)
   }
 }
 
-static void setcolor (int color)
+static void set_colour (int colour)
 {
   WORD attr;
 
@@ -238,10 +241,10 @@ static void setcolor (int color)
      return;
 
   attr = console_info.wAttributes;
-  if (color > 0)
+  if (colour > 0)
   {
     attr &= ~7;
-    attr |= color;
+    attr |= colour;
   }
   SetConsoleTextAttribute (console_hnd, attr);
 }
@@ -392,7 +395,7 @@ static int console_init (void)
 static void console_exit (void)
 {
   gotoxy (1, Modes.interactive_rows);
-  setcolor (0);
+  set_colour (0);
   if (console_hnd != INVALID_HANDLE_VALUE)
      SetConsoleMode (console_hnd, console_mode);
   console_hnd = INVALID_HANDLE_VALUE;
@@ -2976,7 +2979,7 @@ static double closest_to (double val, double val1, double val2)
   double diff1 = fabs (val1 - val);
   double diff2 = fabs (val2 - val);
 
-  return (diff1 > diff2 ? val2 : val1);
+  return (diff2 > diff1 ? val1 : val2);
 }
 
 /**
@@ -3016,8 +3019,8 @@ static void set_est_home_distance (aircraft *a, uint64_t now)
 
   cartesian_to_spherical (&a->EST_position, cpos);
 
-  gc_distance   = great_circle_dist (a->EST_position, Modes.home_pos);
-  cart_distance = cartesian_distance (&cpos, &Modes.home_pos_cart);
+  gc_distance     = great_circle_dist (a->EST_position, Modes.home_pos);
+  cart_distance   = cartesian_distance (&cpos, &Modes.home_pos_cart);
   a->EST_distance = closest_to (a->EST_distance, gc_distance, cart_distance);
 
 #if 0
@@ -3030,15 +3033,15 @@ static void set_est_home_distance (aircraft *a, uint64_t now)
  * Return a string showing this aircraft's distance to our home position.
  *
  * If `Modes.metric == true`, return it in kilo-meters. <br>
- * Otherwise Knots.
+ * Otherwise Nautical Miles.
  */
-static const char *get_home_distance (const aircraft *a, const char **km_kts)
+static const char *get_home_distance (const aircraft *a, const char **km_nm)
 {
   static char buf [20];
   double divisor = Modes.metric ? 1000.0 : 1852.0;
 
-  if (km_kts)
-     *km_kts = Modes.metric ? "km" : "kts";
+  if (km_nm)
+     *km_nm = Modes.metric ? "km" : "Nm";
 
   if (a->distance <= SMALL_VAL)
      return (NULL);
@@ -3050,13 +3053,13 @@ static const char *get_home_distance (const aircraft *a, const char **km_kts)
 /**
  * As for `get_home_distance()`, but return the estimated distance.
  */
-static const char *get_est_home_distance (const aircraft *a, const char **km_kts)
+static const char *get_est_home_distance (const aircraft *a, const char **km_nm)
 {
   static char buf [20];
   double divisor = Modes.metric ? 1000.0 : 1852.0;
 
-  if (km_kts)
-     *km_kts = Modes.metric ? "km" : "kts";
+  if (km_nm)
+     *km_nm = Modes.metric ? "km" : "Nm";
 
   if (a->EST_distance <= SMALL_VAL)
      return (NULL);
@@ -3253,7 +3256,7 @@ static aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now
     if (!a)
        return (NULL);          /* Not fatal; there could be available memory later */
 
-    LIST_ADD_HEAD (aircraft, &Modes.aircrafts, a);
+    LIST_ADD_HEAD (, &Modes.aircrafts, a);
   }
   else
   {
@@ -3339,7 +3342,7 @@ static aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now
        * which says:
        *   A wrong relative position decode would require the aircraft to
        *   travel 360-100=260 NM in the 10 minutes of position validity.
-       *   This is impossible for planes slower than 1560 knots/Mach 2.3 over the ground.
+       *   This is impossible for planes slower than 1560 knots (Mach 2.3) over the ground.
        */
       int64_t t_diff = (int64_t) (a->even_CPR_time - a->odd_CPR_time);
 
@@ -3369,24 +3372,24 @@ static aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now
  * \param in a    the aircraft to show.
  * \param in now  the currect tick-timer in milli-seconds.
  */
-static void interactive_show_aircraft (const aircraft *a, uint64_t now)
+static bool interactive_show_aircraft (const aircraft *a, uint64_t now)
 {
-  int   altitude = a->altitude;
-  int   speed = a->speed;
+  int   altitude           = a->altitude;
+  int   speed              = a->speed;
   char  alt_buf [10]       = "  - ";
   char  lat_buf [10]       = "   - ";
   char  lon_buf [10]       = "    - ";
   char  speed_buf [8]      = " - ";
   char  heading_buf [8]    = " - ";
   char  distance_buf [10]  = " - ";
-  char  RSSI_buf [7]           = " - ";
+  char  RSSI_buf [7]       = " - ";
   bool  restore_colour     = false;
   const char *reg_num      = "";
   const char *call_sign    = "";
   const char *flight       = "";
   const char *distance     = NULL;
   const char *est_distance = NULL;
-  const char *km_kts = NULL;
+  const char *km_nm = NULL;
   double  sig_avg = 0;
   int64_t ms_diff;
 
@@ -3424,8 +3427,8 @@ static void interactive_show_aircraft (const aircraft *a, uint64_t now)
 
   if (Modes.home_pos_ok)
   {
-    distance     = get_home_distance (a, &km_kts);
-    est_distance = get_est_home_distance (a, &km_kts);
+    distance     = get_home_distance (a, &km_nm);
+    est_distance = get_est_home_distance (a, &km_nm);
     if (est_distance)
        snprintf (distance_buf, sizeof(distance_buf), "%s", est_distance);
   }
@@ -3446,18 +3449,19 @@ static void interactive_show_aircraft (const aircraft *a, uint64_t now)
 
   if (a->show == A_SHOW_FIRST_TIME)
   {
-    setcolor (COLOUR_GREEN);
+    set_colour (COLOUR_GREEN);
     restore_colour = true;
     LOG_FILEONLY ("plane '%06X' entering.\n", a->addr);
   }
   else if (a->show == A_SHOW_LAST_TIME)
   {
-    setcolor (COLOUR_RED);
+    set_colour (COLOUR_RED);
     restore_colour = true;
-    LOG_FILEONLY ("plane '%06X' leaving. Active for %.1lf sec. Distance: %s/%s %s.\n",
+    LOG_FILEONLY ("plane '%06X' leaving. Active for %.1lf sec. Altitude: %d m, Distance: %s/%s %s.\n",
                   a->addr, (double)(now - a->seen_first) / 1000.0,
+                  altitude,
                   distance     ? distance     : "-",
-                  est_distance ? est_distance : "-", km_kts);
+                  est_distance ? est_distance : "-", km_nm);
   }
 
   ms_diff = (now - a->seen_last);
@@ -3468,7 +3472,9 @@ static void interactive_show_aircraft (const aircraft *a, uint64_t now)
   printf ("%6s  %5s %5u  %2llu sec \n", distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
 
   if (restore_colour)
-     setcolor (0);
+     set_colour (0);
+
+  return (!restore_colour);
 }
 
 /**
@@ -3516,19 +3522,21 @@ static void interactive_show_data (uint64_t now)
     gotoxy (1, 1);
   }
 
-  setcolor (COLOUR_WHITE);
+  set_colour (COLOUR_WHITE);
   printf ("ICAO   Callsign  Reg-num  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c\n"
           "----------------------------------------------------------------------------------------------\n",
           spinner[spin_idx & 3]);
   spin_idx++;
-  setcolor (0);
+  set_colour (0);
 
   while (a && count < Modes.interactive_rows && !Modes.exit)
   {
+    bool colour_changed = false;
+
     if (a->show != A_SHOW_NONE)
     {
       set_est_home_distance (a, now);
-      interactive_show_aircraft (a, now);
+      colour_changed = interactive_show_aircraft (a, now);
     }
 
     /* Simple state-machine for the plane's show-state
@@ -3540,6 +3548,16 @@ static void interactive_show_data (uint64_t now)
 
     a = a->next;
     count++;
+
+#if 0
+    if (colour_changed || alternate_colours)
+    {
+      set_colour (COLOUR_YELLOW);
+      alternate_colours ^= 1;
+    }
+#else
+    (void) colour_changed;
+#endif
   }
   old_count = count;
 }
@@ -4982,7 +5000,7 @@ static void show_help (const char *fmt, ...)
           "    --agc                    Enable Digital AGC              (default: off)\n"
           "    --bias                   Enable Bias-T output            (default: off)\n"
           "    --calibrate              Enable calibrating R820 devices (default: off)\n"
-          "    --device <N / name>      Select device                   (default: 0).\n"
+          "    --device <N / name>      Select device                   (default: 0; first found).\n"
           "    --freq <Hz>              Set frequency                   (default: %.0f MHz).\n"
           "    --gain <dB>              Set gain                        (default: AUTO).\n"
           "    --if-mode <ZIF | LIF>    Intermediate Frequency mode     (default: ZIF).\n"
@@ -5196,8 +5214,7 @@ static void show_decoder_stats (void)
   LOG_STDOUT (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
   LOG_STDOUT (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
   LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
-  LOG_STDOUT (" %8llu unique aircrafts.\n", Modes.stat.unique_aircrafts);
-  LOG_STDOUT (" %8llu unique aircrafts from CSV.\n", Modes.stat.unique_aircrafts_CSV);
+  LOG_STDOUT (" %8llu unique aircrafts of which %llu was in CSV-file.\n", Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV);
   print_unrecognized_ME();
 }
 
