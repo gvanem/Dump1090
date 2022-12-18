@@ -437,6 +437,7 @@ typedef struct global_data {
         int         interactive;               /**< Interactive mode */
         uint16_t    interactive_rows;          /**< Interactive mode: max number of rows. */
         uint32_t    interactive_ttl;           /**< Interactive mode: TTL before deletion. */
+        int         win_location;              /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
         int         only_addr;                 /**< Print only ICAO addresses. */
         int         metric;                    /**< Use metric units. */
         int         aggressive;                /**< Aggressive detection algorithm. */

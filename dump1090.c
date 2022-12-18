@@ -876,6 +876,28 @@ static int modeS_init (void)
     spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
   }
 
+  /**
+   * \todo: Use 'Windows Location API' to set 'Modes.home_pos'.
+   */
+#if 0
+  if (Modes.win_location)
+  {
+    if (win_location_get(&pos))
+    {
+      Modes.home_pos = pos;
+      spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
+      if (Modes.home_pos_ok)
+         LOG_STDOUT ("Ignoring the 'DUMP1090_HOMEPOS' env-var\n"
+                      "since we use the 'Windows Location API'.\n");
+    }
+    else
+    {
+      LOG_STDERR ("Failed to get the home-positoon from the 'Windows Location API'.\n");
+      return (1);
+    }
+  }
+#endif
+
   signal (SIGINT, sigint_handler);
   signal (SIGBREAK, sigint_handler);
 
@@ -4037,7 +4059,12 @@ static void connection_handler_websocket (mg_connection *conn, const char *remot
   DEBUG (DEBUG_NET, "WebSocket event %s from client at %s has %zd bytes for us.\n",
          event_name(ev), remote, conn->recv.len);
 
-  if (ev == MG_EV_WS_MSG)
+  if (ev == MG_EV_WS_OPEN)
+  {
+    DEBUG (DEBUG_NET, "HTTP WebSock open from client %lu:\n", conn->id);
+    mg_hexdump (ws->data.ptr, ws->data.len);
+  }
+  else if (ev == MG_EV_WS_MSG)
   {
   }
   else if (ev == MG_EV_WS_CTL)
@@ -4425,15 +4452,22 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
     char request_uri [200];
     int  status;
 
-    if (this_conn->is_websocket && (ev == MG_EV_WS_MSG || ev == MG_EV_WS_CTL))
+    if (this_conn->is_websocket && (ev == MG_EV_WS_OPEN || ev == MG_EV_WS_MSG || ev == MG_EV_WS_CTL))
        connection_handler_websocket (this_conn, remote, ev, ev_data);
 
-    else if (ev == MG_EV_HTTP_MSG /* || ev == MG_EV_HTTP_CHUNK */)
+    else if (ev == MG_EV_HTTP_MSG)
     {
       status = connection_handler_http (this_conn, ev, ev_data,
                                         request_uri, sizeof(request_uri));
       DEBUG (DEBUG_NET, "HTTP %d for '%.30s' (client %lu)\n",
              status, request_uri, this_conn->id);
+    }
+    else if (ev == MG_EV_HTTP_CHUNK)
+    {
+      mg_http_message *hm = ev_data;
+
+      DEBUG (DEBUG_NET, "HTTP chunk from client %lu:\n", this_conn->id);
+      mg_hexdump (hm->message.ptr, hm->message.len);
     }
     else
       DEBUG (DEBUG_NET2, "Ignoring HTTP event '%s' (client %lu)\n",
@@ -4503,30 +4537,19 @@ static void count_packed_fs (void)
 
   for (i = 0; (fname = mg_unlist(i)) != NULL; i++)
   {
-    struct tm *tm;
-    size_t fsize;
-    time_t ftime;
-    int    st;
+    size_t fsize = 0;
+    time_t ftime = 0;
     char   t_str [20];
 
     if (!strcmp(basename(fname), "index.html"))
        has_index_html = true;
 
-    if (!(Modes.debug & DEBUG_NET))
+    if (Modes.silent || !(Modes.debug & DEBUG_NET))
        continue;
 
-    st = (*mg_fs_packed.st) (fname, &fsize, &ftime);
-    if (st & MG_FS_DIR)
-    {
-      fsize = 0;
-      strcpy (t_str, "<DIR>");
-    }
-    else
-    {
-      tm = localtime (&ftime);
-      strftime (t_str, sizeof(t_str), "%Y/%m/%d %H:%M:%S", tm);
-    }
-    printf ("%6zu  %-20s %s\n", fsize, t_str, fname);
+    (*mg_fs_packed.st) (fname, &fsize, &ftime);
+    strftime (t_str, sizeof(t_str), "%Y/%m/%d %H:%M:%S", localtime(&ftime));
+    printf ("%7zu  %-20s %s\n", fsize, t_str, fname);
   }
   num_packed = i;
 }
@@ -4954,6 +4977,7 @@ static void show_help (const char *fmt, ...)
           "    --infile <filename>      Read data from file (use `-' for stdin).\n"
           "    --interactive            Interactive mode refreshing data on screen.\n"
           "    --interactive-ttl <sec>  Remove aircraft if not seen for <sec> (default: %u).\n"
+          "    --location               Use 'Windows Location API' to get the 'DUMP1090_HOMEPOS' (not yet).\n"
           "    --logfile <file>         Enable logging to file (default: off)\n"
           "    --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
           "    --max-messages <N>       Max number of messages to process (default: Inf).\n"
@@ -5373,6 +5397,7 @@ static struct option long_options[] = {
   { "infile",           required_argument,  NULL,                    'i' },
   { "interactive",      no_argument,        &Modes.interactive,      1   },
   { "interactive-ttl",  required_argument,  NULL,                    't' },
+  { "location",         no_argument,        &Modes.win_location,     1 },
   { "logfile",          required_argument,  NULL,                    'L' },
   { "loop",             optional_argument,  NULL,                    'l' },
   { "max-messages",     required_argument,  NULL,                    'm' },
