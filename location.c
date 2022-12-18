@@ -39,30 +39,30 @@ typedef struct ILocationEvents2 {
       } ILocationEvents2;
 
 typedef struct ILocationEvents2Vtbl {
-        HRESULT (__stdcall *QueryInterface) (ILocationEvents2 *self, const IID *iid, void **obj);
-        ULONG   (__stdcall *AddRef)  (ILocationEvents2 *self);
-        ULONG   (__stdcall *Release) (ILocationEvents2 *self);
+        /*
+         * The order of these func-pointers matters a great deal.
+         */
+        HRESULT (__stdcall *QueryInterface)    (ILocationEvents2 *self, const IID *iid, void **obj);
+        ULONG   (__stdcall *AddRef)            (ILocationEvents2 *self);
+        ULONG   (__stdcall *Release)           (ILocationEvents2 *self);
         HRESULT (__stdcall *OnLocationChanged) (ILocationEvents2 *self, const IID *report_type, struct ILocationReport *location_report);
         HRESULT (__stdcall *OnStatusChanged)   (ILocationEvents2 *self, const IID *report_type, LOCATION_REPORT_STATUS new_status);
       } ILocationEvents2Vtbl;
 
-static struct pos_t g_pos;
-static bool         g_CoInitializeEx_done;
-
+static struct pos_t            g_pos;
+static bool                    g_CoInitializeEx_done;
 static struct ILocation       *g_location;
 static struct ILocationEvents *g_location_events;
 
 static ULONG __stdcall AddRef (ILocationEvents2 *self)
 {
   InterlockedIncrement ((volatile long*)&self->ref_count);
-  TRACE ("%s() called, ref_count: %lu", __FUNCTION__, self->ref_count);
   return (self->ref_count);
 }
 
 static ULONG __stdcall Release (ILocationEvents2 *self)
 {
   InterlockedDecrement ((volatile long*)&self->ref_count);
-  TRACE ("%s() called, ref_count: %lu", __FUNCTION__, self->ref_count);
   if (self->ref_count == 0)
   {
     memset (self, '\0', sizeof(*self)); /* Force a crash if used incorrectly */
@@ -75,24 +75,14 @@ static ULONG __stdcall Release (ILocationEvents2 *self)
 
 static HRESULT __stdcall QueryInterface (ILocationEvents2 *self, const IID *iid, void **obj)
 {
-  if (IsEqualIID(iid, &IID_IUnknown))
+  if (IsEqualIID(iid, &IID_IUnknown) || IsEqualIID(iid, &IID_ILocationEvents))
   {
     *obj = self;
-    TRACE ("%s() called, iid 'IID_IUnknown'", __FUNCTION__);
+    (*self->lpVtbl->AddRef) (self);
+    return (S_OK);
   }
-  else if (IsEqualIID(iid, &IID_ILocationEvents))
-  {
-    *obj = self;
-    TRACE ("%s() called, iid 'IID_ILocationEvents'", __FUNCTION__);
-  }
-  else
-  {
-    TRACE ("%s() called -> E_NOINTERFACE", __FUNCTION__);
-    *obj = NULL;
-    return (E_NOINTERFACE);
-  }
-  self->lpVtbl->AddRef (self);
-  return (S_OK);
+  *obj = NULL;
+  return (E_NOINTERFACE);
 }
 
 /**
@@ -100,17 +90,17 @@ static HRESULT __stdcall QueryInterface (ILocationEvents2 *self, const IID *iid,
  */
 static HRESULT __stdcall OnLocationChanged (ILocationEvents2 *self, const IID *report_type, struct ILocationReport *location_report)
 {
-  HRESULT hr;
+  ILatLongReport *lat_long_report = NULL;
+  HRESULT         hr;
 
   if (!IsEqualCLSID(report_type, &IID_ILatLongReport))
      return (S_OK);
 
-  ILatLongReport *lat_long_report = NULL;
   hr = (*location_report->lpVtbl->QueryInterface) (location_report, &IID_ILatLongReport, (void**)&lat_long_report);
   TRACE ("LocationEvents::QueryInterface(): hr: %lu", hr);
 
   if (!SUCCEEDED(hr) || !lat_long_report || !lat_long_report->lpVtbl)
-     return (S_OK);   /* or signal 'location_poll()' somehow? */
+     return (S_OK);     /* or signal 'location_poll()' somehow? */
 
   hr = (*lat_long_report->lpVtbl->GetLatitude) (lat_long_report, &g_pos.lat);
   if (SUCCEEDED(hr))
@@ -210,7 +200,7 @@ static bool location_init (void)
 no_access:
   LOG_STDOUT ("Fix your Windows settings to allow applications to access you location.\n"
               "Ref: 'Start | Settings | Privacy | Location' "
-              "Or do not use the '--location' option\n");
+              "Or do not use the '--location' option.\n");
   return (false);
 }
 
@@ -244,10 +234,12 @@ void location_exit (void)
  */
 bool location_poll (struct pos_t *pos)
 {
+  bool got_pos;
+
   if (!g_location)
      return (false);  /* polled before or after 'location_exit()'! */
 
-  bool got_pos = (VALID_POS(g_pos));
+  got_pos = (VALID_POS(g_pos));
   TRACE ("got_pos: %d", got_pos);
   if (got_pos)
   {
