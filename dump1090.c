@@ -4573,8 +4573,7 @@ static int modeS_init_net (void)
 {
 #if MG_ENABLE_PACKED_FS
   Modes.touch_web_root = false;
-  LOG_STDOUT ("Ignoring the '--web-page %s/%s' option\n"
-              "since we use a built-in 'Packed Filesystem'.\n",
+  LOG_STDOUT ("Ignoring the '--web-page %s/%s' option since we use a built-in 'Packed Filesystem'.\n",
               Modes.web_root, Modes.web_page);
 
   strncpy (Modes.web_root, PACKED_WEB_ROOT, sizeof(Modes.web_root));
@@ -5042,7 +5041,7 @@ static void background_tasks (void)
 
     spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
     if (Modes.home_pos_ok)
-       LOG_FILEONLY ("Ignoring the 'DUMP1090_HOMEPOS' env-var\n"
+       LOG_FILEONLY ("Ignoring the 'DUMP1090_HOMEPOS' env-var "
                      "since we use the 'Windows Location API'.\n");
     Modes.home_pos_ok = true;
   }
