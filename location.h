@@ -1,16 +1,17 @@
 /**\file    location.h
  * \ingroup Misc
  *
- * Various Windows Location API
+ * Simple async 'Windows Location API' interface.
  */
 #ifndef _LOCATION_H
 #define _LOCATION_H
 
 #include <stdbool.h>
 
-bool location_init (void);
+struct pos_t;
+
 void location_exit (void);
-bool location_poll (void);
+bool location_poll (struct pos_t *pos);
 bool location_get_async (void);
 
 #endif

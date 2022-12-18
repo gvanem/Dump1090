@@ -367,6 +367,39 @@ uint64_t mg_millis (void)
 #endif
 
 /**
+ * Return err-number and string for 'err'.
+ */
+const char *win_strerror (DWORD err)
+{
+  static  char buf [512+20];
+  char    err_buf [512], *p;
+  HRESULT hr = 0;
+
+  if (HRESULT_SEVERITY(err))
+     hr = err;
+
+  if (err == ERROR_SUCCESS)
+     strcpy (err_buf, "No error");
+  else
+  if (!FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err,
+                      LANG_NEUTRAL, err_buf, sizeof(err_buf)-1, NULL))
+     strcpy (err_buf, "Unknown error");
+
+  if (hr)
+       snprintf (buf, sizeof(buf), "0x%08lX: %s", (u_long)hr, err_buf);
+  else snprintf (buf, sizeof(buf), "%lu: %s", (u_long)err, err_buf);
+
+  p = strrchr (buf, '\r');
+  if (p)
+     *p = '\0';
+
+  p = strrchr (buf, '.');
+  if (p && p[1] == '\0')
+     *p = '\0';
+  return (buf);
+}
+
+/**
  * Since 'mg_straddr()' was removed in latest version
  */
 char *_mg_straddr (struct mg_addr *a, char *buf, size_t len)

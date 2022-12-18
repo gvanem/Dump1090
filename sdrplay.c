@@ -752,7 +752,7 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
 
   DEBUG (DEBUG_GENERAL, "sdrplay_api_ApiVersion(): '%.2f', build version: '%.2f'.\n", sdr.version, SDRPLAY_API_VERSION);
 
-  if (sdr.version == 3.10 && SDRPLAY_API_VERSION == 3.10)
+  if (sdr.version == 3.10F && SDRPLAY_API_VERSION == 3.11F)
      DEBUG (DEBUG_GENERAL, "ver 3.10 and ver 3.11 should be compatible.\n");
 
   else if (sdr.version != SDRPLAY_API_VERSION || sdr.version < 3.06F)

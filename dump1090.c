@@ -23,6 +23,7 @@
 #include "misc.h"
 #include "trace.h"
 #include "sdrplay.h"
+#include "location.h"
 
 /**
  * \addtogroup Main      Main decoder
@@ -871,32 +872,17 @@ static int modeS_init (void)
       LOG_STDERR ("Invalid home-pos %s\n", env);
       return (1);
     }
-    Modes.home_pos = pos;
+    Modes.home_pos    = pos;
     Modes.home_pos_ok = true;
     spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
   }
 
-  /**
-   * \todo: Use 'Windows Location API' to set 'Modes.home_pos'.
+  /* Use `Windows Location API` to set `Modes.home_pos`.
+   * If an error happened, the error was already reported.
+   * Otherwise poll the result in 'location_poll()'
    */
-#if 0
-  if (Modes.win_location)
-  {
-    if (win_location_get(&pos))
-    {
-      Modes.home_pos = pos;
-      spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
-      if (Modes.home_pos_ok)
-         LOG_STDOUT ("Ignoring the 'DUMP1090_HOMEPOS' env-var\n"
-                      "since we use the 'Windows Location API'.\n");
-    }
-    else
-    {
-      LOG_STDERR ("Failed to get the home-positoon from the 'Windows Location API'.\n");
-      return (1);
-    }
-  }
-#endif
+  if (Modes.win_location && !location_get_async())
+     return (1);
 
   signal (SIGINT, sigint_handler);
   signal (SIGBREAK, sigint_handler);
@@ -1225,6 +1211,7 @@ static void main_data_loop (void)
     if (Modes.sdrplay_device && Modes.sdrplay.over_sample)
     {
       struct mag_buf *buf = &Modes.mag_buffers [Modes.first_filled_buffer];
+
       demodulate_8000 (buf);
     }
     else
@@ -4062,7 +4049,7 @@ static void connection_handler_websocket (mg_connection *conn, const char *remot
   if (ev == MG_EV_WS_OPEN)
   {
     DEBUG (DEBUG_NET, "HTTP WebSock open from client %lu:\n", conn->id);
-    mg_hexdump (ws->data.ptr, ws->data.len);
+    HEX_DUMP (ws->data.ptr, ws->data.len);
   }
   else if (ev == MG_EV_WS_MSG)
   {
@@ -4467,7 +4454,7 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
       mg_http_message *hm = ev_data;
 
       DEBUG (DEBUG_NET, "HTTP chunk from client %lu:\n", this_conn->id);
-      mg_hexdump (hm->message.ptr, hm->message.len);
+      HEX_DUMP (hm->message.ptr, hm->message.len);
     }
     else
       DEBUG (DEBUG_NET2, "Ignoring HTTP event '%s' (client %lu)\n",
@@ -4531,25 +4518,10 @@ static void count_packed_fs (void)
   const char *fname;
   size_t      i;
 
-  if (Modes.debug & DEBUG_NET)
-     printf ("  Size  Date                 Filename\n"
-             "-----------------------------------------------------------------\n");
-
   for (i = 0; (fname = mg_unlist(i)) != NULL; i++)
   {
-    size_t fsize = 0;
-    time_t ftime = 0;
-    char   t_str [20];
-
     if (!strcmp(basename(fname), "index.html"))
        has_index_html = true;
-
-    if (Modes.silent || !(Modes.debug & DEBUG_NET))
-       continue;
-
-    (*mg_fs_packed.st) (fname, &fsize, &ftime);
-    strftime (t_str, sizeof(t_str), "%Y/%m/%d %H:%M:%S", localtime(&ftime));
-    printf ("%7zu  %-20s %s\n", fsize, t_str, fname);
   }
   num_packed = i;
 }
@@ -4977,7 +4949,7 @@ static void show_help (const char *fmt, ...)
           "    --infile <filename>      Read data from file (use `-' for stdin).\n"
           "    --interactive            Interactive mode refreshing data on screen.\n"
           "    --interactive-ttl <sec>  Remove aircraft if not seen for <sec> (default: %u).\n"
-          "    --location               Use 'Windows Location API' to get the 'DUMP1090_HOMEPOS' (not yet).\n"
+          "    --location               Use 'Windows Location API' to get the 'DUMP1090_HOMEPOS'.\n"
           "    --logfile <file>         Enable logging to file (default: off)\n"
           "    --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
           "    --max-messages <N>       Max number of messages to process (default: Inf).\n"
@@ -5026,6 +4998,7 @@ static void show_help (const char *fmt, ...)
           "                   g = Log general debugging info.\n"
           "                   G = A bit more general debug info than flag `g'.\n"
           "                   j = Log frames to `frames.js', loadable by `debug.html'.\n"
+          "                   l = Log activity in 'location.c'.\n"
           "                   m = Log activity in `externals/mongoose.c'.\n"
           "                   M = Log more activity in `externals/mongoose.c'.\n"
           "                   n = Log network debugging information.\n"
@@ -5044,12 +5017,14 @@ static void show_help (const char *fmt, ...)
  * It performs:
  *  *) Removes inactive aircrafts from the list.
  *  *) Polls the network for events blocking less than `MODES_INTERACTIVE_REFRESH_TIME`.
+ *  *) Polls the `Windows Location API` for a location.
  *  *) Refreshes interactive data 4 times per second (`MODES_INTERACTIVE_REFRESH_TIME`).
  *  *) Refreshes the console-title with some statistics (also 4 times per second).
  */
 static void background_tasks (void)
 {
   bool     refresh;
+  pos_t    pos;
   uint64_t now;
 
   if (Modes.net)
@@ -5057,6 +5032,20 @@ static void background_tasks (void)
 
   if (Modes.exit)
      return;
+
+  /* Check the asynchronous result from `Location API`.
+   */
+  if (Modes.win_location && location_poll(&pos))
+  {
+    location_exit();
+    Modes.home_pos = pos;
+
+    spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
+    if (Modes.home_pos_ok)
+       LOG_FILEONLY ("Ignoring the 'DUMP1090_HOMEPOS' env-var\n"
+                     "since we use the 'Windows Location API'.\n");
+    Modes.home_pos_ok = true;
+  }
 
   now = MSEC_TIME();
 
@@ -5284,8 +5273,15 @@ static void modeS_exit (void)
   Modes.ICAO_cache    = NULL;
   Modes.selected_dev  = NULL;
 
+  if (Modes.win_location)
+     location_exit();
+
   if (Modes.log)
-     fclose (Modes.log);
+  {
+    if (!Modes.home_pos_ok)
+       LOG_FILEONLY ("A valid home-position was not used.\n");
+    fclose (Modes.log);
+  }
 
 #if defined(USE_RTLSDR_EMUL)
   RTLSDR_emul_unload_DLL();
@@ -5341,6 +5337,9 @@ static void set_debug_bits (const char *flags)
       case 'j':
       case 'J':
            Modes.debug |= DEBUG_JS;
+           break;
+      case 'l':
+           Modes.debug |= DEBUG_LOCATION;
            break;
       case 'm':
            Modes.debug |= DEBUG_MONGOOSE;

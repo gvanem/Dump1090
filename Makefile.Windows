@@ -50,6 +50,8 @@ VLD_ROOT ?= f:/ProgramFiler/VisualLeakDetector/src
 
 #
 # For my private build; use the tracing Winsock library?
+# Ref:
+#   https://github.com/gvanem/wsock-trace/
 #
 USE_WSOCK_TRACE ?= 0
 
@@ -108,7 +110,7 @@ CFLAGS = -nologo -Zi -W4        \
          -I./externals/rtl-sdr  \
          -I./externals/SDRplay-API
 
-LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:oldnames.lib -nodefaultlib:uuid.lib -machine:$(CPU)
+LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:oldnames.lib -machine:$(CPU)
 RCFLAGS = -nologo
 
 ifeq ($(USE_CRT_DEBUG),1)
@@ -160,7 +162,7 @@ endif
 
 RCFLAGS += -DRC_BITS=$(BITS)
 
-EX_LIBS += advapi32.lib setupapi.lib winusb.lib
+EX_LIBS += advapi32.lib locationapi.lib ole32.lib setupapi.lib winusb.lib
 
 ifeq ($(USE_WSOCK_TRACE),1)
   EX_LIBS += wsock_trace-$(CPU).lib
@@ -177,6 +179,7 @@ TARGETS = dump1090.exe
 SOURCES = csv.c      \
           dump1090.c \
           misc.c     \
+          location.c \
           externals/mongoose.c
 
 SOURCES += $(addprefix externals/rtl-sdr/, \

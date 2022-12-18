@@ -131,6 +131,9 @@ If a `DUMP1090_HOME_POS` environment variable is defined, the distance to the pl
 calculated. I.e. the `Dist` column above. E.g. a `set DUMP1090_HOMEPOS=60.3016821,5.3208769`
 for Bergen/Norway.
 
+Otherwise the `--location` option will try to get this postion from the
+[**Windows Location API**](https://learn.microsoft.com/en-us/windows/win32/api/locationapi/nn-locationapi-ilocation).
+
 The program supports another Web-root implementation (than the default `./web_root/gmap.html`) using the<br>
 `--web-root <HTML-file>` option. Running it like:
   ```
@@ -140,6 +143,10 @@ The program supports another Web-root implementation (than the default `./web_ro
 will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/)
 and data from [**Tar1090-DB**](https://github.com/wiedehopf/tar1090-db/):
 **![tar1090 output](dump1090-tar1090-web.png)**
+
+Building with a *packed Web-filesystem* is also possible. Then **all** web-pages are built-in to the `dump1090.exe`
+file.<br>
+Ref. `USE_PACKED_WEB = 1` in [**Makefile.Windows**](https://github.com/gvanem/Dump1090/blob/main/Makefile.Windows#L22).
 
 
 ## Using files as source of data

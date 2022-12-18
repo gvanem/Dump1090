@@ -91,6 +91,7 @@
 #define DEBUG_JS         0x0200
 #define DEBUG_NET        0x0400
 #define DEBUG_NET2       0x0800
+#define DEBUG_LOCATION   0x1000
 
 /**
  * \def DEBUG(bit, fmt, ...)
@@ -102,6 +103,17 @@
              modeS_flogf (stdout, "%s(%u): " fmt,  \
                  __FILE__, __LINE__, __VA_ARGS__); \
         } while (0)
+
+/**
+ * \def HEX_DUMP(data, len)
+ * Do a hex-dump of network data.
+ */
+#define HEX_DUMP(data, len)            \
+        do {                           \
+          if (Modes.debug & DEBUG_NET) \
+             mg_hexdump (data, len);   \
+        } while (0)
+
 
 /**
  * \def LOG_STDOUT(fmt, ...)
@@ -473,18 +485,19 @@ extern global_data Modes;
   #define ATTR_PRINTF(_1, _2)
 #endif
 
-extern void     modeS_log (const char *buf);
-extern void     modeS_logc (char c, void *param);
-extern void     modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
-extern uint32_t ato_hertz (const char *Hertz);
-extern bool     str_startswith (const char *s1, const char *s2);
-extern bool     str_endswith (const char *s1, const char *s2);
-extern char    *basename (const char *fname);
-extern char    *dirname (const char *fname);
-extern char    *slashify (char *fname);
-extern int     _gettimeofday (struct timeval *tv, void *timezone);
-extern char    *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
-extern void     set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+extern void        modeS_log (const char *buf);
+extern void        modeS_logc (char c, void *param);
+extern void        modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
+extern uint32_t    ato_hertz (const char *Hertz);
+extern bool        str_startswith (const char *s1, const char *s2);
+extern bool        str_endswith (const char *s1, const char *s2);
+extern char       *basename (const char *fname);
+extern char       *dirname (const char *fname);
+extern char       *slashify (char *fname);
+extern int        _gettimeofday (struct timeval *tv, void *timezone);
+extern const char *win_strerror (DWORD err);
+extern char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
+extern void        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
 
 #if MG_ENABLE_FILE
   extern int    touch_file (const char *file);
