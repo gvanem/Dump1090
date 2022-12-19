@@ -447,6 +447,16 @@ void set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
   DEBUG (DEBUG_NET, "is_ip6: %d, host: %s, port: %u.\n", is_ip6, serv->host, serv->port);
 }
 
+/**
+ * Return a random integer in range `[a..b]`. \n
+ * Ref: http://stackoverflow.com/questions/2509679/how-to-generate-a-random-number-from-within-a-range
+ */
+uint32_t random_range (uint32_t min, uint32_t max)
+{
+  double scaled = (double) rand() / RAND_MAX;
+  return (uint32_t) ((max - min + 1) * scaled) + min;
+}
+
 /*
  * Copyright (c) 2002 Todd C. Miller <Todd.Miller@courtesan.com>
  *

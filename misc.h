@@ -188,11 +188,13 @@ typedef struct aircraft_CSV {
       } aircraft_CSV;
 
 /**
- * The low and high values used to lookup military ranges.
+ * The low and high values used to lookup a country
+ * or military ranges.
  */
 typedef struct ICAO_range {
-        uint32_t low;
-        uint32_t high;
+        uint32_t    low;
+        uint32_t    high;
+        const char *country;
       } ICAO_range;
 
 /**
@@ -498,6 +500,7 @@ extern int        _gettimeofday (struct timeval *tv, void *timezone);
 extern const char *win_strerror (DWORD err);
 extern char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
 extern void        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+extern unsigned    random_range (uint32_t min, uint32_t max);
 
 #if MG_ENABLE_FILE
   extern int    touch_file (const char *file);
