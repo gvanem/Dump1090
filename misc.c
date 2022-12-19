@@ -258,6 +258,14 @@ char *slashify (char *fname)
   return (fname);
 }
 
+/**
+ * Touch a file to current time.
+ */
+int touch_file (const char *file)
+{
+  return _utime (file, NULL);
+}
+
 #if MG_ENABLE_FILE
 /*
  * Internals of 'externals/mongoose.c':
@@ -275,14 +283,6 @@ typedef struct win32_dir {
 extern DIR    *opendir (const char *name);
 extern int     closedir (DIR *d);
 extern dirent *readdir (DIR *d);
-
-/**
- * Touch a file to current time.
- */
-int touch_file (const char *file)
-{
-  return _utime (file, NULL);
-}
 
 /**
  * Touch all files in a directory to current time.
@@ -455,6 +455,245 @@ uint32_t random_range (uint32_t min, uint32_t max)
 {
   double scaled = (double) rand() / RAND_MAX;
   return (uint32_t) ((max - min + 1) * scaled) + min;
+}
+
+/**
+ * Stuff for dynamcally loading functions from `WinInet.dll`.
+ *
+ * Since our Mongoose was not compiled with OpenSSL, we'll have to use
+ * WinInet.
+ */
+#include <wininet.h>
+
+/**
+ * \def DEF_FUNC
+ * Handy macro to both define and declare the function-pointers
+ * for `WinInet.dll`
+ */
+#define DEF_FUNC(ret, f, args)  typedef ret (WINAPI *func_##f) args; \
+                                static func_##f p_##f = NULL
+
+/**
+ * Download a single file using the WinInet API.
+ * Load `WinInet.dll` dynamically.
+ */
+DEF_FUNC (HINTERNET, InternetOpenA, (const char *user_agent,
+                                     DWORD       access_type,
+                                     const char *proxy_name,
+                                     const char *proxy_bypass,
+                                     DWORD       flags));
+
+DEF_FUNC (HINTERNET, InternetOpenUrlA, (HINTERNET   hnd,
+                                        const char *url,
+                                        const char *headers,
+                                        DWORD       headers_len,
+                                        DWORD       flags,
+                                        DWORD_PTR   context));
+
+DEF_FUNC (BOOL, InternetReadFile, (HINTERNET hnd,
+                                   void     *buffer,
+                                   DWORD     num_bytes_to_read,
+                                   DWORD    *num_bytes_read));
+
+DEF_FUNC (BOOL, InternetGetLastResponseInfoA, (DWORD *err_code,
+                                               char  *err_buff,
+                                               DWORD *err_buff_len));
+
+DEF_FUNC (BOOL, InternetCloseHandle, (HINTERNET handle));
+
+/**
+ * Handles dynamic loading and unloading of DLLs and their functions.
+ */
+int load_dynamic_table (struct dyn_struct *tab, int tab_size)
+{
+  int i, required_missing = 0;
+
+  for (i = 0; i < tab_size; tab++, i++)
+  {
+    const struct dyn_struct *prev = i > 0 ? (tab - 1) : NULL;
+    HINSTANCE               mod_handle;
+    FARPROC                 func_addr;
+
+    if (prev && !stricmp(tab->mod_name, prev->mod_name))
+         mod_handle = prev->mod_handle;
+    else mod_handle = LoadLibrary (tab->mod_name);
+
+    if (mod_handle && mod_handle != INVALID_HANDLE_VALUE)
+    {
+      func_addr = GetProcAddress (mod_handle, tab->func_name);
+      *tab->func_addr = func_addr;
+      if (!func_addr && !tab->optional)
+         required_missing++;
+    }
+    tab->mod_handle = mod_handle;
+  }
+  return (i - required_missing);
+}
+
+int unload_dynamic_table (struct dyn_struct *tab, int tab_size)
+{
+  int i;
+
+  for (i = 0; i < tab_size; tab++, i++)
+  {
+    if (tab->mod_handle && tab->mod_handle != INVALID_HANDLE_VALUE)
+       FreeLibrary (tab->mod_handle);
+    tab->mod_handle = INVALID_HANDLE_VALUE;
+    *tab->func_addr = NULL;
+  }
+  return (i);
+}
+
+/**
+ * Return error-string for `err` from `WinInet.dll`.
+ *
+ * Try to get a more detailed error-code and text from
+ * the server response using `InternetGetLastResponseInfoA()`.
+ */
+const char *wininet_strerror (DWORD err)
+{
+  HMODULE mod = GetModuleHandle ("wininet.dll");
+  char    buf [512];
+
+  if (mod && mod != INVALID_HANDLE_VALUE &&
+      FormatMessageA (FORMAT_MESSAGE_FROM_HMODULE,
+                      mod, err, MAKELANGID(LANG_NEUTRAL,SUBLANG_DEFAULT),
+                      buf, sizeof(buf), NULL))
+  {
+    static char err_buf [512];
+    char   wininet_err_buf [200];
+    char  *p;
+    DWORD  wininet_err = 0;
+    DWORD  wininet_err_len = sizeof(wininet_err_buf)-1;
+
+    p = strrchr (buf, '\r');
+    if (p)
+       *p = '\0';
+
+    p = strrchr (buf, '.');
+    if (p && p[1] == '\0')
+       *p = '\0';
+
+    p = err_buf;
+    p += snprintf (err_buf, sizeof(err_buf), "%lu: %s", (u_long)err, buf);
+
+    if ((*p_InternetGetLastResponseInfoA) (&wininet_err, wininet_err_buf, &wininet_err_len) &&
+        wininet_err > INTERNET_ERROR_BASE && wininet_err <= INTERNET_ERROR_LAST)
+    {
+      snprintf (p, (size_t)(p-err_buf), " (%lu/%s)", (u_long)wininet_err, wininet_err_buf);
+      p = strrchr (p, '.');
+      if (p && p[1] == '\0')
+         *p = '\0';
+    }
+    return (err_buf);
+  }
+  return win_strerror (err);
+}
+
+/**
+ * Setup the `h1` and `h2` handles for a WinInet transfer.
+ */
+static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
+{
+  DWORD url_flags;
+
+  *h1 = (*p_InternetOpenA) ("dump1090", INTERNET_OPEN_TYPE_DIRECT,
+                            NULL, NULL,
+                            INTERNET_FLAG_NO_COOKIES);   /* no automatic cookie handling */
+  if (*h1 == NULL)
+  {
+    DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", wininet_strerror(GetLastError()));
+    return (false);
+  }
+
+  url_flags = INTERNET_FLAG_RELOAD |
+              INTERNET_FLAG_PRAGMA_NOCACHE |
+              INTERNET_FLAG_NO_CACHE_WRITE |
+              INTERNET_FLAG_NO_UI;
+
+  if (!strncmp(url, "https://", 8))
+     url_flags |= INTERNET_FLAG_SECURE;
+
+  *h2 = (*p_InternetOpenUrlA) (*h1, url, NULL, 0, url_flags, INTERNET_NO_CALLBACK);
+  if (*h2 == NULL)
+  {
+    DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", wininet_strerror(GetLastError()));
+    return (false);
+  }
+  return (true);
+}
+
+/**
+ * Load and use the *WinInet API* dynamically.
+ */
+#define ADD_VALUE(func)  { false, NULL, "wininet.dll", #func, (void**) &p_##func }
+                        /* ^ no functions are optional */
+
+static struct dyn_struct wininet_funcs[] = {
+                         ADD_VALUE (InternetOpenA),
+                         ADD_VALUE (InternetOpenUrlA),
+                         ADD_VALUE (InternetGetLastResponseInfoA),
+                         ADD_VALUE (InternetReadFile),
+                         ADD_VALUE (InternetCloseHandle)
+                       };
+
+/**
+ * Download a file from url using the Windows *WinInet API*.
+ *
+ * \param[in] file the file to write to.
+ * \param[in] url  the URL to retrieve from.
+ * \retval    The number of bytes written to `file`.
+ */
+uint32_t download_file (const char *file, const char *url)
+{
+  HINTERNET h1 = NULL;
+  HINTERNET h2 = NULL;
+  uint32_t  written = 0;
+  FILE     *fil = NULL;
+  char      buf [200*1024];
+
+  if (load_dynamic_table(wininet_funcs, DIM(wininet_funcs)) != DIM(wininet_funcs))
+  {
+    DEBUG (DEBUG_NET, "Failed to load the needed 'WinInet.dll' functions.\n");
+    goto quit;
+  }
+
+  fil = fopen (file, "w+b");
+  if (!fil)
+  {
+    DEBUG (DEBUG_NET, "Failed to create '%s'; errno: %d.\n", file, errno);
+    goto quit;
+  }
+
+  if (!download_init(&h1, &h2, url))
+     goto quit;
+
+  while (1)
+  {
+    DWORD bytes_read = 0;
+
+    if (!(*p_InternetReadFile)(h2, buf, sizeof(buf), &bytes_read) ||
+        bytes_read == 0)  /* Got last chunk */
+    {
+      puts ("");
+      break;
+    }
+    written += (uint32_t) fwrite (buf, 1, (size_t)bytes_read, fil);
+    printf ("Got %u kB.\r", written / 1024);
+  }
+
+quit:
+  if (fil)
+     fclose (fil);
+
+  if (h2)
+    (*p_InternetCloseHandle) (h2);
+
+  if (h1)
+    (*p_InternetCloseHandle) (h1);
+
+  unload_dynamic_table (wininet_funcs, DIM(wininet_funcs));
+  return (written);
 }
 
 /*

@@ -40,6 +40,12 @@
 #define AIRCRAFT_DATABASE_CSV   "aircraftDatabase.csv"
 
 /**
+ * \def AIRCRAFT_DATABASE_URL
+ * The full URL for the `--database-update` option.
+ */
+#define AIRCRAFT_DATABASE_URL   "https://opensky-network.org/datasets/metadata/aircraftDatabase.zip"
+
+/**
  * Definitions for network services.
  */
 #define MODES_NET_PORT_RAW_IN   30001
@@ -460,6 +466,7 @@ typedef struct global_data {
         char        web_root [MG_PATH_MAX];    /**< And it's directory. */
         int         touch_web_root;            /**< Touch all files in `web_root` first. */
         char        aircraft_db [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file. */
+        int         aircraft_db_update;        /**< Option `--update-database` used. */
         int         strip_level;               /**< For '--strip X' mode. */
         pos_t       home_pos;                  /**< Coordinates of home position. */
         cartesian_t home_pos_cart;             /**< Coordinates of home position (cartesian). */
@@ -500,12 +507,25 @@ extern int        _gettimeofday (struct timeval *tv, void *timezone);
 extern const char *win_strerror (DWORD err);
 extern char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
 extern void        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
-extern unsigned    random_range (uint32_t min, uint32_t max);
+extern uint32_t    random_range (uint32_t min, uint32_t max);
+extern int         touch_file (const char *file);
+extern int         touch_dir (const char *dir, bool recurse);
+extern uint32_t    download_file (const char *file, const char *url);
 
-#if MG_ENABLE_FILE
-  extern int    touch_file (const char *file);
-  extern int    touch_dir (const char *dir, bool recurse);
-#endif
+/*
+ * Generic table for loading DLLs and functions from them.
+ */
+struct dyn_struct {
+       const bool  optional;
+       HINSTANCE   mod_handle;
+       const char *mod_name;
+       const char *func_name;
+       void      **func_addr;
+     };
+
+extern int load_dynamic_table (struct dyn_struct *tab, int tab_size);
+extern int unload_dynamic_table (struct dyn_struct *tab, int tab_size);
+
 
 /**
  * \def MSEC_TIME()

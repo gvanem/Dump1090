@@ -196,7 +196,11 @@ When a `aircraftDatabase.csv` is present and used with a `.bin`-file, it can sho
 Use option `--database NUL` (or  `--database -` etc.) to avoid loading this huge (approx. 82 MByte)
 `.CSV` file. <br>
 The latest version is available from:
-  **http://opensky-network.org/datasets/metadata/**
+  **https://opensky-network.org/datasets/metadata/**
+
+**Update**: The option `--database-update` will check and download
+ **https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and extract using an external
+ Unzip program.
 
 
 ## Additional options

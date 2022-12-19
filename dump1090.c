@@ -707,7 +707,7 @@ static void aircraft_CSV_test (void)
 
     addr = (Modes.aircraft_list + rec_num) -> addr;
     a_CSV = aircraft_CSV_lookup_entry (addr);
-    LOG_STDOUT ("  rec: %6u: addr: 0x%06X, reg-num: %-8s manufact: %-15s country: %-20s military: %d\n",
+    LOG_STDOUT ("  rec: %6u: addr: 0x%06X, reg-num: %-8s manufact: %-20.20s country: %-20.20s military: %d\n",
                 rec_num, addr, a_CSV->reg_num, a_CSV->manufact,
                 ICAO_get_country(addr), ICAO_is_military(addr));
   }
@@ -729,7 +729,7 @@ static void aircraft_CSV_test (void)
  *
  * 27 fields!
  */
-static int aircraft_CSV_parse (struct CSV_context *ctx, const char *value)
+static int aircraft_CSV_callback (struct CSV_context *ctx, const char *value)
 {
   static aircraft_CSV rec = { 0, "" };
   int    rc = 1;
@@ -778,7 +778,7 @@ static void aircraft_CSV_load (void)
   memset (&Modes.csv_ctx, '\0', sizeof(Modes.csv_ctx));
   Modes.csv_ctx.file_name  = Modes.aircraft_db;
   Modes.csv_ctx.delimiter  = ',';
-  Modes.csv_ctx.callback   = aircraft_CSV_parse;
+  Modes.csv_ctx.callback   = aircraft_CSV_callback;
   Modes.csv_ctx.line_size  = 2000;
   if (!CSV_open_and_parse_file(&Modes.csv_ctx))
   {
@@ -793,6 +793,105 @@ static void aircraft_CSV_load (void)
     if (Modes.debug)
        aircraft_CSV_test();
   }
+}
+
+/**
+ * Check if the aircraft .CSV-database is older than 10 days.
+ * If so:
+ *  1) download the OpenSky .zip file to `%TEMP%\\aircraft-database-temp.zip`,
+ *  2) call `unzip - %TEMP%\\aircraft-database-temp.zip > %TEMP%\\aircraft-database-temp.csv`.
+ *  3) copy `%TEMP%\\aircraft-database-temp.csv` over to 'db_file'.
+ */
+
+#define DB_TMP_BASE "aircraft-database-temp"
+
+static bool aircraft_CSV_update (const char *db_file, const char *url)
+{
+  struct stat st;
+  FILE       *p;
+  const char *comspec, * tmp = getenv ("TEMP");
+  bool        force_it = false;
+  char        tmp_file [MAX_PATH];
+  char        zip_file [MAX_PATH];
+  char        unzip_cmd [MAX_PATH];
+
+  if (!db_file || !url)
+  {
+    LOG_STDERR ("Illegal paramters; db_file=%s, url=%s.\n", db_file, url);
+    return (false);
+  }
+  if (!tmp)
+  {
+    LOG_STDERR ("%%TEMP%% is not defined!\n");
+    return (false);
+  }
+
+  /* '_popen()' does not set 'errno' on non-existing programs.
+   * Hence, use 'system()'; invoke the shell and check or '%errorlevel != 0'.
+   */
+  comspec = getenv ("COMSPEC");
+  if (!comspec)
+     comspec = "cmd.exe";
+
+  snprintf (unzip_cmd, sizeof(unzip_cmd), "%s /C unzip.exe -h >NUL 2>NUL", comspec);
+  if (system(unzip_cmd) != 0)
+  {
+    LOG_STDERR ("Failed to run '%s'.\n", unzip_cmd);
+    return (false);
+  }
+
+  if (stat(db_file, &st) != 0)
+  {
+    LOG_STDERR ("\nForce updating '%s' since it does not exist.\n", db_file);
+    force_it = true;
+  }
+
+  snprintf (zip_file, sizeof(zip_file), "%s\\%s.zip", tmp, DB_TMP_BASE);
+
+  if (stat(zip_file, &st) || st.st_size == 0)
+  {
+    LOG_STDERR ("\nFile '%s' doesn't exist (or is truncated). Forcing a download.\n",
+                zip_file);
+    force_it = true;
+  }
+
+  if (!force_it)
+  {
+    time_t when, now = time (NULL);
+    time_t expiry = now - 10 * 24 * 3600;
+
+    if (st.st_mtime > expiry)
+    {
+      when = now + 10 * 24 * 3600;
+      LOG_STDERR ("\nUpdate of '%s' not needed before %.24s.\n", zip_file, ctime(&when));
+      return (true);
+    }
+  }
+
+  LOG_STDERR ("%supdating '%s' from '%s'\n", force_it ? "Force " : "", zip_file, url);
+
+  if (download_file(zip_file, url) <= 0)
+  {
+    LOG_STDERR ("Failed to download '%s' from '%s'\n", zip_file, url);
+    return (false);
+  }
+
+  snprintf (tmp_file,  sizeof(tmp_file), "%s\\%s.csv", tmp, DB_TMP_BASE);
+  snprintf (unzip_cmd, sizeof(unzip_cmd), "unzip.exe -p %s > %s", zip_file, tmp_file);
+
+  p = _popen (unzip_cmd, "r");
+  if (!p)
+  {
+    LOG_STDERR ("Failed to run 'unzip.exe': %s\n", strerror(errno));
+    return (false);
+  }
+
+  _pclose (p);
+
+  LOG_STDERR ("Copying '%s' -> '%s'\n", tmp_file, db_file);
+  CopyFile (tmp_file, db_file, FALSE);
+  touch_file (db_file);
+  return (true);
 }
 
 /**
@@ -877,18 +976,14 @@ static int modeS_init (void)
     mg_log_set (MG_LL_VERBOSE);
   }
 
-#if 0
-  /**\todo
-   * Check if 'Modes.aircraft_db' is too old (10 days?).
-   * If so, download, unzip and copy a temp-version over to
-   * 'Modes.aircraft_db'.
-   */
-  if (Modes.database_update && stricmp(Modes.aircraft_db, "NUL"))
+  if (Modes.aircraft_db_update && stricmp(Modes.aircraft_db, "NUL"))
   {
-    if (!check_and_download(Modes.aircraft_db))
+    bool rc = aircraft_CSV_update (Modes.aircraft_db, AIRCRAFT_DATABASE_URL);
+
+    LOG_STDERR ("\n");
+    if (!rc)
        return (1);
   }
-#endif
 
   env = getenv ("DUMP1090_HOMEPOS");
   if (env)
@@ -5213,6 +5308,8 @@ static void show_help (const char *fmt, ...)
           "    --aggressive             Use a more aggressive CRC check (two bits fixes, ...).\n"
           "    --database <file>        The CSV file for the aircraft database\n"
           "                             (default: \"%s\").\n"
+          "    --database-update        Redownload the above .csv-file if older than 10 days.\n"
+          "                             (needs `unzip.exe` on PATH).\n"
           "    --debug <flags>          Debug mode; see below for details.\n"
           "    --infile <filename>      Read data from file (use `-' for stdin).\n"
           "    --interactive            Interactive mode refreshing data on screen.\n"
@@ -5649,45 +5746,45 @@ static bool select_if_mode (const char *arg)
 }
 
 static struct option long_options[] = {
-  { "agc",              no_argument,        &Modes.dig_agc,          1   },
-  { "aggressive",       no_argument,        &Modes.aggressive,       1   },
-  { "database",         required_argument,  NULL,                    'b' },
-//{ "database-update",  no_argument,        &Modes.database_update,  1   },  /** \todo */
-  { "bias",             no_argument,        &Modes.bias_tee,         1   },
-  { "calibrate",        no_argument,        &Modes.rtlsdr.calibrate, 1   },
-  { "debug",            required_argument,  NULL,                    'd' },
-  { "device",           required_argument,  NULL,                    'D' },
-  { "freq",             required_argument,  NULL,                    'f' },
-  { "gain",             required_argument,  NULL,                    'g' },
-  { "help",             no_argument,        NULL,                    'h' },
-  { "if-mode",          required_argument,  NULL,                    'I' },
-  { "infile",           required_argument,  NULL,                    'i' },
-  { "interactive",      no_argument,        &Modes.interactive,      1   },
-  { "interactive-ttl",  required_argument,  NULL,                    't' },
-  { "location",         no_argument,        &Modes.win_location,     1 },
-  { "logfile",          required_argument,  NULL,                    'L' },
-  { "loop",             optional_argument,  NULL,                    'l' },
-  { "max-messages",     required_argument,  NULL,                    'm' },
-  { "metric",           no_argument,        &Modes.metric,           1   },
-  { "net",              no_argument,        &Modes.net,              1   },
-  { "net-active",       no_argument,        &Modes.net_active,       1   },
-  { "net-only",         no_argument,        &Modes.net_only,         1   },
-  { "net-http-port",    required_argument,  NULL,                    'x' + MODES_NET_SERVICE_HTTP },
-  { "net-ri-port",      required_argument,  NULL,                    'x' + MODES_NET_SERVICE_RAW_IN },
-  { "net-ro-port",      required_argument,  NULL,                    'x' + MODES_NET_SERVICE_RAW_OUT },
-  { "net-sbs-port",     required_argument,  NULL,                    'x' + MODES_NET_SERVICE_SBS_OUT },
-  { "host-raw",         required_argument,  NULL,                    'Y' + MODES_NET_SERVICE_RAW_IN },
-  { "host-sbs",         required_argument,  NULL,                    'Y' + MODES_NET_SERVICE_SBS_IN },
-  { "no-keep-alive",    no_argument,        &Modes.keep_alive,       0   },
-  { "only-addr",        no_argument,        &Modes.only_addr,        1   },
-  { "ppm",              required_argument,  NULL,                    'p' },
-  { "raw",              no_argument,        &Modes.raw,              1   },
-  { "samplerate",       required_argument,  NULL,                    's' },
-  { "silent",           no_argument,        &Modes.silent,           1   },
-  { "strip",            required_argument,  NULL,                    'S' },
-  { "web-page",         required_argument,  NULL,                    'w' },
+  { "agc",              no_argument,        &Modes.dig_agc,            1   },
+  { "aggressive",       no_argument,        &Modes.aggressive,         1   },
+  { "database",         required_argument,  NULL,                     'b'  },
+  { "database-update",  no_argument,        &Modes.aircraft_db_update, 1   },
+  { "bias",             no_argument,        &Modes.bias_tee,           1   },
+  { "calibrate",        no_argument,        &Modes.rtlsdr.calibrate,   1   },
+  { "debug",            required_argument,  NULL,                      'd' },
+  { "device",           required_argument,  NULL,                      'D' },
+  { "freq",             required_argument,  NULL,                      'f' },
+  { "gain",             required_argument,  NULL,                      'g' },
+  { "help",             no_argument,        NULL,                      'h' },
+  { "if-mode",          required_argument,  NULL,                      'I' },
+  { "infile",           required_argument,  NULL,                      'i' },
+  { "interactive",      no_argument,        &Modes.interactive,        1   },
+  { "interactive-ttl",  required_argument,  NULL,                      't' },
+  { "location",         no_argument,        &Modes.win_location,       1 },
+  { "logfile",          required_argument,  NULL,                      'L' },
+  { "loop",             optional_argument,  NULL,                      'l' },
+  { "max-messages",     required_argument,  NULL,                      'm' },
+  { "metric",           no_argument,        &Modes.metric,             1   },
+  { "net",              no_argument,        &Modes.net,                1   },
+  { "net-active",       no_argument,        &Modes.net_active,         1   },
+  { "net-only",         no_argument,        &Modes.net_only,           1   },
+  { "net-http-port",    required_argument,  NULL,                      'x' + MODES_NET_SERVICE_HTTP },
+  { "net-ri-port",      required_argument,  NULL,                      'x' + MODES_NET_SERVICE_RAW_IN },
+  { "net-ro-port",      required_argument,  NULL,                      'x' + MODES_NET_SERVICE_RAW_OUT },
+  { "net-sbs-port",     required_argument,  NULL,                      'x' + MODES_NET_SERVICE_SBS_OUT },
+  { "host-raw",         required_argument,  NULL,                      'Y' + MODES_NET_SERVICE_RAW_IN },
+  { "host-sbs",         required_argument,  NULL,                      'Y' + MODES_NET_SERVICE_SBS_IN },
+  { "no-keep-alive",    no_argument,        &Modes.keep_alive,         0   },
+  { "only-addr",        no_argument,        &Modes.only_addr,          1   },
+  { "ppm",              required_argument,  NULL,                      'p' },
+  { "raw",              no_argument,        &Modes.raw,                1   },
+  { "samplerate",       required_argument,  NULL,                      's' },
+  { "silent",           no_argument,        &Modes.silent,             1   },
+  { "strip",            required_argument,  NULL,                      'S' },
+  { "web-page",         required_argument,  NULL,                      'w' },
 #if MG_ENABLE_FILE
-  { "touch",            no_argument,        &Modes.touch_web_root,   1   },
+  { "touch",            no_argument,        &Modes.touch_web_root,     1   },
 #endif
   { NULL,               no_argument,        NULL,                    0   }
 };

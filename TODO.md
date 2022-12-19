@@ -11,7 +11,3 @@
 * UAT; Universal Access Transceiver for 978 MHz datalink.
 * Kerberos SDR; Directional Finding Feature:
    ref: https://github.com/rfjohnso/kerberossdr/tree/PyQt5
-
-* Add an `--update` option to check and download
-  `https://opensky-network.org/datasets/metadata/aircraftDatabase.zip` <br>
-  and extract using a built-in or external Unzip program.
