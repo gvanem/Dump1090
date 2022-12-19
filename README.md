@@ -199,8 +199,8 @@ The latest version is available from:
   **https://opensky-network.org/datasets/metadata/**
 
 **Update**: The option `--database-update` will check and download
- **https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and extract using an external
- Unzip program.
+ **https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and <br>
+ extract using an external [**Unzip**](https://sourceforge.net/projects/gnuwin32/files/unzip/5.51-1/) program.
 
 
 ## Additional options
