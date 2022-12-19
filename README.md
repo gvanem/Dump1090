@@ -198,9 +198,9 @@ Use option `--database NUL` (or  `--database -` etc.) to avoid loading this huge
 The latest version is available from:
   **https://opensky-network.org/datasets/metadata/**
 
-**Update**: The option `--database-update` will check and download
- **https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and <br>
- extract using an external [**Unzip**](https://sourceforge.net/projects/gnuwin32/files/unzip/5.51-1/) program.
+**Update**: The option `--database-update` will check and download <br>
+ **https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and
+ extract using an external [**unzip**](https://sourceforge.net/projects/gnuwin32/files/unzip/5.51-1/) program.
 
 
 ## Additional options
