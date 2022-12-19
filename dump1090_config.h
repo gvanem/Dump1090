@@ -23,6 +23,12 @@
 #elif defined(_MSC_VER)
   #pragma warning (disable:4005 4244 4267)
 
+  /*
+   * misc.c(524): warning C4152: nonstandard extension,
+   *  function/data pointer conversion in expression
+   */
+  #pragma warning (disable:4152)
+
   #ifdef _WIN64
     /*
      * 'type cast': conversion from 'int' to 'void *' of greater size

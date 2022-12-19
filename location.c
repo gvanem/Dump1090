@@ -193,8 +193,8 @@ static bool location_init (void)
   {
     LOG_STDOUT ("Location::RegisterForReport() failed; %s.\n", win_strerror(hr));
     goto no_access;
-    return (false);
   }
+
   return (true);
 
 no_access:
