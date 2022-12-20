@@ -112,12 +112,12 @@
 
 /**
  * \def HEX_DUMP(data, len)
- * Do a hex-dump of network data.
+ * Do a hex-dump of network data if option `--debug M` was used.
  */
-#define HEX_DUMP(data, len)            \
-        do {                           \
-          if (Modes.debug & DEBUG_NET) \
-             mg_hexdump (data, len);   \
+#define HEX_DUMP(data, len)                  \
+        do {                                 \
+          if (Modes.debug & DEBUG_MONGOOSE2) \
+             mg_hexdump (data, len);         \
         } while (0)
 
 

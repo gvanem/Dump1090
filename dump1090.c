@@ -4412,7 +4412,7 @@ static void connection_handler_websocket (mg_connection *conn, const char *remot
 
   if (ev == MG_EV_WS_OPEN)
   {
-    DEBUG (DEBUG_NET, "HTTP WebSock open from client %lu:\n", conn->id);
+    DEBUG (DEBUG_MONGOOSE2, "HTTP WebSock open from client %lu:\n", conn->id);
     HEX_DUMP (ws->data.ptr, ws->data.len);
   }
   else if (ev == MG_EV_WS_MSG)
@@ -4817,7 +4817,7 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
     {
       mg_http_message *hm = ev_data;
 
-      DEBUG (DEBUG_NET, "HTTP chunk from client %lu:\n", this_conn->id);
+      DEBUG (DEBUG_MONGOOSE2, "HTTP chunk from client %lu:\n", this_conn->id);
       HEX_DUMP (hm->message.ptr, hm->message.len);
     }
     else
@@ -5408,7 +5408,8 @@ static void background_tasks (void)
     spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
     if (Modes.home_pos_ok)
        LOG_FILEONLY ("Ignoring the 'DUMP1090_HOMEPOS' env-var "
-                     "since we use the 'Windows Location API'.\n");
+                     "since we use the 'Windows Location API': Latitude: %.6f, Longitude: %.6f.\n",
+                     Modes.home_pos.lat, Modes.home_pos.lon);
     Modes.home_pos_ok = true;
   }
 
