@@ -49,6 +49,14 @@ typedef struct ILocationEvents2Vtbl {
         HRESULT (__stdcall *OnStatusChanged)   (ILocationEvents2 *self, const IID *report_type, LOCATION_REPORT_STATUS new_status);
       } ILocationEvents2Vtbl;
 
+/*
+ * Avoid linking with 'locationapi.lib' and define these here.
+ */
+DEFINE_GUID (IID_ILatLongReport,  0x7fed806d, 0x0ef8, 0x4f07, 0x80, 0xac, 0x36, 0xa0, 0xbe, 0xae, 0x31, 0x34);
+DEFINE_GUID (IID_ILocation,       0xab2ece69, 0x56d9, 0x4f28, 0xb5, 0x25, 0xde, 0x1b, 0x0e, 0xe4, 0x42, 0x37);
+DEFINE_GUID (IID_ILocationEvents, 0xcae02bbf, 0x798b, 0x4508, 0xa2, 0x07, 0x35, 0xa7, 0x90, 0x6d, 0xc7, 0x3d);
+DEFINE_GUID (CLSID_Location,      0xe5b8e079, 0xee6d, 0x4e33, 0xa4, 0x38, 0xc8, 0x7f, 0x2e, 0x95, 0x92, 0x54);
+
 static struct pos_t            g_pos;
 static bool                    g_CoInitializeEx_done;
 static struct ILocation       *g_location;
@@ -276,5 +284,4 @@ bool location_get_async (void)
      location_exit();
   return (rc);
 }
-
 

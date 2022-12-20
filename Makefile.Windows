@@ -162,7 +162,7 @@ endif
 
 RCFLAGS += -DRC_BITS=$(BITS)
 
-EX_LIBS += advapi32.lib locationapi.lib ole32.lib setupapi.lib winusb.lib
+EX_LIBS += advapi32.lib ole32.lib setupapi.lib winusb.lib
 
 ifeq ($(USE_WSOCK_TRACE),1)
   EX_LIBS += wsock_trace-$(CPU).lib
