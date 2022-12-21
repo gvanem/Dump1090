@@ -4417,12 +4417,15 @@ static void connection_handler_websocket (mg_connection *conn, const char *remot
   }
   else if (ev == MG_EV_WS_MSG)
   {
+    DEBUG (DEBUG_MONGOOSE2, "HTTP WebSock message from client %lu:\n", conn->id);
+    HEX_DUMP (ws->data.ptr, ws->data.len);
   }
   else if (ev == MG_EV_WS_CTL)
   {
+    DEBUG (DEBUG_MONGOOSE2, "HTTP WebSock control from client %lu:\n", conn->id);
+    HEX_DUMP (ws->data.ptr, ws->data.len);
     Modes.stat.HTTP_websockets++;
   }
-  MODES_NOTUSED (ws);
 }
 
 static const char *set_headers (const connection *cli,
