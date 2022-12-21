@@ -11,3 +11,8 @@
 * UAT; Universal Access Transceiver for 978 MHz datalink.
 * Kerberos SDR; Directional Finding Feature:
    ref: https://github.com/rfjohnso/kerberossdr/tree/PyQt5
+* Pack several web-roots into an .DLL. Thus allowing to select a
+  web-root at runtime. Use option `--web-page some.dll`. Then `some.dll`
+  would then need some exported `CreateInstance()` and `DeleteInstance()`
+  functions.
+
