@@ -556,27 +556,8 @@ int fc0013_set_gain(void *dev, int gain)
 
 int fc001x_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)
 {
-	uint8_t data;
-
-	if (bw < 5300000)
-	{
-		*applied_bw = 5000000;
-		data = 0x80;
-	}
-	else if (bw < 6000000)
-	{
-		*applied_bw = 5600000;
-		data = 0x40;
-	}
-	else
-	{
-		*applied_bw = 6400000;
-		data = 0x00;
-	}
-	if(!apply)
-		return 0;
-
-	return fc001x_write_reg_mask(dev, 0x06, data, 0xc0);
+	*applied_bw = 5000000;
+	return 0;
 }
 
 int fc0012_exit(void *dev) {

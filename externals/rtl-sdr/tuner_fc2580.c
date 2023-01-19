@@ -194,7 +194,7 @@ int fc2580_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, uns
   This function returns fc2580's current RSSI value.
 
   <input parameter>
-  unsigned char *data
+  unsigned char *data: fc2580's registers
 
   <return value>
   int rssi : estimated input power.
@@ -406,49 +406,29 @@ err:
   This function changes Bandwidth frequency of fc2580's channel selection filter
 
   <input parameter>
-  filter_bw
-    1 : 1.53MHz(TDMB)
-	6 : 6MHz   (Bandwidth 6MHz)
-	7 : 6.8MHz (Bandwidth 7MHz)
-	8 : 7.8MHz (Bandwidth 8MHz)
-==============================================================================*/
-static int fc2580_set_filter(void *dev, unsigned char filter_bw)
+  filter_bw: bandwidth in kHz
+
+ ==============================================================================*/
+static int fc2580_set_filter(void *dev, int filter_bw)
 {
 	// Set tuner bandwidth mode.
 	unsigned int freq_xtal = (rtlsdr_get_tuner_clock(dev) + 500) / 1000;
 	unsigned char cal_mon = 0, i;
 	int result = 0;
 
-	switch (filter_bw) {
-	case 1: //1530 kHz
+	if (filter_bw <= 2100)
+	{	//1100 ... 2100 kHz
 		result |= fc2580_write(dev, 0x36, 0x1C);
-		result |= fc2580_write(dev, 0x37, (unsigned char)(4151*freq_xtal/1000000) );
-		result |= fc2580_write(dev, 0x39, 0x00);
-		break;
-	case 2: //2000 kHz
-		result |= fc2580_write(dev, 0x36, 0x1C);
-		result |= fc2580_write(dev, 0x37, (unsigned char)(3000*freq_xtal/1000000) );
-		result |= fc2580_write(dev, 0x39, 0x00);
-		break;
-	case 5: //5400 kHz
-		result |= fc2580_write(dev, 0x36, 0x18);
-		result |= fc2580_write(dev, 0x37, (unsigned char)(4400*freq_xtal/1000000) );
-		result |= fc2580_write(dev, 0x39, 0x00);
-		break;
-	case 6: //6300 kHz
-		result |= fc2580_write(dev, 0x36, 0x18);
-		result |= fc2580_write(dev, 0x37, (unsigned char)(3910*freq_xtal/1000000) );
-		result |= fc2580_write(dev, 0x39, 0x80);
-		break;
-	default:
-	case 7: //7200 kHz
-		result |= fc2580_write(dev, 0x36, 0x18);
-		result |= fc2580_write(dev, 0x37, (unsigned char)(3300*freq_xtal/1000000) );
-		result |= fc2580_write(dev, 0x39, 0x80);
-		break;
+		result |= fc2580_write(dev, 0x37, (uint8_t)(63*freq_xtal/filter_bw/10) );
 	}
-	result |= fc2580_write(dev, 0x2E, 0x09);
+	else
+	{	//5000 kHz
+		result |= fc2580_write(dev, 0x36, 0x18);
+		result |= fc2580_write(dev, 0x37, (uint8_t)(freq_xtal/200) );
+	}
+	result |= fc2580_write(dev, 0x39, 0x00);
 
+	result |= fc2580_write(dev, 0x2E, 0x09);
 	for(i=0; i<5; i++)
 	{
 		result &= fc2580_read(dev, 0x2F, &cal_mon);
@@ -467,20 +447,17 @@ static int fc2580_set_filter(void *dev, unsigned char filter_bw)
 
 int fc2580_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)
 {
-
-	if (bw < 1800000)
-		*applied_bw = 1530000;
+	if (bw < 1100000)
+		*applied_bw = 1100000;
+	else if (bw <= 2100000)
+		*applied_bw = bw;
 	else if (bw < 3000000)
 		*applied_bw = 2100000;
-	else if (bw < 6000000)
-		*applied_bw = 5400000;
-	else if (bw < 7000000)
-		*applied_bw = 6300000;
 	else
-		*applied_bw = 7200000;
+		*applied_bw = 5000000;
 	if(!apply)
 		return 0;
-	return fc2580_set_filter(dev, *applied_bw/1000000);
+	return fc2580_set_filter(dev, *applied_bw/1000);
 }
 
 int fc2580_exit(void *dev)

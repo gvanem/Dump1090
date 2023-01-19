@@ -688,7 +688,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	uint8_t ni, si, nint, val;
 	uint8_t data[3];
 
-	if ((freq < 25000000) || (freq > 1900000000)){
+	if ((freq < 25000000) || (freq > vco_min)){
 		printf( "[R82XX] No valid PLL values for %u Hz!\n", freq);
 		return -1;
 	}
@@ -1057,33 +1057,64 @@ int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int *le
 	return 0;
 }
 
-static const int r82xx_bws[]=     {  400,  500,  620,  900, 1150, 1250, 1350, 1530, 1800, 2200, 3000, 5000 };
-static const uint8_t r82xx_0xa[]= { 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0f, 0x0e, 0x0f, 0x0f, 0x04, 0x0b };
-static const uint8_t r82xx_0xb[]= { 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xaf, 0x8f, 0x8f, 0x6b };
-static const int r82xx_if[]  =    { 1780, 1710, 1640, 1500, 1380, 1340, 1300, 1260, 1370, 1560, 2000, 3570 };
+struct r82xx_val {
+	int bw; 		// bandwidth in kHz
+	uint8_t lp; 	// low pass fine filter
+	uint8_t hp; 	// high pass filter and low pass course filter
+	int int_freq;	// intermediate frequency
+};
+
+static const struct r82xx_val r82xx[]= {
+	{ 400, 0x0f, 0xe8, 1780},
+	{ 500, 0x0f, 0xe9, 1710},
+	{ 620, 0x0f, 0xea, 1640},
+	{ 900, 0x0f, 0xeb, 1500},
+	{1150, 0x0f, 0xec, 1380},
+	{1250, 0x0f, 0xed, 1340},
+	{1350, 0x0f, 0xee, 1300},
+	{1500, 0x0f, 0xef, 1240},
+    {1540, 0x0e, 0xef, 1260},
+    {1570, 0x0d, 0xef, 1275},
+    {1610, 0x0c, 0xef, 1290},
+    {1640, 0x0b, 0xef, 1310},
+    {1680, 0x0a, 0xef, 1330},
+    {1720, 0x09, 0xef, 1350},
+    {1760, 0x08, 0xef, 1370},
+    {1790, 0x07, 0xef, 1390},
+    {1830, 0x06, 0xef, 1410},
+    {1870, 0x05, 0xef, 1430},
+    {1920, 0x04, 0xef, 1450},
+    {1960, 0x03, 0xef, 1470},
+    {2000, 0x02, 0xef, 1490},
+    {2100, 0x09, 0xaf, 1515},
+    {2200, 0x0f, 0x8f, 1575},
+    {3000, 0x04, 0x8f, 2000},
+    {5000, 0x0b, 0x6b, 3570},
+};
 
 int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t * applied_bw, int apply)
 {
 	int rc;
 	unsigned int i;
 
-	for(i=0; i < ARRAY_SIZE(r82xx_bws) - 1; ++i) {
+	for(i=0; i < ARRAY_SIZE(r82xx) - 1; ++i)
+	{
 		/* bandwidth is compared to median of the current and next available bandwidth in the table */
-		if (bw < (r82xx_bws[i+1] + r82xx_bws[i]) * 500)
+		if (bw < (r82xx[i+1].bw + r82xx[i].bw) * 500)
 			break;
 	}
-	*applied_bw = r82xx_bws[i] * 1000;
+	*applied_bw = r82xx[i].bw * 1000;
 	if (apply)
-		priv->int_freq = r82xx_if[i] * 1000;
+		priv->int_freq = r82xx[i].int_freq * 1000;
 	else
 		return 0;
 
-	rc = r82xx_write_reg_mask(priv, 0x0a, r82xx_0xa[i], 0x0f);
+	rc = r82xx_write_reg_mask(priv, 0x0a, r82xx[i].lp, 0x0f);
 	if (rc < 0)
 		return rc;
 
 	/* Register 0xB = R11 with undocumented Bit 7 for filter bandwidth for Hi-part FILT_BW */
-	rc = r82xx_write_reg_mask(priv, 0x0b, r82xx_0xb[i], 0xef);
+	rc = r82xx_write_reg_mask(priv, 0x0b, r82xx[i].hp, 0xef);
 	if (rc < 0)
 		return rc;
 
