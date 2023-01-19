@@ -501,6 +501,8 @@ DEF_FUNC (BOOL, InternetGetLastResponseInfoA, (DWORD *err_code,
 
 DEF_FUNC (BOOL, InternetCloseHandle, (HINTERNET handle));
 
+const char *wininet_last_error;
+
 /**
  * Handles dynamic loading and unloading of DLLs and their functions.
  */
@@ -553,7 +555,9 @@ int unload_dynamic_table (struct dyn_struct *tab, int tab_size)
 const char *wininet_strerror (DWORD err)
 {
   HMODULE mod = GetModuleHandle ("wininet.dll");
-  char    buf [512];
+  static char buf [512];
+
+  wininet_last_error = NULL;
 
   if (mod && mod != INVALID_HANDLE_VALUE &&
       FormatMessageA (FORMAT_MESSAGE_FROM_HMODULE,
@@ -565,6 +569,8 @@ const char *wininet_strerror (DWORD err)
     char  *p;
     DWORD  wininet_err = 0;
     DWORD  wininet_err_len = sizeof(wininet_err_buf)-1;
+
+    wininet_last_error = buf;
 
     p = strrchr (buf, '\r');
     if (p)
@@ -585,6 +591,7 @@ const char *wininet_strerror (DWORD err)
       if (p && p[1] == '\0')
          *p = '\0';
     }
+    wininet_last_error = err_buf;
     return (err_buf);
   }
   return win_strerror (err);
@@ -602,7 +609,8 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
                             INTERNET_FLAG_NO_COOKIES);   /* no automatic cookie handling */
   if (*h1 == NULL)
   {
-    DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", wininet_strerror(GetLastError()));
+    wininet_strerror (GetLastError());
+    DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", wininet_last_error);
     return (false);
   }
 
@@ -617,7 +625,8 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
   *h2 = (*p_InternetOpenUrlA) (*h1, url, NULL, 0, url_flags, INTERNET_NO_CALLBACK);
   if (*h2 == NULL)
   {
-    DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", wininet_strerror(GetLastError()));
+    wininet_strerror (GetLastError());
+    DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", wininet_last_error);
     return (false);
   }
   return (true);
