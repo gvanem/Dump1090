@@ -34,6 +34,7 @@
 #include <cfgmgr32.h>
 #include <malloc.h>
 #include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 
 #include "rtl-sdr.h"
@@ -130,6 +131,8 @@ static const int fir_bw [] = { 2400, 1200, 1000, 300 };
 
 static int cal_imr = 0;
 
+static bool got_device_usb_product [10];
+
 struct rtlsdr_dev {
   WINUSB_INTERFACE_HANDLE  usbHandle;
   HANDLE                   deviceHandle;
@@ -165,13 +168,20 @@ struct rtlsdr_dev {
   CRITICAL_SECTION  cs_mutex;
 
   /* status */
-  int dev_lost;
+  int opening;
   int rc_active;
   int verbose;
 };
 
 static int rtlsdr_update_ds (rtlsdr_dev_t *dev, uint32_t freq);
 static int rtlsdr_set_spectrum_inversion (rtlsdr_dev_t *dev, int sideband);
+
+static const char *async_status_name (enum rtlsdr_async_status status)
+{
+  return (status == RTLSDR_INACTIVE  ? "RTLSDR_INACTIVE"  :
+          status == RTLSDR_CANCELING ? "RTLSDR_CANCELING" :
+          status == RTLSDR_RUNNING   ? "RTLSDR_RUNNING"   : "?");
+}
 
 /* generic tuner interface functions, shall be moved to the tuner implementations
  */
@@ -630,7 +640,7 @@ static int List_Devices (int index, found_device *found)
   if (DeviceInfoSet == INVALID_HANDLE_VALUE)
   {
     last_error = GetLastError();
-    TRACE (0, "SetupDiGetClassDevs() failed: %s\n", trace_strerror(last_error));
+    TRACE (1, "SetupDiGetClassDevs() failed: %s\n", trace_strerror(last_error));
     return (-1);
   }
 
@@ -761,7 +771,7 @@ static void Close_Device (rtlsdr_dev_t *dev)
   if (dev->deviceHandle && dev->deviceHandle != INVALID_HANDLE_VALUE)
      CloseHandle (dev->deviceHandle);
 
-  dev->usbHandle = INVALID_HANDLE_VALUE;
+  dev->usbHandle    = INVALID_HANDLE_VALUE;
   dev->deviceHandle = INVALID_HANDLE_VALUE;
 }
 
@@ -856,7 +866,7 @@ static uint8_t rtlsdr_read_reg (rtlsdr_dev_t *dev, uint16_t index, uint16_t addr
   int r = rtlsdr_read_array (dev, index, addr, &data, 1);
 
   if (r != 1)
-     TRACE (0, "%s failed with %d\n", __FUNCTION__, r);
+     TRACE (1, "%s failed with %d\n", __FUNCTION__, r);
 
   return data;
 }
@@ -878,7 +888,7 @@ static int rtlsdr_write_reg (rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, u
 
   r = rtlsdr_write_array (dev, index, addr, data, len);
   if (r < 0)
-     TRACE (0, "%s failed with %d\n", __FUNCTION__, r);
+     TRACE (1, "%s failed with %d\n", __FUNCTION__, r);
 
   return (r);
 }
@@ -932,7 +942,7 @@ uint16_t rtlsdr_demod_read_reg (rtlsdr_dev_t *dev, uint16_t page, uint16_t addr,
   int     r = rtlsdr_read_array (dev, page, (addr << 8) | RTL2832_DEMOD_ADDR, data, len);
 
   if (r != len)
-     TRACE (0, "%s failed with %d\n", __FUNCTION__, r);
+     TRACE (1, "%s failed with %d\n", __FUNCTION__, r);
 
   if (len == 1)
      return (data[0]);
@@ -957,7 +967,7 @@ int rtlsdr_demod_write_reg (rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint
 
   r = rtlsdr_write_array (dev, page, addr, data, len);
   if (r != len)
-    TRACE (0, "%s failed with %d\n", __FUNCTION__, r);
+    TRACE (1, "%s failed with %d\n", __FUNCTION__, r);
 
   rtlsdr_demod_read_reg (dev, DUMMY_PAGE, DUMMY_ADDR, 1);
   return (r == len) ? 0 : -1;
@@ -1216,7 +1226,7 @@ static int rtlsdr_deinit_baseband (rtlsdr_dev_t *dev)
 
   /* poweroff demodulator and ADCs */
   rtlsdr_write_reg (dev, SYSB, DEMOD_CTL, 0x20, 1);
-  TRACE (2, "%s(): r: %d\n", __FUNCTION__, r);
+  TRACE (1, "%s(): r: %d\n", __FUNCTION__, r);
   return (r);
 }
 
@@ -1226,7 +1236,7 @@ static int rtlsdr_demod_read_regs (rtlsdr_dev_t *dev, uint16_t page, uint16_t ad
   int r = rtlsdr_read_array (dev, page, (addr << 8) | RTL2832_DEMOD_ADDR, data, len);
 
   if (r != len)
-     TRACE (0, "%s failed with %d\n", __FUNCTION__, r);
+     TRACE (1, "%s failed with %d\n", __FUNCTION__, r);
   return (r);
 }
 
@@ -2107,6 +2117,8 @@ int rtlsdr_get_device_usb_strings (uint32_t index, char *manufact, char *product
   else r = rtlsdr_get_usb_strings (&dev, manufact, product, serial);
 
   Close_Device (&dev);
+  if (r == 0 && product && index < ARRAY_SIZE(got_device_usb_product))
+     got_device_usb_product[index] = true;
   return (r);
 }
 
@@ -2167,7 +2179,7 @@ int rtlsdr_get_usb_strings (rtlsdr_dev_t *dev, char *manufact, char *product, ch
   }
 
   TRACE (1, "rtlsdr_get_usb_strings():\n"
-            "       manufact: %s, product: %s, serial: %s\n",
+            "                   manufact: %s, product: %s, serial: %s\n",
          (manufact && *manufact) ? manufact : "<None>",
          (product  && *product)  ? product  : "<None>",
          (serial   && *serial)   ? serial   : "<None>");
@@ -2211,7 +2223,7 @@ int rtlsdr_open (rtlsdr_dev_t **out_dev, uint32_t index)
   }
 
   InitializeCriticalSection (&dev->cs_mutex);
-  dev->dev_lost = 1;
+  dev->opening = 1;
 
   /* Find number of devices
    */
@@ -2224,10 +2236,22 @@ int rtlsdr_open (rtlsdr_dev_t **out_dev, uint32_t index)
   if (!Open_Device(dev, found.DevicePath))
      goto err;
 
+  /* Make it clear which device we have opended.
+   */
+  if (index < ARRAY_SIZE(got_device_usb_product) && !got_device_usb_product[index])
+  {
+    char manufact [256];
+    char product [256];
+    char serial [256];
+
+    got_device_usb_product [index] = true;
+    rtlsdr_get_usb_strings (dev, manufact, product, serial);
+  }
+
   dev->rtl_xtal = DEF_RTL_XTAL_FREQ;
   TRACE (1, "Calling rtlsdr_init_baseband().\n");
   rtlsdr_init_baseband (dev);
-  dev->dev_lost = 0;
+  dev->opening = 0;
 
   /* Probe tuners */
   rtlsdr_set_i2c_repeater (dev, 1);
@@ -2464,37 +2488,40 @@ err:
     *out_dev = NULL;
     free (dev);
   }
-  dev = NULL;
   return (r);
 }
 
 int rtlsdr_close (rtlsdr_dev_t *dev)
 {
-  int r;
+  int r, entry_state, exit_state, loops = -1;
 
   if (!dev)
      return (-1);
 
-  /* automatic de-activation of bias-T */
+  entry_state = dev->async_status;
+
   r = rtlsdr_set_bias_tee (dev, 0);
 
-  if (!dev->dev_lost)
+  if (!dev->opening)
   {
     /* block until all async operations have been completed (if any) */
-    while (RTLSDR_INACTIVE != dev->async_status)
-       Sleep (1);
-
+    while (dev->async_status != RTLSDR_INACTIVE)
+    {
+      Sleep (1);
+      if (dev->async_status == RTLSDR_CANCELING && ++loops >= 10)
+         break;
+    }
     rtlsdr_deinit_baseband (dev);
   }
 
-  DeleteCriticalSection (&dev->cs_mutex);
+  exit_state = dev->async_status;
 
-  TRACE (1, "%s(): dev->deviceHandle: 0x%p, dev->usbHandle: 0x%p\n",
-         __FUNCTION__, dev->deviceHandle, dev->usbHandle);
+  TRACE (1, "%s(): loops: %d, state: %s -> %s\n",
+         __FUNCTION__, loops, async_status_name(entry_state), async_status_name(exit_state));
 
   Close_Device (dev);
+  DeleteCriticalSection (&dev->cs_mutex);
   free (dev);
-  dev = NULL;
   return (r);
 }
 
@@ -2515,7 +2542,7 @@ int rtlsdr_read_sync (rtlsdr_dev_t *dev, void *buf, int len,  int *n_read)
 {
   ULONG bytesRead = 0;
 
-  TRACE (1, "%s(): dev: 0x%p\n", __FUNCTION__, dev);
+  TRACE (2, "%s(): dev: 0x%p\n", __FUNCTION__, dev);
 
   if (!dev)
      return (-1);
@@ -2560,13 +2587,19 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
   OVERLAPPED **overlapped = NULL;
   uint8_t    **xfer_buf = NULL;
 
-  TRACE (1, "%s(): dev: 0x%p\n", __FUNCTION__, dev);
-
   if (!dev)
-     return (-1);
+  {
+    TRACE (1, "%s(): dev: NULL!\n", __FUNCTION__);
+    return (-1);
+  }
 
-  if (RTLSDR_INACTIVE != dev->async_status)
-     return (-2);
+  if (dev->async_status != RTLSDR_INACTIVE)
+  {
+    TRACE (1, "%s(): dev: 0x%p, state not RTLSDR_INACTIVE\n", __FUNCTION__, dev);
+    return (-2);
+  }
+
+  TRACE (1, "%s(): dev: 0x%p, state: RTLSDR_INACTIVE -> RTLSDR_RUNNING\n", __FUNCTION__, dev);
 
   dev->async_status = RTLSDR_RUNNING;
   dev->async_cancel = 0;
@@ -2695,29 +2728,43 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
 
 int rtlsdr_cancel_async (rtlsdr_dev_t *dev)
 {
-  TRACE (1, "%s(): dev: 0x%p\n", __FUNCTION__, dev);
+  int entry_state = -1, exit_state = -1;
+  int r = 0;  /* assume success */
 
   if (!dev)
-     return (-1);
+  {
+    r = -1;
+    goto quit;
+  }
 
-  /* if streaming, try to cancel gracefully */
-  if (RTLSDR_RUNNING == dev->async_status)
+  /* if streaming, try to cancel gracefully
+   */
+  entry_state = dev->async_status;
+  if (dev->async_status == RTLSDR_RUNNING)
   {
     dev->async_status = RTLSDR_CANCELING;
     dev->async_cancel = 1;
-    return (0);
+    goto quit;
   }
 
   /* if called while in pending state, change the state forcefully
    */
 #if 0
-  if (RTLSDR_INACTIVE != dev->async_status)
+  if (dev->async_status != RTLSDR_INACTIVE)
   {
     dev->async_status = RTLSDR_INACTIVE;
-    return (0);
+    goto quit;
   }
 #endif
-  return (-2);
+
+  r = -2;
+
+quit:
+  exit_state = dev->async_status;
+  TRACE (1, "%s(): r: %d, dev: 0x%p, state: %s -> %s\n",
+         __FUNCTION__, r, dev, async_status_name(entry_state), async_status_name(exit_state));
+
+  return (r);
 }
 
 int rtlsdr_wait_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx)
@@ -2792,7 +2839,7 @@ int rtlsdr_ir_query (rtlsdr_dev_t *d, uint8_t *buf, size_t buf_len)
   /* init remote controller */
   if (!d->rc_active)
   {
-    TRACE (2, "initializing remote controller\n");
+    TRACE (1, "initializing remote controller\n");
     for (i = 0; i < ARRAY_SIZE (init_tab); i++)
     {
       ret = rtlsdr_write_reg_mask (d, init_tab[i].block, init_tab[i].reg,
@@ -2805,9 +2852,8 @@ int rtlsdr_ir_query (rtlsdr_dev_t *d, uint8_t *buf, size_t buf_len)
         goto err;
       }
     }
-
     d->rc_active = 1;
-    TRACE (2, "remote controller active\n");
+    TRACE (1, "remote controller active\n");
   }
 
   /* TODO: option to IR disable
@@ -2826,7 +2872,7 @@ int rtlsdr_ir_query (rtlsdr_dev_t *d, uint8_t *buf, size_t buf_len)
       /* graceful exit */
     }
     else
-      TRACE (0, "read IR_RX_IF unexpected: %.2x\n", buf[0]);
+      TRACE (1, "read IR_RX_IF unexpected: %.2x\n", buf[0]);
 
     ret = 0;
     goto exit;
@@ -2837,7 +2883,7 @@ int rtlsdr_ir_query (rtlsdr_dev_t *d, uint8_t *buf, size_t buf_len)
 
   if (len > buf_len)
   {
-    TRACE (2, "read IR_RX_BC too large for buffer, %lu > %lu\n", buf_len, buf_len);
+    TRACE (1, "read IR_RX_BC too large for buffer, %lu > %lu\n", buf_len, buf_len);
     goto exit;
   }
 
@@ -2879,7 +2925,7 @@ exit:
   return (ret);
 
 err:
-  TRACE (0, "failed=%d\n", ret);
+  TRACE (1, "failed=%d\n", ret);
   return (ret);
 }
 
