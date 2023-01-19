@@ -22,6 +22,7 @@ doc8643AircraftTypes.csv
 doc8643Manufacturers.csv
 favicon.ico
 favicon.png
+packed_webfs.c
 testfiles/modes1.bin.png
 cpp-filter.py
 check-for-unused-libraries.py

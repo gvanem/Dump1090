@@ -1,7 +1,7 @@
 #
 # GNU Makefile for dump1090 (x86/x64, MSVC or clang-cl).
 #
-# By G. Vanem <gvanem@yahoo.no> 2021 - 2022.
+# By G. Vanem <gvanem@yahoo.no> 2021 - 2023.
 #
 # Ref: https://github.com/gvanem/Dump1090.git
 #
@@ -39,6 +39,11 @@ USE_RTLSDR_EMUL ?= 0
 USE_ASAN ?= 0
 
 #
+# Compile using 'cl -MP ...'. For MSVC only.
+#
+USE_MP_COMPILE ?= 0
+
+#
 # Enable "Visual Leak Detector".
 # Ref:
 #   https://github.com/KindDragon/vld/
@@ -56,10 +61,17 @@ VLD_ROOT ?= f:/ProgramFiler/VisualLeakDetector/src
 USE_WSOCK_TRACE ?= 0
 
 #
-# For .c-file preprocessing:
+# Enable 'astyle' in .c-file preprocessing.
 #
 USE_ASTYLE ?= 1
-PYTHON     ?= py -3
+
+#
+# Python is needed for:
+#   *) .c-file preprocessing.
+#   *) generation of 'packed_webfs.c'.
+#   *) and in the 'link_EXE()' macro.
+#
+PYTHON ?= py -3
 
 #
 # Change the 'CLANG_[32|64]' directory to suite:
@@ -198,9 +210,8 @@ else
 endif
 
 ifeq ($(USE_PACKED_WEB),1)
-  VPATH    += $(OBJ_DIR)
-  GENERATED = $(OBJ_DIR)/packed_webfs.c
-  SOURCES  += $(OBJ_DIR)/packed_webfs.c
+  GENERATED = packed_webfs.c
+  SOURCES  += packed_webfs.c
   CFLAGS   += -DMG_ENABLE_PACKED_FS=1 -DPACKED_WEB_ROOT=\"$(PACKED_WEB_ROOT)\"
 else
   GENERATED =
@@ -258,10 +269,21 @@ $(OBJ_DIR)/dump1090.res: dump1090.rc
 	rc $(RCFLAGS) -fo $@ $<
 	@echo
 
-$(OBJ_DIR)/%.obj: %.c
+ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
+ $(OBJECTS): $(SOURCES)
+	$(call green_msg, Compiling $(words $(SOURCES)) .c-files in one go...)
+	$(call C_compile, $(OBJ_DIR)\\, -MP $(SOURCES))
+
+else
+  $(OBJ_DIR)/packed_webfs.obj: packed_webfs.c
+	$(call red_msg, Compiling $< will take some time...)
 	$(call C_compile, $@, $<)
 
-$(OBJ_DIR)/packed_webfs.c: tools/gen_packed_fs.py
+  $(OBJ_DIR)/%.obj: %.c
+	$(call C_compile, $@, $<)
+endif
+
+packed_webfs.c: tools/gen_packed_fs.py
 	$(call green_msg, Generating $@ will take some time...)
 	$(file > $@,$(call Warning,//))
 	$(PYTHON) tools/gen_packed_fs.py --verbose --outfile $@ --recursive $(PACKED_WEB_ROOT)/
@@ -321,7 +343,7 @@ clean: docs_clean
 	rm -fr $(OBJ_DIR)
 
 vclean realclean: clean
-	rm -f $(TARGETS) dump1090.chm .depend.Windows
+	rm -f $(TARGETS) $(GENERATED) dump1090.chm .depend.Windows
 
 #
 # GNU-make macros:
@@ -329,7 +351,10 @@ vclean realclean: clean
 # This assumes you have an MSys/Cygwin 'echo.exe' with colour support.
 #
 BRIGHT_GREEN = \e[1;32m
+BRIGHT_RED   = \e[1;31m
+
 green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
+red_msg   = @echo -e "$(BRIGHT_RED)$(strip $(1))\e[0m"
 
 define C_compile
   $(_CC) -c $(CFLAGS) -Fo./$(strip $(1) $(2))
@@ -400,6 +425,7 @@ define dump1090_Doxyfile
   OUTPUT_DIRECTORY      = $(realpath .)/doxy-docs
   HTML_OUTPUT           = .
   HTML_DYNAMIC_MENUS    = no
+  HTML_COLORSTYLE       = light
   GENERATE_HTMLHELP     = yes
   GENERATE_LATEX        = no
   SEARCHENGINE          = no
