@@ -41,9 +41,25 @@
 
 /**
  * \def AIRCRAFT_DATABASE_URL
- * The full URL for the `--database-update` option.
+ * The default URL for the `--database-update` option.
  */
 #define AIRCRAFT_DATABASE_URL   "https://opensky-network.org/datasets/metadata/aircraftDatabase.zip"
+
+/**
+ * \def AIRCRAFT_DATABASE_TMP
+ * The basename for downloading a new `aircraftDatabase.csv`.
+ *
+ * E.g. Use WinInet API to download:<br>
+ *  `AIRCRAFT_DATABASE_URL` -> `c:\temp\aircraft-database-temp.zip`
+ *
+ * extract this using: <br>
+ *  `unzip -p c:\temp\aircraft-database-temp.zip > c:\temp\aircraft-database-temp.csv`
+ *
+ * (the `-p` option ignores the embedded path: `media/data/samples/metadata/aircraftDatabase.csv`)
+ * and finally call: <br>
+ *   `CopyFile ("c:\\temp\\aircraft-database-temp.csv", <final_destination>)`.
+ */
+#define AIRCRAFT_DATABASE_TMP  "aircraft-database-temp"
 
 /**
  * Definitions for network services.
@@ -466,7 +482,7 @@ typedef struct global_data {
         char        web_root [MG_PATH_MAX];    /**< And it's directory. */
         int         touch_web_root;            /**< Touch all files in `web_root` first. */
         char        aircraft_db [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file. */
-        int         aircraft_db_update;        /**< Option `--update-database` used. */
+        char       *aircraft_db_update;        /**< Option `--update-database <url>` used. */
         int         strip_level;               /**< For '--strip X' mode. */
         pos_t       home_pos;                  /**< Coordinates of home position. */
         cartesian_t home_pos_cart;             /**< Coordinates of home position (cartesian). */
@@ -511,6 +527,7 @@ extern uint32_t    random_range (uint32_t min, uint32_t max);
 extern int         touch_file (const char *file);
 extern int         touch_dir (const char *dir, bool recurse);
 extern uint32_t    download_file (const char *file, const char *url);
+extern const char *wininet_last_error;
 
 /*
  * Generic table for loading DLLs and functions from them.

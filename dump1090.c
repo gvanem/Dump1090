@@ -802,22 +802,20 @@ static void aircraft_CSV_load (void)
  *  2) call `unzip - %TEMP%\\aircraft-database-temp.zip > %TEMP%\\aircraft-database-temp.csv`.
  *  3) copy `%TEMP%\\aircraft-database-temp.csv` over to 'db_file'.
  */
-
-#define DB_TMP_BASE "aircraft-database-temp"
-
 static bool aircraft_CSV_update (const char *db_file, const char *url)
 {
   struct stat st;
   FILE       *p;
+  int         rc;
   const char *comspec, * tmp = getenv ("TEMP");
   bool        force_it = false;
   char        tmp_file [MAX_PATH];
   char        zip_file [MAX_PATH];
-  char        unzip_cmd [MAX_PATH];
+  char        unzip_cmd [MAX_PATH+50];
 
   if (!db_file || !url)
   {
-    LOG_STDERR ("Illegal paramters; db_file=%s, url=%s.\n", db_file, url);
+    LOG_STDERR ("Illegal parameters; db_file=%s, url=%s.\n", db_file, url);
     return (false);
   }
   if (!tmp)
@@ -827,16 +825,18 @@ static bool aircraft_CSV_update (const char *db_file, const char *url)
   }
 
   /* '_popen()' does not set 'errno' on non-existing programs.
-   * Hence, use 'system()'; invoke the shell and check or '%errorlevel != 0'.
+   * Hence, use 'system()'; invoke the shell and check for '%errorlevel != 0'.
    */
   comspec = getenv ("COMSPEC");
   if (!comspec)
      comspec = "cmd.exe";
 
   snprintf (unzip_cmd, sizeof(unzip_cmd), "%s /C unzip.exe -h >NUL 2>NUL", comspec);
-  if (system(unzip_cmd) != 0)
+  rc = system (unzip_cmd);
+  if (rc != 0)
   {
-    LOG_STDERR ("Failed to run '%s'.\n", unzip_cmd);
+    rc == 2 ? LOG_STDERR ("'unzip.exe' not found on PATH.\n") :
+              LOG_STDERR ("Failed to run '%s'.\n", unzip_cmd);
     return (false);
   }
 
@@ -846,8 +846,7 @@ static bool aircraft_CSV_update (const char *db_file, const char *url)
     force_it = true;
   }
 
-  snprintf (zip_file, sizeof(zip_file), "%s\\%s.zip", tmp, DB_TMP_BASE);
-
+  snprintf (zip_file, sizeof(zip_file), "%s\\%s.zip", tmp, AIRCRAFT_DATABASE_TMP);
   if (stat(zip_file, &st) || st.st_size == 0)
   {
     LOG_STDERR ("\nFile '%s' doesn't exist (or is truncated). Forcing a download.\n",
@@ -872,11 +871,14 @@ static bool aircraft_CSV_update (const char *db_file, const char *url)
 
   if (download_file(zip_file, url) <= 0)
   {
-    LOG_STDERR ("Failed to download '%s' from '%s'\n", zip_file, url);
+    LOG_STDERR ("Failed to download '%s': '%s'\n", zip_file, wininet_last_error);
     return (false);
   }
 
-  snprintf (tmp_file,  sizeof(tmp_file), "%s\\%s.csv", tmp, DB_TMP_BASE);
+  snprintf (tmp_file,  sizeof(tmp_file), "%s\\%s.csv", tmp, AIRCRAFT_DATABASE_TMP);
+
+  /* '-p  extract files to pipe, no messages'
+   */
   snprintf (unzip_cmd, sizeof(unzip_cmd), "unzip.exe -p %s > %s", zip_file, tmp_file);
 
   p = _popen (unzip_cmd, "r");
@@ -978,7 +980,7 @@ static int modeS_init (void)
 
   if (Modes.aircraft_db_update && stricmp(Modes.aircraft_db, "NUL"))
   {
-    bool rc = aircraft_CSV_update (Modes.aircraft_db, AIRCRAFT_DATABASE_URL);
+    bool rc = aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_update);
 
     LOG_STDERR ("\n");
     if (!rc)
@@ -1213,8 +1215,8 @@ static int read_from_data_file (void)
 
   do
   {
-     int nread, toread;
-     uint8_t *p;
+     int      nread, toread;
+     uint8_t *data;
 
      if (Modes.interactive)
      {
@@ -1229,14 +1231,14 @@ static int read_from_data_file (void)
       */
      memcpy (Modes.data, Modes.data + MODES_DATA_LEN, 4*(MODES_FULL_LEN-1));
      toread = MODES_DATA_LEN;
-     p = Modes.data + 4*(MODES_FULL_LEN-1);
+     data   = Modes.data + 4*(MODES_FULL_LEN-1);
 
      while (toread)
      {
-       nread = _read (Modes.fd, p, toread);
+       nread = _read (Modes.fd, data, toread);
        if (nread <= 0)
           break;
-       p += nread;
+       data   += nread;
        toread -= nread;
      }
 
@@ -1245,7 +1247,7 @@ static int read_from_data_file (void)
        /* Not enough data on file to fill the buffer? Pad with
         * no signal.
         */
-       memset (p, 127, toread);
+       memset (data, 127, toread);
      }
 
      compute_magnitude_vector (Modes.data);
@@ -5308,11 +5310,11 @@ static void show_help (const char *fmt, ...)
 
   printf ("  Usage: %s [options]\n"
           "  General options:\n"
-          "    --aggressive             Use a more aggressive CRC check (two bits fixes, ...).\n"
           "    --database <file>        The CSV file for the aircraft database\n"
           "                             (default: \"%s\").\n"
-          "    --database-update        Redownload the above .csv-file if older than 10 days.\n"
-          "                             (needs `unzip.exe` on PATH).\n"
+          "    --database-update<=url>  Redownload the above .csv-file if older than 10 days.\n"
+          "                             (needs `unzip.exe` on PATH. default URL:\n"
+          "                             `%s`).\n"
           "    --debug <flags>          Debug mode; see below for details.\n"
           "    --infile <filename>      Read data from file (use `-' for stdin).\n"
           "    --interactive            Interactive mode refreshing data on screen.\n"
@@ -5320,16 +5322,19 @@ static void show_help (const char *fmt, ...)
           "    --location               Use 'Windows Location API' to get the 'DUMP1090_HOMEPOS'.\n"
           "    --logfile <file>         Enable logging to file (default: off)\n"
           "    --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
-          "    --max-messages <N>       Max number of messages to process (default: Inf).\n"
           "    --metric                 Use metric units (meters, km/h, ...).\n"
+          "    --silent                 Silent mode for testing network I/O (together with '--debug n').\n"
+          "    -h, --help               Show this help.\n\n",
+          Modes.who_am_I, Modes.aircraft_db, AIRCRAFT_DATABASE_URL, MODES_INTERACTIVE_TTL/1000);
+
+  printf ("  Mode-S decoder options:\n"
+          "    --aggressive             Use a more aggressive CRC check (two bits fixes, ...).\n"
+          "    --max-messages <N>       Max number of messages to process (default: Infinite).\n"
           "    --no-fix                 Disable single-bits error correction using CRC.\n"
           "    --no-crc-check           Disable checking CRC of messages (discouraged).\n"
           "    --only-addr              Show only ICAO addresses (testing purposes).\n"
           "    --raw                    Show only the raw Mode-S hex message.\n"
-          "    --silent                 Silent mode for testing network I/O (together with '--debug n').\n"
-          "    --strip <level>          Strip IQ file removing samples below level.\n"
-          "    -h, --help               Show this help.\n\n",
-          Modes.who_am_I, Modes.aircraft_db, MODES_INTERACTIVE_TTL/1000);
+          "    --strip <level>          Strip IQ file removing samples below level.\n\n");
 
   printf ("  Network options:\n"
           "    --net                    Enable network listening services.\n"
@@ -5373,7 +5378,7 @@ static void show_help (const char *fmt, ...)
           "                   N = A bit more network information than flag `n'.\n"
           "                   p = Log frames with bad preamble.\n\n");
 
-  printf ("  Your home-position for distance calculation can be set like:\n"
+  printf ("  If the `--location` options is not used, your home-position for distance calculation can be set like:\n"
           "  'c:\\> set DUMP1090_HOMEPOS=51.5285578,-0.2420247' for London.\n");
 
   modeS_exit();
@@ -5405,6 +5410,9 @@ static void background_tasks (void)
    */
   if (Modes.win_location && location_poll(&pos))
   {
+    /* Assume our location won't change while running this program.
+     * Hence just stop the `Location API` event-handler.
+     */
     location_exit();
     Modes.home_pos = pos;
 
@@ -5630,6 +5638,7 @@ static void modeS_exit (void)
   free (Modes.ICAO_cache);
   free (Modes.aircraft_list);
   free (Modes.selected_dev);
+  free (Modes.aircraft_db_update);
 
   DeleteCriticalSection (&Modes.data_mutex);
   DeleteCriticalSection (&Modes.print_mutex);
@@ -5753,7 +5762,7 @@ static struct option long_options[] = {
   { "agc",              no_argument,        &Modes.dig_agc,            1   },
   { "aggressive",       no_argument,        &Modes.aggressive,         1   },
   { "database",         required_argument,  NULL,                     'b'  },
-  { "database-update",  no_argument,        &Modes.aircraft_db_update, 1   },
+  { "database-update",  optional_argument,  NULL,                     'u'  },
   { "bias",             no_argument,        &Modes.bias_tee,           1   },
   { "calibrate",        no_argument,        &Modes.rtlsdr.calibrate,   1   },
   { "debug",            required_argument,  NULL,                      'd' },
@@ -5864,6 +5873,10 @@ static void parse_cmd_line (int argc, char **argv)
 
       case 'N':
            Modes.net_active = Modes.net = true;
+           break;
+
+      case 'u':
+           Modes.aircraft_db_update = optarg ? strdup (optarg) : strdup (AIRCRAFT_DATABASE_URL);
            break;
 
       case 'x' + MODES_NET_SERVICE_RAW_OUT:
