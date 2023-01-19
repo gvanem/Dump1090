@@ -557,6 +557,9 @@ int fc0013_set_gain(void *dev, int gain)
 int fc001x_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)
 {
 	*applied_bw = 5000000;
+	(void) dev;
+	(void) bw;
+	(void) apply;
 	return 0;
 }
 
