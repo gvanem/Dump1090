@@ -41,6 +41,11 @@
    */
   #pragma warning (disable:4152)
 
+  /*
+   * externals/sqlite3.c(31972): 'GetVersionExA': was declared deprecated
+   */
+  #pragma warning (disable:4996)
+
   #ifdef _WIN64
     /*
      * 'type cast': conversion from 'int' to 'void *' of greater size
@@ -73,11 +78,6 @@
      * assignment within conditional expression
      */
     #pragma warning (disable:4706)
-
-    /*
-     * 'GetVersionExA': was declared deprecated
-     */
-    #pragma warning (disable:4996)
   #endif
 #endif
 
