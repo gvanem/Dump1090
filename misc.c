@@ -501,8 +501,6 @@ DEF_FUNC (BOOL, InternetGetLastResponseInfoA, (DWORD *err_code,
 
 DEF_FUNC (BOOL, InternetCloseHandle, (HINTERNET handle));
 
-const char *wininet_last_error;
-
 /**
  * Handles dynamic loading and unloading of DLLs and their functions.
  */
@@ -557,7 +555,7 @@ const char *wininet_strerror (DWORD err)
   HMODULE mod = GetModuleHandle ("wininet.dll");
   static char buf [512];
 
-  wininet_last_error = NULL;
+  Modes.wininet_last_error = NULL;
 
   if (mod && mod != INVALID_HANDLE_VALUE &&
       FormatMessageA (FORMAT_MESSAGE_FROM_HMODULE,
@@ -570,7 +568,7 @@ const char *wininet_strerror (DWORD err)
     DWORD  wininet_err = 0;
     DWORD  wininet_err_len = sizeof(wininet_err_buf)-1;
 
-    wininet_last_error = buf;
+    Modes.wininet_last_error = buf;
 
     p = strrchr (buf, '\r');
     if (p)
@@ -591,7 +589,7 @@ const char *wininet_strerror (DWORD err)
       if (p && p[1] == '\0')
          *p = '\0';
     }
-    wininet_last_error = err_buf;
+    Modes.wininet_last_error = err_buf;
     return (err_buf);
   }
   return win_strerror (err);
@@ -610,7 +608,7 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
   if (*h1 == NULL)
   {
     wininet_strerror (GetLastError());
-    DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", wininet_last_error);
+    DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", Modes.wininet_last_error);
     return (false);
   }
 
@@ -626,7 +624,7 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
   if (*h2 == NULL)
   {
     wininet_strerror (GetLastError());
-    DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", wininet_last_error);
+    DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", Modes.wininet_last_error);
     return (false);
   }
   return (true);
@@ -649,8 +647,8 @@ static struct dyn_struct wininet_funcs[] = {
 /**
  * Download a file from url using the Windows *WinInet API*.
  *
- * \param[in] file the file to write to.
- * \param[in] url  the URL to retrieve from.
+ * \param[in] file  the file to write to.
+ * \param[in] url   the URL to retrieve from.
  * \retval    The number of bytes written to `file`.
  */
 uint32_t download_file (const char *file, const char *url)
