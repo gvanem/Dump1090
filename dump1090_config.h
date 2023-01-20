@@ -20,6 +20,18 @@
   #pragma clang diagnostic ignored "-Wignored-pragma-optimize"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
 
+  /*
+   * Turn off a lot more warnings in 'externals/sqlite3.c'
+   */
+  #if defined(COMPILING_SQLITE3_C)
+    #pragma clang diagnostic ignored "-Wsign-compare"
+    #pragma clang diagnostic ignored "-Wunused-parameter"
+    #pragma clang diagnostic ignored "-Wunused-but-set-variable"
+    #pragma clang diagnostic ignored "-Wnull-pointer-subtraction"
+    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    #pragma clang diagnostic ignored "-Wimplicit-const-int-float-conversion"
+  #endif
+
 #elif defined(_MSC_VER)
   #pragma warning (disable:4005 4244 4267)
 
@@ -32,8 +44,40 @@
   #ifdef _WIN64
     /*
      * 'type cast': conversion from 'int' to 'void *' of greater size
-    */
+     */
     #pragma warning (disable:4312)
+  #endif
+
+  #if defined(COMPILING_SQLITE3_C)
+    /*
+     * 'iOff': unreferenced formal parameter
+     */
+    #pragma warning (disable:4100)
+
+    /*
+     * nonstandard extension used: 'pCurrent': address of dllimport 'AreFileApisANSI' is not static, identity not guaranteed
+     */
+    #pragma warning (disable:4232)
+
+    /*
+     * declaration of 'p' hides previous local declaration
+     */
+    #pragma warning (disable:4456)
+
+    /*
+     * potentially uninitialized local variable 'sMem' used
+     */
+    #pragma warning (disable:4701)
+
+    /*
+     * assignment within conditional expression
+     */
+    #pragma warning (disable:4706)
+
+    /*
+     * 'GetVersionExA': was declared deprecated
+     */
+    #pragma warning (disable:4996)
   #endif
 #endif
 
@@ -70,6 +114,10 @@
  */
 #if defined(USE_VLD)
 #include <vld.h>
+#endif
+
+#if defined(USE_SQLITE3)
+#define SQLITE_API
 #endif
 
 #include <string.h>

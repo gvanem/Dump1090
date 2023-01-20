@@ -30,6 +30,11 @@ PACKED_WEB_ROOT ?= web_root-Tar1090
 USE_RTLSDR_EMUL ?= 0
 
 #
+# Use SqLite3 for saving 'aircraftDatabase.csv' into 'aircraftDatabase.sqlite'
+#
+USE_SQLITE3 ?= 1
+
+#
 # Enable "Address Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
@@ -188,7 +193,8 @@ endif
 #
 TARGETS = dump1090.exe
 
-SOURCES = csv.c      \
+SOURCES = aircraft.c \
+          csv.c      \
           dump1090.c \
           misc.c     \
           location.c \
@@ -215,6 +221,11 @@ ifeq ($(USE_PACKED_WEB),1)
   CFLAGS   += -DMG_ENABLE_PACKED_FS=1 -DPACKED_WEB_ROOT=\"$(PACKED_WEB_ROOT)\"
 else
   GENERATED =
+endif
+
+ifeq ($(USE_SQLITE3),1)
+  CFLAGS  += -DUSE_SQLITE3=1
+  SOURCES += externals/sqlite3.c
 endif
 
 OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
@@ -278,6 +289,9 @@ else
   $(OBJ_DIR)/packed_webfs.obj: packed_webfs.c
 	$(call red_msg, Compiling $< will take some time...)
 	$(call C_compile, $@, $<)
+
+  $(OBJ_DIR)/sqlite3.obj: externals/sqlite3.c
+	$(call C_compile, $@, -DCOMPILING_SQLITE3_C $<)
 
   $(OBJ_DIR)/%.obj: %.c
 	$(call C_compile, $@, $<)
