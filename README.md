@@ -194,14 +194,19 @@ When a `aircraftDatabase.csv` is present and used with a `.bin`-file, it can sho
   ```
 
 Use option `--database NUL` (or  `--database -` etc.) to avoid loading this huge (approx. 82 MByte)
-`.CSV` file. <br>
+`.CSV` file. Or run the program like:
+```
+  c:\dev\Dump1090> dump1090 --database-sql <other options>
+```
+to load the 5 times smaller `aircraftDatabase.csv-sqlite` file.
+
 The latest version is available from:
   **https://opensky-network.org/datasets/metadata/**
 
-**Update**: The option `--database-update` will check and download <br>
- **https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and
- extract using an external [**unzip**](https://sourceforge.net/projects/gnuwin32/files/unzip/5.51-1/) program.
-
+The option `--database-update` will check and download <br>
+**https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and
+extract using an external [**unzip**](https://sourceforge.net/projects/gnuwin32/files/unzip/5.51-1/) program.
+And with option `--database-sql`, also rebuild the `aircraftDatabase.csv.sqlite` file.
 
 ## Additional options
 
