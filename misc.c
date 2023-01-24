@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include <sys/utime.h>
+#include "sqlite3.h"
 #include "misc.h"
 
 #define TSIZE (int)(sizeof("HH:MM:SS.MMM: ") - 1)
@@ -92,7 +93,7 @@ uint32_t ato_hertz (const char *Hertz)
   double   multiplier = 1.0;
   uint32_t ret;
 
-  strncpy (tmp, Hertz, sizeof(tmp));
+  strncpy (tmp, Hertz, sizeof(tmp)-1);
   len = strlen (tmp);
   last_ch = tmp [len-1];
   tmp [len-1] = '\0';
@@ -357,6 +358,25 @@ int _gettimeofday (struct timeval *tv, void *timezone)
 }
 
 /**
+ * Return micro-second time-stamp as a double.
+ */
+double get_usec_now (void)
+{
+  static uint64_t frequency = 0ULL;
+  LARGE_INTEGER   ticks;
+  double          usec;
+
+  if (frequency == 0ULL)
+  {
+    QueryPerformanceFrequency ((LARGE_INTEGER*)&frequency);
+    DEBUG (DEBUG_GENERAL, "QueryPerformanceFrequency(): %.3f MHz\n", (double)frequency / 1E6);
+  }
+  QueryPerformanceCounter (&ticks);
+  usec = 1E6 * ((double)ticks.QuadPart / (double)frequency);
+  return (usec);
+}
+
+/**
  * Use 64-bit tick-time for Mongoose?
  */
 #if MG_ENABLE_CUSTOM_MILLIS
@@ -434,7 +454,7 @@ void set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
   }
   else
   {
-    strncpy (buf, str.ptr, min(str.len, sizeof(buf)));
+    strncpy (buf, str.ptr, min(str.len, sizeof(buf))-1);
     buf [str.len] = '\0';
   }
 
@@ -455,6 +475,72 @@ uint32_t random_range (uint32_t min, uint32_t max)
 {
   double scaled = (double) rand() / RAND_MAX;
   return (uint32_t) ((max - min + 1) * scaled) + min;
+}
+
+/**
+ * Print some details about the Sqlite3 package.
+ */
+static void sql_info (void)
+{
+  const char *opt, *opt_next;
+  int   i, sz = 0;
+
+  printf ("Compiled with Sqlite3 v%s (%s).\n"
+          "Build options: ", sqlite3_version, sqlite3_sourceid());
+
+  for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
+  {
+    opt_next = sqlite3_compileoption_get (i+1);
+    sz += printf ("SQLITE_%s%s", opt, opt_next ? ", " : "\n");
+    if (opt_next)
+       sz += sizeof(", SQLITE_") + strlen (opt_next);
+    if (sz >= 120)
+    {
+      fputs ("\n               ", stdout);
+      sz = 0;
+    }
+  }
+}
+
+/**
+ * Get the "COMPILER=x" value from externals/sqlite3.c
+ */
+static const char *sql_compiler_info (void)
+{
+  const char *opt;
+  int   i;
+
+  for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
+      if (!strncmp("COMPILER=", opt, 9))
+         return (opt+9);
+  return ("?");
+}
+
+#if defined(_DEBUG)
+  #define DBG_RELEASE  "debug"
+#else
+  #define DBG_RELEASE  "release"
+#endif
+
+#if defined(_WIN64)
+  #define CPU_BUILD  "x64"
+#else
+  #define CPU_BUILD  "x86"
+#endif
+
+/**
+ * Print version information.
+ */
+void show_version_info (bool verbose)
+{
+  printf ("dump1090 ver. %s (%s, %s, %s). Built at %s.\n",
+          PROG_VERSION, sql_compiler_info(), CPU_BUILD, DBG_RELEASE, __DATE__);
+  if (verbose)
+  {
+ // print_cflags();
+    sql_info();
+  }
+  exit (0);
 }
 
 /**
