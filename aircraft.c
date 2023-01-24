@@ -13,6 +13,69 @@
 #include "sqlite3.h"
 #include "aircraft.h"
 
+#define USE_VARCHAR 0
+
+#define TRACE(fmt, ...) do {                                                \
+                          if (Modes.debug & DEBUG_GENERAL)                  \
+                             modeS_flogf (stdout, "%s(%u): " fmt,           \
+                                          __FILE__, __LINE__, __VA_ARGS__); \
+                        } while (0)
+
+/**
+ * \def DB_COLUMNS
+ * The Sqlite columns we define.
+ */
+#define DB_COLUMNS "icao24,reg,manufacturer,callsign"
+//                  |      |   |            |
+//                  |      |   |            |____ == field 10: "operatorcallsign"
+//                  |      |   |_________________ == field 3:  "manufacturername"
+//                  |      |_____________________ == field 1:  "registration"
+//                  |____________________________ == field 0:  "icao24"
+
+/**
+ * \def DB_INSERT
+ * The statement used when creating the Sqlite database
+ */
+#define DB_INSERT  "INSERT INTO aircrafts (" DB_COLUMNS ") VALUES"
+
+static struct sqlite3 *g_db = NULL;
+
+static bool sql_create (void);
+static bool sql_open (void);
+static bool sql_begin (void);
+static bool sql_end (void);
+static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec);
+
+static aircraft *aircraft_find (uint32_t addr);
+static const     aircraft_CSV *CSV_lookup_entry (uint32_t addr);
+static const     aircraft_CSV *sql_lookup_entry (uint32_t addr);
+
+/**
+ * Lookup an aircraft in the CSV `Modes.aircraft_list_CSV` or
+ * do a SQLite lookup.
+ */
+static const aircraft_CSV *aircraft_lookup (uint32_t addr, bool *from_sql)
+{
+  const aircraft     *a;
+  const aircraft_CSV *_a;
+
+  if (from_sql)
+     *from_sql = false;
+
+  if (Modes.aircraft_list_CSV)
+     _a = CSV_lookup_entry (addr);
+  else
+  {
+    a = aircraft_find (addr);
+    if (a)
+         _a = a->SQL;
+    else _a = sql_lookup_entry (addr); /* do the `SELECT * FROM` */
+  }
+  if (from_sql && _a)
+     *from_sql = true;
+  return (_a);
+}
+
 /**
  * Create a new aircraft structure.
  *
@@ -22,35 +85,58 @@
  * \param in addr  the specific ICAO address.
  * \param in now   the current tick-time in milli-seconds.
  */
-aircraft *aircraft_create (uint32_t addr, uint64_t now)
+static aircraft *aircraft_create (uint32_t addr, uint64_t now)
 {
-  aircraft *a = calloc (sizeof(*a), 1);
+  aircraft           *a = calloc (sizeof(*a), 1);
+  const aircraft_CSV *_a;
+  bool                from_sql;
 
-  if (a)
+  if (!a)
+     return (NULL);
+
+  a->addr       = addr;
+  a->seen_first = now;
+  a->seen_last  = now;
+  a->show       = A_SHOW_FIRST_TIME;
+  _a = aircraft_lookup (addr, &from_sql);
+
+  /* We really can't tell if it's unique since we keep no global list of that yet
+   */
+  Modes.stat.unique_aircrafts++;
+
+  if (!from_sql)
   {
-    a->addr       = addr;
-    a->seen_first = now;
-    a->seen_last  = now;
-    a->CSV        = aircraft_CSV_lookup_entry (addr);
-    a->show       = A_SHOW_FIRST_TIME;
+    Modes.stat.unique_aircrafts_CSV++;
 
-    /* We really can't tell if it's unique since we keep no global list of that yet
+    /* This points into the `Modes.aircraft_list_CSV` array.
+     * No need to `free()`.
      */
-    Modes.stat.unique_aircrafts++;
-    if (a->CSV)
-       Modes.stat.unique_aircrafts_CSV++;
+    a->CSV = _a;
+  }
+  else
+  {
+    /* Need to duplicate record from sql_exec().
+     * free() it on `aircraft_exit(true)`.
+     */
+    a->SQL = malloc (sizeof(*a->SQL));
+    if (a->SQL)
+    {
+      Modes.stat.unique_aircrafts_SQL++;
+      memcpy (a->SQL, _a, sizeof(*a->SQL));
+      LOG_FILEONLY ("SQL: %06X, regnum: '%s', callsign: '%s', manufact: '%s', country: '%s'\n",
+                    a->addr, a->SQL->reg_num, a->SQL->call_sign, a->SQL->manufact, aircraft_get_country(a->addr));
+    }
   }
   return (a);
 }
 
-
 /**
- * Return the aircraft with the specified ICAO address, or NULL if no aircraft
- * exists with this ICAO address.
+ * Return the aircraft with the specified ICAO address, or NULL if we have
+ * no aircraft with this ICAO address.
  *
  * \param in addr  the specific ICAO address.
  */
-aircraft *aircraft_find (uint32_t addr)
+static aircraft *aircraft_find (uint32_t addr)
 {
   aircraft *a = Modes.aircrafts;
 
@@ -61,6 +147,22 @@ aircraft *aircraft_find (uint32_t addr)
     a = a->next;
   }
   return (NULL);
+}
+
+/**
+ * Fin the aircraft with address `addr` or create a new one.
+ */
+aircraft *aircraft_find_or_create (uint32_t addr, uint64_t now)
+{
+  aircraft *a = aircraft_find (addr);
+
+  if (!a)
+  {
+    a = aircraft_create (addr, now);
+    if (a)
+       LIST_ADD_HEAD (aircraft, &Modes.aircrafts, a);
+  }
+  return (a);
 }
 
 /**
@@ -77,9 +179,9 @@ int aircraft_numbers (void)
 }
 
 /**
- * Add an aircraft record to `Modes.aircraft_list`.
+ * Add an aircraft record to `Modes.aircraft_list_CSV`.
  */
-static int aircraft_CSV_add_entry (const aircraft_CSV *rec)
+static int CSV_add_entry (const aircraft_CSV *rec)
 {
   static aircraft_CSV *copy = NULL;
   static aircraft_CSV *dest = NULL;
@@ -99,7 +201,7 @@ static int aircraft_CSV_add_entry (const aircraft_CSV *rec)
   {
     size_t new_num = 10000 + Modes.aircraft_num_CSV;
 
-    copy   = realloc (Modes.aircraft_list, sizeof(*rec) * new_num);
+    copy   = realloc (Modes.aircraft_list_CSV, sizeof(*rec) * new_num);
     dest   = copy + Modes.aircraft_num_CSV;
     hi_end = copy + new_num;
   }
@@ -107,25 +209,18 @@ static int aircraft_CSV_add_entry (const aircraft_CSV *rec)
   if (!copy)
      return (0);
 
-  Modes.aircraft_list = copy;
+  Modes.aircraft_list_CSV = copy;
   assert (dest < hi_end);
   memcpy (dest, rec, sizeof(*rec));
   Modes.aircraft_num_CSV++;
   dest = copy + Modes.aircraft_num_CSV;
-
-#ifdef USE_SQLITE3
-  if (Modes.aircraft_db_sql)
-  {
-    aircraft_sql3_add_entry (rec);
-  }
-#endif
   return (1);
 }
 
 /**
  * The compare function for `qsort()` and `bsearch()`.
  */
-static int aircraft_CSV_compare_on_addr (const void *_a, const void *_b)
+static int CSV_compare_on_addr (const void *_a, const void *_b)
 {
   const aircraft_CSV *a = (const aircraft_CSV*) _a;
   const aircraft_CSV *b = (const aircraft_CSV*) _b;
@@ -138,73 +233,126 @@ static int aircraft_CSV_compare_on_addr (const void *_a, const void *_b)
 }
 
 /**
- * Do a binary search for an aircraft in `Modes.aircraft_list`.
+ * Do a binary search for an aircraft in `Modes.aircraft_list_CSV`.
  */
-const aircraft_CSV *aircraft_CSV_lookup_entry (uint32_t addr)
+static const aircraft_CSV *CSV_lookup_entry (uint32_t addr)
 {
   aircraft_CSV key = { addr, "" };
 
-  if (!Modes.aircraft_list)
+  if (!Modes.aircraft_list_CSV)
      return (NULL);
-  return bsearch (&key, Modes.aircraft_list, Modes.aircraft_num_CSV,
-                  sizeof(*Modes.aircraft_list), aircraft_CSV_compare_on_addr);
+  return bsearch (&key, Modes.aircraft_list_CSV, Modes.aircraft_num_CSV,
+                  sizeof(*Modes.aircraft_list_CSV), CSV_compare_on_addr);
 }
 
 /**
- * If `Modes.debug != 0`, do a simple test on the `Modes.aircraft_list`.
+ * If `Modes.debug != 0`, do a simple test on the `Modes.aircraft_list_CSV`.
  *
  * Also called if `Modes.aircraft_db_sql != 0` to compare the lookup speed
- * of WinSqlite3 compared to our `bsearch()` lookup.
+ * of Sqlite3 compared to our `bsearch()` lookup.
  */
-static void aircraft_CSV_test (void)
+static void aircraft_tests (void)
 {
-  const aircraft_CSV *a_CSV;
-  const char  *reg_num, *manufact, *country;
+  const char  *country;
   unsigned     i, num_ok;
-  uint32_t     addr;
   static const aircraft_CSV a_tests[] = {
                { 0xAA3496, "N757FQ",  "Cessna" },
-               { 0x800737, "VT-ANQ",  "Boeing" },
+               { 0x800737, "VT-ANQ",  "Boeing" }, /* callsign: AIRINDIA */
                { 0xAB34DE, "N821DA",  "Beech"  },
                { 0x800737, "VT-ANQ",  "Boeing" },
-               { 0xA713D5, "N555UW",  "Piper" },
-               { 0x3532C1, "T.23-01", "AIRBUS" },  /* Spanish Air Force */
+               { 0xA713D5, "N555UW",  "Piper"  },
+               { 0x3532C1, "T.23-01", "AIRBUS" },  /* callsign: AIRMIL, Spain */
              };
+  const aircraft_CSV *t = a_tests + 0;
+  char  sql_file [MAX_PATH] = "";
 
-  LOG_STDOUT ("Checking 5 fixed records against \"%s\":\n", Modes.aircraft_db);
+  if (Modes.aircraft_sql[0])
+     snprintf (sql_file, sizeof(sql_file), "\nand against \"%s\"",
+               basename(Modes.aircraft_sql));
 
-  for (i = num_ok = 0; i < DIM(a_tests); i++)
+  LOG_STDOUT ("Checking 5 fixed records against \"%s\"%s:\n",
+              basename(Modes.aircraft_db), sql_file);
+
+  for (i = num_ok = 0; i < DIM(a_tests); i++, t++)
   {
-    addr  = a_tests[i].addr;
-    a_CSV = aircraft_CSV_lookup_entry (addr);
-    reg_num = manufact = "?";
-    if (a_CSV && a_CSV->reg_num[0])
-    {
-      reg_num = a_CSV->reg_num;
-      num_ok++;
-    }
-    if (a_CSV && a_CSV->manufact[0])
-       manufact = a_CSV->manufact;
+    const aircraft_CSV *a_CSV, *a_SQL;
+    const char *call_sign = "?";
+    const char *reg_num   = "?";
+    const char *manufact  = "?";
 
-    country = aircraft_get_country (addr);
+    a_CSV = CSV_lookup_entry (t->addr);
+    a_SQL = sql_lookup_entry (t->addr);
+
+    if (a_CSV)
+    {
+      if (a_CSV->call_sign[0])
+         call_sign = a_CSV->call_sign;
+      if (a_CSV->manufact[0])
+         manufact = a_CSV->manufact;
+      if (a_CSV->reg_num[0])
+      {
+        reg_num = a_CSV->reg_num;
+        num_ok++;
+      }
+    }
+    else if (a_SQL)
+    {
+      if (a_SQL->call_sign[0])
+         call_sign = a_SQL->call_sign;
+      if (a_SQL->manufact[0])
+         manufact = a_SQL->manufact;
+      if (a_SQL->reg_num[0])
+      {
+        reg_num = a_SQL->reg_num;
+        num_ok++;
+      }
+    }
+
+    country = aircraft_get_country (t->addr);
     LOG_STDOUT ("  addr: 0x%06X, reg-num: %-8s manufact: %-20s country: %-30s %s\n",
-                addr, reg_num, manufact, country ? country : "?",
-                aircraft_is_military(addr) ? "Military" : "");
+                t->addr, reg_num, manufact, country ? country : "?",
+                aircraft_is_military(t->addr) ? "Military" : "");
   }
   LOG_STDOUT ("%3u OKAY\n", num_ok);
   LOG_STDOUT ("%3u FAIL\n", i - num_ok);
 
-  LOG_STDOUT ("Checking 5 random records in \"%s\":\n", Modes.aircraft_db);
+  if (!Modes.aircraft_list_CSV)
+     return;
+
+  LOG_STDOUT ("\nChecking 5 random records in \"%s\"%s:\n",
+              basename(Modes.aircraft_db), sql_file);
 
   for (i = 0; i < 5; i++)
   {
+    const aircraft_CSV *a_CSV, *a_SQL;
     unsigned rec_num = random_range (0, Modes.aircraft_num_CSV-1);
+    uint32_t addr;
+    double   usec;
 
-    addr = (Modes.aircraft_list + rec_num) -> addr;
-    a_CSV = aircraft_CSV_lookup_entry (addr);
-    LOG_STDOUT ("  rec: %6u: addr: 0x%06X, reg-num: %-8s manufact: %-20.20s country: %-20.20s military: %d\n",
-                rec_num, addr, a_CSV->reg_num, a_CSV->manufact,
-                aircraft_get_country(addr), aircraft_is_military(addr));
+    usec  = get_usec_now();
+    addr  = (Modes.aircraft_list_CSV + rec_num) -> addr;
+    a_CSV = CSV_lookup_entry (addr);
+    usec  = get_usec_now() - usec;
+
+    LOG_STDOUT ("  CSV rec: %6u: addr: 0x%06X, reg-num: %-8s manufact: %-20.20s callsign: %-10s %6.0f usec\n",
+                rec_num, addr,
+                a_CSV->reg_num[0]   ? a_CSV->reg_num   : "-",
+                a_CSV->manufact[0]  ? a_CSV->manufact  : "-",
+                a_CSV->call_sign[0] ? a_CSV->call_sign : "-",
+                usec);
+
+    if (Modes.aircraft_db_sql)
+    {
+      usec  = get_usec_now();
+      a_SQL = sql_lookup_entry (addr);
+      usec  = get_usec_now() - usec;
+
+      LOG_STDOUT ("  SQL rec:                         reg-num: %-8s manufact: %-20.20s callsign: %-10s %6.0f usec\n",
+                  (a_SQL && a_SQL->reg_num[0])   ? a_SQL->reg_num   : "-",
+                  (a_SQL && a_SQL->manufact[0])  ? a_SQL->manufact  : "-",
+                  (a_SQL && a_SQL->call_sign[0]) ? a_SQL->call_sign : "-",
+                  usec);
+    }
   }
 }
 
@@ -319,9 +467,8 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
   return (true);
 }
 
-
 /**
- * The CSV callback for adding a record to `Modes.aircraft_list`.
+ * The CSV callback for adding a record to `Modes.aircraft_list_CSV`.
  *
  * \param[in]  ctx   the CSV context structure.
  * \param[in]  value the value for this CSV field in record `ctx->rec_num`.
@@ -336,31 +483,30 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
  *
  * 27 fields!
  */
-static int aircraft_CSV_callback (struct CSV_context *ctx, const char *value)
+static int CSV_callback (struct CSV_context *ctx, const char *value)
 {
   static aircraft_CSV rec = { 0, "" };
   int    rc = 1;
 
   if (ctx->field_num == 0)        /* "icao24" field */
   {
-    if (strlen(value) == 6)
-       rec.addr = mg_unhexn (value, 6);
+    rec.addr = mg_unhexn (value, strlen(value));
   }
   else if (ctx->field_num == 1)   /* "registration" field */
   {
-    strncpy (rec.reg_num, value, sizeof(rec.reg_num));
+    strncpy (rec.reg_num, value, sizeof(rec.reg_num)-1);
   }
   else if (ctx->field_num == 3)   /* "manufacturername" field */
   {
-    strncpy (rec.manufact, value, sizeof(rec.manufact));
+    strncpy (rec.manufact, value, sizeof(rec.manufact)-1);
   }
   else if (ctx->field_num == 10)  /* "operatorcallsign" field */
   {
-    strncpy (rec.call_sign, value, sizeof(rec.call_sign));
+    strncpy (rec.call_sign, value, sizeof(rec.call_sign)-1);
   }
   else if (ctx->field_num == ctx->num_fields - 1)  /* we got the last field */
   {
-    rc = aircraft_CSV_add_entry (&rec);
+    rc = CSV_add_entry (&rec);
     memset (&rec, '\0', sizeof(rec));    /* ready for a new record. */
   }
   return (rc);
@@ -369,55 +515,116 @@ static int aircraft_CSV_callback (struct CSV_context *ctx, const char *value)
 /**
  * Initialize the aircraft-database from .csv file.
  *
- * Or if the .SQL file exist, initialize that.
+ * But if the .sqlite file exist, use that instead.
  */
 bool aircraft_CSV_load (void)
 {
-  struct stat st;
+  struct stat st_csv;
+  struct stat st_sql;
+  double usec;
+  double csv_load_t  = 0.0;
+  double sql_load_t  = 0.0;
+  double sql_create_t = 0.0;
+  bool   sql_created = false;
+  bool   sql_opened  = false;
 
   if (!stricmp(Modes.aircraft_db, "NUL"))   /* User want no .csv file */
-     return (false);
+     return (true);
 
-  if (stat(Modes.aircraft_db, &st) != 0)
+  if (stat(Modes.aircraft_db, &st_csv) != 0)
   {
     LOG_STDERR ("Aircraft database \"%s\" does not exist.\n", Modes.aircraft_db);
     return (false);
   }
 
+  get_usec_now(); /* calls 'QueryPerformanceFrequency()' */
+
   if (Modes.aircraft_db_sql)
   {
-#ifdef USE_SQLITE3
-   /**
-    * \todo
-    * Prepare some SQL statements for the CSV callback to create and add into
-    * the "aircraftDatabase.sql" file.
-    */
-   aircraft_sql3_create_db (Modes.aircraft_db);
+#ifdef SQLITE_OMIT_AUTOINIT
+    int rc = sqlite3_initialize();
+
+    if (rc != SQLITE_OK)
+       LOG_STDERR ("Sqlite init failed.\n" );
+    else
 #endif
+    {
+      snprintf (Modes.aircraft_sql, sizeof(Modes.aircraft_sql), "%s.sqlite", Modes.aircraft_db);
+      if (stat(Modes.aircraft_sql, &st_sql) == 0)
+      {
+        usec = get_usec_now();
+        sql_opened = sql_open();
+        sql_load_t = get_usec_now() - usec;
+
+        /**
+         * \todo If `sql_st.st_mtime < csv_st.st_mtime`, call `sql_create()`?
+         */
+      }
+      else
+      {
+        TRACE ("Aircraft Sqlite database \"%s\" does not exist.\n"
+               "Creating new from \"%s\".\n", Modes.aircraft_sql, Modes.aircraft_db);
+        sql_created = sql_create();
+      }
+    }
   }
 
-  memset (&Modes.csv_ctx, '\0', sizeof(Modes.csv_ctx));
-  Modes.csv_ctx.file_name  = Modes.aircraft_db;
-  Modes.csv_ctx.delimiter  = ',';
-  Modes.csv_ctx.callback   = aircraft_CSV_callback;
-  Modes.csv_ctx.line_size  = 2000;
-  if (!CSV_open_and_parse_file(&Modes.csv_ctx))
+  if (!sql_opened || sql_created ||
+      Modes.debug)   /* To compare speed of 'Modes.aircraft_list_CSV' lookup VS. sql_lookup_entry() */
   {
-    LOG_STDERR ("Parsing of \"%s\" failed: %s\n", Modes.aircraft_db, strerror(errno));
-    return (false);
-  }
-  DEBUG (DEBUG_GENERAL, "Parsed %u records from: \"%s\"\n", Modes.aircraft_num_CSV, Modes.aircraft_db);
+    memset (&Modes.csv_ctx, '\0', sizeof(Modes.csv_ctx));
+    Modes.csv_ctx.file_name = Modes.aircraft_db;
+    Modes.csv_ctx.delimiter = ',';
+    Modes.csv_ctx.callback  = CSV_callback;
+    Modes.csv_ctx.line_size = 2000;
 
-  if (Modes.aircraft_num_CSV > 0)
-  {
-    qsort (Modes.aircraft_list, Modes.aircraft_num_CSV, sizeof(*Modes.aircraft_list), aircraft_CSV_compare_on_addr);
-    if (Modes.debug)
-       aircraft_CSV_test();
+    usec = get_usec_now();
+
+    if (!CSV_open_and_parse_file(&Modes.csv_ctx))
+    {
+      LOG_STDERR ("Parsing of \"%s\" failed: %s\n", Modes.aircraft_db, strerror(errno));
+      return (false);
+    }
+
+    DEBUG (DEBUG_GENERAL, "Parsed %u records from: \"%s\"\n", Modes.aircraft_num_CSV, Modes.aircraft_db);
+
+    if (Modes.aircraft_num_CSV > 0)
+    {
+      qsort (Modes.aircraft_list_CSV, Modes.aircraft_num_CSV, sizeof(*Modes.aircraft_list_CSV),
+             CSV_compare_on_addr);
+      csv_load_t = get_usec_now() - usec;
+    }
   }
+
+  if (sql_created && Modes.aircraft_num_CSV > 0)
+  {
+    const aircraft_CSV *a = Modes.aircraft_list_CSV + 0;
+    uint32_t i;
+
+    LOG_STDOUT ("Creating SQL-database... ");
+    usec = get_usec_now();
+    sql_begin();
+
+    for (i = 0; i < Modes.aircraft_num_CSV; i++, a++)
+        sql_add_entry (i, a);
+
+    sql_end();
+    sql_create_t = get_usec_now() - usec;
+    LOG_STDOUT ("\n");
+  }
+
+  if (Modes.debug)
+  {
+    DEBUG (DEBUG_GENERAL, "CSV loaded and parsed in %.3f ms.\n", csv_load_t/1E3);
+    if (sql_create_t > 0.0)
+         DEBUG (DEBUG_GENERAL, "SQL created in %.3f ms.\n", sql_create_t/1E3);
+    else DEBUG (DEBUG_GENERAL, "SQL loaded in %.3f ms.\n", sql_load_t/1E3);
+    aircraft_tests();
+   }
   return (true);
 }
 
-/*
+/**
  * Declare ICAO registration address ranges and country.
  * Mostly generated from the assignment table in the appendix to Chapter 9 of
  * Annex 10 Vol III, Second Edition, July 2007 (with amendments through 88-A, 14/11/2013)
@@ -706,39 +913,404 @@ uint32_t aircraft_get_addr (uint8_t a0, uint8_t a1, uint8_t a2)
 /**
  * Return the hex-string for the 24-bit ICAO address in `_a[0..2]`.
  * Also look for the registration number and manufacturer from
- * the `Modes.aircraft_list`.
+ * the CSV or SQL data structures.
  */
 const char *aircraft_get_details (const uint8_t *_a)
 {
-  static char         ret_buf[100];
+  static char         buf[100];
   const aircraft_CSV *a;
-  char               *p = ret_buf;
-  size_t              n, left = sizeof(ret_buf);
+  char               *p = buf;
+  size_t              sz, left = sizeof(buf);
   uint32_t            addr = aircraft_get_addr (_a[0], _a[1], _a[2]);
 
-  n = snprintf (p, left, "%06X", addr);
-  p    += n;
-  left -= n;
+  sz = snprintf (p, left, "%06X", addr);
+  p    += sz;
+  left -= sz;
 
-  a = aircraft_CSV_lookup_entry (addr);
+  a = aircraft_lookup (addr, NULL);
   if (a && a->reg_num[0])
      snprintf (p, left, " (reg-num: %s, manuf: %s, call-sign: %s%s)",
                a->reg_num, a->manufact[0] ? a->manufact : "?", a->call_sign[0] ? a->call_sign : "?",
                aircraft_is_military(addr) ? ", Military" : "");
-  return (ret_buf);
+  return (buf);
 }
 
-#ifdef USE_SQLITE3
-bool aircraft_sql3_create_db (const char *db_file)
+/**
+ * Sqlite3 interface functions
+ */
+static int sql_callback (void *cb_arg, int argc, char **argv, char **col_name)
 {
-  (void) db_file;
-  return (false);
+  aircraft_CSV *a = (aircraft_CSV*) cb_arg;
+
+  if (argc == 4 && mg_unhexn(argv[0], 6) == a->addr)
+  {
+    strncpy (a->reg_num, argv[1], sizeof(a->reg_num)-1);
+    strncpy (a->manufact, argv[2], sizeof(a->manufact)-1);
+    strncpy (a->call_sign, argv[3], sizeof(a->call_sign)-1);
+  }
+  (void) col_name;
+  return (0);
 }
 
-bool aircraft_sql3_add_entry (const aircraft_CSV *rec)
+static const aircraft_CSV *sql_lookup_entry (uint32_t addr)
 {
-  (void) rec;
-  return (false);
+  static aircraft_CSV  a;
+  const  aircraft_CSV *ret = NULL;
+  char                 query [100];
+  char                *err_msg = NULL;
+  uint32_t             addr2;
+  int                  rc;
+
+  if (!g_db)
+     return (NULL);
+
+  memset (&a, '\0', sizeof(a));
+  a.addr = addr;
+  addr2  = addr;
+  snprintf (query, sizeof(query), "SELECT * FROM aircrafts WHERE icao24='%06x';", addr);
+  rc = sqlite3_exec (g_db, query, sql_callback, &a, &err_msg);
+  Modes.stat.aircrafts_SQL_exec++;
+
+  if (rc != SQLITE_OK)
+  {
+    TRACE ("SQL error: rc: %d, %s\n", rc, err_msg);
+    sqlite3_free (err_msg);
+    if (rc == SQLITE_MISUSE)
+       aircraft_exit (false);
+  }
+  else if (a.addr == addr2)
+  {
+    ret = &a;
+  }
+  return (ret);
 }
+
+static void sql_log (void *cb_arg, int err, const char *str)
+{
+  TRACE ("err: %d, %s\n", err, str);
+  (void) cb_arg;
+}
+
+static bool sql_init (const char *what, int flags)
+{
+  int rc;
+
+  if (!g_db)
+     sqlite3_config (SQLITE_CONFIG_LOG, sql_log, NULL);
+
+  rc = sqlite3_open_v2 (Modes.aircraft_sql, &g_db, flags, NULL);
+  if (rc != SQLITE_OK)
+  {
+    TRACE ("Can't %s database: rc: %d, %s\n", what, rc, sqlite3_errmsg(g_db));
+    aircraft_exit (false);
+    return (false);
+  }
+  return (true);
+}
+
+/**
+ * Create the `Modes.aircraft_sql` database with 4 columns.
+ *
+ * And make the CSV callback add the records into the `Modes.aircraft_sql` file.
+ */
+static bool sql_create (void)
+{
+  char *err_msg = NULL;
+  int   rc;
+
+  if (!sql_init("create", SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE))
+     return (false);
+
+#if USE_VARCHAR
+  char  buf [400];
+  const aircraft_CSV a = { 0 };
+
+  snprintf (buf, sizeof(buf),
+            "CREATE TABLE aircrafts (icao24,"
+            " reg VARCHAR(%zu), manufacturer VARCHAR(%zu), callsign VARCHAR(%zu));",
+            sizeof(a.reg_num)-1, sizeof(a.manufact)-1, sizeof(a.call_sign)-1);
+
+  rc = sqlite3_exec (g_db, buf, NULL, NULL, &err_msg);
+
+#else
+  rc = sqlite3_exec (g_db, "CREATE TABLE aircrafts (" DB_COLUMNS ");",
+                     NULL, NULL, &err_msg);
 #endif
+
+  if (rc != SQLITE_OK)
+  {
+    TRACE ("rc: %d, %s\n", rc, err_msg);
+    sqlite3_free (err_msg);
+    aircraft_exit (false);
+    return (false);
+  }
+  return (true);
+}
+
+static bool sql_open (void)
+{
+  return sql_init ("open", SQLITE_OPEN_READONLY /* | SQLITE_OPEN_MEMORY */);
+}
+
+static bool sql_begin (void)
+{
+  char *err_msg = NULL;
+  int   rc = sqlite3_exec (g_db, "BEGIN;", NULL, NULL, &err_msg);
+
+  if (rc != SQLITE_OK)
+  {
+    TRACE ("rc: %d, %s\n", rc, err_msg);
+    sqlite3_free (err_msg);
+  }
+  return (rc == SQLITE_OK);
+}
+
+static bool sql_end (void)
+{
+  char *err_msg = NULL;
+  int   rc = sqlite3_exec (g_db, "END;", NULL, NULL, &err_msg);
+
+  if (rc != SQLITE_OK)
+  {
+    TRACE ("rc: %d, %s\n", rc, err_msg);
+    sqlite3_free (err_msg);
+  }
+  return (rc == SQLITE_OK);
+}
+
+static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec)
+{
+  aircraft_CSV copy;
+  char   buf [sizeof(copy) + sizeof(DB_INSERT) + 100];
+  char  *values, *err_msg = NULL;
+  int    rc;
+  size_t len;
+
+  memcpy (&copy, rec, sizeof(copy));
+
+  /* Use the '%Q' format to escape some control characters.
+   * Another "feature" of Sqlite is that upper-case hex values are
+   * turned into lower-case when 'SELECT * FROM' is done!
+   */
+  len = mg_snprintf (buf, sizeof(buf),
+                     DB_INSERT " ('%06x',%Q,%Q,%Q)",
+                     copy.addr, copy.reg_num, copy.manufact, copy.call_sign);
+
+  values = buf + sizeof(DB_INSERT) + 1;
+
+  rc = sqlite3_exec (g_db, buf, NULL, NULL, &err_msg);
+
+  if (((num+1) % 1000) == 0)
+  {
+    if (num >= 100000)
+       LOG_STDOUT ("%u\b\b\b\b\b\b", num);
+    else if (num >= 10000)
+       LOG_STDOUT ("%u\b\b\b\b\b", num);
+    else if (num >= 1000)
+       LOG_STDOUT ("%u\b\b\b\b", num);
+  }
+
+  if (rc != SQLITE_OK)
+  {
+    TRACE ("\nError at record %u: rc:%d, err_msg: %s\nvalues: '%s'\n", num, rc, err_msg, values);
+    sqlite3_free (err_msg);
+    return (false);
+  }
+  return (true);
+}
+
+
+/**
+ * Return a malloced JSON description of the active planes.
+ * But only those whose latitude and longitude are known.
+ *
+ * Since various Web-clients expects different elements in this returned
+ * JSON array, add those which is approprite for that Web-clients only.
+ *
+ * E.g. an extended web-client wants an empty array like this:
+ * ```
+ *  {
+ *    "now": 1656176445, "messages": 1,
+ *    "aircraft": []
+ *  }
+ * ```
+ *
+ * Or an array with 1 element like this:
+ * ```
+ * {
+ *   "now:": 1656176445, "messages": 1,
+ *   "aircraft": [{"hex":"47807D", "flight":"", "lat":60.280609, "lon":5.223715, "altitude":875, "track":199, "speed":96}]
+ * }
+ * ```
+ */
+char *aircraft_make_json (bool extended_client)
+{
+  struct timeval tv_now;
+  aircraft      *a = Modes.aircrafts;
+  int            l, buflen = 1024;        /* The initial buffer is incremented as needed. */
+  char          *buf = malloc (buflen);
+  char          *p = buf;
+
+  if (!buf)
+     return (NULL);
+
+  if (extended_client)
+  {
+    _gettimeofday (&tv_now, NULL);
+    l = snprintf (p, buflen, "{\"now\": %lu.%03lu, \"messages\": %llu, \"aircraft\" : [",
+                  tv_now.tv_sec, tv_now.tv_usec/1000, Modes.stat.messages_total);
+
+    p      += l;
+    buflen -= l;
+  }
+  else
+  {
+    *p++ = '[';
+    buflen--;
+  }
+
+  while (a)
+  {
+    int altitude = a->altitude;
+    int speed    = a->speed;
+
+    /* Convert units to metric if '--metric' was specified.
+     * But an 'extended_client' wants altitude and speed in aeronatical units.
+     */
+    if (Modes.metric && !extended_client)
+    {
+      altitude = (int) (double) (a->altitude / 3.2828);
+      speed    = (int) (1.852 * (double) a->speed);
+    }
+
+    if (VALID_POS(a->position))
+    {
+      size_t f_len = strlen (a->flight);
+
+      while (a->flight[f_len-1] == ' ')   /* do not send trailing spaces */
+         f_len--;
+
+      l = snprintf (p, buflen,
+                    "{\"hex\": \"%06X\", \"flight\": \"%.*s\", \"lat\": %f, \"lon\": %f, \"altitude\": %d, \"track\": %d, \"speed\": %d",
+                    a->addr, (int)f_len, a->flight, a->position.lat, a->position.lon, altitude, a->heading, speed);
+      p      += l;
+      buflen -= l;
+
+      if (extended_client)
+      {
+        l = snprintf (p, buflen, ", \"type\": \"%s\", \"messages\": %u, \"seen\": %lu, \"seen_pos\": %lu",
+                      "adsb_icao", a->messages, 2, 1 /* tv_now.tv_sec - a->seen_first/1000 */);
+        p      += l;
+        buflen -= l;
+      }
+
+      strcpy (p, "},\n");
+      p      += 3;
+      buflen -= 3;
+
+      /* Resize if needed.
+       */
+      if (buflen < 256)
+      {
+        int used = p - buf;
+
+        buflen += 1024;    /* Our increment. */
+        buf = realloc (buf, used + buflen);
+        if (!buf)
+           return (NULL);
+
+        p = buf + used;
+      }
+    }
+    a = a->next;
+  }
+
+  /* Remove the final comma if any, and close the json array
+   */
+  if (p[-2] == ',')
+     p -= 2;
+
+  *p++ = ']';
+  if (extended_client)
+     *p++ = '}';
+  *p = '\0';
+  return (buf);
+}
+
+/**
+ * Called from `background_tasks()` 4 times per second.
+ *
+ * If we don't receive new nessages within `Modes.interactive_ttl`
+ * milli-seconds, we remove the aircraft from the list.
+ */
+void aircraft_remove_stale (uint64_t now)
+{
+  aircraft *a, *a_next;
+
+  for (a = Modes.aircrafts; a; a = a_next)
+  {
+    int64_t diff = (int64_t) (now - a->seen_last);
+
+    a_next = a->next;
+
+    /* Mark this plane for a "last time" view on next refresh?
+     */
+    if (a->show == A_SHOW_NORMAL && diff >= Modes.interactive_ttl - 1000)
+    {
+      a->show = A_SHOW_LAST_TIME;
+    }
+    else if (diff > Modes.interactive_ttl)
+    {
+      /* Remove the element from the linked list.
+       */
+      LIST_DELETE (aircraft, &Modes.aircrafts, a);
+      free (a->SQL);
+      free (a);
+    }
+  }
+}
+
+/**
+ * Called to:
+ *  \li Close the Sqlite interface.
+ *  \li And possibly free memory allocated here (if called from `modeS_exit()`).
+ */
+void aircraft_exit (bool free_aircrafts)
+{
+  aircraft *a;
+  aircraft *a_next;
+
+  if (g_db)
+     sqlite3_close (g_db);
+  g_db = NULL;
+
+  if (!free_aircrafts)
+     return;
+
+  /* Remove all active aircrafts from the list.
+   */
+#if 1
+  for (a = Modes.aircrafts; a; a = a_next)
+  {
+    a_next = a->next;
+    LIST_DELETE (aircraft, &Modes.aircrafts, a);
+    free (a->SQL);
+    free (a);
+  }
+
+#else
+  aircraft *a_prev = NULL;
+
+  for (a = Modes.aircrafts; a; a = a_next)
+  {
+    a_next = a->next;
+    free (a->SQL);
+    free (a);
+    if (!a_prev)
+         Modes.aircrafts = a_next;
+    else a_prev->next = a_next;
+  }
+#endif
+}
+
 

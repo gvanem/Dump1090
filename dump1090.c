@@ -23,7 +23,6 @@
 #include "misc.h"
 #include "trace.h"
 #include "sdrplay.h"
-#include "sqlite3.h"
 #include "location.h"
 #include "aircraft.h"
 
@@ -743,7 +742,13 @@ static int modeS_init (void)
        Modes.magnitude_lut [I*129+Q] = (uint16_t) round (360 * hypot(I, Q));
   }
 
-  aircraft_CSV_load();
+  if (!aircraft_CSV_load())
+     return (1);
+
+#if 0
+  if (Modes.aircraft_db_sql)
+     return (1);  // for testing Sqlite
+#endif
 
   if (Modes.interactive)
      return console_init();
@@ -2916,16 +2921,8 @@ static aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now
   /* Loookup our aircraft or create a new one.
    */
   addr = aircraft_get_addr (mm->AA[0], mm->AA[1], mm->AA[2]);
-  a = aircraft_find (addr);
+  a = aircraft_find_or_create (addr, now);
   if (!a)
-  {
-    a = aircraft_create (addr, now);
-    if (!a)
-       return (NULL);          /* Not fatal; there could be available memory later */
-
-    LIST_ADD_HEAD (aircraft, &Modes.aircrafts, a);
-  }
-  else
   {
     /* If it is an already known aircraft, move it on head
      * so we keep aircrafts ordered by received message time.
@@ -3100,7 +3097,16 @@ static bool interactive_show_aircraft (const aircraft *a, uint64_t now)
        snprintf (distance_buf, sizeof(distance_buf), "%s", est_distance);
   }
 
-  if (a->CSV)
+  if (a->SQL)
+  {
+    if (a->SQL->reg_num[0])
+       reg_num = a->SQL->reg_num;
+#if 0
+    if (a->SQL->call_sign[0])
+       call_sign = a->SQL->call_sign;
+#endif
+  }
+  else if (a->CSV)
   {
     if (a->CSV->reg_num[0])
        reg_num = a->CSV->reg_num;
@@ -3234,58 +3240,6 @@ static void interactive_show_data (uint64_t now)
 }
 
 /**
- * Called from `background_tasks()` 4 times per second.
- *
- * If we don't receive new nessages within `Modes.interactive_ttl`
- * milli-seconds, we remove the aircraft from the list.
- */
-static void remove_stale_aircrafts (uint64_t now)
-{
-  aircraft *a, *a_next;
-
-  for (a = Modes.aircrafts; a; a = a_next)
-  {
-    int64_t diff = (int64_t) (now - a->seen_last);
-
-    a_next = a->next;
-
-    /* Mark this plane for a "last time" view on next refresh?
-     */
-    if (a->show == A_SHOW_NORMAL && diff >= Modes.interactive_ttl - 1000)
-    {
-      a->show = A_SHOW_LAST_TIME;
-    }
-    else if (diff > Modes.interactive_ttl)
-    {
-      /* Remove the element from the linked list.
-       */
-      LIST_DELETE (aircraft, &Modes.aircrafts, a);
-      free (a);
-    }
-  }
-}
-
-/**
- * Remove all active aircrafts from the list.
- */
-static void free_all_aircrafts (void)
-{
-  aircraft *a = Modes.aircrafts;
-  aircraft *prev = NULL;
-
-  while (a)
-  {
-    aircraft *next = a->next;
-
-    free (a);
-    if (!prev)
-         Modes.aircrafts = next;
-    else prev->next = next;
-    a = next;
-  }
-}
-
-/**
  * Read raw IQ samples from `stdin` and filter everything that is lower than the
  * specified level for more than 256 samples in order to reduce
  * example file size.
@@ -3340,123 +3294,6 @@ static char *receiver_to_json (void)
                       "history", history_size,
                       "lat",     Modes.home_pos.lat,
                       "lon",     Modes.home_pos.lon);
-}
-
-/**
- * Return a malloced JSON description of the active planes.
- * But only those whose latitude and longitude are known.
- *
- * Since various Web-clients expects different elements in this returned
- * JSON array, add those which is approprite for that Web-clients only.
- *
- * E.g. an extended web-client wants an empty array like this:
- * ```
- *  {
- *    "now": 1656176445, "messages": 1,
- *    "aircraft": []
- *  }
- * ```
- *
- * Or an array with 1 element like this:
- * ```
- * {
- *   "now:": 1656176445, "messages": 1,
- *   "aircraft": [{"hex":"47807D", "flight":"", "lat":60.280609, "lon":5.223715, "altitude":875, "track":199, "speed":96}]
- * }
- * ```
- */
-static char *aircrafts_to_json (bool extended_client)
-{
-  struct timeval tv_now;
-  aircraft      *a = Modes.aircrafts;
-  int            l, buflen = 1024;        /* The initial buffer is incremented as needed. */
-  char          *buf = malloc (buflen);
-  char          *p = buf;
-
-  if (!buf)
-     return (NULL);
-
-  if (extended_client)
-  {
-    _gettimeofday (&tv_now, NULL);
-    l = snprintf (p, buflen, "{\"now\": %lu.%03lu, \"messages\": %llu, \"aircraft\" : [",
-                  tv_now.tv_sec, tv_now.tv_usec/1000, Modes.stat.messages_total);
-
-    p      += l;
-    buflen -= l;
-  }
-  else
-  {
-    *p++ = '[';
-    buflen--;
-  }
-
-  while (a)
-  {
-    int altitude = a->altitude;
-    int speed    = a->speed;
-
-    /* Convert units to metric if '--metric' was specified.
-     * But an 'extended_client' wants altitude and speed in aeronatical units.
-     */
-    if (Modes.metric && !extended_client)
-    {
-      altitude = (int) (double) (a->altitude / 3.2828);
-      speed    = (int) (1.852 * (double) a->speed);
-    }
-
-    if (VALID_POS(a->position))
-    {
-      size_t f_len = strlen (a->flight);
-
-      while (a->flight[f_len-1] == ' ')   /* do not send trailing spaces */
-         f_len--;
-
-      l = snprintf (p, buflen,
-                    "{\"hex\": \"%06X\", \"flight\": \"%.*s\", \"lat\": %f, \"lon\": %f, \"altitude\": %d, \"track\": %d, \"speed\": %d",
-                    a->addr, (int)f_len, a->flight, a->position.lat, a->position.lon, altitude, a->heading, speed);
-      p      += l;
-      buflen -= l;
-
-      if (extended_client)
-      {
-        l = snprintf (p, buflen, ", \"type\": \"%s\", \"messages\": %u, \"seen\": %lu, \"seen_pos\": %lu",
-                      "adsb_icao", a->messages, 2, 1 /* tv_now.tv_sec - a->seen_first/1000 */);
-        p      += l;
-        buflen -= l;
-      }
-
-      strcpy (p, "},\n");
-      p      += 3;
-      buflen -= 3;
-
-      /* Resize if needed.
-       */
-      if (buflen < 256)
-      {
-        int used = p - buf;
-
-        buflen += 1024;    /* Our increment. */
-        buf = realloc (buf, used + buflen);
-        if (!buf)
-           return (NULL);
-
-        p = buf + used;
-      }
-    }
-    a = a->next;
-  }
-
-  /* Remove the final comma if any, and close the json array
-   */
-  if (p[-2] == ',')
-     p -= 2;
-
-  *p++ = ']';
-  if (extended_client)
-     *p++ = '}';
-  *p = '\0';
-  return (buf);
 }
 
 /**
@@ -3894,7 +3731,7 @@ static int connection_handler_http (mg_connection *conn,
 
   if (is_dump1090 || is_extended)
   {
-    char *data = aircrafts_to_json (is_extended);
+    char *data = aircraft_make_json (is_extended);
 
     /* "Cross Origin Resource Sharing":
      * https://www.freecodecamp.org/news/access-control-allow-origin-header-explained/
@@ -4345,7 +4182,7 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
        spi = -1;
   }
 
-  /* Field 11 could contain the call-sign we can get from `aircraft_find()::reg_num`.
+  /* Field 11 could contain the call-sign we can get from `aircraft_find_or_create()::reg_num`.
    */
   if (mm->msg_type == 0)
   {
@@ -4638,7 +4475,7 @@ static void show_help (const char *fmt, ...)
           "    --database-update<=url>  Redownload the above .csv-file if older than 10 days.\n"
           "                             (needs `unzip.exe` on PATH. default URL:\n"
           "                             `%s`).\n"
-          "    --database-sql           Add the above .CSV-file into a Sqlite3 database (not yet).\n"
+          "    --database-sql           Add the above .CSV-file into a Sqlite3 database.\n"
           "    --debug <flags>          Debug mode; see below for details.\n"
           "    --infile <filename>      Read data from file (use `-' for stdin).\n"
           "    --interactive            Interactive mode refreshing data on screen.\n"
@@ -4648,7 +4485,8 @@ static void show_help (const char *fmt, ...)
           "    --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
           "    --metric                 Use metric units (meters, km/h, ...).\n"
           "    --silent                 Silent mode for testing network I/O (together with '--debug n').\n"
-          "    -h, --help               Show this help.\n\n",
+          "     -V, -VV                 Show version info. `-VV` for details.\n"
+          "     -h, --help              Show this help.\n\n",
           Modes.who_am_I, Modes.aircraft_db, AIRCRAFT_DATABASE_URL, MODES_INTERACTIVE_TTL/1000);
 
   printf ("  Mode-S decoder options:\n"
@@ -4705,10 +4543,6 @@ static void show_help (const char *fmt, ...)
   printf ("  If the `--location` options is not used, your home-position for distance calculation can be set like:\n"
           "  'c:\\> set DUMP1090_HOMEPOS=51.5285578,-0.2420247' for London.\n");
 
-#ifdef USE_SQLITE3
-  printf ("\n  Compiled with Sqlite3 v%s (%s).\n", sqlite3_version, sqlite3_sourceid());
-#endif
-
   modeS_exit();
   exit (1);
 }
@@ -4763,7 +4597,7 @@ static void background_tasks (void)
   if (Modes.log)
      fflush (Modes.log);
 
-  remove_stale_aircrafts (now);
+  aircraft_remove_stale (now);
 
   /* Refresh screen and console-title when in interactive mode
    */
@@ -4902,7 +4736,10 @@ static void show_decoder_stats (void)
   LOG_STDOUT (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
   LOG_STDOUT (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
   LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
-  LOG_STDOUT (" %8llu unique aircrafts of which %llu was in CSV-file.\n", Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV);
+  LOG_STDOUT (" %8llu unique aircrafts of which %llu was in CSV-file and %llu in SQL-file.\n",
+              Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV, Modes.stat.unique_aircrafts_SQL);
+  LOG_STDOUT (" %8llu sqlite3_exec() done.\n", Modes.stat.aircrafts_SQL_exec);
+
   print_unrecognized_ME();
 }
 
@@ -4958,13 +4795,13 @@ static void modeS_exit (void)
   if (Modes.fd > STDIN_FILENO)
      _close (Modes.fd);
 
-  free_all_aircrafts();
+  aircraft_exit (true);
 
   free (Modes.magnitude_lut);
   free (Modes.magnitude);
   free (Modes.data);
   free (Modes.ICAO_cache);
-  free (Modes.aircraft_list);
+  free (Modes.aircraft_list_CSV);
   free (Modes.selected_dev);
 
   DeleteCriticalSection (&Modes.data_mutex);
@@ -5139,9 +4976,9 @@ static struct option long_options[] = {
 static void parse_cmd_line (int argc, char **argv)
 {
   char *end;
-  int   c, idx = 0;
+  int   c, show_ver = 0, idx = 0;
 
-  while ((c = getopt_long (argc, argv, "+h?", long_options, &idx)) != EOF)
+  while ((c = getopt_long (argc, argv, "+h?V", long_options, &idx)) != EOF)
   {
  /* printf ("c: '%c' / %d, long_options[%d]: '%s'\n", c, c, idx, long_options[idx].name); */
 
@@ -5258,6 +5095,10 @@ static void parse_cmd_line (int argc, char **argv)
            Modes.interactive_ttl = 1000 * atoi (optarg);
            break;
 
+      case 'V':
+           show_ver++;
+           break;
+
       case 'w':
            strncpy (Modes.web_root, dirname(optarg), sizeof(Modes.web_root)-1);
            strncpy (Modes.web_page, basename(optarg), sizeof(Modes.web_page)-1);
@@ -5270,6 +5111,10 @@ static void parse_cmd_line (int argc, char **argv)
            break;
     }
   }
+
+  if (show_ver > 0)
+     show_version_info (show_ver >= 2);
+
   if (Modes.net_only || Modes.net_active)
      Modes.net = Modes.net_only = true;
 }

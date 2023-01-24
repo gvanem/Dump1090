@@ -243,6 +243,8 @@ typedef struct statistics {
         uint64_t        out_of_phase;
         uint64_t        unique_aircrafts;
         uint64_t        unique_aircrafts_CSV;
+        uint64_t        unique_aircrafts_SQL;
+        uint64_t        aircrafts_SQL_exec;
         uint64_t        messages_total;
         unrecognized_ME unrecognized_ME [MAX_ME_TYPE];
 
@@ -378,41 +380,42 @@ typedef struct global_data {
 
         /** Configuration
          */
-        const char *infile;                    /**< Input IQ samples from file with option `--infile file`. */
-        const char *logfile;                   /**< Write debug/info to file with option `--logfile file`. */
+        const char *infile;                     /**< Input IQ samples from file with option `--infile file`. */
+        const char *logfile;                    /**< Write debug/info to file with option `--logfile file`. */
         FILE       *log;
-        uint64_t    loops;                     /**< Read input file in a loop. */
-        uint32_t    debug;                     /**< `DEBUG()` mode bits. */
-        int         raw;                       /**< Raw output format. */
-        int         net;                       /**< Enable networking. */
-        int         net_only;                  /**< Enable just networking. */
-        int         net_active;                /**< With `Modes.net`, call `connect()` (not `listen()`). */
-        int         silent;                    /**< Silent mode for network testing. */
-        int         interactive;               /**< Interactive mode */
-        uint16_t    interactive_rows;          /**< Interactive mode: max number of rows. */
-        uint32_t    interactive_ttl;           /**< Interactive mode: TTL before deletion. */
-        int         win_location;              /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
-        int         only_addr;                 /**< Print only ICAO addresses. */
-        int         metric;                    /**< Use metric units. */
-        int         aggressive;                /**< Aggressive detection algorithm. */
-        int         keep_alive;                /**< Send "Connection: keep-alive" if HTTP client sends it. */
-        char        web_page [MG_PATH_MAX];    /**< The base-name of the web-page to server for HTTP clients. */
-        char        web_root [MG_PATH_MAX];    /**< And it's directory. */
-        int         touch_web_root;            /**< Touch all files in `web_root` first. */
-        char        aircraft_db [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file. */
-        char       *aircraft_db_update;        /**< Option `--database-update<=url>` was used. */
-        int         aircraft_db_sql;           /**< Option `--database-sql` was used. */
-        int         strip_level;               /**< For '--strip X' mode. */
-        pos_t       home_pos;                  /**< Coordinates of home position. */
-        cartesian_t home_pos_cart;             /**< Coordinates of home position (cartesian). */
-        bool        home_pos_ok;               /**< We have a good home position. */
-        const char *wininet_last_error;        /**< Last error from WinInet API. */
+        uint64_t    loops;                      /**< Read input file in a loop. */
+        uint32_t    debug;                      /**< `DEBUG()` mode bits. */
+        int         raw;                        /**< Raw output format. */
+        int         net;                        /**< Enable networking. */
+        int         net_only;                   /**< Enable just networking. */
+        int         net_active;                 /**< With `Modes.net`, call `connect()` (not `listen()`). */
+        int         silent;                     /**< Silent mode for network testing. */
+        int         interactive;                /**< Interactive mode */
+        uint16_t    interactive_rows;           /**< Interactive mode: max number of rows. */
+        uint32_t    interactive_ttl;            /**< Interactive mode: TTL before deletion. */
+        int         win_location;               /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
+        int         only_addr;                  /**< Print only ICAO addresses. */
+        int         metric;                     /**< Use metric units. */
+        int         aggressive;                 /**< Aggressive detection algorithm. */
+        int         keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
+        char        web_page [MG_PATH_MAX];     /**< The base-name of the web-page to server for HTTP clients. */
+        char        web_root [MG_PATH_MAX];     /**< And it's directory. */
+        int         touch_web_root;             /**< Touch all files in `web_root` first. */
+        char        aircraft_db  [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file. */
+        char        aircraft_sql [MG_PATH_MAX]; /**< The `aircraftDatabase.csv.sqlite` file. */
+        char       *aircraft_db_update;         /**< Option `--database-update<=url>` was used. */
+        int         aircraft_db_sql;            /**< Option `--database-sql` was used. */
+        int         strip_level;                /**< For '--strip X' mode. */
+        pos_t       home_pos;                   /**< Coordinates of home position. */
+        cartesian_t home_pos_cart;              /**< Coordinates of home position (cartesian). */
+        bool        home_pos_ok;                /**< We have a good home position. */
+        const char *wininet_last_error;         /**< Last error from WinInet API. */
 
         /** For parsing a `Modes.aircraft_db` file:
          */
         CSV_context          csv_ctx;
-        struct aircraft_CSV *aircraft_list;
-        uint32_t             aircraft_num_CSV;
+        struct aircraft_CSV *aircraft_list_CSV; /**< List of aircrafts sorted on address. From CSV-file only. */
+        uint32_t             aircraft_num_CSV;  /**< The length of the list */
       } global_data;
 
 extern global_data Modes;
@@ -440,6 +443,7 @@ extern char       *basename (const char *fname);
 extern char       *dirname (const char *fname);
 extern char       *slashify (char *fname);
 extern int        _gettimeofday (struct timeval *tv, void *timezone);
+extern double     get_usec_now (void);
 extern const char *win_strerror (DWORD err);
 extern char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
 extern void        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
@@ -447,6 +451,7 @@ extern uint32_t    random_range (uint32_t min, uint32_t max);
 extern int         touch_file (const char *file);
 extern int         touch_dir (const char *dir, bool recurse);
 extern uint32_t    download_file (const char *file, const char *url);
+extern void        show_version_info (bool verbose);
 
 /*
  * Generic table for loading DLLs and functions from them.
