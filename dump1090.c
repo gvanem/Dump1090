@@ -3145,7 +3145,7 @@ static bool interactive_show_aircraft (const aircraft *a, uint64_t now)
 
   cc_short = aircraft_get_country (a->addr, true);
   if (!cc_short)
-     cc_short = " -";
+     cc_short = "--";
 
   printf ("%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s ", a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf);
   printf ("%6s  %5s %5u  %2llu sec \n", distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
@@ -4660,7 +4660,7 @@ static void sigint_handler (int sig)
 
 static void show_connection_stats (void)
 {
-  const char *cli_srv = (Modes.net_active ? "server" : "client");
+  const char *cli_srv = (Modes.net_active ? "server" : "client(s)");
   uint64_t    sum;
   int         s;
 
