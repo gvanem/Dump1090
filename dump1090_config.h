@@ -7,7 +7,7 @@
 #define DUMP1090_CONFIG_H
 
 #define VER_MAJOR 0
-#define VER_MINOR 2
+#define VER_MINOR 3
 #define VER_MICRO 0
 
 /* Warning control:
@@ -19,18 +19,8 @@
   #pragma clang diagnostic ignored "-Wignored-attributes"
   #pragma clang diagnostic ignored "-Wignored-pragma-optimize"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
-
-  /*
-   * Turn off a lot more warnings in 'externals/sqlite3.c'
-   */
-  #if defined(COMPILING_SQLITE3_C)
-    #pragma clang diagnostic ignored "-Wsign-compare"
-    #pragma clang diagnostic ignored "-Wunused-parameter"
-    #pragma clang diagnostic ignored "-Wunused-but-set-variable"
-    #pragma clang diagnostic ignored "-Wnull-pointer-subtraction"
-    #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    #pragma clang diagnostic ignored "-Wimplicit-const-int-float-conversion"
-  #endif
+  #pragma clang diagnostic ignored "-Wunused-but-set-variable"
+  #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 #elif defined(_MSC_VER)
   #pragma warning (disable:4005 4244 4267)
@@ -51,33 +41,6 @@
      * 'type cast': conversion from 'int' to 'void *' of greater size
      */
     #pragma warning (disable:4312)
-  #endif
-
-  #if defined(COMPILING_SQLITE3_C)
-    /*
-     * 'iOff': unreferenced formal parameter
-     */
-    #pragma warning (disable:4100)
-
-    /*
-     * nonstandard extension used: 'pCurrent': address of dllimport 'AreFileApisANSI' is not static, identity not guaranteed
-     */
-    #pragma warning (disable:4232)
-
-    /*
-     * declaration of 'p' hides previous local declaration
-     */
-    #pragma warning (disable:4456)
-
-    /*
-     * potentially uninitialized local variable 'sMem' used
-     */
-    #pragma warning (disable:4701)
-
-    /*
-     * assignment within conditional expression
-     */
-    #pragma warning (disable:4706)
   #endif
 #endif
 
@@ -116,9 +79,14 @@
 #include <vld.h>
 #endif
 
-#if defined(USE_SQLITE3)
+/* Options for 'externals/sqlite3.c
+ */
 #define SQLITE_API
-#endif
+#define SQLITE_DQS           3   /* Double-quoted string literals are allowed */
+#define SQLITE_THREADSAFE    0
+#define SQLITE_WIN32_MALLOC  1
+#define SQLITE_NO_SYNC       1
+#define SQLITE_OMIT_AUTOINIT 1
 
 #include <string.h>
 

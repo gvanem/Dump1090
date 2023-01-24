@@ -46,7 +46,7 @@ typedef enum a_show_t {
       } a_show_t;
 
 /**
- * Describes an aircraft from a .CSV-file.
+ * Describes an aircraft from a .CSV/.SQL-file.
  */
 typedef struct aircraft_CSV {
         uint32_t addr;
@@ -88,25 +88,22 @@ typedef struct aircraft {
         pos_t    position;          /**< Coordinates obtained from decoded CPR data. */
         pos_t    EST_position;      /**< Estimated position based on last `speed` and `heading`. */
 
-        const aircraft_CSV *CSV;  /**< A pointer to a CSV record (or NULL). */
-        struct aircraft    *next; /**< Next aircraft in our linked list. */
+        aircraft_CSV       *SQL;    /**< A pointer to a SQL record (or NULL). */
+        const aircraft_CSV *CSV;    /**< A pointer to a CSV record (or NULL). */
+        struct aircraft    *next;   /**< Next aircraft in our linked list. */
       } aircraft;
 
 
-#ifdef USE_SQLITE3
-bool aircraft_sql3_create_db (const char *db_file);
-bool aircraft_sql3_add_entry (const aircraft_CSV *rec);
-#endif
-
-bool                aircraft_CSV_load (void);
-bool                aircraft_CSV_update (const char *db_file, const char *url);
-const aircraft_CSV *aircraft_CSV_lookup_entry (uint32_t addr);
-aircraft           *aircraft_create (uint32_t addr, uint64_t now);
-aircraft           *aircraft_find (uint32_t addr);
-int                 aircraft_numbers (void);
-uint32_t            aircraft_get_addr (uint8_t a0, uint8_t a1, uint8_t a2);
-const char         *aircraft_get_details (const uint8_t *_a);
-const char         *aircraft_get_country (uint32_t addr);
-bool                aircraft_is_military (uint32_t addr);
+bool        aircraft_CSV_load (void);
+bool        aircraft_CSV_update (const char *db_file, const char *url);
+aircraft   *aircraft_find_or_create (uint32_t addr, uint64_t now);
+int         aircraft_numbers (void);
+uint32_t    aircraft_get_addr (uint8_t a0, uint8_t a1, uint8_t a2);
+const char *aircraft_get_details (const uint8_t *_a);
+const char *aircraft_get_country (uint32_t addr);
+bool        aircraft_is_military (uint32_t addr);
+char       *aircraft_make_json (bool extended_client);
+void        aircraft_remove_stale (uint64_t now);
+void        aircraft_exit (bool free_aircrafts);
 
 #endif /* _AIRCRAFT_H */
