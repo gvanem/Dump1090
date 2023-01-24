@@ -672,11 +672,8 @@ static int modeS_init (void)
 
   if (Modes.aircraft_db_update && stricmp(Modes.aircraft_db, "NUL"))
   {
-    bool rc = aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_update);
-
-    LOG_STDERR ("\n");
-    if (!rc)
-       return (1);
+    aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_update);
+    return (1);
   }
 
   env = getenv ("DUMP1090_HOMEPOS");
@@ -3054,6 +3051,7 @@ static bool interactive_show_aircraft (const aircraft *a, uint64_t now)
   const char *distance     = NULL;
   const char *est_distance = NULL;
   const char *km_nm = NULL;
+  const char *cc_short;
   double  sig_avg = 0;
   int64_t ms_diff;
 
@@ -3145,7 +3143,11 @@ static bool interactive_show_aircraft (const aircraft *a, uint64_t now)
   if (ms_diff < 0LL)  /* clock wrapped */
      ms_diff = 0L;
 
-  printf ("%06X %-9.9s %-8s %-5s     %-5s %-7s %-8s   %-5s ", a->addr, flight, reg_num, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf);
+  cc_short = aircraft_get_country (a->addr, true);
+  if (!cc_short)
+     cc_short = " -";
+
+  printf ("%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s ", a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf);
   printf ("%6s  %5s %5u  %2llu sec \n", distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
 
   if (restore_colour)
@@ -3200,8 +3202,8 @@ static void interactive_show_data (uint64_t now)
   }
 
   set_colour (COLOUR_WHITE);
-  printf ("ICAO   Callsign  Reg-num  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c\n"
-          "----------------------------------------------------------------------------------------------\n",
+  printf ("ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c\n"
+          "-----------------------------------------------------------------------------------------------------\n",
           spinner[spin_idx & 3]);
   spin_idx++;
   set_colour (0);
@@ -4474,8 +4476,9 @@ static void show_help (const char *fmt, ...)
           "                             (default: \"%s\").\n"
           "    --database-update<=url>  Redownload the above .csv-file if older than 10 days.\n"
           "                             (needs `unzip.exe` on PATH. default URL:\n"
-          "                             `%s`).\n"
-          "    --database-sql           Add the above .CSV-file into a Sqlite3 database.\n"
+          "                             `%s`). Also recreate `<file>.sqlite` and exit.\n"
+          "    --database-sql           Create a `<file>.sqlite` from the above .CSV-file if it does not exist.\n"
+          "                             Or use the `<file>.sqlite` if it exist.\n"
           "    --debug <flags>          Debug mode; see below for details.\n"
           "    --infile <filename>      Read data from file (use `-' for stdin).\n"
           "    --interactive            Interactive mode refreshing data on screen.\n"

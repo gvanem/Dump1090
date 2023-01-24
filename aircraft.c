@@ -45,6 +45,7 @@ static bool sql_open (void);
 static bool sql_begin (void);
 static bool sql_end (void);
 static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec);
+static bool check_short_long_names (void);
 
 static aircraft *aircraft_find (uint32_t addr);
 static const     aircraft_CSV *CSV_lookup_entry (uint32_t addr);
@@ -123,8 +124,9 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
     {
       Modes.stat.unique_aircrafts_SQL++;
       memcpy (a->SQL, _a, sizeof(*a->SQL));
-      LOG_FILEONLY ("SQL: %06X, regnum: '%s', callsign: '%s', manufact: '%s', country: '%s'\n",
-                    a->addr, a->SQL->reg_num, a->SQL->call_sign, a->SQL->manufact, aircraft_get_country(a->addr));
+   // LOG_FILEONLY ("SQL: %06X, regnum: '%s', callsign: '%s', manufact: '%s', country: '%s'\n",
+   //               a->addr, a->SQL->reg_num, a->SQL->call_sign, a->SQL->manufact,
+   //               aircraft_get_country(a->addr, true));
     }
   }
   return (a);
@@ -266,6 +268,9 @@ static void aircraft_tests (void)
   const aircraft_CSV *t = a_tests + 0;
   char  sql_file [MAX_PATH] = "";
 
+  if (check_short_long_names())
+     LOG_STDOUT ("Both countries-arrays OK\n\n");
+
   if (Modes.aircraft_sql[0])
      snprintf (sql_file, sizeof(sql_file), "\nand against \"%s\"",
                basename(Modes.aircraft_sql));
@@ -308,7 +313,7 @@ static void aircraft_tests (void)
       }
     }
 
-    country = aircraft_get_country (t->addr);
+    country = aircraft_get_country (t->addr, false);
     LOG_STDOUT ("  addr: 0x%06X, reg-num: %-8s manufact: %-20s country: %-30s %s\n",
                 t->addr, reg_num, manufact, country ? country : "?",
                 aircraft_is_military(t->addr) ? "Military" : "");
@@ -372,6 +377,7 @@ char *aircraft_json_Dump1090_OL3 (const char *url_path, int *len)
  *  1) download the OpenSky .zip file to `%TEMP%\\aircraft-database-temp.zip`,
  *  2) call `unzip - %TEMP%\\aircraft-database-temp.zip > %TEMP%\\aircraft-database-temp.csv`.
  *  3) copy `%TEMP%\\aircraft-database-temp.csv` over to 'db_file'.
+ *  4) with option `--database-sql`, remove `Modes.aircraft_sql` to rebuild it.
  */
 bool aircraft_CSV_update (const char *db_file, const char *url)
 {
@@ -446,7 +452,7 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
     return (false);
   }
 
-  snprintf (tmp_file,  sizeof(tmp_file), "%s\\%s.csv", tmp, AIRCRAFT_DATABASE_TMP);
+  snprintf (tmp_file, sizeof(tmp_file), "%s\\%s.csv", tmp, AIRCRAFT_DATABASE_TMP);
 
   /* '-p  extract files to pipe, no messages'
    */
@@ -464,6 +470,12 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
   LOG_STDERR ("Copying '%s' -> '%s'\n", tmp_file, db_file);
   CopyFile (tmp_file, db_file, FALSE);
   touch_file (db_file);
+
+  if (Modes.aircraft_db_sql)
+  {
+    DeleteFile (Modes.aircraft_sql);  /* For a rebuild */
+    aircraft_CSV_load();
+  }
   return (true);
 }
 
@@ -683,7 +695,7 @@ static const ICAO_range country_range[] = {
      { 0x098000, 0x0983FF, "Djibouti" },
      { 0x09A000, 0x09AFFF, "Gambia" },
      { 0x09C000, 0x09CFFF, "Burkina Faso" },
-     { 0x09E000, 0x09E3FF, "Sao Tome and Principe" },
+     { 0x09E000, 0x09E3FF, "Sao Tome & Principe" },
      { 0x0A0000, 0x0A7FFF, "Algeria" },
      { 0x0A8000, 0x0A8FFF, "Bahamas" },
      { 0x0AA000, 0x0AA3FF, "Barbados" },
@@ -696,7 +708,7 @@ static const ICAO_range country_range[] = {
      { 0x0B6000, 0x0B6FFF, "Guyana" },
      { 0x0B8000, 0x0B8FFF, "Haiti" },
      { 0x0BA000, 0x0BAFFF, "Honduras" },
-     { 0x0BC000, 0x0BC3FF, "Saint Vincent and the Grenadines" },
+     { 0x0BC000, 0x0BC3FF, "Saint Vincent & the Grenadines" },
      { 0x0BE000, 0x0BEFFF, "Jamaica" },
      { 0x0C0000, 0x0C0FFF, "Nicaragua" },
      { 0x0C2000, 0x0C2FFF, "Panama" },
@@ -719,7 +731,7 @@ static const ICAO_range country_range[] = {
      // Add extra entries that are above the UK and take precedence
      { 0x400000, 0x4001BF, "Bermuda" },
      { 0x4001C0, 0x4001FF, "Cayman Islands" },
-     { 0x400300, 0x4003FF, "Turks and Caicos Islands" },
+     { 0x400300, 0x4003FF, "Turks & Caicos Islands" },
      { 0x424135, 0x4241F2, "Cayman Islands" },
      { 0x424200, 0x4246FF, "Bermuda" },
      { 0x424700, 0x424899, "Cayman Islands" },
@@ -786,7 +798,7 @@ static const ICAO_range country_range[] = {
      { 0x708000, 0x708FFF, "Laos" },
      { 0x70A000, 0x70AFFF, "Nepal" },
      { 0x70C000, 0x70C3FF, "Oman" },
-     { 0x70E000, 0x70EFFF, "Cambodia"},
+     { 0x70E000, 0x70EFFF, "Cambodia" },
      { 0x710000, 0x717FFF, "Saudi Arabia" },
      { 0x718000, 0x71FFFF, "South Korea" },
      { 0x720000, 0x727FFF, "North Korea" },
@@ -838,14 +850,302 @@ static const ICAO_range country_range[] = {
      { 0xE94000, 0xE94FFF, "Bolivia" }
    };
 
-const char *aircraft_get_country (uint32_t addr)
+typedef struct cc_short_long {
+         const char *cc_short;
+         const char *cc_long;
+       } cc_short_long;
+
+/*
+ * Ref: https://en.wikipedia.org/wiki/ISO_3166-1
+ */
+static const cc_short_long long_to_short_map[] = {
+       { "AF", "Afghanistan" },
+       { "AL", "Albania" },
+       { "DZ", "Algeria" },
+       { "AD", "Andorra" },
+       { "AO", "Angola" },
+       { "AI", "Anguilla" },
+       { "AQ", "Antarctica" },
+       { "AG", "Antigua and Barbuda" },
+       { "AR", "Argentina" },
+       { "AM", "Armenia" },
+       { "AW", "Aruba" },
+       { "AU", "Australia" },
+       { "AT", "Austria" },
+       { "AZ", "Azerbaijan" },
+       { "BS", "Bahamas" },
+       { "BH", "Bahrain" },
+       { "BD", "Bangladesh" },
+       { "BB", "Barbados" },
+       { "BY", "Belarus" },
+       { "BE", "Belgium" },
+       { "BZ", "Belize" },
+       { "BJ", "Benin" },
+       { "BM", "Bermuda" },
+       { "BT", "Bhutan" },
+       { "BO", "Bolivia" },
+       { "BA", "Bosnia and Herzegovina" },
+       { "BW", "Botswana" },
+       { "BR", "Brazil" },
+       { "BN", "Brunei Darussalam" },
+       { "BG", "Bulgaria" },
+       { "BF", "Burkina Faso" },
+       { "BI", "Burundi" },
+       { "KH", "Cambodia" },
+       { "CM", "Cameroon" },
+       { "CA", "Canada" },
+       { "CV", "Cape Verde" },
+       { "KY", "Cayman Islands" },
+       { "CF", "Central African Republic" },
+       { "TD", "Chad" },
+       { "CL", "Chile" },
+       { "CN", "China" },
+       { "CX", "Christmas Island" },
+       { "CC", "Cocos Islands" },
+       { "CO", "Colombia" },
+       { "KM", "Comoros" },
+       { "CG", "Congo" },
+       { "CD", "Congo" },
+       { "CK", "Cook Islands" },
+       { "CR", "Costa Rica" },
+       { "CI", "Cote d'Ivoire" },
+       { "HR", "Croatia" },
+       { "CU", "Cuba" },
+       { "CW", "Curaçao" },
+       { "CY", "Cyprus" },
+       { "CZ", "Czech Republic" },
+       { "DK", "Denmark" },
+       { "DJ", "Djibouti" },
+       { "DM", "Dominica" },
+       { "DO", "Dominican Republic" },
+       { "EC", "Ecuador" },
+       { "EG", "Egypt" },
+       { "SV", "El Salvador" },
+       { "GQ", "Equatorial Guinea" },
+       { "ER", "Eritrea" },
+       { "EE", "Estonia" },
+       { "ET", "Ethiopia" },
+       { "FK", "Falkland Islands" },
+       { "FO", "Faroe Islands" },
+       { "FJ", "Fiji" },
+       { "FI", "Finland" },
+       { "FR", "France" },
+       { "FX", "France, Metropolitan" },
+       { "GF", "French Guiana" },
+       { "PF", "French Polynesia" },
+       { "TF", "French Southern Territories" },
+       { "GA", "Gabon" },
+       { "GM", "Gambia" },
+       { "GE", "Georgia" },
+       { "DE", "Germany" },
+       { "GH", "Ghana" },
+       { "GI", "Gibraltar" },
+       { "GR", "Greece" },
+       { "GL", "Greenland" },
+       { "GD", "Grenada" },
+       { "GP", "Guadeloupe" },
+       { "GU", "Guam" },
+       { "GT", "Guatemala" },
+       { "GG", "Guernsey" },
+       { "GN", "Guinea" },
+       { "GW", "Guinea-Bissau" },
+       { "GY", "Guyana" },
+       { "HT", "Haiti" },
+       { "HN", "Honduras" },
+       { "HK", "Hong kong" },
+       { "HU", "Hungary" },
+       { "IS", "Iceland" },
+       { "IN", "India" },
+       { "ID", "Indonesia" },
+       { "IR", "Iran" },
+       { "IQ", "Iraq" },
+       { "IE", "Ireland" },
+       { "IM", "Isle of Man" },
+       { "IL", "Israel" },
+       { "IT", "Italy" },
+       { "JM", "Jamaica" },
+       { "JP", "Japan" },
+       { "JE", "Jersey" },
+       { "JO", "Jordan" },
+       { "KZ", "Kazakhstan" },
+       { "KE", "Kenya" },
+       { "KI", "Kiribati" },
+       { "KP", "North Korea" },
+       { "KR", "South Korea" },
+       { "XK", "Kosovo" },
+       { "KW", "Kuwait" },
+       { "KG", "Kyrgyzstan" },
+       { "LA", "Laos" },
+       { "LV", "Latvia" },
+       { "LB", "Lebanon" },
+       { "LS", "Lesotho" },
+       { "LR", "Liberia" },
+       { "LY", "Libya" },
+       { "LI", "Liechtenstein" },
+       { "LT", "Lithuania" },
+       { "LU", "Luxembourg" },
+       { "MO", "Macao" },
+       { "MK", "Macedonia" },
+       { "MG", "Madagascar" },
+       { "MW", "Malawi" },
+       { "MY", "Malaysia" },
+       { "MV", "Maldives" },
+       { "ML", "Mali" },
+       { "MT", "Malta" },
+       { "MH", "Marshall Islands" },
+       { "MQ", "Martinique" },
+       { "MR", "Mauritania" },
+       { "MU", "Mauritius" },
+       { "YT", "Mayotte" },
+       { "MX", "Mexico" },
+       { "FM", "Micronesia" },
+       { "MD", "Moldova" },
+       { "MC", "Monaco" },
+       { "MN", "Mongolia" },
+       { "ME", "Montenegro" },
+       { "MS", "Montserrat" },
+       { "MA", "Morocco" },
+       { "MZ", "Mozambique" },
+       { "MM", "Myanmar" },
+       { "NA", "Namibia" },
+       { "NR", "Nauru" },
+       { "NP", "Nepal" },
+       { "NL", "Netherlands" },
+       { "NC", "New Caledonia" },
+       { "NZ", "New Zealand" },
+       { "NI", "Nicaragua" },
+       { "NE", "Niger" },
+       { "NG", "Nigeria" },
+       { "NU", "Niue" },
+       { "NF", "Norfolk Island" },
+       { "MP", "Northern Mariana Islands" },
+       { "NO", "Norway" },
+       { "OM", "Oman" },
+       { "PK", "Pakistan" },
+       { "PW", "Palau" },
+       { "PA", "Panama" },
+       { "PG", "Papua New Guinea" },
+       { "PY", "Paraguay" },
+       { "PE", "Peru" },
+       { "PH", "Philippines" },
+       { "PN", "Pitcairn" },
+       { "PL", "Poland" },
+       { "PT", "Portugal" },
+       { "PR", "Puerto Rico" },
+       { "QA", "Qatar" },
+       { "RE", "Reunion" },
+       { "RO", "Romania" },
+       { "RU", "Russia" },
+       { "RW", "Rwanda" },
+       { "LC", "Saint Lucia" },
+       { "VC", "Saint Vincent & the Grenadines" },
+       { "WS", "Samoa" },
+       { "SM", "San Marino" },
+       { "ST", "Sao Tome & Principe" },
+       { "SA", "Saudi Arabia" },
+       { "SN", "Senegal" },
+       { "RS", "Serbia" },
+       { "SC", "Seychelles" },
+       { "SL", "Sierra Leone" },
+       { "SG", "Singapore" },
+       { "SK", "Slovakia" },
+       { "SI", "Slovenia" },
+       { "SB", "Solomon Islands" },
+       { "SO", "Somalia" },
+       { "ZA", "South Africa" },
+       { "SS", "South Sudan" },
+       { "ES", "Spain" },
+       { "LK", "Sri Lanka" },
+       { "SD", "Sudan" },
+       { "SR", "Suriname" },
+       { "SE", "Sweden" },
+       { "CH", "Switzerland" },
+       { "SY", "Syria" },
+       { "TW", "Taiwan" },
+       { "TJ", "Tajikistan" },
+       { "TZ", "Tanzania" },
+       { "TH", "Thailand" },
+       { "TL", "Timor-Leste" },
+       { "TG", "Togo" },
+       { "TK", "Tokelau" },
+       { "TO", "Tonga" },
+       { "TT", "Trinidad & Tobago" },
+       { "TN", "Tunisia" },
+       { "TR", "Turkey" },
+       { "TM", "Turkmenistan" },
+       { "TC", "Turks & Caicos Islands" },
+       { "UG", "Uganda" },
+       { "UA", "Ukraine" },
+       { "AE", "United Arab Emirates" },
+       { "GB", "United Kingdom" },
+       { "US", "United States" },
+       { "UY", "Uruguay" },
+       { "UZ", "Uzbekistan" },
+       { "VU", "Vanuatu" },
+       { "VE", "Venezuela" },
+       { "VN", "Vietnam" },
+       { "YE", "Yemen" },
+       { "ZM", "Zambia" },
+       { "ZW", "Zimbabwe" }
+     };
+
+static const char *find_ICAO_range_cc (const char *cc_long)
+{
+  const ICAO_range *r = country_range + 0;
+  uint16_t i;
+
+  for (i = 0; i < DIM(country_range); i++, r++)
+      if (!strcmp(r->country, cc_long))
+         return (r->country);
+  return (NULL);
+}
+
+static const char *find_short_name (const char *cc_long)
+{
+  const cc_short_long *cc = long_to_short_map + 0;
+  uint16_t i;
+
+  for (i = 0; i < DIM(long_to_short_map); i++, cc++)
+      if (!strcmp(cc->cc_long, cc_long))
+         return (cc->cc_short);
+  return (NULL);
+}
+
+static bool check_short_long_names (void)
+{
+  const ICAO_range    *r;
+  const cc_short_long *cc;
+  uint16_t i, ok;
+  bool     ok_long_to_short_map, ok_country_map;
+
+  r = country_range + 0;
+  for (i = ok = 0; i < DIM(country_range); i++, r++)
+  {
+    if (!find_short_name(r->country))
+         LOG_STDERR ("Warning: no 'long_to_short_map[]' for %s\n", r->country);
+    else ok++;
+  }
+  ok_long_to_short_map = (ok == i);
+
+  cc = long_to_short_map + 0;
+  for (i = ok = 0; i < DIM(long_to_short_map); i++, cc++)
+  {
+    if (!find_ICAO_range_cc(cc->cc_long))
+         LOG_STDERR ("Warning: no 'country_range[]' for %s\n", cc->cc_long);
+    else ok++;
+  }
+  ok_country_map = (ok == i);
+  return (ok_long_to_short_map && ok_country_map);
+}
+
+const char *aircraft_get_country (uint32_t addr, bool get_short)
 {
   const ICAO_range *r = country_range + 0;
   uint16_t          i;
 
   for (i = 0; i < DIM(country_range); i++, r++)
       if (addr >= r->low && addr <= r->high)
-         return (r->country);
+         return (get_short ? find_short_name(r->country) : r->country);
   return (NULL);
 }
 
@@ -1204,7 +1504,7 @@ char *aircraft_make_json (bool extended_client)
         buflen -= l;
       }
 
-      strcpy (p, "},\n");
+      strcpy (p, " },\n");
       p      += 3;
       buflen -= 3;
 

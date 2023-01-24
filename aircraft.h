@@ -100,7 +100,7 @@ aircraft   *aircraft_find_or_create (uint32_t addr, uint64_t now);
 int         aircraft_numbers (void);
 uint32_t    aircraft_get_addr (uint8_t a0, uint8_t a1, uint8_t a2);
 const char *aircraft_get_details (const uint8_t *_a);
-const char *aircraft_get_country (uint32_t addr);
+const char *aircraft_get_country (uint32_t addr, bool get_short);
 bool        aircraft_is_military (uint32_t addr);
 char       *aircraft_make_json (bool extended_client);
 void        aircraft_remove_stale (uint64_t now);
