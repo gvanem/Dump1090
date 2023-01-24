@@ -309,10 +309,12 @@ typedef struct sdrplay_conf {
         sdrplay_api_RspDuoModeT          mode;
       } sdrplay_conf;
 
-/* Forwards. Details in "aircraft.h"
+/* Forwards.
+ * Details in "aircraft.h" and "externals/sqlite3.c"
  */
 struct aircraft;
 struct aircraft_CSV;
+struct sqlite3;
 
 /**
  * All program global state is in this structure.
@@ -394,7 +396,7 @@ typedef struct global_data {
         char        aircraft_db  [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file. */
         char        aircraft_sql [MG_PATH_MAX]; /**< The `aircraftDatabase.csv.sqlite` file. */
         char       *aircraft_db_update;         /**< Option `--database-update<=url>` was used. */
-        int         aircraft_db_sql;            /**< Option `--database-sql` was used. */
+        int         use_sql_db;                 /**< Option `--database-sql` was used. */
         int         strip_level;                /**< For '--strip X' mode. */
         pos_t       home_pos;                   /**< Coordinates of home position. */
         cartesian_t home_pos_cart;              /**< Coordinates of home position (cartesian). */
@@ -406,6 +408,10 @@ typedef struct global_data {
         CSV_context          csv_ctx;
         struct aircraft_CSV *aircraft_list_CSV; /**< List of aircrafts sorted on address. From CSV-file only. */
         uint32_t             aircraft_num_CSV;  /**< The length of the list */
+
+        /** For handling the `Modes.aircraft_sql` file:
+         */
+        struct sqlite3 *sql_db;
       } global_data;
 
 extern global_data Modes;

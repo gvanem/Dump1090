@@ -38,8 +38,6 @@
  */
 #define DB_INSERT  "INSERT INTO aircrafts (" DB_COLUMNS ") VALUES"
 
-static struct sqlite3 *g_db = NULL;
-
 static bool sql_create (void);
 static bool sql_open (void);
 static bool sql_begin (void);
@@ -249,7 +247,7 @@ static const aircraft_CSV *CSV_lookup_entry (uint32_t addr)
 /**
  * If `Modes.debug != 0`, do a simple test on the `Modes.aircraft_list_CSV`.
  *
- * Also called if `Modes.aircraft_db_sql != 0` to compare the lookup speed
+ * Also called if `Modes.use_sql_db != 0` to compare the lookup speed
  * of Sqlite3 compared to our `bsearch()` lookup.
  */
 static void aircraft_tests (void)
@@ -342,7 +340,7 @@ static void aircraft_tests (void)
                 a_CSV->call_sign[0] ? a_CSV->call_sign : "-",
                 usec);
 
-    if (Modes.aircraft_db_sql)
+    if (Modes.use_sql_db)
     {
       usec  = get_usec_now();
       a_SQL = sql_lookup_entry (addr);
@@ -467,7 +465,7 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
   CopyFile (tmp_file, db_file, FALSE);
   touch_file (db_file);
 
-  if (Modes.aircraft_db_sql)
+  if (Modes.use_sql_db)
   {
     DeleteFile (Modes.aircraft_sql);  /* For a rebuild */
     aircraft_CSV_load();
@@ -547,7 +545,7 @@ bool aircraft_CSV_load (void)
 
   get_usec_now(); /* calls 'QueryPerformanceFrequency()' */
 
-  if (Modes.aircraft_db_sql)
+  if (Modes.use_sql_db)
   {
 #ifdef SQLITE_OMIT_AUTOINIT
     int rc = sqlite3_initialize();
@@ -981,14 +979,14 @@ static const aircraft_CSV *sql_lookup_entry (uint32_t addr)
   uint32_t             addr2;
   int                  rc;
 
-  if (!g_db)
+  if (!Modes.sql_db)
      return (NULL);
 
   memset (&a, '\0', sizeof(a));
   a.addr = addr;
   addr2  = addr;
   snprintf (query, sizeof(query), "SELECT * FROM aircrafts WHERE icao24='%06x';", addr);
-  rc = sqlite3_exec (g_db, query, sql_callback, &a, &err_msg);
+  rc = sqlite3_exec (Modes.sql_db, query, sql_callback, &a, &err_msg);
   Modes.stat.aircrafts_SQL_exec++;
 
   if (rc != SQLITE_OK)
@@ -1015,13 +1013,13 @@ static bool sql_init (const char *what, int flags)
 {
   int rc;
 
-  if (!g_db)
+  if (!Modes.sql_db)
      sqlite3_config (SQLITE_CONFIG_LOG, sql_log, NULL);
 
-  rc = sqlite3_open_v2 (Modes.aircraft_sql, &g_db, flags, NULL);
+  rc = sqlite3_open_v2 (Modes.aircraft_sql, &Modes.sql_db, flags, NULL);
   if (rc != SQLITE_OK)
   {
-    TRACE ("Can't %s database: rc: %d, %s\n", what, rc, sqlite3_errmsg(g_db));
+    TRACE ("Can't %s database: rc: %d, %s\n", what, rc, sqlite3_errmsg(Modes.sql_db));
     aircraft_exit (false);
     return (false);
   }
@@ -1050,10 +1048,10 @@ static bool sql_create (void)
             " reg VARCHAR(%zu), manufacturer VARCHAR(%zu), callsign VARCHAR(%zu));",
             sizeof(a.reg_num)-1, sizeof(a.manufact)-1, sizeof(a.call_sign)-1);
 
-  rc = sqlite3_exec (g_db, buf, NULL, NULL, &err_msg);
+  rc = sqlite3_exec (Modes.sql_db, buf, NULL, NULL, &err_msg);
 
 #else
-  rc = sqlite3_exec (g_db, "CREATE TABLE aircrafts (" DB_COLUMNS ");",
+  rc = sqlite3_exec (Modes.sql_db, "CREATE TABLE aircrafts (" DB_COLUMNS ");",
                      NULL, NULL, &err_msg);
 #endif
 
@@ -1075,7 +1073,7 @@ static bool sql_open (void)
 static bool sql_begin (void)
 {
   char *err_msg = NULL;
-  int   rc = sqlite3_exec (g_db, "BEGIN;", NULL, NULL, &err_msg);
+  int   rc = sqlite3_exec (Modes.sql_db, "BEGIN;", NULL, NULL, &err_msg);
 
   if (rc != SQLITE_OK)
   {
@@ -1088,7 +1086,7 @@ static bool sql_begin (void)
 static bool sql_end (void)
 {
   char *err_msg = NULL;
-  int   rc = sqlite3_exec (g_db, "END;", NULL, NULL, &err_msg);
+  int   rc = sqlite3_exec (Modes.sql_db, "END;", NULL, NULL, &err_msg);
 
   if (rc != SQLITE_OK)
   {
@@ -1118,7 +1116,7 @@ static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec)
 
   values = buf + sizeof(DB_INSERT) + 1;
 
-  rc = sqlite3_exec (g_db, buf, NULL, NULL, &err_msg);
+  rc = sqlite3_exec (Modes.sql_db, buf, NULL, NULL, &err_msg);
 
   if (((num+1) % 1000) == 0)
   {
@@ -1301,9 +1299,9 @@ void aircraft_exit (bool free_aircrafts)
   aircraft *a;
   aircraft *a_next;
 
-  if (g_db)
-     sqlite3_close (g_db);
-  g_db = NULL;
+  if (Modes.sql_db)
+     sqlite3_close (Modes.sql_db);
+  Modes.sql_db = NULL;
 
   if (!free_aircrafts)
      return;

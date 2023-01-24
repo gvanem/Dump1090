@@ -743,7 +743,7 @@ static int modeS_init (void)
      return (1);
 
 #if 0
-  if (Modes.aircraft_db_sql)
+  if (Modes.use_sql_db)
      return (1);  // for testing Sqlite
 #endif
 
@@ -4936,7 +4936,7 @@ static struct option long_options[] = {
   { "aggressive",       no_argument,        &Modes.aggressive,         1   },
   { "database",         required_argument,  NULL,                     'b'  },
   { "database-update",  optional_argument,  NULL,                     'u'  },
-  { "database-sql",     no_argument,        &Modes.aircraft_db_sql,    1   },
+  { "database-sql",     no_argument,        &Modes.use_sql_db,         1   },
   { "bias",             no_argument,        &Modes.bias_tee,           1   },
   { "calibrate",        no_argument,        &Modes.rtlsdr.calibrate,   1   },
   { "debug",            required_argument,  NULL,                      'd' },
