@@ -170,16 +170,6 @@ typedef struct net_service {
         mg_timer         timer;            /**< Timer for a `mg_connect()` */
       } net_service;
 
-/**
- * The low and high values used to lookup a country
- * or military ranges.
- */
-typedef struct ICAO_range {
-        uint32_t    low;
-        uint32_t    high;
-        const char *country;
-      } ICAO_range;
-
 typedef enum metric_unit_t {
         MODES_UNIT_FEET   = 1,
         MODES_UNIT_METERS = 2
