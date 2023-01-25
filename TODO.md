@@ -1,8 +1,9 @@
 ## TODO items
 
 * Extract more information from captured Mode S messages.
+* Fix the SdrPlay interface.
 * Improve the web interface gmap.html.
-* Enhance the algorithm to reliably decode more messages.
+* Enhance the algorithm to reliably decode more messages (add a 2.4 MB/S decoder?).
 * On the Web-page:
   - show the distance to the selected plane
     (based on an exact position of the RTLSDR; use a cookie to store it?).
@@ -12,11 +13,12 @@
 * Kerberos SDR; Directional Finding Feature:
    ref: https://github.com/rfjohnso/kerberossdr/tree/PyQt5
 * Pack several web-roots into an .DLL. Thus allowing to select a
-  web-root at runtime. Use option `--web-page some.dll`. Then `some.dll`
-  would then need some exported `CreateInstance()` and `DeleteInstance()`
+  web-root at runtime. Use option `--web-page some.dll`.<br>
+  Then `some.dll` would then need some exported `CreateInstance()` and `DeleteInstance()`
   functions.
-* Support SQLite (as part of Windows `<winsqlite/winsqlite3.h>`).
-  Use this for storing the `aircraftDatabase.csv` into.
+* Support SQLite3. Use this for storing the `aircraftDatabase.csv` into. <br>
+  :heavy_check_mark: *Done* <br>
+  Add a build-time option to use `<winsqlite/winsqlite3.h>`.
 * Reception and decoding of ACARS (Aircraft Communications Addressing and Reporting System)
   using:
    1) libacars - `https://github.com/szpajder/libacars.git`
