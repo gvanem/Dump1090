@@ -4748,6 +4748,7 @@ static void show_decoder_stats (void)
 
 static void show_statistics (void)
 {
+  clrscr();  /* to clear the startup messages */
   if (!Modes.net_only)
      show_decoder_stats();
   if (Modes.net)
