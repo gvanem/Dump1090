@@ -516,28 +516,60 @@ static const char *sql_compiler_info (void)
   return ("?");
 }
 
-#if defined(_DEBUG)
-  #define DBG_RELEASE  "debug"
-#else
-  #define DBG_RELEASE  "release"
-#endif
+static const char *build_features (void)
+{
+  static char        buf [100];
+  static const char *features[] = {
+  #if defined(_DEBUG)
+    "debug",
+  #else
+    "release",
+  #endif
+  #if defined(_WIN64)
+    "x64",
+  #else
+    "x86",
+  #endif
+  #if defined(USE_ASAN)
+    "ASAN",
+  #endif
+  #if defined(USE_WIN_SQLITE)
+    "WinSqlite",
+  #endif
+  #if defined(PACKED_WEB_ROOT)
+    "Packed-Web",
+  #endif
+  #if defined(USE_RTLSDR_EMUL)
+    "RTLSDR-emul",
+  #endif
+    NULL
+  };
+  const char *f;
+  char  *p = buf;
+  int    i;
 
-#if defined(_WIN64)
-  #define CPU_BUILD  "x64"
-#else
-  #define CPU_BUILD  "x86"
-#endif
+  for (i = 0, f = features[0]; f; f = features[++i])
+  {
+    strcpy (p, f);
+    p += strlen (f);
+    *p++ = ',';
+    *p++ = ' ';
+  }
+  p[-2] = '\0';
+  return (buf);
+}
 
 /**
  * Print version information.
  */
 void show_version_info (bool verbose)
 {
-  printf ("dump1090 ver. %s (%s, %s, %s). Built at %s.\n",
-          PROG_VERSION, sql_compiler_info(), CPU_BUILD, DBG_RELEASE, __DATE__);
+  printf ("dump1090 ver. %s (%s, %s). Built at %s.\n",
+          PROG_VERSION, sql_compiler_info(), build_features(), __DATE__);
   if (verbose)
   {
  // print_cflags();
+ // print_ldflags();
     sql_info();
   }
   exit (0);
