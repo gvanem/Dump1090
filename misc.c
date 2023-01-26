@@ -9,6 +9,8 @@
 
 #include <stdint.h>
 #include <sys/utime.h>
+#include <winsock2.h>
+#include <windows.h>
 #include <wininet.h>
 #include "sqlite3.h"
 #include "misc.h"
@@ -508,6 +510,8 @@ static void sql_info (void)
  */
 static const char *compiler_info (void)
 {
+  static char buf [50];
+
 #ifdef __clang__
   snprintf (buf, sizeof(buf), "clang-cl %d.%d.%d",
             __clang_major__, __clang_minor__, __clang_patchlevel__);
