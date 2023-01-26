@@ -9,6 +9,7 @@
 #error "Do not compile this file when 'USE_RTLSDR_EMUL' is defined."
 #endif
 
+#include <assert.h>
 #include "sdrplay.h"
 #include "misc.h"
 
@@ -46,7 +47,6 @@
 #define CALL_FUNC(func, ...)                                      \
         do {                                                      \
           sdrplay_api_ErrT rc;                                    \
-          TRACE ("%s(%s);\n", #func, __VA_ARGS__);                \
           if (!sdr.func)                                          \
                rc = sdrplay_api_NotInitialised;                   \
           else rc = (*sdr.func) (__VA_ARGS__);                    \
@@ -55,6 +55,8 @@
             sdrplay_store_error (rc);                             \
             TRACE ( "%s(): %d / %s.\n", #func, rc, sdr.last_err); \
           }                                                       \
+          else                                                    \
+            TRACE ( "%s(): OKAY.\n", #func);                      \
         } while (0)
 
 struct sdrplay_priv {
@@ -395,11 +397,15 @@ static void sdrplay_callback_B (short *xi, short *xq,
 /**
  *
  */
-static bool sdrplay_select (const char *wanted_name)
+static bool sdrplay_select (const char *wanted_name, int wanted_index)
 {
   sdrplay_api_DeviceT *device;
-  unsigned i;
-  char     selected_dev [100];
+  int     i, select_this = -1;
+  char    current_dev [100];
+  bool    select_first = true;
+
+  if (wanted_index != -1 || *wanted_name)
+     select_first = false;
 
   CALL_FUNC (sdrplay_api_LockDeviceApi);
   if (sdr.last_rc != sdrplay_api_Success)
@@ -416,30 +422,52 @@ static bool sdrplay_select (const char *wanted_name)
 
   device = sdr.devices + 0;
 
-  TRACE ("wanted name: \"%s\".\n", wanted_name);
+  TRACE ("wanted_name: \"sdrplay%s\", wanted_index: %d. Found %d devices.\n",
+         wanted_name, wanted_index, sdr.num_devices);
 
-  for (i = 0; i < sdr.num_devices; i++)
+  for (i = 0; i < (int)sdr.num_devices; i++)
   {
-    if (sdr.devices[i].hwVer == SDRPLAY_RSP1A_ID)
+    if (sdr.devices[i].hwVer == SDRPLAY_RSP1_ID)
     {
-      strcpy (selected_dev, "sdrplay-RSP1A");
-      TRACE ("Device Index %d: RSP1A  - SerialNumber = %s\n", i, sdr.devices[i].SerNo);
+      strcpy (current_dev, "RSP1");
+    }
+    else if (sdr.devices[i].hwVer == SDRPLAY_RSP1A_ID)
+    {
+      strcpy (current_dev, "RSP1A");
+    }
+    else if (sdr.devices[i].hwVer == SDRPLAY_RSP2_ID)
+    {
+      strcpy (current_dev, "RSP2");
+    }
+    else if (sdr.devices[i].hwVer == SDRPLAY_RSPdx_ID)
+    {
+      strcpy (current_dev, "RSP2");
     }
     else if (sdr.devices[i].hwVer == SDRPLAY_RSPduo_ID)
     {
-      strcpy (selected_dev, "sdrplay-RSPduo");
-      TRACE ("Device Index %d: RSPduo - SerialNumber = %s\n", i, sdr.devices[i].SerNo);
+      strcpy (current_dev, "RSPduo");
     }
     else
     {
-      snprintf (selected_dev, sizeof(selected_dev), "sdrplay-RSP%d", sdr.devices[i].hwVer);
-      TRACE ("Device Index %d: RSP%d   - SerialNumber = %s\n", i, sdr.devices[i].hwVer, sdr.devices[i].SerNo);
+      snprintf (current_dev, sizeof(current_dev), "RSP%d !!??", sdr.devices[i].hwVer);
+    }
+
+    TRACE ("Device Index %d: %s   - SerialNumber = %s\n", i, current_dev, sdr.devices[i].SerNo);
+
+    if (select_this == -1)
+    {
+      if (select_first)
+         select_this = i;
+      else if (i == wanted_index)
+         select_this = i;
+      else if (!stricmp(current_dev, wanted_name))
+         select_this = i;
     }
   }
 
-  if (i > 1 && _stricmp(wanted_name, selected_dev))
+  if (select_this == -1)
   {
-    LOG_STDERR ("Wanted device %s not found.\n", wanted_name);
+    LOG_STDERR ("Wanted device \"sdrplay%s\" (at index: %d) not found.\n", wanted_name, wanted_index);
     return (false);
   }
 
@@ -449,7 +477,7 @@ static bool sdrplay_select (const char *wanted_name)
     sdr.dev = device;
     g_sdr_device = &sdr;
     g_sdr_handle = device->dev;
-    Modes.selected_dev = strdup (selected_dev);
+    Modes.selected_dev = mg_mprintf ("sdrplay-%s", current_dev);
     return (true);
   }
   return (false);
@@ -673,9 +701,12 @@ const char *sdrplay_strerror (int rc)
 /**
  * Load all needed SDRplay functions dynamically.
  */
-int sdrplay_init (const char *name, sdrplay_dev **device)
+int sdrplay_init (const char *name, int index, sdrplay_dev **device)
 {
   *device = NULL;
+
+  TRACE ("name: '%s', index: %d\n", name, index);
+  assert (strnicmp(name, "sdrplay", 7) == 0);
 
   g_sdr_device = NULL;
   g_sdr_handle = NULL;
@@ -715,6 +746,8 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
      */
     if (err == ERROR_BAD_EXE_FORMAT)
          snprintf (sdr.last_err, sizeof(sdr.last_err), "%s is not a %d bit version", sdr.dll_name, 8*(int)sizeof(void*));
+    if (err == ERROR_MOD_NOT_FOUND)
+         snprintf (sdr.last_err, sizeof(sdr.last_err), "%s not found on PATH", sdr.dll_name);
     else snprintf (sdr.last_err, sizeof(sdr.last_err), "Failed to load %s; %lu", sdr.dll_name, GetLastError());
     goto failed;
   }
@@ -762,7 +795,7 @@ int sdrplay_init (const char *name, sdrplay_dev **device)
     goto failed;
   }
 
-  if (!sdrplay_select(name))
+  if (!sdrplay_select(name+7, index))
      goto failed;
 
   if (Modes.debug & DEBUG_GENERAL)
