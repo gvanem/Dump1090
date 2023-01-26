@@ -3,6 +3,7 @@
 * Extract more information from captured Mode S messages.
 * Fix the SdrPlay interface.
 * Improve the web interface gmap.html.
+* Make a working web-socket implementation for the Web-clients.
 * Enhance the algorithm to reliably decode more messages (add a 2.4 MB/S decoder?).
 * On the Web-page:
   - show the distance to the selected plane
@@ -16,9 +17,8 @@
   web-root at runtime. Use option `--web-page some.dll`.<br>
   Then `some.dll` would then need some exported `CreateInstance()` and `DeleteInstance()`
   functions.
-* Support SQLite3. Use this for storing the `aircraftDatabase.csv` into. <br>
-  :heavy_check_mark: *Done* <br>
-  Add a build-time option to use `<winsqlite/winsqlite3.h>`.
+* Support SQLite3. Use this for storing the `aircraftDatabase.csv` into. :heavy_check_mark: *Done* <br>
+  Add a build-time option to use `WinSqlite3.dll` as part of Win-10.     :heavy_check_mark: *Done* <br>
 * Reception and decoding of ACARS (Aircraft Communications Addressing and Reporting System)
   using:
    1) libacars - `https://github.com/szpajder/libacars.git`
