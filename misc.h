@@ -18,7 +18,6 @@
 /**
  * Various helper macros.
  */
-#define ADS_B_ACRONYM      "ADS-B; Automatic Dependent Surveillance - Broadcast"
 #define MODES_NOTUSED(V)   ((void)V)
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define TWO_PI             (2 * M_PI)
@@ -309,7 +308,8 @@ typedef struct sdrplay_conf {
         sdrplay_api_RspDuoModeT          mode;
       } sdrplay_conf;
 
-/* Forwards.
+/*
+ * Forwards:
  * Details in "aircraft.h" and "externals/sqlite3.c"
  */
 struct aircraft;
@@ -462,7 +462,6 @@ struct dyn_struct {
 
 extern int load_dynamic_table (struct dyn_struct *tab, int tab_size);
 extern int unload_dynamic_table (struct dyn_struct *tab, int tab_size);
-
 
 /**
  * \def MSEC_TIME()

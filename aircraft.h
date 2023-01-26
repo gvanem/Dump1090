@@ -89,7 +89,7 @@ typedef struct aircraft {
         pos_t    EST_position;      /**< Estimated position based on last `speed` and `heading`. */
 
         aircraft_CSV       *SQL;    /**< A pointer to a SQL record (or NULL). */
-        const aircraft_CSV *CSV;    /**< A pointer to a CSV record (or NULL). */
+        const aircraft_CSV *CSV;    /**< A pointer to a CSV record in `Modes.aircraft_list_CSV` (or NULL). */
         struct aircraft    *next;   /**< Next aircraft in our linked list. */
       } aircraft;
 
