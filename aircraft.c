@@ -331,7 +331,6 @@ static void aircraft_tests (void)
   unsigned     i, num_ok;
   static const aircraft_CSV a_tests[] = {
                { 0xAA3496, "N757FQ",  "Cessna" },
-               { 0x800737, "VT-ANQ",  "Boeing" }, /* callsign: AIRINDIA */
                { 0xAB34DE, "N821DA",  "Beech"  },
                { 0x800737, "VT-ANQ",  "Boeing" },
                { 0xA713D5, "N555UW",  "Piper"  },
@@ -341,11 +340,11 @@ static void aircraft_tests (void)
   char  sql_file [MAX_PATH] = "";
 
   if (Modes.aircraft_sql[0])
-     snprintf (sql_file, sizeof(sql_file), " and against \"%s\"",
+     snprintf (sql_file, sizeof(sql_file), " and \"%s\"",
                basename(Modes.aircraft_sql));
 
-  LOG_STDOUT ("Checking 5 fixed records against \"%s\"%s:\n",
-              basename(Modes.aircraft_db), sql_file);
+  LOG_STDOUT ("Checking %d fixed records against \"%s\"%s:\n",
+              DIM(a_tests), basename(Modes.aircraft_db), sql_file);
 
   for (i = num_ok = 0; i < DIM(a_tests); i++, t++)
   {
@@ -652,7 +651,7 @@ bool aircraft_CSV_load (void)
   }
 
   if (!sql_opened || sql_created ||
-      Modes.debug)   /* To compare speed of 'Modes.aircraft_list_CSV' lookup VS. sql_lookup_entry() */
+      (Modes.debug & DEBUG_GENERAL2))   /* To compare speed of 'Modes.aircraft_list_CSV' lookup VS. sql_lookup_entry() */
   {
     memset (&Modes.csv_ctx, '\0', sizeof(Modes.csv_ctx));
     Modes.csv_ctx.file_name = Modes.aircraft_db;
