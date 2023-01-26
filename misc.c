@@ -138,7 +138,7 @@ bool str_startswith (const char *s1, const char *s2)
   if (s2_len > s1_len)
      return (FALSE);
 
-  if (!_strnicmp (s1, s2, s2_len))
+  if (!strnicmp (s1, s2, s2_len))
      return (TRUE);
   return (FALSE);
 }
