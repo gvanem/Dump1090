@@ -79,14 +79,17 @@
 #include <vld.h>
 #endif
 
-/* Options for 'externals/sqlite3.c
- */
-#define SQLITE_API
-#define SQLITE_DQS           3   /* Double-quoted string literals are allowed */
-#define SQLITE_THREADSAFE    0
-#define SQLITE_WIN32_MALLOC  1
-#define SQLITE_NO_SYNC       1
-#define SQLITE_OMIT_AUTOINIT 1
+#if !defined(USE_WIN_SQLITE)
+  /*
+   * Options for 'externals/sqlite3.c
+   */
+  #define SQLITE_API
+  #define SQLITE_DQS           3   /* Double-quoted string literals are allowed */
+  #define SQLITE_THREADSAFE    0
+  #define SQLITE_WIN32_MALLOC  1
+  #define SQLITE_NO_SYNC       1
+  #define SQLITE_OMIT_AUTOINIT 1
+#endif
 
 #include <string.h>
 
