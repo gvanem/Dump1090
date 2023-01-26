@@ -95,8 +95,9 @@
 
 /* Avoid the dependency on 'oldnames.lib'
  */
-#define stricmp(s1, s2) _stricmp (s1, s2)
-#define strdup(s)       _strdup (s)
+#define stricmp(s1, s2)      _stricmp (s1, s2)
+#define strnicmp(s1, s2, sz) _strnicmp (s1, s2, sz)
+#define strdup(s)            _strdup (s)
 
 #if defined(_DEBUG)
   #include <malloc.h>
