@@ -117,7 +117,7 @@
 global_data Modes;
 
 /**
-  * The structure we use to store information about a decoded message.
+ * The structure we use to store information about a decoded message.
  */
 typedef struct modeS_message {
         uint8_t  msg [MODES_LONG_MSG_BYTES]; /**< Binary message. */
@@ -229,6 +229,23 @@ static void clrscr (void)
 
     FillConsoleOutputCharacter (console_hnd, ' ', width, coord, &written);
     FillConsoleOutputAttribute (console_hnd, console_info.wAttributes, width, coord, &written);
+  }
+}
+
+/*
+ * Fill the current line with spaces and put the cursor back at position 0.
+ */
+static void clreol (void)
+{
+  if (console_hnd != INVALID_HANDLE_VALUE)
+  {
+    WORD   width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
+    char *filler = alloca (width+1);
+
+    memset (filler, ' ', width-3);
+    filler [width-2] = '\r';
+    filler [width-1] = '\0';
+    fputs (filler, stdout);
   }
 }
 
@@ -377,18 +394,25 @@ static void console_update_gain (void)
 #endif
 }
 
-static int console_init (void)
+static bool console_init (void)
 {
   console_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
   if (console_hnd == INVALID_HANDLE_VALUE)
-     return (1);
+     return (false);
+
+  if (_isatty(1) == 0)
+  {
+    LOG_STDERR ("Do not redirect 'stdout' in interactive mode.\n"
+                "Do '%s [options] 2> file` instead.\n", Modes.who_am_I);
+    return (false);
+  }
 
   GetConsoleScreenBufferInfo (console_hnd, &console_info);
   GetConsoleMode (console_hnd, &console_mode);
   if (console_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)
      SetConsoleMode (console_hnd, console_mode | DISABLE_NEWLINE_AUTO_RETURN);
   Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
-  return (0);
+  return (true);
 }
 
 static void console_exit (void)
@@ -464,7 +488,7 @@ static void verbose_gain_set (rtlsdr_dev_t *dev, int gain)
   r = rtlsdr_set_tuner_gain (dev, gain);
   if (r)
        LOG_STDERR ("WARNING: Failed to set tuner gain.\n");
-  else LOG_STDERR ("Tuner gain set to %.0f dB.\n", gain/10.0);
+  else LOG_STDOUT ("Tuner gain set to %.0f dB.\n", gain/10.0);
 }
 
 /**
@@ -476,7 +500,7 @@ static void verbose_gain_auto (rtlsdr_dev_t *dev)
 
   if (r)
        LOG_STDERR ("WARNING: Failed to enable automatic gain.\n");
-  else LOG_STDERR ("Tuner gain set to automatic.\n");
+  else LOG_STDOUT ("Tuner gain set to automatic.\n");
 }
 
 /**
@@ -519,8 +543,8 @@ static void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
     if (err2 < err1)
        nearest = Modes.rtlsdr.gains[i];
   }
-  p[-2] = '\0';
-  LOG_STDERR ("Supported gains: %s.\n", gbuf);
+  p [-2] = '\0';
+  LOG_STDOUT ("Supported gains: %s.\n", gbuf);
   *target_gain = (uint16_t) nearest;
 }
 
@@ -537,11 +561,11 @@ static void verbose_direct_sampling (rtlsdr_dev_t *dev, int on)
     return;
   }
   if (on == 0)
-     LOG_STDERR ("Direct sampling mode disabled.\n");
+     LOG_STDOUT ("Direct sampling mode disabled.\n");
   else if (on == 1)
-     LOG_STDERR ("Enabled direct sampling mode, input 1/I.\n");
+     LOG_STDOUT ("Enabled direct sampling mode, input 1/I.\n");
   else if (on == 2)
-     LOG_STDERR ("Enabled direct sampling mode, input 2/Q.\n");
+     LOG_STDOUT ("Enabled direct sampling mode, input 2/Q.\n");
 }
 
 /**
@@ -558,7 +582,7 @@ static void verbose_ppm_set (rtlsdr_dev_t *dev, int ppm_error)
   else
   {
     rtlsdr_get_xtal_freq (dev, NULL, &tuner_freq);
-    LOG_STDERR ("Tuner correction set to %d PPM; %.3lf MHz.\n", ppm_error, tuner_freq / 1E6);
+    LOG_STDOUT ("Tuner correction set to %d PPM; %.3lf MHz.\n", ppm_error, tuner_freq / 1E6);
   }
 }
 
@@ -571,7 +595,7 @@ static void verbose_agc_set (rtlsdr_dev_t *dev, int agc)
 
   if (r < 0)
        LOG_STDERR ("WARNING: Failed to set AGC.\n");
-  else LOG_STDERR ("AGC %s okay.\n", agc ? "enabled" : "disabled");
+  else LOG_STDOUT ("AGC %s okay.\n", agc ? "enabled" : "disabled");
 }
 
 /**
@@ -581,13 +605,10 @@ static void verbose_bias_tee (rtlsdr_dev_t *dev, int bias_t)
 {
   int r = rtlsdr_set_bias_tee (dev, bias_t);
 
-  if (bias_t)
-  {
-    if (r)
-         LOG_STDERR ("Failed to activate Bias-T.\n");
-    else LOG_STDERR ("Activated Bias-T on GPIO PIN 0.\n");
-  }
+  if (bias_t && r)
+     LOG_STDERR ("Failed to activate Bias-T.\n");
 }
+
 /**
  * Step 1: Initialize the program with default values.
  */
@@ -624,7 +645,7 @@ static void modeS_init_config (void)
  *  \li Allocate and initialize the needed buffers.
  *  \li Open and parse the `Modes.aircraft_db` file (unless `NUL`).
  */
-static int modeS_init (void)
+static bool modeS_init (void)
 {
   int         I, Q;
   pos_t       pos;
@@ -642,7 +663,7 @@ static int modeS_init (void)
     if (!Modes.log)
     {
       LOG_STDERR ("Failed to create/append to \"%s\".\n", Modes.logfile);
-      return (1);
+      return (false);
     }
     for (i = 1; i < __argc && left > 2; i++)
     {
@@ -673,7 +694,7 @@ static int modeS_init (void)
   if (Modes.aircraft_db_update && stricmp(Modes.aircraft_db, "NUL"))
   {
     aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_update);
-    return (1);
+    return (true);
   }
 
   env = getenv ("DUMP1090_HOMEPOS");
@@ -682,7 +703,7 @@ static int modeS_init (void)
     if (sscanf(env, "%lf,%lf", &pos.lat, &pos.lon) != 2 || !VALID_POS(pos))
     {
       LOG_STDERR ("Invalid home-pos %s\n", env);
-      return (1);
+      return (false);
     }
     Modes.home_pos    = pos;
     Modes.home_pos_ok = true;
@@ -694,7 +715,7 @@ static int modeS_init (void)
    * Otherwise poll the result in 'location_poll()'
    */
   if (Modes.win_location && !location_get_async())
-     return (1);
+     return (false);
 
   signal (SIGINT, sigint_handler);
   signal (SIGBREAK, sigint_handler);
@@ -720,7 +741,7 @@ static int modeS_init (void)
   if (!Modes.ICAO_cache || !Modes.data || !Modes.magnitude || !Modes.magnitude_lut)
   {
     LOG_STDERR ("Out of memory allocating data buffer.\n");
-    return (1);
+    return (false);
   }
 
   memset (Modes.data, 127, Modes.data_len);
@@ -740,16 +761,16 @@ static int modeS_init (void)
   }
 
   if (!aircraft_CSV_load())
-     return (1);
+     return (false);
 
 #if 0
   if (Modes.use_sql_db)
-     return (1);  // for testing Sqlite
+     return (true);  // for testing Sqlite
 #endif
 
   if (Modes.interactive)
      return console_init();
-  return (0);
+  return (true);
 }
 
 /**
@@ -766,7 +787,7 @@ static int modeS_init (void)
  *   product: RTL2838-Blue,   serial: 00000001
  *  ```
  */
-static int modeS_init_RTLSDR (void)
+static bool modeS_init_RTLSDR (void)
 {
   int    i, rc, device_count;
   double gain;
@@ -775,10 +796,10 @@ static int modeS_init_RTLSDR (void)
   if (device_count <= 0)
   {
     LOG_STDERR ("No supported RTLSDR devices found. Error: %s\n", get_rtlsdr_error());
-    return (1);
+    return (false);
   }
 
-  LOG_STDERR ("Found %d device(s):\n", device_count);
+  LOG_STDOUT ("Found %d device(s):\n", device_count);
   for (i = 0; i < device_count; i++)
   {
     char manufact [256] = "??";
@@ -800,7 +821,7 @@ static int modeS_init_RTLSDR (void)
       if (selected)
          Modes.selected_dev = mg_mprintf ("%s (%s)", product, manufact);
     }
-    LOG_STDERR ("%d: %-10s %-20s SN: %s%s\n", i, manufact, product, serial,
+    LOG_STDOUT ("%d: %-10s %-20s SN: %s%s\n", i, manufact, product, serial,
                 selected ? " (currently selected)" : "");
   }
 
@@ -817,7 +838,7 @@ static int modeS_init_RTLSDR (void)
     if (Modes.rtlsdr.name)
          LOG_STDERR ("Error opening the RTLSDR device %s: %s.\n", Modes.rtlsdr.name, err);
     else LOG_STDERR ("Error opening the RTLSDR device %d: %s.\n", Modes.rtlsdr.index, err);
-    return (1);
+    return (false);
   }
 
   /* Set gain, frequency, sample rate, and reset the device.
@@ -846,25 +867,25 @@ static int modeS_init_RTLSDR (void)
   if (rc)
   {
     LOG_STDERR ("Error setting frequency: %d.\n", rc);
-    return (1);
+    return (false);
   }
 
   rc = rtlsdr_set_sample_rate (Modes.rtlsdr.device, Modes.sample_rate);
   if (rc)
   {
     LOG_STDERR ("Error setting sample-rate: %d.\n", rc);
-    return (1);
+    return (false);
   }
 
   rtlsdr_reset_buffer (Modes.rtlsdr.device);
 
-  LOG_STDERR ("Tuned to %.03f MHz.\n", Modes.freq / 1E6);
+  LOG_STDOUT ("Tuned to %.03f MHz.\n", Modes.freq / 1E6);
 
   gain = rtlsdr_get_tuner_gain (Modes.rtlsdr.device);
   if ((unsigned int)gain == 0)
-       LOG_STDERR ("Gain reported by device: AUTO.\n");
-  else LOG_STDERR ("Gain reported by device: %.2f dB.\n", gain/10.0);
-  return (0);
+       LOG_STDOUT ("Gain reported by device: AUTO.\n");
+  else LOG_STDOUT ("Gain reported by device: %.2f dB.\n", gain/10.0);
+  return (true);
 }
 
 /**
@@ -1135,18 +1156,20 @@ static void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t
   if (!fp)
   {
     LOG_STDERR ("Error opening frames.js: %s\n", strerror(errno));
-    exit (1);
+    Modes.exit = 1;
+    return;
   }
 
   fprintf (fp, "frames.push({\"descr\": \"%s\", \"mag\": [", descr);
   for (j = start; j <= end; j++)
   {
-    fprintf (fp,"%d", j < 0 ? 0 : m[j]);
+    fprintf (fp, "%d", j < 0 ? 0 : m[j]);
     if (j != end)
        fprintf (fp, ",");
   }
   fprintf (fp, "], \"fix1\": %d, \"fix2\": %d, \"bits\": %d, \"hex\": \"",
            fix1, fix2, modeS_message_len_by_type(msg[0] >> 3));
+
   for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
       fprintf (fp, "\\x%02x", msg[j]);
   fprintf (fp, "\"});\n");
@@ -1474,7 +1497,7 @@ static int brute_force_AP (uint8_t *msg, modeS_message *mm)
  * Decode the 13 bit AC altitude field (in DF 20 and others).
  *
  * \param in  msg   the raw message to work with.
- * \param out unit  set to either `MODES_UNIT_METERS` or `MDOES_UNIT_FEETS`.
+ * \param out unit  set to either `MODES_UNIT_METERS` or `MODES_UNIT_FEETS`.
  * \retval the altitude.
  */
 static int decode_AC13_field (const uint8_t *msg, metric_unit_t *unit)
@@ -2473,7 +2496,7 @@ good_preamble:
     {
       if ((Modes.debug & DEBUG_DEMODERR) && use_correction)
       {
-        LOG_STDOUT ("The following message has %d demod errors", errors);
+        LOG_STDERR ("The following message has %d demod errors", errors);
         dump_raw_message ("Demodulated with errors", msg, m, j);
       }
     }
@@ -3099,19 +3122,11 @@ static bool interactive_show_aircraft (const aircraft *a, uint64_t now)
   {
     if (a->SQL->reg_num[0])
        reg_num = a->SQL->reg_num;
-#if 0
-    if (a->SQL->call_sign[0])
-       call_sign = a->SQL->call_sign;
-#endif
   }
   else if (a->CSV)
   {
     if (a->CSV->reg_num[0])
        reg_num = a->CSV->reg_num;
-#if 0
-    if (a->CSV->call_sign[0])
-       call_sign = a->CSV->call_sign;
-#endif
   }
 
   if (!a->flight[0] && call_sign[0])
@@ -3248,7 +3263,7 @@ static void interactive_show_data (uint64_t now)
  *
  * Will print to `stdout` in BINARY-mode.
  */
-static int strip_mode (int level)
+static bool strip_mode (int level)
 {
   int i, q;
   uint64_t c = 0;
@@ -3270,7 +3285,7 @@ static int strip_mode (int level)
     putchar (i);
     putchar (q);
   }
-  return (0);
+  return (true);
 }
 
 /**
@@ -3778,7 +3793,7 @@ static int connection_handler_http (mg_connection *conn,
       opts.page404       = NULL;
       opts.extra_headers = set_headers (cli, content_type);
 
-#if MG_ENABLE_PACKED_FS
+#if defined(PACKED_WEB_ROOT)
       opts.fs = &mg_fs_packed;
       snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
       DEBUG (DEBUG_NET, "Serving packed file: '%s'.\n", file);
@@ -4027,7 +4042,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
  */
 #if MG_ENABLE_PACKED_FS
 /*
- * In the generated '$(OBJ_DIR)/packed_webfs.c'
+ * In the generated '$(OBJ_DIR)/packed_webfs.c' file.
  */
 extern const char *mg_unlist (size_t i);
 
@@ -4090,9 +4105,9 @@ static bool check_web_page (void)
  *  \li start the 2 active network services.
  *  \li or start the 4 listening (passive) network services.
  */
-static int modeS_init_net (void)
+static bool modeS_init_net (void)
 {
-#if MG_ENABLE_PACKED_FS
+#if defined(PACKED_WEB_ROOT)
   Modes.touch_web_root = false;
   LOG_STDOUT ("Ignoring the '--web-page %s/%s' option since we use a built-in 'Packed Filesystem'.\n",
               Modes.web_root, Modes.web_page);
@@ -4120,7 +4135,7 @@ static int modeS_init_net (void)
     if (!Modes.raw_in && !Modes.sbs_in)
     {
       LOG_STDERR ("No hosts for any `--net-active` services specified.\n");
-      return (1);
+      return (false);
     }
   }
   else
@@ -4133,12 +4148,12 @@ static int modeS_init_net (void)
     if (!Modes.raw_out || !Modes.raw_in || !Modes.sbs_out || !Modes.http_out)
     {
       LOG_STDERR ("Fail to set-up listen socket(s).\n");
-      return (1);
+      return (false);
     }
   }
   if (Modes.http_out && !check_web_page())
-     return (1);
-  return (0);
+     return (false);
+  return (true);
 }
 
 /**
@@ -4468,86 +4483,88 @@ static void show_help (const char *fmt, ...)
     va_end (args);
   }
   else
-    printf ("A 1090 MHz receiver, decoder and web-server for\n%s.\n", ADS_B_ACRONYM);
+  {
+    printf ("A 1090 MHz receiver, decoder and web-server for ADS-B (Automatic Dependent Surveillance - Broadcast).\n"
+            "Usage: %s [options]\n"
+            "  General options:\n"
+            "    --database <file>        The CSV file for the aircraft database\n"
+            "                             (default: `%s').\n"
+            "    --database-update<=url>  Redownload the above .csv-file if older than 10 days.\n"
+            "                             (needs `unzip.exe' on PATH. default URL:\n"
+            "                             `%s').\n"
+            "                             Also recreate `<file>.sqlite' and exit.\n"
+            "    --database-sql           Create a `<file>.sqlite' from the above .CSV-file if it does not exist.\n"
+            "                             Or use the `<file>.sqlite' if it exist.\n"
+            "    --debug <flags>          Debug mode; see below for details.\n"
+            "    --infile <filename>      Read data from file (use `-' for stdin).\n"
+            "    --interactive            Interactive mode with a smimple TUI.\n"
+            "    --interactive-ttl <sec>  Remove aircraft if not seen for <sec> (default: %u).\n"
+            "    --location               Use `Windows Location API' to get the `DUMP1090_HOMEPOS'.\n"
+            "    --logfile <file>         Enable logging to file (default: off)\n"
+            "    --loop <N>               With `--infile', read the file in a loop <N> times (default: 2^63).\n"
+            "    --metric                 Use metric units (meters, km/h, ...).\n"
+            "    --silent                 Silent mode for testing network I/O (together with `--debug n').\n"
+            "     -V, -VV                 Show version info. `-VV' for details.\n"
+            "     -h, --help              Show this help.\n\n",
+            Modes.who_am_I, Modes.aircraft_db, AIRCRAFT_DATABASE_URL, MODES_INTERACTIVE_TTL/1000);
 
-  printf ("\n  Usage: %s [options]\n"
-          "  General options:\n"
-          "    --database <file>        The CSV file for the aircraft database\n"
-          "                             (default: \"%s\").\n"
-          "    --database-update<=url>  Redownload the above .csv-file if older than 10 days.\n"
-          "                             (needs `unzip.exe` on PATH. default URL:\n"
-          "                             `%s`). Also recreate `<file>.sqlite` and exit.\n"
-          "    --database-sql           Create a `<file>.sqlite` from the above .CSV-file if it does not exist.\n"
-          "                             Or use the `<file>.sqlite` if it exist.\n"
-          "    --debug <flags>          Debug mode; see below for details.\n"
-          "    --infile <filename>      Read data from file (use `-' for stdin).\n"
-          "    --interactive            Interactive mode refreshing data on screen.\n"
-          "    --interactive-ttl <sec>  Remove aircraft if not seen for <sec> (default: %u).\n"
-          "    --location               Use 'Windows Location API' to get the 'DUMP1090_HOMEPOS'.\n"
-          "    --logfile <file>         Enable logging to file (default: off)\n"
-          "    --loop <N>               With --infile, read the file in a loop <N> times (default: 2^63).\n"
-          "    --metric                 Use metric units (meters, km/h, ...).\n"
-          "    --silent                 Silent mode for testing network I/O (together with '--debug n').\n"
-          "     -V, -VV                 Show version info. `-VV` for details.\n"
-          "     -h, --help              Show this help.\n\n",
-          Modes.who_am_I, Modes.aircraft_db, AIRCRAFT_DATABASE_URL, MODES_INTERACTIVE_TTL/1000);
+    printf ("  Mode-S decoder options:\n"
+            "    --aggressive             Use a more aggressive CRC check (two bits fixes, ...).\n"
+            "    --max-messages <N>       Max number of messages to process (default: Infinite).\n"
+            "    --no-fix                 Disable single-bits error correction using CRC.\n"
+            "    --no-crc-check           Disable checking CRC of messages (discouraged).\n"
+            "    --only-addr              Show only ICAO addresses (for testing).\n"
+            "    --raw                    Show only the raw Mode-S hex message.\n"
+            "    --strip <level>          Strip IQ file removing samples below `level'.\n\n");
 
-  printf ("  Mode-S decoder options:\n"
-          "    --aggressive             Use a more aggressive CRC check (two bits fixes, ...).\n"
-          "    --max-messages <N>       Max number of messages to process (default: Infinite).\n"
-          "    --no-fix                 Disable single-bits error correction using CRC.\n"
-          "    --no-crc-check           Disable checking CRC of messages (discouraged).\n"
-          "    --only-addr              Show only ICAO addresses (testing purposes).\n"
-          "    --raw                    Show only the raw Mode-S hex message.\n"
-          "    --strip <level>          Strip IQ file removing samples below level.\n\n");
+    printf ("  Network options:\n"
+            "    --net                    Enable network listening services.\n"
+            "    --net-active             Enable network active services.\n"
+            "    --net-only               Enable just networking, no physical device or file.\n"
+            "    --net-http-port <port>   TCP listening port for HTTP server (default: %u).\n"
+            "    --net-ri-port <port>     TCP listening port for raw input   (default: %u).\n"
+            "    --net-ro-port <port>     TCP listening port for raw output  (default: %u).\n"
+            "    --net-sbs-port <port>    TCP listening port for SBS output  (default: %u).\n"
+            "    --no-keep-alive          Ignore `Connection: keep-alive' from HTTP clients.\n"
+            "    --host-raw <addr:port>   Remote host/port for raw input with `--net-active'.\n"
+            "    --host-sbs <addr:port>   Remote host/port for SBS input with `--net-active'.\n"
+            "    --web-page <file>        The Web-page to serve for HTTP clients\n"
+            "                             (default: `%s/%s').\n\n",
+            MODES_NET_PORT_HTTP, MODES_NET_PORT_RAW_IN, MODES_NET_PORT_RAW_OUT,
+            MODES_NET_PORT_SBS, Modes.web_root, Modes.web_page);
 
-  printf ("  Network options:\n"
-          "    --net                    Enable network listening services.\n"
-          "    --net-active             Enable network active services.\n"
-          "    --net-only               Enable just networking, no physical device or file.\n"
-          "    --net-http-port <port>   TCP listening port for HTTP server (default: %u).\n"
-          "    --net-ri-port <port>     TCP listening port for raw input   (default: %u).\n"
-          "    --net-ro-port <port>     TCP listening port for raw output  (default: %u).\n"
-          "    --net-sbs-port <port>    TCP listening port for SBS output  (default: %u).\n"
-          "    --no-keep-alive          Ignore \"Connection: keep-alive\" from HTTP clients.\n"
-          "    --host-raw <addr:port>   Remote host/port for raw input with `--net-active`.\n"
-          "    --host-sbs <addr:port>   Remote host/port for SBS input with `--net-active`.\n"
-          "    --web-page <file>        The Web-page to serve for HTTP clients\n"
-          "                             (default: \"%s/%s\").\n\n",
-          MODES_NET_PORT_HTTP, MODES_NET_PORT_RAW_IN, MODES_NET_PORT_RAW_OUT,
-          MODES_NET_PORT_SBS, Modes.web_root, Modes.web_page);
+    printf ("  RTLSDR / SDRplay options:\n"
+            "    --agc                    Enable Digital AGC              (default: off)\n"
+            "    --bias                   Enable Bias-T output            (default: off)\n"
+            "    --calibrate              Enable calibrating R820 devices (default: off)\n"
+            "    --device <N / name>      Select device                   (default: 0; first found).\n"
+            "    --freq <Hz>              Set frequency                   (default: %.0f MHz).\n"
+            "    --gain <dB>              Set gain                        (default: AUTO).\n"
+            "    --if-mode <ZIF | LIF>    Intermediate Frequency mode     (default: ZIF).\n"
+            "    --ppm <correction>       Set frequency correction        (default: 0).\n"
+            "    --samplerate <Hz>        Set sample-rate                 (default: %.0f MS/s).\n\n",
+            MODES_DEFAULT_FREQ / 1E6, MODES_DEFAULT_RATE/1E6);
 
-  printf ("  RTLSDR / SDRplay options:\n"
-          "    --agc                    Enable Digital AGC              (default: off)\n"
-          "    --bias                   Enable Bias-T output            (default: off)\n"
-          "    --calibrate              Enable calibrating R820 devices (default: off)\n"
-          "    --device <N / name>      Select device                   (default: 0; first found).\n"
-          "    --freq <Hz>              Set frequency                   (default: %.0f MHz).\n"
-          "    --gain <dB>              Set gain                        (default: AUTO).\n"
-          "    --if-mode <ZIF | LIF>    Intermediate Frequency mode     (default: ZIF).\n"
-          "    --ppm <correction>       Set frequency correction        (default: 0).\n"
-          "    --samplerate <Hz>        Set sample-rate                 (default: %.0f MS/s).\n\n",
-          MODES_DEFAULT_FREQ / 1E6, MODES_DEFAULT_RATE/1E6);
+    printf ("  --debug <flags>: c = Log frames with bad CRC.\n"
+            "                   C = Log frames with good CRC.\n"
+            "                   D = Log frames decoded with 0 errors.\n"
+            "                   E = Log frames decoded with errors.\n"
+            "                   g = Log general debugging info.\n"
+            "                   G = A bit more general debug info than flag `g'.\n"
+            "                   j = Log frames to `frames.js', loadable by `debug.html'.\n"
+            "                   l = Log activity in `location.c'.\n"
+            "                   m = Log activity in `externals/mongoose.c'.\n"
+            "                   M = Log more activity in `externals/mongoose.c'.\n"
+            "                   n = Log network debugging information.\n"
+            "                   N = A bit more network information than flag `n'.\n"
+            "                   p = Log frames with bad preamble.\n\n");
 
-  printf ("  --debug <flags>: c = Log frames with bad CRC.\n"
-          "                   C = Log frames with good CRC.\n"
-          "                   D = Log frames decoded with 0 errors.\n"
-          "                   E = Log frames decoded with errors.\n"
-          "                   g = Log general debugging info.\n"
-          "                   G = A bit more general debug info than flag `g'.\n"
-          "                   j = Log frames to `frames.js', loadable by `debug.html'.\n"
-          "                   l = Log activity in 'location.c'.\n"
-          "                   m = Log activity in `externals/mongoose.c'.\n"
-          "                   M = Log more activity in `externals/mongoose.c'.\n"
-          "                   n = Log network debugging information.\n"
-          "                   N = A bit more network information than flag `n'.\n"
-          "                   p = Log frames with bad preamble.\n\n");
-
-  printf ("  If the `--location` options is not used, your home-position for distance calculation can be set like:\n"
-          "  'c:\\> set DUMP1090_HOMEPOS=51.5285578,-0.2420247' for London.\n");
+    printf ("  If the `--location' option is not used, your home-position for distance calculation can be set like:\n"
+            "  `c:\\> set DUMP1090_HOMEPOS=51.5285578,-0.2420247' for London.\n");
+  }
 
   modeS_exit();
-  exit (1);
+  exit (0);
 }
 
 /**
@@ -4730,17 +4747,28 @@ static void show_raw_SBS_stats (void)
 static void show_decoder_stats (void)
 {
   LOG_STDOUT ("Decoder statistics:\n");
+  clreol();  /* to clear the lines from startup messages */
   LOG_STDOUT (" %8llu valid preambles.\n", Modes.stat.valid_preamble);
+  clreol();
   LOG_STDOUT (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
+  clreol();
   LOG_STDOUT (" %8llu demodulated with 0 errors.\n", Modes.stat.demodulated);
+  clreol();
   LOG_STDOUT (" %8llu with CRC okay.\n", Modes.stat.good_CRC);
+  clreol();
   LOG_STDOUT (" %8llu with CRC failure.\n", Modes.stat.bad_CRC);
+  clreol();
   LOG_STDOUT (" %8llu errors corrected.\n", Modes.stat.fixed);
+  clreol();
   LOG_STDOUT (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
+  clreol();
   LOG_STDOUT (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
+  clreol();
   LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
+  clreol();
   LOG_STDOUT (" %8llu unique aircrafts of which %llu was in CSV-file and %llu in SQL-file.\n",
               Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV, Modes.stat.unique_aircrafts_SQL);
+  clreol();
   LOG_STDOUT (" %8llu sqlite3_exec() done.\n", Modes.stat.aircrafts_SQL_exec);
 
   print_unrecognized_ME();
@@ -4748,7 +4776,6 @@ static void show_decoder_stats (void)
 
 static void show_statistics (void)
 {
-  clrscr();  /* to clear the startup messages */
   if (!Modes.net_only)
      show_decoder_stats();
   if (Modes.net)
@@ -5141,7 +5168,7 @@ int main (int argc, char **argv)
   parse_cmd_line (argc, argv);
 
   rc = modeS_init();    /* Initialization based on cmd-line options */
-  if (rc)
+  if (!rc)
      goto quit;
 
   if (Modes.net_only)
@@ -5188,7 +5215,7 @@ int main (int argc, char **argv)
     {
       rc = modeS_init_RTLSDR();
       DEBUG (DEBUG_GENERAL, "modeS_init_RTLSDR(): rc: %d.\n", rc);
-      if (rc)
+      if (!rc)
          goto quit;
       dev_opened = true;
     }
@@ -5198,7 +5225,7 @@ int main (int argc, char **argv)
   {
     rc = modeS_init_net();
     DEBUG (DEBUG_GENERAL, "modeS_init_net(): rc: %d.\n", rc);
-    if (rc)
+    if (!rc)
        goto quit;
     net_opened = true;
   }
@@ -5214,7 +5241,7 @@ int main (int argc, char **argv)
     Modes.reader_thread = _beginthreadex (NULL, 0, data_thread_fn, NULL, 0, NULL);
     if (!Modes.reader_thread)
     {
-      rc = 1;
+      rc = 0;
       LOG_STDERR ("_beginthreadex() failed: %s.\n", strerror(errno));
       goto quit;
     }
