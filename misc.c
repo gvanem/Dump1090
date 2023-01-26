@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include <sys/utime.h>
+#include <wininet.h>
 #include "sqlite3.h"
 #include "misc.h"
 
@@ -486,7 +487,7 @@ static void sql_info (void)
   int   i, sz = 0;
 
   printf ("Compiled with Sqlite3 v%s (%s).\n"
-          "Build options: ", sqlite3_version, sqlite3_sourceid());
+          "Build options: ", sqlite3_libversion(), sqlite3_sourceid());
 
   for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
   {
@@ -503,17 +504,23 @@ static void sql_info (void)
 }
 
 /**
- * Get the "COMPILER=x" value from externals/sqlite3.c
+ * Return the compiler info the program was built with.
  */
-static const char *sql_compiler_info (void)
+static const char *compiler_info (void)
 {
-  const char *opt;
-  int   i;
+#ifdef __clang__
+  snprintf (buf, sizeof(buf), "clang-cl %d.%d.%d",
+            __clang_major__, __clang_minor__, __clang_patchlevel__);
 
-  for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
-      if (!strncmp("COMPILER=", opt, 9))
-         return (opt+9);
-  return ("?");
+#elif defined(_MSC_FULL_VER)
+  snprintf (buf, sizeof(buf), "Microsoft cl %d.%d.%d",
+            _MSC_VER / 100, _MSC_VER % 100, _MSC_FULL_VER % 100000);
+
+#else
+  snprintf (buf, sizeof(buf), "Microsoft cl %d.%d",
+            (_MSC_VER / 100), _MSC_VER % 100);
+#endif
+  return (buf);
 }
 
 static const char *build_features (void)
@@ -534,7 +541,7 @@ static const char *build_features (void)
     "ASAN",
   #endif
   #if defined(USE_WIN_SQLITE)
-    "WinSqlite",
+    "Win-Sqlite",
   #endif
   #if defined(PACKED_WEB_ROOT)
     "Packed-Web",
@@ -564,8 +571,7 @@ static const char *build_features (void)
  */
 void show_version_info (bool verbose)
 {
-  printf ("dump1090 ver. %s (%s, %s). Built at %s.\n",
-          PROG_VERSION, sql_compiler_info(), build_features(), __DATE__);
+  printf ("dump1090 ver. %s (%s, %s). Built at %s.\n", PROG_VERSION, compiler_info(), build_features(), __DATE__);
   if (verbose)
   {
  // print_cflags();
@@ -575,13 +581,9 @@ void show_version_info (bool verbose)
   exit (0);
 }
 
-/**
- * Stuff for dynamcally loading functions from `WinInet.dll`.
- *
- * Since our Mongoose was not compiled with OpenSSL, we'll have to use
- * WinInet.
+/*
+ * For dynamically loading functions from `WinInet.dll`.
  */
-#include <wininet.h>
 
 /**
  * \def DEF_FUNC
