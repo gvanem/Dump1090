@@ -104,15 +104,14 @@
 #define DEBUG_NOPREAMBLE_LEVEL           25
 
 #define MODES_INTERACTIVE_REFRESH_TIME  250   /* Milliseconds */
-#define MODES_INTERACTIVE_ROWS           15   /* Rows on screen */
 #define MODES_INTERACTIVE_TTL         60000   /* TTL (msec) before being removed */
 #define MODES_CONNECT_TIMEOUT          5000   /* msec timeout for an active connect */
 
 #define MG_NET_POLL_TIME             (MODES_INTERACTIVE_REFRESH_TIME / 2)
 
+#define MODES_CONTENT_TYPE_ICON   "image/x-icon"
 #define MODES_CONTENT_TYPE_JSON   "application/json"
 #define MODES_CONTENT_TYPE_PNG    "image/png"
-#define MODES_CONTENT_TYPE_ICON   "image/x-icon"
 
 global_data Modes;
 
@@ -265,6 +264,10 @@ static void set_colour (int colour)
   SetConsoleTextAttribute (console_hnd, attr);
 }
 
+/*
+ * Called every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`) while
+ * in interactive mode to update the Console Windows Title.
+ */
 static void console_title_stats (void)
 {
   char            buf [100];
@@ -282,7 +285,7 @@ static void console_title_stats (void)
   if (bad_CRC - last_bad_CRC > 2*(good_CRC - last_good_CRC))
   {
      overload = " (too high?)";
-     ovl_count = 3;   /* let it show for 3 refreshes */
+     ovl_count = 3;   /* let it show for 3 period (750 msec) */
   }
   else if (ovl_count > 0 && --ovl_count == 0)
     overload = "            ";
@@ -4534,10 +4537,15 @@ static void show_help (const char *fmt, ...)
             MODES_NET_PORT_SBS, Modes.web_root, Modes.web_page);
 
     printf ("  RTLSDR / SDRplay options:\n"
-            "    --agc                    Enable Digital AGC              (default: off)\n"
-            "    --bias                   Enable Bias-T output            (default: off)\n"
-            "    --calibrate              Enable calibrating R820 devices (default: off)\n"
+            "    --agc                    Enable Digital AGC              (default: off).\n"
+            "    --bias                   Enable Bias-T output            (default: off).\n"
+            "    --calibrate              Enable calibrating R820 devices (default: off).\n"
             "    --device <N / name>      Select device                   (default: 0; first found).\n"
+            "                             e.g. `--device 0'              - select first RTLSDR device found.\n"
+            "                                  `--device RTL2838-silver' - select on RTLSDR name.\n"
+            "                                  `--device sdrplay'        - select first SDRPlay device found.\n"
+            "                                  `--device sdrplay1'       - select on SDRPlay index.\n"
+            "                                  `--device sdrplayRSP1A'   - select on SDRPlay name.\n"
             "    --freq <Hz>              Set frequency                   (default: %.0f MHz).\n"
             "    --gain <dB>              Set gain                        (default: AUTO).\n"
             "    --if-mode <ZIF | LIF>    Intermediate Frequency mode     (default: ZIF).\n"
@@ -4570,11 +4578,11 @@ static void show_help (const char *fmt, ...)
 /**
  * This background function is called continously by `main_data_loop()`.
  * It performs:
- *  *) Removes inactive aircrafts from the list.
- *  *) Polls the network for events blocking less than `MODES_INTERACTIVE_REFRESH_TIME`.
- *  *) Polls the `Windows Location API` for a location.
- *  *) Refreshes interactive data 4 times per second (`MODES_INTERACTIVE_REFRESH_TIME`).
- *  *) Refreshes the console-title with some statistics (also 4 times per second).
+ *  \li Removes inactive aircrafts from the list.
+ *  \li Polls the network for events blocking less than 125 msec.
+ *  \li Polls the `Windows Location API` for a location.
+ *  \li Refreshes interactive data every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`).
+ *  \li Refreshes the console-title with some statistics (also 4 times per second).
  */
 static void background_tasks (void)
 {
@@ -4834,6 +4842,8 @@ static void modeS_exit (void)
   free (Modes.ICAO_cache);
   free (Modes.aircraft_list_CSV);
   free (Modes.selected_dev);
+  free (Modes.rtlsdr.name);
+  free (Modes.sdrplay.name);
 
   DeleteCriticalSection (&Modes.data_mutex);
   DeleteCriticalSection (&Modes.print_mutex);
@@ -4864,7 +4874,7 @@ static void modeS_exit (void)
 #endif
 }
 
-static void select_device (char *arg)
+static void select_device (const char *arg)
 {
   static bool dev_selection_done = false;
 
@@ -4875,15 +4885,20 @@ static void select_device (char *arg)
      Modes.rtlsdr.index = atoi (arg);
   else
   {
-    Modes.rtlsdr.name = arg;
+    Modes.rtlsdr.name  = strdup (arg);
     Modes.rtlsdr.index = -1;  /* select on name only */
   }
 
-  if (!_strnicmp(arg, "sdrplay", 7))
+  if (!strnicmp(arg, "sdrplay", 7))
   {
-    Modes.sdrplay.name = arg;
-    if (isdigit(arg[+7]))
-       Modes.sdrplay.index = atoi (arg+7);
+    Modes.sdrplay.name = strdup (arg);
+    if (isdigit(arg[7]))
+    {
+      Modes.sdrplay.index   = atoi (arg+7);
+      Modes.sdrplay.name[7] = '\0';
+    }
+    else
+      Modes.sdrplay.index = -1;
   }
   dev_selection_done = true;
 }
@@ -5206,7 +5221,7 @@ int main (int argc, char **argv)
       }
 #endif
 
-      rc = sdrplay_init (Modes.sdrplay.name, &Modes.sdrplay.device);
+      rc = sdrplay_init (Modes.sdrplay.name, Modes.sdrplay.index, &Modes.sdrplay.device);
       DEBUG (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
       if (rc)
          goto quit;
