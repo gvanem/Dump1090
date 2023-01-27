@@ -56,24 +56,25 @@ static const     aircraft_CSV *sql_lookup_entry (uint32_t addr);
    * for `WinSqlite3.dll`
    */
   #define SQLITE_DLL_NAME  "WinSqlite3.dll"
+  #define SQL_CALLBACK     __stdcall
 
   #define DEF_FUNC(ret, f, args)  typedef ret (__stdcall *func_##f) args; \
                                   static func_##f p_##f = NULL
 
-  DEF_FUNC (int,          sqlite3_open_v2, (const char *filename, struct sqlite3 **p_db,
-                                            int flags, const char *vfs));
+  typedef int (SQL_CALLBACK *_sqlite3_callback) (void *cb_arg, int argc, char **argv,
+                                                 char **col_names);
 
-  DEF_FUNC (int,          sqlite3_free, (void *data));
-  DEF_FUNC (int,          sqlite3_close, (struct sqlite3 *db));
-  DEF_FUNC (int,          sqlite3_config, (int opt, ...));
-  DEF_FUNC (const char*,  sqlite3_errmsg, (struct sqlite3 *db));
-  DEF_FUNC (const char*,  sqlite3_libversion, (void));
-  DEF_FUNC (const char*,  sqlite3_sourceid, (void));
-  DEF_FUNC (const char*,  sqlite3_compileoption_get, (int n));
-
-  DEF_FUNC (int,          sqlite3_exec, (struct sqlite3 *db, const char *statement,
-                                         sqlite3_callback cb, void *cb_arg,
-                                         char **p_err_msg));
+  DEF_FUNC (int,         sqlite3_open_v2, (const char *filename, struct sqlite3 **p_db,
+                                           int flags, const char *vfs));
+  DEF_FUNC (int,         sqlite3_exec, (struct sqlite3 *db, const char *statement,
+                                        _sqlite3_callback cb, void *cb_arg, char **p_err_msg));
+  DEF_FUNC (int,         sqlite3_free, (void *data));
+  DEF_FUNC (int,         sqlite3_close, (struct sqlite3 *db));
+  DEF_FUNC (int,         sqlite3_config, (int opt, ...));
+  DEF_FUNC (const char*, sqlite3_errmsg, (struct sqlite3 *db));
+  DEF_FUNC (const char*, sqlite3_libversion, (void));
+  DEF_FUNC (const char*, sqlite3_sourceid, (void));
+  DEF_FUNC (const char*, sqlite3_compileoption_get, (int n));
 
   #define ADD_FUNC(func)  { false, NULL, SQLITE_DLL_NAME, #func, (void**) &p_##func }
                          /* ^ no functions are optional */
@@ -111,14 +112,16 @@ static const     aircraft_CSV *sql_lookup_entry (uint32_t addr);
     return (*p_sqlite3_compileoption_get) (n);
   }
 
-  #define sqlite3_open_v2     (*p_sqlite3_open_v2)
-  #define sqlite3_exec        (*p_sqlite3_exec)
-  #define sqlite3_free        (*p_sqlite3_free)
-  #define sqlite3_close       (*p_sqlite3_close)
-  #define sqlite3_config      (*p_sqlite3_config)
-  #define sqlite3_errmsg      (*p_sqlite3_errmsg)
-  #define sqlite3_libversion  (*p_sqlite3_libversion)
-  #define sqlite3_sourceid    (*p_sqlite3_sourceid)
+  #define sqlite3_open_v2(file, db, flags, vfs)     (*p_sqlite3_open_v2) (file, db, flags, vfs)
+  #define sqlite3_exec(db, query, cb, cb_arg, err)  (*p_sqlite3_exec) (db, query, cb, cb_arg, err)
+  #define sqlite3_free(ptr)                         (*p_sqlite3_free) (ptr)
+  #define sqlite3_close(db)                         (*p_sqlite3_close) (db)
+  #define sqlite3_config(opt, ...)                  (*p_sqlite3_config) (opt, __VA_ARGS__)
+  #define sqlite3_errmsg(db)                        (*p_sqlite3_errmsg) (db)
+  #define sqlite3_libversion()                      (*p_sqlite3_libversion)()
+  #define sqlite3_sourceid()                        (*p_sqlite3_sourceid)()
+#else
+  #define SQL_CALLBACK   __cdecl
 #endif
 
 /**
@@ -175,16 +178,7 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
    */
   Modes.stat.unique_aircrafts++;
 
-  if (!from_sql)
-  {
-    Modes.stat.unique_aircrafts_CSV++;
-
-    /* This points into the `Modes.aircraft_list_CSV` array.
-     * No need to `free()`.
-     */
-    a->CSV = _a;
-  }
-  else
+  if (from_sql)
   {
     /* Need to duplicate record from sql_exec().
      * free() it on `aircraft_exit(true)`.
@@ -194,12 +188,16 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
     {
       Modes.stat.unique_aircrafts_SQL++;
       memcpy (a->SQL, _a, sizeof(*a->SQL));
-#if 0
-      LOG_FILEONLY ("SQL: %06X, regnum: '%s', callsign: '%s', manufact: '%s', country: '%s'\n",
-                    a->addr, a->SQL->reg_num, a->SQL->call_sign, a->SQL->manufact,
-                    aircraft_get_country(a->addr, true));
-#endif
     }
+  }
+  else
+  {
+    Modes.stat.unique_aircrafts_CSV++;
+
+    /* This points into the `Modes.aircraft_list_CSV` array.
+     * No need to `free()`.
+     */
+    a->CSV = _a;
   }
   return (a);
 }
@@ -343,7 +341,7 @@ static void aircraft_tests (void)
      snprintf (sql_file, sizeof(sql_file), " and \"%s\"",
                basename(Modes.aircraft_sql));
 
-  LOG_STDOUT ("Checking %d fixed records against \"%s\"%s:\n",
+  LOG_STDOUT ("Checking %zu fixed records against \"%s\"%s:\n",
               DIM(a_tests), basename(Modes.aircraft_db), sql_file);
 
   for (i = num_ok = 0; i < DIM(a_tests); i++, t++)
@@ -1031,7 +1029,7 @@ const char *aircraft_get_details (const uint8_t *_a)
 /**
  * Sqlite3 interface functions
  */
-static int sql_callback (void *cb_arg, int argc, char **argv, char **col_name)
+static int SQL_CALLBACK sql_callback (void *cb_arg, int argc, char **argv, char **col_name)
 {
   aircraft_CSV *a = (aircraft_CSV*) cb_arg;
 
@@ -1062,7 +1060,6 @@ static const aircraft_CSV *sql_lookup_entry (uint32_t addr)
   addr2  = addr;
   snprintf (query, sizeof(query), "SELECT * FROM aircrafts WHERE icao24='%06x';", addr);
   rc = sqlite3_exec (Modes.sql_db, query, sql_callback, &a, &err_msg);
-  Modes.stat.aircrafts_SQL_exec++;
 
   if (rc != SQLITE_OK)
   {
@@ -1380,12 +1377,12 @@ void aircraft_remove_stale (uint64_t now)
  * Called to:
  *  \li Close the Sqlite interface.
  *  \li Unload `WinSqlite3.dll` if compiled with `-DUSE_WIN_SQLITE`.
- *  \li And possibly free memory allocated here (if called from `modeS_exit()`).
+ *  \li And possibly free memory allocated here (if called from `modeS_exit()`
+ *      with `free_aircrafts == true`).
  */
 void aircraft_exit (bool free_aircrafts)
 {
-  aircraft *a;
-  aircraft *a_next;
+  aircraft *a, *a_next;
 
   if (Modes.sql_db)
      sqlite3_close (Modes.sql_db);
