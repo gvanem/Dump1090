@@ -99,7 +99,7 @@
 #define strnicmp(s1, s2, sz) _strnicmp (s1, s2, sz)
 #define strdup(s)            _strdup (s)
 
-#if defined(_DEBUG)
+#if defined(_DEBUG) && !defined(RC_INVOKED)
   #include <malloc.h>
 
   #undef  _malloca          /* Avoid MSVC-9 <malloc.h>/<crtdbg.h> name-clash */
