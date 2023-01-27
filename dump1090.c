@@ -1507,6 +1507,7 @@ static int decode_AC13_field (const uint8_t *msg, metric_unit_t *unit)
 {
   int m_bit = msg[3] & (1 << 6);
   int q_bit = msg[3] & (1 << 4);
+  int ret;
 
   if (!m_bit)
   {
@@ -1523,7 +1524,10 @@ static int decode_AC13_field (const uint8_t *msg, metric_unit_t *unit)
       /**
        * The final altitude is due to the resulting number multiplied by 25, minus 1000.
        */
-      return (25*n - 1000);
+      ret = 25 * n - 1000;
+      if (ret < 0)
+         ret = 0;
+      return (ret);
     }
     else
     {
@@ -1546,7 +1550,7 @@ static int decode_AC13_field (const uint8_t *msg, metric_unit_t *unit)
  */
 static int decode_AC12_field (uint8_t *msg, metric_unit_t *unit)
 {
-  int n, q_bit = msg[5] & 1;
+  int ret, n, q_bit = msg[5] & 1;
 
   if (q_bit)
   {
@@ -1558,7 +1562,10 @@ static int decode_AC12_field (uint8_t *msg, metric_unit_t *unit)
     /* The final altitude is due to the resulting number multiplied
      * by 25, minus 1000.
      */
-    return (25 * n - 1000);
+    ret = 25 * n - 1000;
+    if (ret < 0)
+       ret = 0;
+    return (ret);
   }
   return (0);
 }
@@ -4776,8 +4783,6 @@ static void show_decoder_stats (void)
   clreol();
   LOG_STDOUT (" %8llu unique aircrafts of which %llu was in CSV-file and %llu in SQL-file.\n",
               Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV, Modes.stat.unique_aircrafts_SQL);
-  clreol();
-  LOG_STDOUT (" %8llu sqlite3_exec() done.\n", Modes.stat.aircrafts_SQL_exec);
 
   print_unrecognized_ME();
 }
