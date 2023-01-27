@@ -233,7 +233,6 @@ typedef struct statistics {
         uint64_t        unique_aircrafts;
         uint64_t        unique_aircrafts_CSV;
         uint64_t        unique_aircrafts_SQL;
-        uint64_t        aircrafts_SQL_exec;
         uint64_t        messages_total;
         unrecognized_ME unrecognized_ME [MAX_ME_TYPE];
 
