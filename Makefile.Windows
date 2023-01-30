@@ -18,8 +18,10 @@ USE_CRT_DEBUG ?= 0
 
 #
 # Enable bundling *all* web_root pages inside dump1090.exe.
+# Also if 'USE_MINIFY = 1', compress all .css, .js and .html files first.
 #
 USE_PACKED_WEB  ?= 0
+USE_MINIFY      ?= 0
 PACKED_WEB_ROOT ?= web_root-Tar1090
 
 #
@@ -225,6 +227,10 @@ ifeq ($(USE_PACKED_WEB),1)
   GENERATED = packed_webfs.c
   SOURCES  += packed_webfs.c
   CFLAGS   += -DMG_ENABLE_PACKED_FS=1 -DPACKED_WEB_ROOT=\"$(PACKED_WEB_ROOT)\"
+
+  ifeq ($(USE_MINIFY),1)
+    MINIFY = --minify --no-comments
+  endif
 else
   GENERATED =
 endif
@@ -298,7 +304,22 @@ endif
 packed_webfs.c: tools/gen_packed_fs.py
 	$(call green_msg, Generating $@ will take some time...)
 	$(file > $@,$(call Warning,//))
-	$(PYTHON) tools/gen_packed_fs.py --verbose --outfile $@ --recursive $(PACKED_WEB_ROOT)/
+	$(PYTHON) tools/gen_packed_fs.py $(MINIFY) --verbose --outfile $@ --recursive $(PACKED_WEB_ROOT)/
+
+.PHONY: packed_test
+packed_test: packed_webfs_1.c packed_webfs_2.c
+	ls -lS packed_webfs_*.c
+	$(call C_compile, $(OBJ_DIR)/packed_webfs_2.obj, packed_webfs_2.c)
+
+packed_webfs_1.c: tools/gen_packed_fs.py FORCE
+	$(call green_msg, Generating $@ will take some time...)
+	$(file > $@,$(call Warning,//))
+	$(PYTHON) tools/gen_packed_fs.py --verbose --outfile $@ web_root-OpenLayers3/
+
+packed_webfs_2.c: tools/gen_packed_fs.py FORCE
+	$(call green_msg, Generating $@ will take some time...)
+	$(file > $@,$(call Warning,//))
+	$(PYTHON) tools/gen_packed_fs.py --verbose --outfile $@ --minify web_root-OpenLayers3/
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.
@@ -309,6 +330,7 @@ gen_favicons: favicon.png favicon.ico
 	xxd -i favicon.png >> favicon.c
 	@echo -e '\n// Generated array from favicon.ico' >> favicon.c
 	xxd -i favicon.ico >> favicon.c
+	@echo
 
 docs: doxy-docs doxy-docs/Doxyfile
 	cd $< ; doxygen Doxyfile
@@ -348,7 +370,9 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
                       $(TARGETS:.exe=.exp) \
                       $(TARGETS:.exe=.lib))
 
-OTHER_JUNK = link.tmp link.args vc1*.pdb cpp-filter.py
+OTHER_JUNK = link.tmp link.args vc1*.pdb cpp-filter.py \
+             json-1.txt json-2.txt json-3.txt json-4.txt \
+             packed_webfs_1.c packed_webfs_2.c
 
 clean: docs_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
