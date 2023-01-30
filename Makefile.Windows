@@ -20,7 +20,7 @@ USE_CRT_DEBUG ?= 0
 # Enable bundling *all* web_root pages inside dump1090.exe.
 # Also if 'USE_MINIFY = 1', compress all .css, .js and .html files first.
 #
-USE_PACKED_WEB  ?= 0
+USE_PACKED_WEB  ?= 1
 USE_MINIFY      ?= 0
 PACKED_WEB_ROOT ?= web_root-Tar1090
 
@@ -34,7 +34,7 @@ USE_RTLSDR_EMUL ?= 0
 #
 # Use the Sqlite from the Windows SDK?
 #
-USE_WIN_SQLITE ?= 0
+USE_WIN_SQLITE ?= 1
 
 #
 # Enable "Address Sanitation".

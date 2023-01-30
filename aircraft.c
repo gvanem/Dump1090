@@ -222,7 +222,7 @@ static aircraft *aircraft_find (uint32_t addr)
 }
 
 /**
- * Fin the aircraft with address `addr` or create a new one.
+ * Find the aircraft with address `addr` or create a new one.
  */
 aircraft *aircraft_find_or_create (uint32_t addr, uint64_t now)
 {
@@ -232,7 +232,7 @@ aircraft *aircraft_find_or_create (uint32_t addr, uint64_t now)
   {
     a = aircraft_create (addr, now);
     if (a)
-       LIST_ADD_HEAD (aircraft, &Modes.aircrafts, a);
+       LIST_ADD_TAIL (aircraft, &Modes.aircrafts, a);
   }
   return (a);
 }
@@ -318,12 +318,12 @@ static const aircraft_CSV *CSV_lookup_entry (uint32_t addr)
 }
 
 /**
- * If `Modes.debug != 0`, do a simple test on the `Modes.aircraft_list_CSV`.
+ * If `Modes.tests > 0`, do a simple test on the `Modes.aircraft_list_CSV`.
  *
  * Also called if `Modes.use_sql_db != 0` to compare the lookup speed
  * of Sqlite3 compared to our `bsearch()` lookup.
  */
-static void aircraft_tests (void)
+static void aircraft_test_1 (void)
 {
   const char  *country;
   unsigned     i, num_ok;
@@ -382,7 +382,7 @@ static void aircraft_tests (void)
     country = aircraft_get_country (t->addr, false);
     LOG_STDOUT ("  addr: 0x%06X, reg-num: %-8s manufact: %-20s country: %-30s %s\n",
                 t->addr, reg_num, manufact, country ? country : "?",
-                aircraft_is_military(t->addr) ? "Military" : "");
+                aircraft_is_military(t->addr, NULL) ? "Military" : "");
   }
   LOG_STDOUT ("%3u OKAY\n", num_ok);
   LOG_STDOUT ("%3u FAIL\n", i - num_ok);
@@ -393,7 +393,6 @@ static void aircraft_tests (void)
   LOG_STDOUT ("\nChecking 5 random records in \"%s\"%s:\n",
               basename(Modes.aircraft_db), sql_file);
 
-  srand (time(NULL));
   for (i = 0; i < 5; i++)
   {
     const aircraft_CSV *a_CSV, *a_SQL;
@@ -428,14 +427,76 @@ static void aircraft_tests (void)
   }
 }
 
-/*
- * Taken from Dump1090-FA's 'net_io.c':
+/**
+ * Generate a single json .TXT-file (binary mode) and run
+ * `jq.exe < filename > NUL` to verify it.
  */
-char *aircraft_json_Dump1090_OL3 (const char *url_path, int *len)
+static void aircraft_dump_json (char *data, const char *filename)
 {
-  MODES_NOTUSED (url_path);
-  MODES_NOTUSED (len);
-  return (NULL);
+  FILE  *f;
+  char   jq_cmd [100];
+  size_t sz = data ? strlen(data) : 0;
+
+  printf ("Dumping %d aircrafts (%zu bytes) to '%s'\n", aircraft_numbers(), sz, filename);
+  if (!data)
+     return;
+
+  f = fopen (filename, "wb+");
+  fwrite (data, 1, strlen(data), f);
+  free (data);
+  fclose (f);
+  snprintf (jq_cmd, sizeof(jq_cmd), "jq.exe < %s > NUL", filename);
+  if (system(jq_cmd) == 0)
+       printf ("File %s OK.\n\n", filename);
+  else printf ("File %s failed.\n\n", filename);
+}
+
+/**
+ * If `Modes.tests > 0`, generate some json-files to test the `aircraft_make_json()`
+ * function with a large number of aircrafts. The data-content does not matter.
+ */
+static void aircraft_test_2 (void)
+{
+  int i, num;
+
+  puts ("");
+  if (!Modes.home_pos_ok)
+  {
+    Modes.home_pos.lat = 51.5285578;  /* London */
+    Modes.home_pos.lon = -0.2420247;
+  }
+
+  /* Create a list of aircrafts with a position around our home-position
+   */
+  if (Modes.tests_arg)
+       num = Modes.tests_arg;
+  else num = 50;
+
+  for (i = 0; i < num; i++)
+  {
+    aircraft *a = aircraft_find_or_create (0x470000 + i, MSEC_TIME());
+
+    if (!a)
+       break;
+
+    a->position = Modes.home_pos;
+    a->position.lat += random_range2 (-2, 2);
+    a->position.lon += random_range2 (-2, 2);
+    a->altitude = random_range (0, 10000);
+    a->heading  = random_range2 (-180, 180);
+    a->messages = 1;
+    strcpy (a->flight, "test");
+  }
+  Modes.stat.messages_total = num;
+
+  aircraft_dump_json (aircraft_make_json(false), "json-1.txt");
+  aircraft_dump_json (aircraft_make_json(true), "json-2.txt");
+
+  /* Test empty json-data too.
+   */
+  aircraft_exit (true);
+  aircraft_dump_json (aircraft_make_json(false), "json-3.txt");
+  aircraft_dump_json (aircraft_make_json(true), "json-4.txt");
 }
 
 /**
@@ -616,6 +677,9 @@ bool aircraft_CSV_load (void)
     return (false);
   }
 
+  if (Modes.tests > 0)
+     Modes.debug |= DEBUG_GENERAL;
+
   get_usec_now(); /* calls 'QueryPerformanceFrequency()' */
 
   if (Modes.use_sql_db)
@@ -648,8 +712,10 @@ bool aircraft_CSV_load (void)
     }
   }
 
-  if (!sql_opened || sql_created ||
-      (Modes.debug & DEBUG_GENERAL2))   /* To compare speed of 'Modes.aircraft_list_CSV' lookup VS. sql_lookup_entry() */
+  /* If `Modes.tests > 0`, open and parse the .CSV-file to compare speed
+   * of 'Modes.aircraft_list_CSV' lookup vs. `sql_lookup_entry()` lookup.
+   */
+  if (!sql_opened || sql_created || Modes.tests)
   {
     memset (&Modes.csv_ctx, '\0', sizeof(Modes.csv_ctx));
     Modes.csv_ctx.file_name = Modes.aircraft_db;
@@ -692,13 +758,16 @@ bool aircraft_CSV_load (void)
     LOG_STDOUT ("\ncreated %u records\n", i);
   }
 
-  if (Modes.debug)
+  if (Modes.tests > 0)
   {
     TRACE ("CSV loaded and parsed in %.3f ms.\n", csv_load_t/1E3);
     if (sql_create_t > 0.0)
          TRACE ("SQL created in %.3f ms.\n", sql_create_t/1E3);
     else TRACE ("SQL loaded in %.3f ms.\n", sql_load_t/1E3);
-    aircraft_tests();
+
+    aircraft_test_1();
+    aircraft_test_2();
+    return (false);    /* Just force an exit */
   }
   return (true);
 }
@@ -944,7 +1013,7 @@ const char *aircraft_get_country (uint32_t addr, bool get_short)
  * Returns TRUE if the ICAO address is in one of these military ranges.
  */
 static const ICAO_range military_range[] = {
-     { 0xADF7C8,  0xAFFFFF, NULL },
+     { 0xADF7C8,  0xAFFFFF, "US" },
      { 0x010070,  0x01008F, NULL },
      { 0x0A4000,  0x0A4FFF, NULL },
      { 0x33FF00,  0x33FFFF, NULL },
@@ -954,7 +1023,7 @@ static const ICAO_range military_range[] = {
      { 0x3EA000,  0x3EBFFF, NULL },
      { 0x3F4000,  0x3FBFFF, NULL },
      { 0x400000,  0x40003F, NULL },
-     { 0x43C000,  0x43CFFF, NULL },
+     { 0x43C000,  0x43CFFF, "UK" },
      { 0x444000,  0x446FFF, NULL },
      { 0x44F000,  0x44FFFF, NULL },
      { 0x457000,  0x457FFF, NULL },
@@ -976,20 +1045,26 @@ static const ICAO_range military_range[] = {
      { 0x7C822E,  0x7C84FF, NULL },
      { 0x7C8800,  0x7C88FF, NULL },
      { 0x7C9000,  0x7CBFFF, NULL },
+     { 0x7CF800,  0x7CFAFF, "AU" },
      { 0x7D0000,  0x7FFFFF, NULL },
      { 0x800200,  0x8002FF, NULL },
-     { 0xC20000,  0xC3FFFF, NULL },
+     { 0xC0CDF9,  0xC3FFFF, "CA" },
+     { 0xC87F00,  0xC87FFF, "NZ" },
      { 0xE40000,  0xE41FFF, NULL }
    };
 
-bool aircraft_is_military (uint32_t addr)
+bool aircraft_is_military (uint32_t addr, const char **country)
 {
   const ICAO_range *r = military_range + 0;
   uint16_t          i;
 
   for (i = 0; i < DIM(military_range); i++, r++)
       if (addr >= r->low && addr <= r->high)
-         return (true);
+      {
+        if (country && r->cc_short)
+           *country = r->cc_short;
+        return (true);
+      }
   return (false);
 }
 
@@ -999,6 +1074,22 @@ bool aircraft_is_military (uint32_t addr)
 uint32_t aircraft_get_addr (uint8_t a0, uint8_t a1, uint8_t a2)
 {
   return ((a0 << 16) | (a1 << 8) | a2);
+}
+
+const char *aircraft_get_military (uint32_t addr)
+{
+  static char buf [20];
+  const  char *cntry;
+  bool   mil = aircraft_is_military (addr, &cntry);
+  int    sz;
+
+  if (!mil)
+     return ("");
+
+  sz = snprintf (buf, sizeof(buf), "Military");
+  if (cntry)
+     snprintf (buf+sz, sizeof(buf)-sz, " (%s)", cntry);
+  return (buf);
 }
 
 /**
@@ -1022,7 +1113,7 @@ const char *aircraft_get_details (const uint8_t *_a)
   if (a && a->reg_num[0])
      snprintf (p, left, " (reg-num: %s, manuf: %s, call-sign: %s%s)",
                a->reg_num, a->manufact[0] ? a->manufact : "?", a->call_sign[0] ? a->call_sign : "?",
-               aircraft_is_military(addr) ? ", Military" : "");
+               aircraft_is_military(addr, NULL) ? ", Military" : "");
   return (buf);
 }
 
@@ -1222,8 +1313,72 @@ static void sql_log (void *cb_arg, int err, const char *str)
 }
 
 /**
+ * Fill the JSON buffer `p` for 1 aircraft.
+ */
+static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, char *p, int left)
+{
+  size_t sz, len;
+  char  *p_start = p;
+  int    altitude   = a->altitude;
+  int    speed      = a->speed;
+
+  /* Convert units to metric if '--metric' was specified.
+   * But an 'extended_client' wants altitude and speed in aeronatical units.
+   */
+  if (Modes.metric && !extended_client)
+  {
+    altitude = (int) (double) (a->altitude / 3.2828);
+    speed    = (int) (1.852 * (double) a->speed);
+  }
+
+  len = strlen (a->flight);
+  while (a->flight[len-1] == ' ')   /* drop trailing spaces */
+     len--;
+
+  sz = mg_snprintf (p, left,
+                    "{%Q: \"%06X\", %Q: \"%.*s\", %Q: %f, %Q: %f, %Q: %d, %Q: %d, %Q: %d",
+                    "hex",      a->addr,
+                    "flight",   (int)len, a->flight,
+                    "lat",      a->position.lat,
+                    "lon",      a->position.lon,
+                    "altitude", altitude,
+                    "track",    a->heading,
+                    "speed",    speed);
+
+  p    += sz;
+  left -= (int)sz;
+  assert (left > 100);
+
+  if (extended_client)
+  {
+    sz = mg_snprintf (p, left,
+                      ", %Q: %Q, %Q: %u, %Q: %lu, %Q: %lu",
+                      "type",     "adsb_icao",
+                      "messages", a->messages,
+                      "seen",     2,
+                      "seen_pos", 1 /* tv_now.tv_sec - a->seen_first/1000 */);
+    p    += sz;
+    left -= (int)sz;
+    assert (left > 3);
+  }
+
+  *p++ = '}';
+  left--;
+
+  if (a->next && VALID_POS(a->next->position))
+  {
+    *p++ = ',';
+    left--;
+    assert (left > 2);
+  }
+  *p++ = '\n';
+  left--;
+  return (p - p_start);
+}
+
+/**
  * Return a malloced JSON description of the active planes.
- * But only those whose latitude and longitude are known.
+ * But only those whose latitude and longitude are valid.
  *
  * Since various Web-clients expects different elements in this returned
  * JSON array, add those which is approprite for that Web-clients only.
@@ -1248,7 +1403,7 @@ char *aircraft_make_json (bool extended_client)
 {
   struct timeval tv_now;
   aircraft      *a = Modes.aircrafts;
-  int            sz, left = 1024;        /* The initial buffer is incremented as needed. */
+  int            size, left = 1024;        /* The initial buffer is incremented as needed. */
   char          *buf = malloc (left);
   char          *p = buf;
 
@@ -1258,11 +1413,13 @@ char *aircraft_make_json (bool extended_client)
   if (extended_client)
   {
     _gettimeofday (&tv_now, NULL);
-    sz = snprintf (p, left, "{\"now\": %lu.%03lu, \"messages\": %llu, \"aircraft\" : [",
-                   tv_now.tv_sec, tv_now.tv_usec/1000, Modes.stat.messages_total);
-
-    p    += sz;
-    left -= sz;
+    size = mg_snprintf (p, left,
+                        "{%Q:%lu.%03lu, %Q:%llu, %Q:\n[",
+                       "now",      tv_now.tv_sec, tv_now.tv_usec/1000,
+                       "messages", Modes.stat.messages_total,
+                       "aircraft");
+    p    += size;
+    left -= size;
   }
   else
   {
@@ -1270,70 +1427,29 @@ char *aircraft_make_json (bool extended_client)
     left--;
   }
 
-  while (a)
+  for (a = Modes.aircrafts; a; a = a->next)
   {
-    int altitude = a->altitude;
-    int speed    = a->speed;
+    if (!VALID_POS(a->position))
+       continue;
 
-    /* Convert units to metric if '--metric' was specified.
-     * But an 'extended_client' wants altitude and speed in aeronatical units.
-     */
-    if (Modes.metric && !extended_client)
+    size  = aircraft_make_1_json (a, extended_client, p, left);
+    p    += size;
+    left -= size;
+    assert (left > 0);
+
+    if (left < 256)    /* Resize 'buf' if needed */
     {
-      altitude = (int) (double) (a->altitude / 3.2828);
-      speed    = (int) (1.852 * (double) a->speed);
+      int used = p - buf;
+
+      left += 1024;    /* Our increment */
+      buf = realloc (buf, used + left);
+      if (!buf)
+         return (NULL);
+      p = buf + used;
     }
-
-    if (VALID_POS(a->position))
-    {
-      size_t f_len = strlen (a->flight);
-
-      while (a->flight[f_len-1] == ' ')   /* do not send trailing spaces */
-         f_len--;
-
-      sz = snprintf (p, left,
-                     "{\"hex\": \"%06X\", \"flight\": \"%.*s\", \"lat\": %f, \"lon\": %f, \"altitude\": %d, \"track\": %d, \"speed\": %d",
-                     a->addr, (int)f_len, a->flight, a->position.lat, a->position.lon, altitude, a->heading, speed);
-      p    += sz;
-      left -= sz;
-
-      if (extended_client)
-      {
-        sz = snprintf (p, left, ", \"type\": \"%s\", \"messages\": %u, \"seen\": %lu, \"seen_pos\": %lu",
-                      "adsb_icao", a->messages, 2, 1 /* tv_now.tv_sec - a->seen_first/1000 */);
-        p    += sz;
-        left -= sz;
-      }
-
-      *p++ = '}';
-      left--;
-
-      if (a->next && VALID_POS(a->next->position))
-      {
-        *p++ = ',';
-        left--;
-      }
-      *p++ = '\n';
-      left--;
-
-      if (left < 256) /* Resize if needed */
-      {
-        int used = p - buf;
-
-        left += 1024;    /* Our increment */
-        buf = realloc (buf, used + left);
-        if (!buf)
-           return (NULL);
-
-        p = buf + used;
-      }
-    }
-    a = a->next;
   }
 
-  /* Close the json array
-   */
-  *p++ = ']';
+  *p++ = ']';   /* Close the json array */
   if (extended_client)
      *p++ = '}';
   *p = '\0';

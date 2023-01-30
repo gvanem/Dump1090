@@ -138,8 +138,8 @@ typedef struct modeS_message {
         int  ME_type;                        /**< Extended squitter message type. */
         int  ME_subtype;                     /**< Extended squitter message subtype. */
         int  heading;                        /**< Horizontal angle of flight. */
-        bool heading_is_valid;
-        int  aircraft_type;
+        bool heading_is_valid;               /**< We got a valid `heading` */
+        int  aircraft_type;                  /**< Aircraft identification. "Type A..D" */
         int  odd_flag;                       /**< 1 = Odd, 0 = Even CPR message. */
         int  UTC_flag;                       /**< UTC synchronized? */
         int  raw_latitude;                   /**< Non decoded latitude */
@@ -765,11 +765,6 @@ static bool modeS_init (void)
 
   if (!aircraft_CSV_load())
      return (false);
-
-#if 0
-  if (Modes.use_sql_db)
-     return (true);  // for testing Sqlite
-#endif
 
   if (Modes.interactive)
      return console_init();
@@ -2953,33 +2948,7 @@ static aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now
   addr = aircraft_get_addr (mm->AA[0], mm->AA[1], mm->AA[2]);
   a = aircraft_find_or_create (addr, now);
   if (!a)
-  {
-    /* If it is an already known aircraft, move it on head
-     * so we keep aircrafts ordered by received message time.
-     *
-     * However move it on head only if at least one second elapsed
-     * since the aircraft that is currently on head sent a message,
-     * otherwise with multiple aircrafts at the same time we have an
-     * useless shuffle of positions on the screen.
-     */
-#if 0
-    if (Modes.aircrafts != a && (now - a->seen_last) >= 1000)
-    {
-      aircraft *aux = Modes.aircrafts;
-
-      while (aux->next != a)
-         aux = aux->next;
-
-      /* Now we are a node before the aircraft to remove.
-       */
-      aux->next = aux->next->next; /* removed. */
-
-      /* Add on head */
-      a->next = Modes.aircrafts;
-      Modes.aircrafts = a;
-    }
-#endif
-  }
+     return (NULL);
 
   a->seen_last = now;
   a->messages++;
@@ -5018,10 +4987,11 @@ static struct option long_options[] = {
   { "silent",           no_argument,        &Modes.silent,             1   },
   { "strip",            required_argument,  NULL,                      'S' },
   { "web-page",         required_argument,  NULL,                      'w' },
+  { "test",             optional_argument,  NULL,                      'T' },
 #if MG_ENABLE_FILE
   { "touch",            no_argument,        &Modes.touch_web_root,     1   },
 #endif
-  { NULL,               no_argument,        NULL,                    0   }
+  { NULL,               no_argument,        NULL,                      0   }
 };
 
 static void parse_cmd_line (int argc, char **argv)
@@ -5144,6 +5114,11 @@ static void parse_cmd_line (int argc, char **argv)
 
       case 't':
            Modes.interactive_ttl = 1000 * atoi (optarg);
+           break;
+
+      case 'T':
+           Modes.tests++;
+           Modes.tests_arg = optarg ? atoi (optarg) : 0;
            break;
 
       case 'V':
