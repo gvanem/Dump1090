@@ -476,8 +476,22 @@ void set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
  */
 uint32_t random_range (uint32_t min, uint32_t max)
 {
-  double scaled = (double) rand() / RAND_MAX;
+  static bool done = false;
+  double scaled;
+
+  if (!done)
+  {
+    srand (time(NULL));
+    done = true;
+  }
+  scaled = (double) rand() / RAND_MAX;
   return (uint32_t) ((max - min + 1) * scaled) + min;
+}
+
+int32_t random_range2 (int32_t min, int32_t max)
+{
+  double scaled = (double) rand() / RAND_MAX;
+  return (int32_t) ((max - min + 1) * scaled) + min;
 }
 
 /**

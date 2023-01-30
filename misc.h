@@ -401,6 +401,8 @@ typedef struct global_data {
         cartesian_t home_pos_cart;              /**< Coordinates of home position (cartesian). */
         bool        home_pos_ok;                /**< We have a good home position. */
         const char *wininet_last_error;         /**< Last error from WinInet API. */
+        int         tests;                      /**< Perform some tests. */
+        int         tests_arg;                  /**< With optional tests-count. */
 
         /** For parsing a `Modes.aircraft_db` file:
          */
@@ -443,6 +445,7 @@ extern const char *win_strerror (DWORD err);
 extern char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
 extern void        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
 extern uint32_t    random_range (uint32_t min, uint32_t max);
+extern int32_t     random_range2 (int32_t min, int32_t max);
 extern int         touch_file (const char *file);
 extern int         touch_dir (const char *dir, bool recurse);
 extern uint32_t    download_file (const char *file, const char *url);
