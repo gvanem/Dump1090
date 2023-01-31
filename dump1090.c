@@ -613,6 +613,68 @@ static void verbose_bias_tee (rtlsdr_dev_t *dev, int bias_t)
 }
 
 /**
+ * Populate a I/Q -> Magnitude lookup table. It is used because
+ * hypot() or round() may be expensive and may vary a lot depending on
+ * the CRT used.
+ *
+ * We scale to 0-255 range multiplying by 1.4 in order to ensure that
+ * every different I/Q pair will result in a different magnitude value,
+ * not losing any resolution.
+ */
+static uint16_t *c_gen_magnitude_lut (void)
+{
+  int       I, Q;
+  uint16_t *lut = malloc (sizeof(*lut) * 129 * 129);
+
+  if (!lut)
+  {
+    LOG_STDERR ("Out of memory in 'c_gen_magnitude_lut()'.\n");
+    modeS_exit();
+  }
+  for (I = 0; I < 129; I++)
+  {
+    for (Q = 0; Q < 129; Q++)
+       lut [I*129 + Q] = (uint16_t) round (360 * hypot(I, Q));
+  }
+  return (lut);
+}
+
+#ifdef USE_GEN_LUT
+#include "py_gen_magnitude_lut.h"
+#endif
+
+static bool check_py_gen_magnitude_lut (void)
+{
+#ifdef USE_GEN_LUT
+  uint16_t *lut = c_gen_magnitude_lut();
+  int       I, Q, equals;
+
+  assert (lut);
+
+  for (I = equals = 0; I < 129; I++)
+  {
+    for (Q = 0; Q < 129; Q++)
+    {
+      int idx = I*129+Q;
+
+      if (lut[idx] == py_gen_magnitude_lut[idx])
+           equals++;
+      else printf ("%8u != %-8u.\n", py_gen_magnitude_lut[idx], lut[idx]);
+    }
+  }
+  free (lut);
+  if (equals != DIM(py_gen_magnitude_lut))
+  {
+    printf ("There were %zu errors in 'py_gen_magnitude_lut[]'.\n", DIM(py_gen_magnitude_lut) - equals);
+    return (false);
+  }
+  puts ("'py_gen_magnitude_lut[]' values all OK.");
+#endif
+  return (true);
+}
+
+
+/**
  * Step 1: Initialize the program with default values.
  */
 static void modeS_init_config (void)
@@ -650,7 +712,6 @@ static void modeS_init_config (void)
  */
 static bool modeS_init (void)
 {
-  int         I, Q;
   pos_t       pos;
   const char *env;
 
@@ -739,9 +800,8 @@ static bool modeS_init (void)
   Modes.ICAO_cache    = calloc (2 * sizeof(uint32_t) * MODES_ICAO_CACHE_LEN, 1);
   Modes.data          = malloc (Modes.data_len);
   Modes.magnitude     = malloc (2 * Modes.data_len);
-  Modes.magnitude_lut = malloc (sizeof(*Modes.magnitude_lut) * 129 * 129);
 
-  if (!Modes.ICAO_cache || !Modes.data || !Modes.magnitude || !Modes.magnitude_lut)
+  if (!Modes.ICAO_cache || !Modes.data || !Modes.magnitude)
   {
     LOG_STDERR ("Out of memory allocating data buffer.\n");
     return (false);
@@ -749,19 +809,14 @@ static bool modeS_init (void)
 
   memset (Modes.data, 127, Modes.data_len);
 
-  /* Populate the I/Q -> Magnitude lookup table. It is used because
-   * hypot() or round() may be expensive and may vary a lot depending on
-   * the CRT used.
-   *
-   * We scale to 0-255 range multiplying by 1.4 in order to ensure that
-   * every different I/Q pair will result in a different magnitude value,
-   * not losing any resolution.
-   */
-  for (I = 0; I < 129; I++)
-  {
-    for (Q = 0; Q < 129; Q++)
-       Modes.magnitude_lut [I*129+Q] = (uint16_t) round (360 * hypot(I, Q));
-  }
+#if defined(USE_GEN_LUT)
+  Modes.magnitude_lut = py_gen_magnitude_lut;
+#else
+  Modes.magnitude_lut = c_gen_magnitude_lut();
+#endif
+
+  if (Modes.tests && !check_py_gen_magnitude_lut())
+     return (false);
 
   if (!aircraft_CSV_load())
      return (false);
@@ -2335,7 +2390,7 @@ good_preamble:
     if (use_correction)
     {
       memcpy (aux, m + j + MODES_PREAMBLE_US*2, sizeof(aux));
-      if (j && detect_out_of_phase(m+j))
+      if (j && detect_out_of_phase(m + j))
       {
         apply_phase_correction (m + j);
         Modes.stat.out_of_phase++;
@@ -3244,15 +3299,15 @@ static void interactive_show_data (uint64_t now)
  */
 static bool strip_mode (int level)
 {
-  int i, q;
+  int I, Q;
   uint64_t c = 0;
 
   _setmode (_fileno(stdin), O_BINARY);
   _setmode (_fileno(stdout), O_BINARY);
 
-  while ((i = getchar()) != EOF && (q = getchar()) != EOF)
+  while ((I = getchar()) != EOF && (Q = getchar()) != EOF)
   {
-    if (abs(i-127) < level && abs(q-127) < level)
+    if (abs(I-127) < level && abs(Q-127) < level)
     {
       c++;
       if (c > 4*MODES_PREAMBLE_US)
@@ -3261,15 +3316,15 @@ static bool strip_mode (int level)
     else
       c = 0;
 
-    putchar (i);
-    putchar (q);
+    putchar (I);
+    putchar (Q);
   }
   return (true);
 }
 
 /**
  * Return a description of the receiver in JSON.
- *  { "version" : "0.2", "refresh" : 1000, "history" : 3 }
+ *  { "version" : "0.3", "refresh" : 1000, "history" : 3 }
  */
 static char *receiver_to_json (void)
 {
@@ -4021,7 +4076,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
  */
 #if MG_ENABLE_PACKED_FS
 /*
- * In the generated '$(OBJ_DIR)/packed_webfs.c' file.
+ * In the generated 'packed_webfs.c' file.
  */
 extern const char *mg_unlist (size_t i);
 
@@ -4483,6 +4538,7 @@ static void show_help (const char *fmt, ...)
             "    --loop <N>               With `--infile', read the file in a loop <N> times (default: 2^63).\n"
             "    --metric                 Use metric units (meters, km/h, ...).\n"
             "    --silent                 Silent mode for testing network I/O (together with `--debug n').\n"
+            "    --test                   Perform some test of internal functions.\n"
             "     -V, -VV                 Show version info. `-VV' for details.\n"
             "     -h, --help              Show this help.\n\n",
             Modes.who_am_I, Modes.aircraft_db, AIRCRAFT_DATABASE_URL, MODES_INTERACTIVE_TTL/1000);
@@ -4810,7 +4866,9 @@ static void modeS_exit (void)
 
   aircraft_exit (true);
 
+#if !defined(USE_GEN_LUT)
   free (Modes.magnitude_lut);
+#endif
   free (Modes.magnitude);
   free (Modes.data);
   free (Modes.ICAO_cache);
@@ -5173,6 +5231,8 @@ int main (int argc, char **argv)
   else if (Modes.strip_level)
   {
     rc = strip_mode (Modes.strip_level);
+    _setmode (_fileno(stdin), O_TEXT);
+    _setmode (_fileno(stdout), O_TEXT);
   }
   else if (Modes.infile)
   {
