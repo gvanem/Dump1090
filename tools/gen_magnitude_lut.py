@@ -10,12 +10,14 @@ lut_table = [ 0 ] * 129*129
 print ("static uint16_t py_gen_magnitude_lut [%d] = {" % len(lut_table))
 
 num = 0
+width = 8
 for I in range(0, 129):
   for Q in range(0, 129):
       v = round (360 * math.hypot (I, Q))
       lut_table [I*129 + Q] = v
-      print ("%6d, " % v, end="")
+      print ("%*d, " % (width, v), end="")
+      width = 5
       num += 1
       if (num % 10) == 0:
-         print ("   ")
+         print ("\n   ", end="")
 print ("\n};")
