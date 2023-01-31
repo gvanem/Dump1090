@@ -318,9 +318,9 @@ static const aircraft_CSV *CSV_lookup_entry (uint32_t addr)
 }
 
 /**
- * If `Modes.tests > 0`, do a simple test on the `Modes.aircraft_list_CSV`.
+ * Do a simple test on the `Modes.aircraft_list_CSV`.
  *
- * Also called if `Modes.use_sql_db != 0` to compare the lookup speed
+ * Also, if `Modes.use_sql_db != 0` compare the lookup speed
  * of Sqlite3 compared to our `bsearch()` lookup.
  */
 static void aircraft_test_1 (void)
@@ -452,7 +452,7 @@ static void aircraft_dump_json (char *data, const char *filename)
 }
 
 /**
- * If `Modes.tests > 0`, generate some json-files to test the `aircraft_make_json()`
+ * Generate some json-files to test the `aircraft_make_json()`
  * function with a large number of aircrafts. The data-content does not matter.
  */
 static void aircraft_test_2 (void)
@@ -1319,8 +1319,8 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
 {
   size_t sz, len;
   char  *p_start = p;
-  int    altitude   = a->altitude;
-  int    speed      = a->speed;
+  int    altitude = a->altitude;
+  int    speed    = a->speed;
 
   /* Convert units to metric if '--metric' was specified.
    * But an 'extended_client' wants altitude and speed in aeronatical units.
