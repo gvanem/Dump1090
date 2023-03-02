@@ -506,6 +506,10 @@ static void aircraft_test_2 (void)
  *  2) call `unzip - %TEMP%\\aircraft-database-temp.zip > %TEMP%\\aircraft-database-temp.csv`.
  *  3) copy `%TEMP%\\aircraft-database-temp.csv` over to 'db_file'.
  *  4) with option `--database-sql`, remove `Modes.aircraft_sql` to rebuild it.
+ *
+ * \todo:
+ * Use the `ZIP` package from `https://github.com/kuba--/zip.git` to replace an external
+ * `unzip.exe` program.
  */
 bool aircraft_CSV_update (const char *db_file, const char *url)
 {
