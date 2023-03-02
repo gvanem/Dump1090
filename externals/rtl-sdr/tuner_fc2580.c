@@ -19,8 +19,77 @@
 #include "rtl-sdr.h"
 #include "tuner_fc2580.h"
 
+/*
+Registers
+
+Reg		Bitmap	Description
+------------------------------------------------------------------------------
+R2		[7:6]	Band switch and VCO divider
+0x02			00: UHF, PLL = VCO/4
+				01: L-Band, PLL = VCO/2
+				10: VHF, PLL = VCO/12
+		[5]		0: Use internal XTAL Oscillator, 1: Use External Clock input
+		[4]		0: Lower VCO band < 2.6 GHz, 1: upper VCO band > 2.6 GHz
+------------------------------------------------------------------------------
+R24		[6:4]	Reference divider R, 00: /1, 01: /2, 10: /4
+0x18 	[3:0]	High part of 'K' value
+------------------------------------------------------------------------------
+R26				Middle part of 'K' value
+0x1a
+------------------------------------------------------------------------------
+R27				Lower part of 'K' value
+0x1b
+------------------------------------------------------------------------------
+R28				'N' value
+0x1c
+------------------------------------------------------------------------------
+R47		[7:6]	Filter PLL status, 11: Filter PLL in sync
+0x2f	[5:0]	Filter PLL value
+------------------------------------------------------------------------------
+R54		[6]		Filter bandwidth course tune
+0x36			0: Wide bandwidth, 4...10 MHz
+				1: Small bandwidth, 1...3 MHz
+------------------------------------------------------------------------------
+R55				Filter bandwidth fine tune
+0x37
+------------------------------------------------------------------------------
+R69		[5:4]	00: Manual VGA gain control
+0x45			01: Internal AGC mode
+				10: Voltage controlled AGC mode
+------------------------------------------------------------------------------
+R73		[2:0]	IF manual attenuator control * -6 dB
+0x49
+------------------------------------------------------------------------------
+R74				IF manual gain control * 0.25 dB
+0x4a
+------------------------------------------------------------------------------
+R76		[1]		0: Internal IF AGC mode
+0x4c			1: Voltage controlled IF AGC mode
+------------------------------------------------------------------------------
+R103-R106		LNA and Mixer agc power detector voltage threshold
+0x67-0x6a		low and high settings
+------------------------------------------------------------------------------
+R107			IF agc power detector voltage threshold low setting
+0x6b
+------------------------------------------------------------------------------
+R108			IF agc power detector voltage threshold high setting
+0x6c
+------------------------------------------------------------------------------
+R113			Indication of LNA gain
+0x71
+------------------------------------------------------------------------------
+R114			Indication of Mixer gain
+0x72
+------------------------------------------------------------------------------
+R115	[2:0]	Indication of IF attenuator * -6 dB
+0x73
+------------------------------------------------------------------------------
+R116			Indication of IF gain * 0.25 dB
+0x74
+------------------------------------------------------------------------------
+*/
+
 typedef enum {
-	FC2580_NO_BAND,
 	FC2580_VHF_BAND,
 	FC2580_UHF_BAND,
 	FC2580_L_BAND
@@ -47,6 +116,14 @@ static const struct fc2580_reg_val fc2580_init_reg_vals[] = {
 	{0x4c, 0x00},
 	{0x3f, 0x88},
 	{0x02, 0x0e},
+	{0x25, 0xf0}, //for UHF
+	{0x27, 0x77}, //for VHF and UHF
+	{0x2b, 0x70}, //for L-Band
+	{0x2c, 0x37}, //for L-Band
+	{0x30, 0x09},
+	{0x44, 0x20}, //for L-Band
+	{0x50, 0x8c},
+	{0x53, 0x50},
 	{0x58, 0x14},
 	{0x6b, 0x11}, //threshold VGA
 	{0x6c, 0x13}  //threshold VGA
@@ -59,31 +136,24 @@ struct fc2580_pll {
 };
 
 static const struct fc2580_pll fc2580_pll_lut[] = {
-	/*                            VCO min    VCO max */
-	{ 400000000, 12, 0x80}, /* .......... 4800000000 */
-	{1000000000,  4, 0x00}, /* 1600000000 4000000000 */
-	{0xffffffff,  2, 0x40}, /* 2000000000 .......... */
+	{ 400000000, 12, 0x80}, // VHF
+	{ 925000000,  4, 0x00}, // UHF
+	{0xffffffff,  2, 0x40}, // L-Band
 };
+
+static fc2580_band_type curr_band = FC2580_VHF_BAND;
 
 struct fc2580_freq_regs {
 	uint32_t freq;
-	uint8_t r25_val;
-	uint8_t r27_val;
 	uint8_t r28_val;
 	uint8_t r29_val;
-	uint8_t r2b_val;
-	uint8_t r2c_val;
 	uint8_t r2d_val;
-	uint8_t r30_val;
-	uint8_t r44_val;
-	uint8_t r50_val;
-	uint8_t r53_val;
 	uint8_t r5f_val;
 	uint8_t r61_val;
 	uint8_t r62_val;
 	uint8_t r63_val;
-	uint8_t r67_val; //threshold LNA
-	uint8_t r68_val; //threshold LNA
+	uint8_t r67_val;
+	uint8_t r68_val;
 	uint8_t r69_val;
 	uint8_t r6a_val;
 	uint8_t r6d_val;
@@ -94,30 +164,21 @@ struct fc2580_freq_regs {
 /* XXX: 0xff is used for don't-care! */
 static const struct fc2580_freq_regs fc2580_freq_regs_lut[] = {
 	{ 400000000,
-		0xff, 0x77, 0x33, 0x40, 0xff, 0xff, 0xff, 0x09, 0xff, 0x8c,
-		0x50, 0x0f, 0x07, 0x00, 0x15, 0x03, 0x05, 0x10, 0x12, 0x78,
-		0x32, 0x54},
+		0x33, 0x40, 0xff, 0x0f, 0x07, 0x00, 0x15, 0x03,
+		0x05, 0x10, 0x12, 0x78, 0x32, 0x54},
 	{ 538000000,
-		0xf0, 0x77, 0x53, 0x60, 0xff, 0xff, 0x9f, 0x09, 0xff, 0x8c,
-		0x50, 0x13, 0x07, 0x06, 0x15, 0x06, 0x08, 0x10, 0x12, 0x78,
-		0x32, 0x14},
+		0x53, 0x60, 0x9f, 0x13, 0x07, 0x06, 0x15, 0x06,
+		0x08, 0x10, 0x12, 0x78, 0x32, 0x14},
 	{ 794000000,
-		0xf0, 0x77, 0x53, 0x60, 0xff, 0xff, 0x9f, 0x09, 0xff, 0x8c,
-		0x50, 0x15, 0x03, 0x03, 0x15, 0x03, 0x05, 0x0c, 0x0e, 0x78,
-		0x32, 0x14},
-	{1000000000,
-		0xf0, 0x77, 0x53, 0x60, 0xff, 0xff, 0x8f, 0x09, 0xff, 0x8c,
-		0x50, 0x15, 0x07, 0x06, 0x15, 0x07, 0x09, 0x10, 0x12, 0x78,
-		0x32, 0x14},
+		0x53, 0x60, 0x9f, 0x15, 0x03, 0x03, 0x15, 0x03,
+		0x05, 0x0c, 0x0e, 0x78, 0x32, 0x14},
+	{ 925000000,
+		0x53, 0x60, 0x8f, 0x15, 0x07, 0x06, 0x15, 0x07,
+		0x09, 0x10, 0x12, 0x78, 0x32, 0x14},
 	{0xffffffff,
-		0xff, 0xff, 0xff, 0xff, 0x70, 0x37, 0xe7, 0x09, 0x20, 0x8c,
-		0x50, 0x0f, 0x0f, 0x00, 0x13, 0x00, 0x02, 0x0c, 0x0e, 0xa0,
-		0x50, 0x14},
+		0xff, 0xff, 0xe7, 0x0f, 0x0f, 0x00, 0x13, 0x00,
+		0x02, 0x0c, 0x0e, 0xa0, 0x50, 0x14},
 };
-
-static uint8_t band = FC2580_NO_BAND;
-
-/* glue functions to rtl-sdr code */
 
 /*
  * TODO:
@@ -187,9 +248,6 @@ int fc2580_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, uns
 }
 
 /*==============================================================================
-       fc2580 RSSI function
-
-  The following context is source code provided by FCI.
 
   This function returns fc2580's current RSSI value.
 
@@ -197,7 +255,7 @@ int fc2580_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, uns
   unsigned char *data: fc2580's registers
 
   <return value>
-  int rssi : estimated input power.
+  int rssi : estimated input power in 1/10 dB.
 
 ==============================================================================*/
 static int fc2580_get_rssi(unsigned char *data)
@@ -208,17 +266,17 @@ static int fc2580_get_rssi(unsigned char *data)
 	uint8_t s_cfs =   data[0x73];
 	uint8_t s_ifvga = data[0x74];
   	int ofs_lna =
-			(band==FC2580_VHF_BAND)?
+			(curr_band==FC2580_VHF_BAND)?
 				(s_lna==0)? 0 :
 				(s_lna==1)? -6 :
 				(s_lna==2)? -19 :
 				(s_lna==3)? -24 : -32 :
-			(band==FC2580_UHF_BAND)?
+			(curr_band==FC2580_UHF_BAND)?
 				(s_lna==0)? 0 :
 				(s_lna==1)? -6 :
 				(s_lna==2)? -17 :
 				(s_lna==3)? -22 : -30 :
-			(band==FC2580_L_BAND)?
+			(curr_band==FC2580_L_BAND)?
 				(s_lna==0)? 0 :
 				(s_lna==1)? -6 :
 				(s_lna==2)? -11 :
@@ -226,8 +284,8 @@ static int fc2580_get_rssi(unsigned char *data)
 			0; //FC2580_NO_BAND
 	int ofs_rfvga = -s_rfvga+((s_rfvga>=11)? 1 : 0) + ((s_rfvga>=18)? 1 : 0);
 	int ofs_csf = -6*(s_cfs & 7);
-	int ofs_ifvga = s_ifvga/4;
-	int rssi = ofs_lna+ofs_rfvga+ofs_csf+ofs_ifvga+OFS_RSSI;
+	int ofs_ifvga = s_ifvga*10/4;
+	int rssi = (OFS_RSSI+ofs_lna+ofs_rfvga+ofs_csf) * 10 + ofs_ifvga;
 	//printf("rssi=%d, ofs_lna=%d, ofs_rfvga=%d, ofs_csf=%d, ofs_ifvga=%d\n",
 	//	rssi, ofs_lna, ofs_rfvga, ofs_csf, ofs_ifvga);
 	return rssi;
@@ -237,16 +295,16 @@ int fc2580_get_i2c_register(void *dev, uint8_t *data, int *len, int *strength)
 {
 	int rc, i;
 
-	*len = 128;
+	*len = 118;
 	*strength = 0;
 	rc = 0;
-	for(i=0; i<128; i++)
+	for(i=0; i<118; i++)
 	{
 		rc = fc2580_read(dev, i, &data[i]);
 		if (rc < 0)
 			return rc;
 	}
-	*strength = 10 * fc2580_get_rssi(data);
+	*strength = fc2580_get_rssi(data);
 	return 0;
 }
 
@@ -291,7 +349,7 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 {
 	unsigned int i, uitmp, div_ref, div_ref_val, div_n, k_cw, div_out;
 	uint64_t f_vco;
-	uint8_t synth_config;
+	uint8_t synth_config = 0;
 	int ret = 0;
 	double freq_xtal = rtlsdr_get_tuner_clock(dev);
 
@@ -310,10 +368,11 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 	 *                               | /Rout | ------>
 	 *                               +-------+
 	 */
-	band = (frequency > 1000000000UL)? FC2580_L_BAND : (frequency > 400000000UL)? FC2580_UHF_BAND : FC2580_VHF_BAND;
 	for (i = 0; i < ARRAY_SIZE(fc2580_pll_lut); i++) {
-		if (frequency <= fc2580_pll_lut[i].freq)
+		if (frequency <= fc2580_pll_lut[i].freq) {
+			curr_band = i;
 			break;
+		}
 	}
 	if (i == ARRAY_SIZE(fc2580_pll_lut)) {
 		ret = -1;
@@ -323,8 +382,8 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 	#define DIV_PRE_N 2
 	div_out = fc2580_pll_lut[i].div_out;
 	f_vco = (uint64_t)frequency * div_out;
-	synth_config = fc2580_pll_lut[i].band;
-	if (f_vco < 2600000000ULL)
+	synth_config |= fc2580_pll_lut[i].band;
+	if (f_vco < 2600000000ULL) //Select VCO Band
 		synth_config |= 0x06;
 	else
 		synth_config |= 0x0e;
@@ -353,10 +412,10 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 #endif
 
 	ret |= fc2580_write(dev, 0x02, synth_config);
-	ret |= fc2580_write(dev, 0x18, div_ref_val << 0 | k_cw >> 16);
-	ret |= fc2580_write(dev, 0x1a, (k_cw >> 8) & 0xff);
-	ret |= fc2580_write(dev, 0x1b, (k_cw >> 0) & 0xff);
-	ret |= fc2580_write(dev, 0x1c, div_n);
+	ret |= fc2580_write(dev, 0x18, div_ref_val << 0 | k_cw >> 16); //Load 'R' value and high part of 'K' value
+	ret |= fc2580_write(dev, 0x1a, (k_cw >> 8) & 0xff); //Load middle part of 'K' value
+	ret |= fc2580_write(dev, 0x1b, (k_cw >> 0) & 0xff); //Load lower part of 'K' value
+	ret |= fc2580_write(dev, 0x1c, div_n); //Load 'N' value
 	if (ret)
 		goto err;
 
@@ -369,17 +428,9 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 		ret = -1;
 		goto err;
 	}
-	ret |= fc2580_wr_reg_ff(dev, 0x25, fc2580_freq_regs_lut[i].r25_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x27, fc2580_freq_regs_lut[i].r27_val);
 	ret |= fc2580_wr_reg_ff(dev, 0x28, fc2580_freq_regs_lut[i].r28_val);
 	ret |= fc2580_wr_reg_ff(dev, 0x29, fc2580_freq_regs_lut[i].r29_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x2b, fc2580_freq_regs_lut[i].r2b_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x2c, fc2580_freq_regs_lut[i].r2c_val);
 	ret |= fc2580_wr_reg_ff(dev, 0x2d, fc2580_freq_regs_lut[i].r2d_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x30, fc2580_freq_regs_lut[i].r30_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x44, fc2580_freq_regs_lut[i].r44_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x50, fc2580_freq_regs_lut[i].r50_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x53, fc2580_freq_regs_lut[i].r53_val);
 	ret |= fc2580_wr_reg_ff(dev, 0x5f, fc2580_freq_regs_lut[i].r5f_val);
 	ret |= fc2580_wr_reg_ff(dev, 0x61, fc2580_freq_regs_lut[i].r61_val);
 	ret |= fc2580_wr_reg_ff(dev, 0x62, fc2580_freq_regs_lut[i].r62_val);
@@ -401,7 +452,6 @@ err:
 }
 
 /*==============================================================================
-       fc2580 filter BW setting
 
   This function changes Bandwidth frequency of fc2580's channel selection filter
 
@@ -416,18 +466,9 @@ static int fc2580_set_filter(void *dev, int filter_bw)
 	unsigned char cal_mon = 0, i;
 	int result = 0;
 
-	if (filter_bw <= 2100)
-	{	//1100 ... 2100 kHz
-		result |= fc2580_write(dev, 0x36, 0x1C);
-		result |= fc2580_write(dev, 0x37, (uint8_t)(63*freq_xtal/filter_bw/10) );
-	}
-	else
-	{	//5000 kHz
-		result |= fc2580_write(dev, 0x36, 0x18);
-		result |= fc2580_write(dev, 0x37, (uint8_t)(freq_xtal/200) );
-	}
+	result |= fc2580_write(dev, 0x36, 0x1C);
+	result |= fc2580_write(dev, 0x37, (uint8_t)(63*freq_xtal/filter_bw/10) );
 	result |= fc2580_write(dev, 0x39, 0x00);
-
 	result |= fc2580_write(dev, 0x2E, 0x09);
 	for(i=0; i<5; i++)
 	{
@@ -447,17 +488,50 @@ static int fc2580_set_filter(void *dev, int filter_bw)
 
 int fc2580_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)
 {
-	if (bw < 1100000)
-		*applied_bw = 1100000;
-	else if (bw <= 2100000)
+	if (bw < 1050000)
+		*applied_bw = 1050000;
+	else if (bw <= 2900000)
 		*applied_bw = bw;
-	else if (bw < 3000000)
-		*applied_bw = 2100000;
 	else
-		*applied_bw = 5000000;
+		*applied_bw = 2900000;
 	if(!apply)
 		return 0;
 	return fc2580_set_filter(dev, *applied_bw/1000);
+}
+
+int fc2580_set_gain_mode(void *dev, int manual)
+{
+	return fc2580_write(dev, 0x45, manual ? 0 : 0x10);
+}
+
+static const int fc2580_gains[] = {
+//Total dB*10
+	0,30,60,90,120,150,180,210,240,270,300,330,360,390,420,450,480,510,540,570,600,630,660,690};
+static const int fc2580_r73[] = {
+	5, 5, 5, 5,  5,  5,  5,  5,  5,  4,  4,  3,  3,  2,  2,  1,  1,  0,  0,  0,  0,  0,  0,  0};
+static const int fc2580_r74[] = {
+    0,12,24,36, 48, 60, 72, 84, 96, 84, 96, 84, 96, 84, 96, 84, 96, 84, 96,108,120,132,144,156};
+
+#define GAIN_CNT	(sizeof(fc2580_gains) / sizeof(int))
+
+int fc2580_set_gain(void *dev, int gain)
+{
+	unsigned int i;
+	int ret;
+
+	for (i = 0; i < GAIN_CNT; i++)
+		if ((fc2580_gains[i] >= gain) || (i+1 == GAIN_CNT))
+			break;
+	ret = fc2580_write(dev, 0x49, fc2580_r73[i]);
+	ret |= fc2580_write(dev, 0x4a, fc2580_r74[i]);
+
+	return ret;
+}
+
+const int *fc2580_get_gains(int *len)
+{
+	*len = sizeof(fc2580_gains);
+	return fc2580_gains;
 }
 
 int fc2580_exit(void *dev)
@@ -465,4 +539,3 @@ int fc2580_exit(void *dev)
 	rtlsdr_set_gpio_bit(dev, 4, 1);
 	return 0;
 }
-

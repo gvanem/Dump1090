@@ -42,7 +42,6 @@ extern int16_t interpolate(int16_t freq, int size, const int16_t *freqs, const i
 extern int rtlsdr_get_agc_val(void *dev, int *slave_demod);
 extern uint16_t rtlsdr_demod_read_reg(rtlsdr_dev_t *dev, uint16_t page, uint16_t addr, uint8_t len);
 
-
 /*
 Read registers
 
@@ -194,7 +193,7 @@ R10		[7] 	PWD_FILT		Filter power on/off
 		[3:0] 	FILT_CODE		Filter bandwidth manual fine tune
 								0000 Widest, 1111 narrowest
 ------------------------------------------------------------------------------------
-R11		[7:5] 	FILT_BW			Filter bandwidth manual course tunnel
+R11		[7:5] 	FILT_BW			Filter bandwidth manual course tune
 0x0B							000: widest
 								010 or 001: middle
 								111: narrowest
@@ -500,23 +499,19 @@ static const struct r82xx_freq_range freq_ranges[] = {
 	/* .rf_mux_ploy = */	0x01,	/* R26[7:6]=0 (LPF)  R26[1:0]=1 (middle) */
 	/* .tf_c = */			0x14,	/* R27[7:0]  band14,band11 */
 	}, {
-	/* .freq = */			180,	/* Start freq, in MHz */
+	/* .freq = */			174,	/* Start freq, in MHz */
 	/* .rf_mux_ploy = */	0x00,	/* R26[7:6]=0 (LPF)  R26[1:0]=0 (high) */
-	/* .tf_c = */			0x13,	/* R27[7:0]  band14,band12 */
+	/* .tf_c = */			0x12,	/* R27[7:0]  band14,band13 */
 	}, {
-	/* .freq = */			250,	/* Start freq, in MHz */
+	/* .freq = */			200,	/* Start freq, in MHz */
 	/* .rf_mux_ploy = */	0x00,	/* R26[7:6]=0 (LPF)  R26[1:0]=0 (high) */
-	/* .tf_c = */			0x11,	/* R27[7:0]  highest,highest */
+	/* .tf_c = */			0x11,	/* R27[7:0]  band14,band14 */
+	}, {
+	/* .freq = */			240,	/* Start freq, in MHz */
+	/* .rf_mux_ploy = */	0x00,	/* R26[7:6]=0 (LPF)  R26[1:0]=0 (high) */
+	/* .tf_c = */			0x00,	/* R27[7:0]  highest,highest */
 	}, {
 	/* .freq = */			280,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x00,	/* R26[7:6]=0 (LPF)  R26[1:0]=0 (high) */
-	/* .tf_c = */			0x00,	/* R27[7:0]  highest,highest */
-	}, {
-	/* .freq = */			310,	/* Start freq, in MHz */
-	/* .rf_mux_ploy = */	0x40,	/* R26[7:6]=1 (bypass)  R26[1:0]=0 (high) */
-	/* .tf_c = */			0x00,	/* R27[7:0]  highest,highest */
-	}, {
-	/* .freq = */			588,	/* Start freq, in MHz */
 	/* .rf_mux_ploy = */	0x40,	/* R26[7:6]=1 (bypass)  R26[1:0]=0 (high) */
 	/* .tf_c = */			0x00,	/* R27[7:0]  highest,highest */
 	}
@@ -633,10 +628,15 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t *buf, int len)
 	printf("\n");
 }*/
 
-static const int16_t abs_freqs[] = {
- 25, 26, 27, 28, 30, 32, 35, 40, 50, 50, 55, 55, 60, 60, 65, 65, 70, 70, 75, 75,100,100,140,140,180,180,250,250,280,280,310,310,588,588,600,850,1000,1500,1715};
-static const int16_t abs_gains[] = {
-215,203,193,186,175,168,159,156,163,160,162,150,151,151,149,141,142,137,137,115,116,127,131,132,144,114, 95, 93, 90, 90, 90, 87,113,113,114,130, 136, 157, 166};
+static const int16_t abs_freqs_r820t[] = {
+  25, 26, 27, 28, 30, 32, 35, 40, 50, 50, 55, 55, 60, 60, 65, 65, 70, 70, 75, 75,100,100,140,140,174,174,200,200,240,240,280,280,320,345,345,600,850,1000,1500,1700,1750};
+static const int16_t abs_gains_r820t[] = {
+ 194,178,169,161,149,141,134,137,143,139,139,127,127,127,127,118,118,113,114, 90, 92,104,107,107,102, 86, 83, 77, 72, 69, 68, 59, 66, 71, 71, 92,109, 118, 138, 145, 153};
+
+static const int16_t abs_freqs_r828d[] = {
+ 25, 26, 27, 28, 30, 32, 35, 40, 50, 50, 55, 55, 60, 60, 65, 65, 70, 70, 75, 75,100,100,140,140,174,174,200,200,240,240,260,280,280,320,345,345,365,400,500,600,850,1000,1500,1700,1750};
+static const int16_t abs_gains_r828d[] = {
+251,245,239,234,224,215,209,202,192,189,184,174,170,170,167,160,157,153,151,130,124,137,125,127,105,100, 90, 89, 92, 84, 87, 98, 93,114,146,129,110, 98, 97, 102,110,121, 187, 230, 241};
 
 /*
  * r82xx tuning logic
@@ -671,7 +671,10 @@ static int r82xx_set_mux(struct r82xx_priv *priv, uint32_t freq)
 	/* TF BAND */
 	rc = r82xx_write_reg(priv, 0x1b, range->tf_c);
 
-	priv->abs_gain = interpolate(freq, ARRAY_SIZE(abs_gains), abs_freqs, abs_gains);
+	if (priv->cfg->rafael_chip == CHIP_R828D)
+		priv->abs_gain = interpolate(freq, ARRAY_SIZE(abs_gains_r828d), abs_freqs_r828d, abs_gains_r828d);
+	else
+		priv->abs_gain = interpolate(freq, ARRAY_SIZE(abs_gains_r820t), abs_freqs_r820t, abs_gains_r820t);
 	//printf("abs_gain = %d\n", priv->abs_gain);
 	return rc;
 }
@@ -953,40 +956,59 @@ int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsig
 		return -1;
 }
 
-static const int16_t lna_freqs[] = {
-	  30,  50, 100, 200, 500, 750, 980,1250,1500,1700};
-static const int16_t lna_gains[][16] = {
-	{  0,   0,   0,   0,   0,   0,   0,   0,   0,   0},
-	{ 36,  35,  35,  35,  33,  30,  29,  28,  30,  30},
-	{ 76,  74,  74,  74,  70,  66,  65,  64,  69,  68},
-	{113, 109, 108, 107, 105, 103, 104, 104, 104, 104},
-	{141, 136, 131, 130, 131, 134, 137, 139, 130, 124},
-	{155, 150, 146, 145, 146, 149, 152, 154, 147, 142},
-	{180, 176, 172, 172, 173, 176, 179, 181, 175, 170},
-	{205, 201, 199, 198, 200, 202, 205, 206, 202, 194},
-	{231, 228, 226, 226, 229, 231, 233, 230, 227, 215},
-	{258, 254, 254, 253, 255, 253, 249, 240, 232, 211},
-	{279, 275, 273, 271, 274, 267, 256, 242, 233, 213},
-	{291, 287, 284, 282, 288, 278, 263, 246, 236, 215},
-	{305, 301, 296, 294, 302, 290, 271, 251, 241, 220},
-	{327, 322, 319, 316, 317, 297, 276, 256, 242, 218},
-	{343, 339, 337, 334, 334, 317, 296, 272, 252, 225},
-	{299, 322, 342, 343, 346, 325, 303, 279, 255, 227}};
+static const int16_t lna_freqs_r820t[] = {
+	  25,  30,  50,  75, 100, 200, 500, 750, 980,1250,1500,1700};
+static const int16_t lna_gains_r820t[][16] = {
+	{  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0},
+	{ 36,  36,  35,  35,  35,  35,  33,  30,  29,  28,  30,  30},
+	{ 77,  76,  74,  74,  74,  74,  70,  66,  65,  64,  69,  68},
+	{115, 113, 109, 108, 108, 107, 105, 103, 104, 104, 104, 104},
+	{146, 141, 136, 131, 131, 130, 131, 134, 137, 139, 130, 124},
+	{160, 155, 150, 147, 146, 145, 146, 149, 152, 154, 147, 142},
+	{184, 180, 176, 174, 172, 172, 173, 176, 179, 181, 175, 170},
+	{208, 205, 201, 200, 199, 198, 200, 202, 205, 206, 202, 194},
+	{234, 231, 228, 227, 226, 226, 229, 231, 233, 230, 227, 215},
+	{260, 258, 254, 254, 254, 253, 255, 253, 249, 240, 232, 211},
+	{281, 279, 275, 274, 273, 271, 274, 267, 256, 242, 233, 213},
+	{293, 291, 287, 286, 284, 282, 288, 278, 263, 246, 236, 215},
+	{306, 305, 301, 299, 296, 294, 302, 290, 271, 251, 241, 220},
+	{328, 327, 322, 321, 319, 316, 317, 297, 276, 256, 242, 218},
+	{345, 343, 339, 338, 337, 334, 334, 317, 296, 272, 252, 225},
+	{289, 299, 322, 339, 342, 343, 346, 325, 303, 279, 255, 227}};
 
+static const int16_t lna_freqs_r828d[] = {
+	  25,  30,  50, 100, 200, 345, 345, 500, 750, 980,1250,1500,1700};
+static const int16_t lna_gains_r828d[][16] = {
+	{  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0},
+	{ 43,  41,  37,  35,  36,  41,  42,  39,  33,  32,  33,  29,  29},
+	{ 99,  94,  84,  78,  79,  87,  87,  82,  71,  69,  72,  67,  64},
+	{133, 130, 122, 114, 111, 111, 111, 108, 103, 103, 103, 101, 100},
+	{146, 147, 148, 139, 130, 117, 120, 121, 123, 128, 119, 117, 124},
+	{177, 177, 177, 169, 163, 153, 136, 137, 139, 144, 138, 134, 143},
+	{205, 204, 202, 195, 191, 185, 166, 166, 167, 172, 169, 168, 168},
+	{232, 231, 227, 221, 219, 216, 196, 195, 195, 200, 201, 196, 189},
+	{262, 260, 254, 249, 248, 251, 227, 225 ,225, 231, 234, 221, 201},
+	{293, 290, 281, 277, 278, 286, 258, 255, 252, 253, 248, 217, 191},
+	{300, 299, 297, 295, 293, 297, 267, 270, 268, 262, 252, 218, 192},
+	{302, 303, 306, 305, 301, 303, 273, 279, 281, 271, 258, 222, 195},
+	{304, 306, 315, 316, 312, 309, 278, 289, 297, 283, 265, 228, 201},
+	{341, 341, 342, 341, 338, 345, 307, 315, 308, 289, 264, 222, 196},
+	{374, 372, 364, 362, 362, 375, 335, 337, 326, 308, 276, 233, 205},
+	{403, 397, 379, 376, 381, 399, 354, 350, 327, 307, 280, 239, 214}};
 
 static const int r82xx_mixer_gains[]  = {
  	0, 13, 32, 49, 63, 76, 91, 105, 119, 133, 148, 161, 174, 174, 174, 174
 };
 
-static const int16_t if_agc_tab[] = {
+static const int16_t if_agc_tab_r820t[] = {
 	0xe000,0xf800,0xfc80,0x00d0,0x0250,0x0820,0x0f50,0x1030,0x12d0,0x1440,0x1610,0x1820,0x1980,0x1b50,0x1fff
 };
-static const int16_t if_gain_tab[] = {
+static const int16_t if_gain_tab_r820t[] = {
 	   -60,   -50,   -40,   -20,     0,    80,   200,   220,   300,   340,   380,   420,   440,   460,   470
 };
 
-static const int16_t if_agc_tab2[]  = {0xe000,0x10a0,0x1720,0x1fff};
-static const int16_t if_gain_tab2[] = {   -55,     0,   105,   320};
+static const int16_t if_agc_tab_r828d[]  = {0xe000,0x10a0,0x1720,0x1fff};
+static const int16_t if_gain_tab_r828d[] = {   -55,     0,   105,   320};
 
 static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* data)
 {
@@ -1009,9 +1031,9 @@ static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* dat
 	{
 		int16_t if_agc_val = rtlsdr_get_agc_val(priv->rtl_dev, &slave_demod);
 		if(slave_demod)
-			if_gain = interpolate(if_agc_val, ARRAY_SIZE(if_agc_tab2), if_agc_tab2, if_gain_tab2);
+			if_gain = interpolate(if_agc_val, ARRAY_SIZE(if_agc_tab_r828d), if_agc_tab_r828d, if_gain_tab_r828d);
 		else
-			if_gain = interpolate(if_agc_val, ARRAY_SIZE(if_agc_tab), if_agc_tab, if_gain_tab);
+			if_gain = interpolate(if_agc_val, ARRAY_SIZE(if_agc_tab_r820t), if_agc_tab_r820t, if_gain_tab_r820t);
 #ifdef DEBUG
 		data[NUM_REGS+REG_SHADOW_START+1] = (if_agc_val >> 8) & 0xff;
 		data[NUM_REGS+REG_SHADOW_START+2] = if_agc_val & 0xff;
@@ -1028,7 +1050,12 @@ static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* dat
 	/* LNA gain */
 	lna_index = data[3] & 0xf;
 	if(lna_index)
-		lna_gain = interpolate(priv->freq, ARRAY_SIZE(lna_freqs), lna_freqs, lna_gains[lna_index]);
+	{
+		if (priv->cfg->rafael_chip == CHIP_R828D)
+			lna_gain = interpolate(priv->freq, ARRAY_SIZE(lna_freqs_r828d), lna_freqs_r828d, lna_gains_r828d[lna_index]);
+		else
+			lna_gain = interpolate(priv->freq, ARRAY_SIZE(lna_freqs_r820t), lna_freqs_r820t, lna_gains_r820t[lna_index]);
+	}
 	else
 		lna_gain = 0;
 
@@ -1146,8 +1173,8 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 	 * R828D tuner. We switch at 345 MHz, because that's where the
 	 * noise-floor has about the same level with identical LNA
 	 * settings. The original driver used 320 MHz. */
-	air_cable1_in = (freq > MHZ(345)) ? 0x00 : 0x60;
-	low_gain = (freq > MHZ(345)) ? 0x20 : 0x00;
+	air_cable1_in = (freq >= MHZ(345)) ? 0x00 : 0x60;
+	low_gain = (freq >= MHZ(345)) ? 0x20 : 0x00;
 
 	if ((priv->cfg->rafael_chip == CHIP_R828D) &&
 		(air_cable1_in != priv->input)) {
