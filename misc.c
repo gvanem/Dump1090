@@ -427,9 +427,7 @@ const char *win_strerror (DWORD err)
  */
 char *_mg_straddr (struct mg_addr *a, char *buf, size_t len)
 {
-  if (a->is_ip6)
-       mg_snprintf (buf, len, "[%I]:%hu", 6, &a->ip6, mg_ntohs(a->port));
-  else mg_snprintf (buf, len, "%I:%hu", 4, &a->ip, mg_ntohs(a->port));
+  mg_snprintf (buf, len, "%M", mg_print_ip_port, a);
   return (buf);
 }
 

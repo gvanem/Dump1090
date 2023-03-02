@@ -20,7 +20,7 @@
 #ifndef MONGOOSE_H
 #define MONGOOSE_H
 
-#define MG_VERSION "7.8"
+#define MG_VERSION "7.9"
 
 #ifdef __cplusplus
 extern "C" {
@@ -174,6 +174,7 @@ extern "C" {
 #include <stdio.h>
 #include <stdlib.h> // rand(), strtol(), atoi()
 #include <string.h>
+#include <sys/stat.h>
 
 #include <FreeRTOS.h>
 #include <task.h>
@@ -402,7 +403,6 @@ typedef enum { false = 0, true = 1 } bool;
 #define MG_INVALID_SOCKET INVALID_SOCKET
 #define MG_SOCKET_TYPE SOCKET
 typedef unsigned long nfds_t;
-#define MG_SOCKET_ERRNO WSAGetLastError()
 #if defined(_MSC_VER)
 #pragma comment(lib, "ws2_32.lib")
 #ifndef alloca
@@ -410,9 +410,6 @@ typedef unsigned long nfds_t;
 #endif
 #endif
 #define poll(a, b, c) WSAPoll((a), (b), (c))
-#ifndef SO_EXCLUSIVEADDRUSE
-#define SO_EXCLUSIVEADDRUSE ((int) (~SO_REUSEADDR))
-#endif
 #define closesocket(x) closesocket(x)
 
 typedef int socklen_t;
@@ -422,12 +419,19 @@ typedef int socklen_t;
 #define MG_PATH_MAX FILENAME_MAX
 #endif
 
-#ifndef EINPROGRESS
-#define EINPROGRESS WSAEINPROGRESS
+#ifndef SO_EXCLUSIVEADDRUSE
+#define SO_EXCLUSIVEADDRUSE ((int) (~SO_REUSEADDR))
 #endif
-#ifndef EWOULDBLOCK
-#define EWOULDBLOCK WSAEWOULDBLOCK
-#endif
+
+#define MG_SOCK_ERR(errcode) ((errcode) < 0 ? WSAGetLastError() : 0)
+
+#define MG_SOCK_PENDING(errcode)                                            \
+  (((errcode) < 0) &&                                                       \
+   (WSAGetLastError() == WSAEINTR || WSAGetLastError() == WSAEINPROGRESS || \
+    WSAGetLastError() == WSAEWOULDBLOCK))
+
+#define MG_SOCK_RESET(errcode) \
+  (((errcode) < 0) && (WSAGetLastError() == WSAECONNRESET))
 
 #define realpath(a, b) _fullpath((b), (a), MG_PATH_MAX)
 #define sleep(x) Sleep(x)
@@ -567,13 +571,21 @@ struct timeval {
 #define MG_ENABLE_CUSTOM_MILLIS 1
 #define closesocket(x) closesocket(x)
 #define mkdir(a, b) (-1)
-#define EWOULDBLOCK BSD_EWOULDBLOCK
-#define EAGAIN BSD_EWOULDBLOCK
-#define EINPROGRESS BSD_EWOULDBLOCK
-#define EINTR BSD_EWOULDBLOCK
-#define ECONNRESET BSD_ECONNRESET
-#define EPIPE BSD_ECONNRESET
+
 #define TCP_NODELAY SO_KEEPALIVE
+
+#define MG_SOCK_ERR(errcode) ((errcode) < 0 ? (errcode) : 0)
+
+#define MG_SOCK_PENDING(errcode)                                \
+  ((errcode) == BSD_EWOULDBLOCK || (errcode) == BSD_EALREADY || \
+   (errcode) == BSD_EINPROGRESS)
+
+#define MG_SOCK_RESET(errcode) \
+  ((errcode) == BSD_ECONNABORTED || (errcode) == BSD_ECONNRESET)
+
+#define MG_SOCK_INTR(fd) 0
+
+#define socklen_t int
 #endif
 
 
@@ -581,8 +593,8 @@ struct timeval {
 #define MG_ENABLE_LOG 1
 #endif
 
-#ifndef MG_ENABLE_MIP
-#define MG_ENABLE_MIP 0  // Mongoose built-in network stack
+#ifndef MG_ENABLE_TCPIP
+#define MG_ENABLE_TCPIP 0  // Mongoose built-in network stack
 #endif
 
 #ifndef MG_ENABLE_LWIP
@@ -598,7 +610,7 @@ struct timeval {
 #endif
 
 #ifndef MG_ENABLE_SOCKET
-#define MG_ENABLE_SOCKET !MG_ENABLE_MIP
+#define MG_ENABLE_SOCKET !MG_ENABLE_TCPIP
 #endif
 
 #ifndef MG_ENABLE_POLL
@@ -658,14 +670,20 @@ struct timeval {
 #define MG_ENABLE_PACKED_FS 0
 #endif
 
-// Granularity of the send/recv IO buffer growth
-#ifndef MG_IO_SIZE
-#define MG_IO_SIZE 2048
+#ifndef MG_ENABLE_ASSERT
+#define MG_ENABLE_ASSERT 0
 #endif
 
-// Maximum size of the recv IO buffer
+#ifndef MG_IO_SIZE
+#define MG_IO_SIZE 2048  // Granularity of the send/recv IO buffer growth
+#endif
+
 #ifndef MG_MAX_RECV_SIZE
-#define MG_MAX_RECV_SIZE (3 * 1024 * 1024)
+#define MG_MAX_RECV_SIZE (3 * 1024 * 1024)  // Maximum recv IO buffer size
+#endif
+
+#ifndef MG_DATA_SIZE
+#define MG_DATA_SIZE 32  // struct mg_connection :: data size
 #endif
 
 #ifndef MG_MAX_HTTP_HEADERS
@@ -772,17 +790,62 @@ char *mg_remove_double_dots(char *s);
 
 
 
+// Single producer, single consumer non-blocking queue
+//
+// Producer:
+//    char *buf;
+//    while (mg_queue_book(q, &buf) < len) WAIT();  // Wait for space
+//    memcpy(buf, my_data, len);   // Copy data to the queue
+//    mg_queue_add(q, len);
+//
+// Consumer:
+//    char *buf;
+//    while ((len = mg_queue_get(q, &buf)) == 0) WAIT();
+//    mg_hexdump(buf, len); // Handle message
+//    mg_queue_del(q, len);
+//
+struct mg_queue {
+  char *buf;
+  size_t size;
+  volatile size_t tail;
+  volatile size_t head;
+};
 
-typedef void (*mg_pfn_t)(char, void *);                  // Custom putchar
+void mg_queue_init(struct mg_queue *, char *, size_t);        // Init queue
+size_t mg_queue_book(struct mg_queue *, char **buf, size_t);  // Reserve space
+void mg_queue_add(struct mg_queue *, size_t);                 // Add new message
+size_t mg_queue_next(struct mg_queue *, char **);  // Get oldest message
+void mg_queue_del(struct mg_queue *, size_t);      // Delete oldest message
+
+
+
+
+
+
+typedef void (*mg_pfn_t)(char, void *);                  // Output function
 typedef size_t (*mg_pm_t)(mg_pfn_t, void *, va_list *);  // %M printer
-void mg_pfn_iobuf(char ch, void *param);                 // iobuf printer
 
 size_t mg_vxprintf(void (*)(char, void *), void *, const char *fmt, va_list *);
 size_t mg_xprintf(void (*fn)(char, void *), void *, const char *fmt, ...);
+
+// Convenience wrappers around mg_xprintf
 size_t mg_vsnprintf(char *buf, size_t len, const char *fmt, va_list *ap);
 size_t mg_snprintf(char *, size_t, const char *fmt, ...);
 char *mg_vmprintf(const char *fmt, va_list *ap);
 char *mg_mprintf(const char *fmt, ...);
+size_t mg_queue_vprintf(struct mg_queue *, const char *fmt, va_list *);
+size_t mg_queue_printf(struct mg_queue *, const char *fmt, ...);
+
+// %M print helper functions
+size_t mg_print_ip(void (*out)(char, void *), void *arg, va_list *ap);
+size_t mg_print_ip_port(void (*out)(char, void *), void *arg, va_list *ap);
+size_t mg_print_ip4(void (*out)(char, void *), void *arg, va_list *ap);
+size_t mg_print_ip6(void (*out)(char, void *), void *arg, va_list *ap);
+size_t mg_print_mac(void (*out)(char, void *), void *arg, va_list *ap);
+
+// Various output functions
+void mg_pfn_iobuf(char ch, void *param);  // param: struct mg_iobuf *
+void mg_pfn_stdout(char c, void *param);  // param: ignored
 
 
 
@@ -883,6 +946,14 @@ bool mg_file_printf(struct mg_fs *fs, const char *path, const char *fmt, ...);
 
 
 
+
+
+#if MG_ENABLE_ASSERT
+#include <assert.h>
+#elif !defined(assert)
+#define assert(x)
+#endif
+
 void mg_random(void *buf, size_t len);
 char *mg_random_str(char *buf, size_t len);
 uint16_t mg_ntohs(uint16_t net);
@@ -892,6 +963,15 @@ uint64_t mg_millis(void);
 
 #define mg_htons(x) mg_ntohs(x)
 #define mg_htonl(x) mg_ntohl(x)
+
+#define MG_U32(a, b, c, d)                                         \
+  (((uint32_t) ((a) &255) << 24) | ((uint32_t) ((b) &255) << 16) | \
+   ((uint32_t) ((c) &255) << 8) | (uint32_t) ((d) &255))
+
+// For printing IPv4 addresses: printf("%d.%d.%d.%d\n", MG_IPADDR_PARTS(&ip))
+#define MG_U8P(ADDR) ((uint8_t *) (ADDR))
+#define MG_IPADDR_PARTS(ADDR) \
+  MG_U8P(ADDR)[0], MG_U8P(ADDR)[1], MG_U8P(ADDR)[2], MG_U8P(ADDR)[3]
 
 // Linked list management macros
 #define LIST_ADD_HEAD(type_, head_, elem_) \
@@ -1053,12 +1133,13 @@ struct mg_connection {
   void *fn_data;               // User-specified function parameter
   mg_event_handler_t pfn;      // Protocol-specific handler function
   void *pfn_data;              // Protocol-specific function parameter
-  char label[50];              // Arbitrary label
+  char data[MG_DATA_SIZE];     // Arbitrary connection data
   void *tls;                   // TLS specific data
   unsigned is_listening : 1;   // Listening connection
   unsigned is_client : 1;      // Outbound (client) connection
   unsigned is_accepted : 1;    // Accepted (server) connection
   unsigned is_resolving : 1;   // Non-blocking DNS resolution is in progress
+  unsigned is_arplooking : 1;  // Non-blocking ARP resolution is in progress
   unsigned is_connecting : 1;  // Non-blocking connect is in progress
   unsigned is_tls : 1;         // TLS-enabled connection
   unsigned is_tls_hs : 1;      // TLS handshake is in progress
@@ -1095,6 +1176,8 @@ int mg_mkpipe(struct mg_mgr *, mg_event_handler_t, void *, bool udp);
 struct mg_connection *mg_alloc_conn(struct mg_mgr *);
 void mg_close_conn(struct mg_connection *c);
 bool mg_open_listener(struct mg_connection *c, const char *url);
+
+// Utility functions
 struct mg_timer *mg_timer_add(struct mg_mgr *mgr, uint64_t milliseconds,
                               unsigned flags, void (*fn)(void *), void *arg);
 
@@ -1419,87 +1502,89 @@ void mg_rpc_list(struct mg_rpc_req *r);
 
 
 
-struct mip_driver {
-  bool (*init)(uint8_t *mac, void *data);           // Initialise driver
-  size_t (*tx)(const void *, size_t, void *data);   // Transmit frame
-  size_t (*rx)(void *buf, size_t len, void *data);  // Receive frame (polling)
-  bool (*up)(void *data);                           // Up/down status
-  // Set receive callback for interrupt-driven drivers
-  void (*setrx)(void (*fn)(void *buf, size_t len, void *rxdata), void *rxdata);
-};
 
-// Receive queue - single producer, single consumer queue.  Interrupt-based
-// drivers copy received frames to the queue in interrupt context. mip_poll()
-// function runs in event loop context, reads from the queue
-struct queue {
-  uint8_t *buf;
-  size_t len;
-  volatile size_t tail, head;
-};
+struct mg_tcpip_if;  // MIP network interface
 
-#define MIP_ARP_ENTRIES 5  // Number of ARP cache entries. Maximum 21
-#define MIP_ARP_CS (2 + 12 * MIP_ARP_ENTRIES)  // ARP cache size
+struct mg_tcpip_driver {
+  bool (*init)(struct mg_tcpip_if *);                         // Init driver
+  size_t (*tx)(const void *, size_t, struct mg_tcpip_if *);   // Transmit frame
+  size_t (*rx)(void *buf, size_t len, struct mg_tcpip_if *);  // Receive frame
+  bool (*up)(struct mg_tcpip_if *);                           // Up/down status
+};
 
 // Network interface
-struct mip_if {
-  uint8_t mac[6];             // MAC address. Must be set to a valid MAC
-  uint32_t ip, mask, gw;      // IP address, mask, default gateway. Can be 0
-  struct mg_str rx;           // Output (TX) buffer
-  struct mg_str tx;           // Input (RX) buffer
-  bool use_dhcp;              // Enable DCHP
-  struct mip_driver *driver;  // Low level driver
-  void *driver_data;          // Driver-specific data
-  struct mg_mgr *mgr;         // Mongoose event manager
+struct mg_tcpip_if {
+  uint8_t mac[6];           // MAC address. Must be set to a valid MAC
+  uint32_t ip, mask, gw;    // IP address, mask, default gateway
+  struct mg_str tx;         // Output (TX) buffer
+  bool enable_dhcp_client;  // Enable DCHP client
+  bool enable_dhcp_server;  // Enable DCHP server
+  bool enable_crc32_check;  // Do a CRC check on rx frames and strip it
+  bool enable_mac_check;    // Do a MAC check on rx frames
+  struct mg_tcpip_driver *driver;  // Low level driver
+  void *driver_data;               // Driver-specific data
+  struct mg_mgr *mgr;              // Mongoose event manager
+  struct mg_queue recv_queue;      // Receive queue
 
   // Internal state, user can use it but should not change it
-  uint64_t now;                   // Current time
-  uint64_t timer_1000ms;          // 1000 ms timer: for DHCP and link state
-  uint64_t lease_expire;          // Lease expiration time
-  uint8_t arp_cache[MIP_ARP_CS];  // Each entry is 12 bytes
-  uint16_t eport;                 // Next ephemeral port
-  uint16_t dropped;               // Number of dropped frames
-  uint8_t state;                  // Current state
-#define MIP_STATE_DOWN 0          // Interface is down
-#define MIP_STATE_UP 1            // Interface is up
-#define MIP_STATE_READY 2         // Interface is up and has IP
-  struct queue queue;             // Receive queue
+  uint8_t gwmac[6];         // Router's MAC
+  uint64_t now;             // Current time
+  uint64_t timer_1000ms;    // 1000 ms timer: for DHCP and link state
+  uint64_t lease_expire;    // Lease expiration time
+  uint16_t eport;           // Next ephemeral port
+  volatile uint32_t ndrop;  // Number of received, but dropped frames
+  volatile uint32_t nrecv;  // Number of received frames
+  volatile uint32_t nsent;  // Number of transmitted frames
+  volatile uint32_t nerr;   // Number of driver errors
+  uint8_t state;            // Current state
+#define MIP_STATE_DOWN 0    // Interface is down
+#define MIP_STATE_UP 1      // Interface is up
+#define MIP_STATE_READY 2   // Interface is up and has IP
 };
 
-void mip_init(struct mg_mgr *, struct mip_if *);
-void mip_free(struct mip_if *);
+void mg_tcpip_init(struct mg_mgr *, struct mg_tcpip_if *);
+void mg_tcpip_free(struct mg_tcpip_if *);
+void mg_tcpip_qwrite(void *buf, size_t len, struct mg_tcpip_if *ifp);
 
-extern struct mip_driver mip_driver_stm32;
-extern struct mip_driver mip_driver_enc28j60;
-extern struct mip_driver mip_driver_w5500;
-extern struct mip_driver mip_driver_tm4c;
+extern struct mg_tcpip_driver mg_tcpip_driver_stm32;
+extern struct mg_tcpip_driver mg_tcpip_driver_w5500;
+extern struct mg_tcpip_driver mg_tcpip_driver_tm4c;
+extern struct mg_tcpip_driver mg_tcpip_driver_stm32h;
+extern struct mg_tcpip_driver mg_tcpip_driver_imxrt;
 
 // Drivers that require SPI, can use this SPI abstraction
-struct mip_spi {
+struct mg_tcpip_spi {
   void *spi;                        // Opaque SPI bus descriptor
   void (*begin)(void *);            // SPI begin: slave select low
   void (*end)(void *);              // SPI end: slave select high
   uint8_t (*txn)(void *, uint8_t);  // SPI transaction: write 1 byte, read reply
 };
 
-#ifdef MIP_QPROFILE
-enum {
-  QP_IRQTRIGGERED = 0,  // payload is number of interrupts so far
-  QP_FRAMEPUSHED,       // available space in the frame queue
-  QP_FRAMEPOPPED,       // available space in the frame queue
-  QP_FRAMEDONE,         // available space in the frame queue
-  QP_FRAMEDROPPED,      // number of dropped frames
-  QP_QUEUEOVF  // profiling queue is full, payload is number of frame drops
-};
-
-void qp_mark(unsigned int type, int len);
-void qp_log(void);  // timestamp, type, payload
-void qp_init(void);
+#if MG_ENABLE_TCPIP
+#if !defined(MG_ENABLE_DRIVER_STM32H) && !defined(MG_ENABLE_DRIVER_TM4C)
+#define MG_ENABLE_DRIVER_STM32 1
 #else
-#define qp_mark(a, b)
+#define MG_ENABLE_DRIVER_STM32 0
+#endif
 #endif
 
 
-struct mip_driver_stm32 {
+struct mg_tcpip_driver_imxrt1020_data {
+  // MDC clock divider. MDC clock is derived from IPS Bus clock (ipg_clk),
+  // must not exceed 2.5MHz. Configuration for clock range 2.36~2.50 MHz
+  //    ipg_clk       MSCR       mdc_cr VALUE
+  //    -------------------------------------
+  //                                -1  <-- tell driver to guess the value
+  //    25 MHz        0x04           0
+  //    33 MHz        0x06           1
+  //    40 MHz        0x07           2
+  //    50 MHz        0x09           3
+  //    66 MHz        0x0D           4  <-- value for iMXRT1020-EVK at max freq.
+  int mdc_cr;  // Valid values: -1, 0, 1, 2, 3, 4
+};
+
+
+struct mg_tcpip_driver_stm32_data {
   // MDC clock divider. MDC clock is derived from HCLK, must not exceed 2.5MHz
   //    HCLK range    DIVIDER    mdc_cr VALUE
   //    -------------------------------------
@@ -1515,7 +1600,23 @@ struct mip_driver_stm32 {
 };
 
 
-struct mip_driver_tm4c {
+struct mg_tcpip_driver_stm32h_data {
+  // MDC clock divider. MDC clock is derived from HCLK, must not exceed 2.5MHz
+  //    HCLK range    DIVIDER    mdc_cr VALUE
+  //    -------------------------------------
+  //                                -1  <-- tell driver to guess the value
+  //    60-100 MHz    HCLK/42        0
+  //    100-150 MHz   HCLK/62        1
+  //    20-35 MHz     HCLK/16        2
+  //    35-60 MHz     HCLK/26        3
+  //    150-250 MHz   HCLK/102       4  <-- value for Nucleo-H* on max speed driven by HSI
+  //    250-300 MHz   HCLK/124       5  <-- value for Nucleo-H* on max speed driven by CSI
+  //    110, 111 Reserved
+  int mdc_cr;  // Valid values: -1, 0, 1, 2, 3, 4, 5
+};
+
+
+struct mg_tcpip_driver_tm4c_data {
   // MDC clock divider. MDC clock is derived from SYSCLK, must not exceed 2.5MHz
   //    SYSCLK range   DIVIDER   mdc_cr VALUE
   //    -------------------------------------
