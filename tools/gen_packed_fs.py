@@ -95,10 +95,9 @@ const char *mg_unlist (size_t i)
 const char *mg_unpack (const char *name, size_t *size, time_t *mtime)
 {
   const struct packed_file *p;
-  const char *ret = NULL;
-  int       (*cmp_func) (const char*, const char*) = (casesensitive ? str_cmp : str_cmpi);
+  int (*cmp_func) (const char*, const char*) = (casesensitive ? str_cmp : str_cmpi);
 
-  for (p = packed_files; p->name && ret == NULL; p++)
+  for (p = packed_files; p->name; p++)
   {
     if ((*cmp_func)(p->name, name))
        continue;
@@ -106,9 +105,9 @@ const char *mg_unpack (const char *name, size_t *size, time_t *mtime)
        *size = p->size - 1;
     if (mtime)
        *mtime = p->mtime;
-    ret = (const char*) p->data;
+    return (const char*) p->data;
   }
-  return (ret);
+  return (NULL);
 }
 """
 
@@ -144,7 +143,7 @@ def dump_hex (in_file, out_file, data, data_len, len_in, num):
 
 def generate_array_css (in_file, out_file, num):
   with open (in_file, "r") as f:
-       data_in  = f.read(-1)
+       data_in  = f.read (-1)
        data_out = csscompressor.compress (data_in, preserve_exclamation_comments = False)
        len_in   = len(data_in)
        len_out  = len(data_out)
@@ -153,16 +152,16 @@ def generate_array_css (in_file, out_file, num):
 
 def generate_array_html (in_file, out_file, num):
   with open (in_file, "r") as f:
-       data_in  = f.read(-1)
+       data_in  = f.read (-1)
        data_out = htmlmin.minify (data_in, remove_comments = True, remove_empty_space = False)
-       len_in  = len(data_in)
-       len_out = len(data_out)
+       len_in   = len(data_in)
+       len_out  = len(data_out)
        dump_hex (in_file, out_file, data_out, len_out, len_in, num)
   return len_in, len_out
 
 def generate_array_js (in_file, out_file, num):
   with open (in_file, "r") as f:
-       data_in = f.read(-1)
+       data_in = f.read (-1)
        ins  = io.StringIO (data_in)
        outs = io.StringIO()
        jsmin.JavascriptMinify().minify (ins, outs)
@@ -192,7 +191,7 @@ def generate_array (in_file, out_file, num):
 
 def write_packed_files_array (out):
   bytes = 0
-  for i, f in enumerate(files_dict):
+  for i, f in enumerate (files_dict):
       ftime = files_dict [f]["mtime"]
       fsize = files_dict [f]["fsize"]
       fname = files_dict [f]["fname"]
@@ -212,7 +211,7 @@ def walktree (top, callback):
   """ Recursively descend the directory tree rooted at top,
       calling the callback function for each regular file
   """
-  for f in sorted(os.listdir (top)):
+  for f in sorted (os.listdir (top)):
       fqfn = os.path.join (top, f)  # Fully Qualified File Name
       st   = os.stat (fqfn)
       if opt.recursive and stat.S_ISDIR(st.st_mode):
@@ -223,7 +222,7 @@ def walktree (top, callback):
 def add_file (file, st):
   file  = file.replace ("\\", "/")
   match = [ fnmatch.fnmatch, fnmatch.fnmatchcase] [opt.casesensitive]
-  if match(file, opt.spec):
+  if match (file, opt.spec):
      files_dict [file] = { "mtime" : st.st_mtime,
                            "fsize" : st.st_size,
                            "fname" : file
@@ -304,21 +303,21 @@ out = open (opt.outfile, "w+")
 
 out.write (C_TOP % (time.ctime(), sys.executable, __file__))
 
-minifiers = {}
+minifiers = { }
 minifiers [".css"]  = generate_array_css
 minifiers [".js"]   = generate_array_js
 minifiers [".html"] = generate_array_html
 minifiers [".*"]    = generate_array
 
-for n, f in enumerate(files_dict):
-    sz = fmt_number (files_dict[f]["fsize"])
-    minified = (f.endswith(".min.css") or f.endswith(".js.css"))
-    if minified:
+for n, f in enumerate (files_dict):
+    size = fmt_number (files_dict[f]["fsize"])
+    already_minified = (f.endswith(".min.css") or f.endswith(".js.css"))
+    if already_minified:
        trace (1, "Not minifying '%s'" % f)
-    if minified or not opt.minify:
-       trace (1, "%10s: Generating C-array for '%s'" % (sz, f))
-       len_in, len_out = generate_array (f, out, n)
 
+    if already_minified or not opt.minify:
+       trace (1, "%10s: Generating C-array for '%s'" % (size, f))
+       len_in, len_out = generate_array (f, out, n)
     else:
        ext = f [f.rfind("."):]
        if ext in minifiers:
@@ -338,5 +337,5 @@ out.write (C_BOTTOM % opt.casesensitive)
 out.close()
 
 if opt.minify:
-  savings = 100 - 100 * total_out_bytes / total_in_bytes
-  trace (1, "The '--minify' option gave %d%% total savings." % savings)
+   savings = 100 - 100 * total_out_bytes / total_in_bytes
+   trace (1, "The '--minify' option gave %d%% total savings." % savings)
