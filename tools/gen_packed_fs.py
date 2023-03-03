@@ -321,10 +321,10 @@ for n, f in enumerate (files_dict):
     else:
        ext = f [f.rfind("."):]
        if ext in minifiers:
-          trace (1, "%10s: Generating minified C-array for '%s'" % (sz, f))
+          trace (1, "%10s: Generating minified C-array for '%s'" % (size, f))
           len_in, len_out = minifiers [ext] (f, out, n)
        else:
-          trace (1, "%10s: Generating C-array for '%s'" % (sz, f))
+          trace (1, "%10s: Generating C-array for '%s'" % (size, f))
           len_in, len_out = minifiers [".*"] (f, out, n)
 
     total_in_bytes  += len_in
