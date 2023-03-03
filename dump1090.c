@@ -414,6 +414,10 @@ static bool console_init (void)
   GetConsoleMode (console_hnd, &console_mode);
   if (console_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)
      SetConsoleMode (console_hnd, console_mode | DISABLE_NEWLINE_AUTO_RETURN);
+
+  DWORD new_mode = console_mode & ~(ENABLE_ECHO_INPUT | ENABLE_QUICK_EDIT_MODE | ENABLE_MOUSE_INPUT);
+  SetConsoleMode (console_hnd, new_mode);
+
   Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
   return (true);
 }
@@ -757,8 +761,8 @@ static bool modeS_init (void)
 
   if (Modes.aircraft_db_update && stricmp(Modes.aircraft_db, "NUL"))
   {
-    aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_update);
-    return (true);
+    if (!aircraft_CSV_update(Modes.aircraft_db, Modes.aircraft_db_update))
+       return (false);
   }
 
   env = getenv ("DUMP1090_HOMEPOS");
@@ -878,10 +882,8 @@ static bool modeS_init_RTLSDR (void)
                 selected ? " (currently selected)" : "");
   }
 
-#if defined(HAVE_rtlsdr_cal_imr)
   if (Modes.rtlsdr.calibrate)
      rtlsdr_cal_imr (1);
-#endif
 
   rc = rtlsdr_open (&Modes.rtlsdr.device, Modes.rtlsdr.index);
   if (rc)
@@ -5287,7 +5289,7 @@ int main (int argc, char **argv)
 
   if (Modes.infile)
   {
-    rc = read_from_data_file();
+    read_from_data_file();
   }
   else if (Modes.strip_level == 0)
   {
@@ -5296,7 +5298,6 @@ int main (int argc, char **argv)
     Modes.reader_thread = _beginthreadex (NULL, 0, data_thread_fn, NULL, 0, NULL);
     if (!Modes.reader_thread)
     {
-      rc = 0;
       LOG_STDERR ("_beginthreadex() failed: %s.\n", strerror(errno));
       goto quit;
     }
