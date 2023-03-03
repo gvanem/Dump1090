@@ -10,6 +10,7 @@
 
 #include "misc.h"
 #include "sqlite3.h"
+#include "zip.h"
 #include "aircraft.h"
 
 #define USE_VARCHAR 0
@@ -500,6 +501,66 @@ static void aircraft_test_2 (void)
 }
 
 /**
+ * Check if `unzip.exe` is on `PATH` by simply running
+ * `unzip.exe -h` with output ignored.
+ *
+ * \note
+ * `_popen()` does not set `errno` on non-existing programs. <br>
+ * Hence, use `system()`; invoke the shell and check for `%errorlevel% != 0`.
+ */
+#if !defined(USE_ZIP)
+static bool unzip_find (void)
+{
+  const char *comspec;
+  char        unzip_cmd [MAX_PATH+50];
+  int         rc;
+
+  comspec = getenv ("COMSPEC");
+  if (!comspec)
+     comspec = "cmd.exe";
+
+  snprintf (unzip_cmd, sizeof(unzip_cmd), "%s /C unzip.exe -h >NUL 2>NUL", comspec);
+  rc = system (unzip_cmd);
+  if (rc != 0)
+  {
+    rc == 2 ? LOG_STDERR ("'unzip.exe' not found on PATH.\n") :
+              LOG_STDERR ("Failed to run '%s'.\n", unzip_cmd);
+    return (false);
+  }
+  return (true);
+}
+
+static bool unzip_extract (const char *zip_file, const char *tmp_file)
+{
+  FILE *p;
+  char  unzip_cmd [MAX_PATH+50];
+
+  /* '-p  extract files to pipe, no messages'
+   */
+  snprintf (unzip_cmd, sizeof(unzip_cmd), "unzip.exe -p %s > %s", zip_file, tmp_file);
+  p = _popen (unzip_cmd, "r");
+  if (!p)
+     return (false);
+  _pclose (p);
+  return (true);
+}
+#else
+
+/**
+ * The do nothing callback called from `zip_extract()`.
+ */
+static int extract_cb (const char *file, void *arg)
+{
+  const char *tmp_file = arg;
+
+  TRACE ("Copying extracted file '%s' to '%s'\n", file, tmp_file);
+  if (!CopyFile (file, tmp_file, FALSE))
+     LOG_STDERR ("CopyFile (\"%s\", \"%s\") failed: %s\n", file, tmp_file, win_strerror(GetLastError()));
+  return (0);
+}
+#endif
+
+/**
  * Check if the aircraft .CSV-database is older than 10 days.
  * If so:
  *  1) download the OpenSky .zip file to `%TEMP%\\aircraft-database-temp.zip`,
@@ -514,13 +575,10 @@ static void aircraft_test_2 (void)
 bool aircraft_CSV_update (const char *db_file, const char *url)
 {
   struct stat st;
-  FILE       *p;
-  int         rc;
-  const char *comspec, * tmp = getenv ("TEMP");
+  const char *tmp = getenv ("TEMP");
   bool        force_it = false;
   char        tmp_file [MAX_PATH];
   char        zip_file [MAX_PATH];
-  char        unzip_cmd [MAX_PATH+50];
 
   if (!db_file || !url)
   {
@@ -533,21 +591,10 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
     return (false);
   }
 
-  /* '_popen()' does not set 'errno' on non-existing programs.
-   * Hence, use 'system()'; invoke the shell and check for '%errorlevel != 0'.
-   */
-  comspec = getenv ("COMSPEC");
-  if (!comspec)
-     comspec = "cmd.exe";
-
-  snprintf (unzip_cmd, sizeof(unzip_cmd), "%s /C unzip.exe -h >NUL 2>NUL", comspec);
-  rc = system (unzip_cmd);
-  if (rc != 0)
-  {
-    rc == 2 ? LOG_STDERR ("'unzip.exe' not found on PATH.\n") :
-              LOG_STDERR ("Failed to run '%s'.\n", unzip_cmd);
-    return (false);
-  }
+#if !defined(USE_ZIP)
+  if (!unzip_find())
+     return (false);
+#endif
 
   if (stat(db_file, &st) != 0)
   {
@@ -586,22 +633,31 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
 
   snprintf (tmp_file, sizeof(tmp_file), "%s\\%s.csv", tmp, AIRCRAFT_DATABASE_TMP);
 
-  /* '-p  extract files to pipe, no messages'
-   */
-  snprintf (unzip_cmd, sizeof(unzip_cmd), "unzip.exe -p %s > %s", zip_file, tmp_file);
-
-  p = _popen (unzip_cmd, "r");
-  if (!p)
+#if defined(USE_ZIP)
+  int rc = zip_extract (zip_file, tmp, extract_cb, tmp_file);
+  if (rc < 0)
+  {
+    LOG_STDERR ("Failed in call to 'zip_extract()': %s (%d)\n", zip_strerror(rc), rc);
+    return (false);
+  }
+#else
+  if (!unzip_extract(zip_file, tmp_file))
   {
     LOG_STDERR ("Failed to run 'unzip.exe': %s\n", strerror(errno));
     return (false);
   }
+#endif
 
-  _pclose (p);
-
-  LOG_STDERR ("Copying '%s' -> '%s'\n", tmp_file, db_file);
-  CopyFile (tmp_file, db_file, FALSE);
-  touch_file (db_file);
+  if (!CopyFile (tmp_file, db_file, FALSE))
+  {
+    LOG_STDERR ("CopyFile (\"%s\", \"%s\") failed: %s\n", tmp_file, db_file, win_strerror(GetLastError()));
+    return (false);
+  }
+  else
+  {
+    LOG_STDERR ("Copied '%s' -> '%s'\n", tmp_file, db_file);
+    touch_file (db_file);
+  }
 
   if (Modes.use_sql_db)
   {

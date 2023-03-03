@@ -44,6 +44,11 @@ USE_RTLSDR_EMUL ?= 0
 USE_WIN_SQLITE ?= 1
 
 #
+# Use the 'external/Zip' code in favour of an external 'unzip.exe' program.
+#
+USE_ZIP ?= 0
+
+#
 # Enable "Address Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
@@ -135,6 +140,7 @@ CFLAGS = -nologo -Zi -W4           \
          -I./externals             \
          -I./externals/rtl-sdr     \
          -I./externals/SDRplay-API \
+         -I./externals/Zip         \
          -I./$(OBJ_DIR)
 
 LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:oldnames.lib -machine:$(CPU)
@@ -214,6 +220,12 @@ ifeq ($(USE_WIN_SQLITE),1)
   CFLAGS += -DUSE_WIN_SQLITE
 else
   SOURCES += externals/sqlite3.c
+endif
+
+ifeq ($(USE_ZIP),1)
+  CFLAGS  += -DUSE_ZIP
+  VPATH   += externals/Zip
+  SOURCES += externals/Zip/zip.c
 endif
 
 SOURCES += $(addprefix externals/rtl-sdr/, \

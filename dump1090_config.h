@@ -42,6 +42,14 @@
      */
     #pragma warning (disable:4312)
   #endif
+
+  #ifdef USE_ZIP
+    /*
+     * externals\Zip\miniz.h(6560): warning C4127: conditional expression is constant
+     * externals\Zip\zip.c(224):    warning C4706: assignment within conditional expression
+     */
+    #pragma warning (disable:4127 4706)
+  #endif
 #endif
 
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
@@ -56,7 +64,6 @@
 
 #define rtlsdr_STATIC    1
 #define USE_gettimeofday 1
-#define HAVE_rtlsdr_cal_imr
 
 #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
   #undef  _WIN32_WINNT
