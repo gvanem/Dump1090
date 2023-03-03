@@ -547,7 +547,7 @@ static bool unzip_extract (const char *zip_file, const char *tmp_file)
 #else
 
 /**
- * The do nothing callback called from `zip_extract()`.
+ * The callback called from `zip_extract()`.
  */
 static int extract_cb (const char *file, void *arg)
 {
