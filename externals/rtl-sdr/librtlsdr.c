@@ -792,7 +792,7 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath)
   if (dev->deviceHandle == INVALID_HANDLE_VALUE)
   {
     last_error = GetLastError();
-    TRACE (1, "CreateFile(\"%s\") failed: %s.\n", DevicePath, trace_strerror(last_error));
+    TRACE (1, "CreateFile(\"%s\") failed: %s\n", DevicePath, trace_strerror(last_error));
     rc = FALSE;
   }
   else if (!WinUsb_Initialize(dev->deviceHandle, &dev->usbHandle))
