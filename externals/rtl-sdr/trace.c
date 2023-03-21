@@ -90,7 +90,7 @@ void trace_printf (const char *file, unsigned line, const char *fmt, ...)
   printf ("%s(%u): ", file , line);
   if (show_version)
   {
-    printf ("Version %d.%d.%d. Compiled: \"%s\".\n", RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, __DATE__);
+    printf ("Version %d.%d.%d.%d. Compiled: \"%s\".\n", RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, __DATE__);
     show_version = 0;
   }
 
@@ -123,7 +123,7 @@ void trace_winusb (const char *file, unsigned line, const char *func, DWORD win_
      return;
 
   if (level >= 1 && win_err != ERROR_SUCCESS)
-     trace_printf (file, line, "!%s() failed with %s\n", func, trace_strerror(win_err));
+     trace_printf (file, line, "!%s() failed with %s.\n", func, trace_strerror(win_err));
 
   else if ((level >= 2 || show_winusb) && win_err == ERROR_SUCCESS)
      trace_printf (file, line, "|%s(), OK.\n", func);

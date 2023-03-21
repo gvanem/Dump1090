@@ -24,12 +24,16 @@ Registers
 
 Reg		Bitmap	Description
 ------------------------------------------------------------------------------
+R1		[7:0]	CHIP_ID, reference check point for read mode: 0x56
+0x01
+------------------------------------------------------------------------------
 R2		[7:6]	Band switch and VCO divider
 0x02			00: UHF, PLL = VCO/4
 				01: L-Band, PLL = VCO/2
 				10: VHF, PLL = VCO/12
 		[5]		0: Use internal XTAL Oscillator, 1: Use External Clock input
-		[4]		0: Lower VCO band < 2.6 GHz, 1: upper VCO band > 2.6 GHz
+		[3]		0: Lower VCO band < 2.6 GHz, 1: upper VCO band > 2.6 GHz
+		[2]		0: Standby, 1: active
 ------------------------------------------------------------------------------
 R24		[6:4]	Reference divider R, 00: /1, 01: /2, 10: /4
 0x18 	[3:0]	High part of 'K' value
@@ -42,6 +46,9 @@ R27				Lower part of 'K' value
 ------------------------------------------------------------------------------
 R28				'N' value
 0x1c
+------------------------------------------------------------------------------
+R46				Command register for filter PLL
+0x2e
 ------------------------------------------------------------------------------
 R47		[7:6]	Filter PLL status, 11: Filter PLL in sync
 0x2f	[5:0]	Filter PLL value
@@ -62,6 +69,9 @@ R73		[2:0]	IF manual attenuator control * -6 dB
 ------------------------------------------------------------------------------
 R74				IF manual gain control * 0.25 dB
 0x4a
+------------------------------------------------------------------------------
+R75				AGC clock's pre-divide ratio
+0x4b
 ------------------------------------------------------------------------------
 R76		[1]		0: Internal IF AGC mode
 0x4c			1: Voltage controlled IF AGC mode
@@ -91,16 +101,18 @@ R116			Indication of IF gain * 0.25 dB
 
 typedef enum {
 	FC2580_VHF_BAND,
-	FC2580_UHF_BAND,
+	FC2580_UHF1_BAND,
+	FC2580_UHF2_BAND,
+	FC2580_UHF3_BAND,
 	FC2580_L_BAND
 } fc2580_band_type;
 
-struct fc2580_reg_val {
+static fc2580_band_type curr_band = FC2580_VHF_BAND;
+
+static const struct {
 	uint8_t reg;
 	uint8_t val;
-};
-
-static const struct fc2580_reg_val fc2580_init_reg_vals[] = {
+} fc2580_reg_val[] = {
 	{0x00, 0x00},
 	{0x12, 0x86},
 	{0x14, 0x5c},
@@ -129,56 +141,38 @@ static const struct fc2580_reg_val fc2580_init_reg_vals[] = {
 	{0x6c, 0x13}  //threshold VGA
 };
 
-struct fc2580_pll {
+static const struct {
 	uint32_t freq;
 	uint8_t div_out;
 	uint8_t band;
-};
-
-static const struct fc2580_pll fc2580_pll_lut[] = {
+} fc2580_pll[] = {
 	{ 400000000, 12, 0x80}, // VHF
-	{ 925000000,  4, 0x00}, // UHF
-	{0xffffffff,  2, 0x40}, // L-Band
+	{ 538000000,  4, 0x00}, // UHF1
+	{ 794000000,  4, 0x00}, // UHF2
+	{ 925000000,  4, 0x00}, // UHF3
+	{0xffffffff,  2, 0x40}  // L-Band
 };
 
-static fc2580_band_type curr_band = FC2580_VHF_BAND;
-
-struct fc2580_freq_regs {
-	uint32_t freq;
-	uint8_t r28_val;
-	uint8_t r29_val;
-	uint8_t r2d_val;
-	uint8_t r5f_val;
-	uint8_t r61_val;
-	uint8_t r62_val;
-	uint8_t r63_val;
-	uint8_t r67_val;
-	uint8_t r68_val;
-	uint8_t r69_val;
-	uint8_t r6a_val;
-	uint8_t r6d_val;
-	uint8_t r6e_val;
-	uint8_t r6f_val;
+static const struct {
+	uint8_t reg;
+	uint8_t val[5];
+} fc2580_freq_regs[] = {
+	{0x28, {0x33,0x53,0x53,0x53,0xff}},
+	{0x29, {0x40,0x60,0x60,0x60,0xff}},
+	{0x2d, {0xff,0x9f,0x9f,0x8f,0xe7}}, // UHF LNA Load Cap
+	{0x5f, {0x0f,0x13,0x15,0x15,0x0f}},
+	{0x61, {0x07,0x07,0x03,0x07,0x0f}},
+	{0x62, {0x00,0x06,0x03,0x06,0x00}},
+	{0x63, {0x15,0x15,0x15,0x15,0x13}},
+	{0x67, {0x03,0x06,0x03,0x07,0x00}},
+	{0x68, {0x05,0x08,0x05,0x09,0x02}},
+	{0x69, {0x10,0x10,0x0c,0x10,0x0c}},
+	{0x6a, {0x12,0x12,0x0e,0x12,0x0e}},
+	{0x6d, {0x78,0x78,0x78,0x78,0xa0}},
+	{0x6e, {0x32,0x32,0x32,0x32,0x50}},
+	{0x6f, {0x54,0x14,0x14,0x14,0x14}},
 };
 
-/* XXX: 0xff is used for don't-care! */
-static const struct fc2580_freq_regs fc2580_freq_regs_lut[] = {
-	{ 400000000,
-		0x33, 0x40, 0xff, 0x0f, 0x07, 0x00, 0x15, 0x03,
-		0x05, 0x10, 0x12, 0x78, 0x32, 0x54},
-	{ 538000000,
-		0x53, 0x60, 0x9f, 0x13, 0x07, 0x06, 0x15, 0x06,
-		0x08, 0x10, 0x12, 0x78, 0x32, 0x14},
-	{ 794000000,
-		0x53, 0x60, 0x9f, 0x15, 0x03, 0x03, 0x15, 0x03,
-		0x05, 0x0c, 0x0e, 0x78, 0x32, 0x14},
-	{ 925000000,
-		0x53, 0x60, 0x8f, 0x15, 0x07, 0x06, 0x15, 0x07,
-		0x09, 0x10, 0x12, 0x78, 0x32, 0x14},
-	{0xffffffff,
-		0xff, 0xff, 0xe7, 0x0f, 0x0f, 0x00, 0x13, 0x00,
-		0x02, 0x0c, 0x0e, 0xa0, 0x50, 0x14},
-};
 
 /*
  * TODO:
@@ -201,7 +195,7 @@ static int fc2580_write(void *dev, unsigned char reg, unsigned char val)
 }
 
 /* write single register conditionally only when value differs from 0xff
- * XXX: This is special routine meant only for writing fc2580_freq_regs_lut[]
+ * XXX: This is special routine meant only for writing fc2580_freq_regs[]
  * values. Do not use for the other purposes. */
 static int fc2580_wr_reg_ff(void *dev, uint8_t reg, uint8_t val)
 {
@@ -247,6 +241,14 @@ int fc2580_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, uns
 	return fc2580_write_reg_mask(dev, i2c_register & 0xFF, data & 0xff, mask & 0xff);
 }
 
+static const int lna_gains[][5] = {
+	{  0,   0,   0,   0,   0},
+	{ -6,  -6,  -6,  -6,  -6},
+	{-19, -17, -17, -17, -11},
+	{-24, -22, -22, -22, -16},
+	{-32, -30, -30, -30, -34},
+};
+
 /*==============================================================================
 
   This function returns fc2580's current RSSI value.
@@ -265,23 +267,7 @@ static int fc2580_get_rssi(unsigned char *data)
 	uint8_t s_rfvga = data[0x72];
 	uint8_t s_cfs =   data[0x73];
 	uint8_t s_ifvga = data[0x74];
-  	int ofs_lna =
-			(curr_band==FC2580_VHF_BAND)?
-				(s_lna==0)? 0 :
-				(s_lna==1)? -6 :
-				(s_lna==2)? -19 :
-				(s_lna==3)? -24 : -32 :
-			(curr_band==FC2580_UHF_BAND)?
-				(s_lna==0)? 0 :
-				(s_lna==1)? -6 :
-				(s_lna==2)? -17 :
-				(s_lna==3)? -22 : -30 :
-			(curr_band==FC2580_L_BAND)?
-				(s_lna==0)? 0 :
-				(s_lna==1)? -6 :
-				(s_lna==2)? -11 :
-				(s_lna==3)? -16 : -34 :
-			0; //FC2580_NO_BAND
+	int ofs_lna = lna_gains[s_lna][curr_band];
 	int ofs_rfvga = -s_rfvga+((s_rfvga>=11)? 1 : 0) + ((s_rfvga>=18)? 1 : 0);
 	int ofs_csf = -6*(s_cfs & 7);
 	int ofs_ifvga = s_ifvga*10/4;
@@ -332,9 +318,15 @@ int fc2580_init(void *dev)
 	int ret;
 	unsigned int i;
 
-	for (i = 0; i < ARRAY_SIZE(fc2580_init_reg_vals); i++) {
-		ret = fc2580_write(dev, fc2580_init_reg_vals[i].reg,
-				fc2580_init_reg_vals[i].val);
+	for (i = 0; i < ARRAY_SIZE(fc2580_reg_val); i++) {
+		ret = fc2580_write(dev, fc2580_reg_val[i].reg,
+				fc2580_reg_val[i].val);
+		if (ret)
+			goto err;
+	}
+	for (i = 0; i < ARRAY_SIZE(fc2580_freq_regs); i++){
+		ret = fc2580_wr_reg_ff(dev, fc2580_freq_regs[i].reg,
+				fc2580_freq_regs[i].val[curr_band]);
 		if (ret)
 			goto err;
 	}
@@ -368,21 +360,19 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 	 *                               | /Rout | ------>
 	 *                               +-------+
 	 */
-	for (i = 0; i < ARRAY_SIZE(fc2580_pll_lut); i++) {
-		if (frequency <= fc2580_pll_lut[i].freq) {
-			curr_band = i;
+	for (i = 0; i < ARRAY_SIZE(fc2580_pll); i++) {
+		if (frequency <= fc2580_pll[i].freq)
 			break;
-		}
 	}
-	if (i == ARRAY_SIZE(fc2580_pll_lut)) {
+	if (i == ARRAY_SIZE(fc2580_pll)) {
 		ret = -1;
 		goto err;
 	}
 
 	#define DIV_PRE_N 2
-	div_out = fc2580_pll_lut[i].div_out;
+	div_out = fc2580_pll[i].div_out;
 	f_vco = (uint64_t)frequency * div_out;
-	synth_config |= fc2580_pll_lut[i].band;
+	synth_config |= fc2580_pll[i].band;
 	if (f_vco < 2600000000ULL) //Select VCO Band
 		synth_config |= 0x06;
 	else
@@ -420,28 +410,12 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 		goto err;
 
 	/* registers */
-	for (i = 0; i < ARRAY_SIZE(fc2580_freq_regs_lut); i++) {
-		if (frequency <= fc2580_freq_regs_lut[i].freq)
-			break;
+	if(curr_band != (int)i)
+	{
+		curr_band = i;
+		for (i = 0; i < ARRAY_SIZE(fc2580_freq_regs); i++)
+			ret |= fc2580_wr_reg_ff(dev, fc2580_freq_regs[i].reg, fc2580_freq_regs[i].val[curr_band]);
 	}
-	if (i == ARRAY_SIZE(fc2580_freq_regs_lut)) {
-		ret = -1;
-		goto err;
-	}
-	ret |= fc2580_wr_reg_ff(dev, 0x28, fc2580_freq_regs_lut[i].r28_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x29, fc2580_freq_regs_lut[i].r29_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x2d, fc2580_freq_regs_lut[i].r2d_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x5f, fc2580_freq_regs_lut[i].r5f_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x61, fc2580_freq_regs_lut[i].r61_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x62, fc2580_freq_regs_lut[i].r62_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x63, fc2580_freq_regs_lut[i].r63_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x67, fc2580_freq_regs_lut[i].r67_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x68, fc2580_freq_regs_lut[i].r68_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x69, fc2580_freq_regs_lut[i].r69_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x6a, fc2580_freq_regs_lut[i].r6a_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x6d, fc2580_freq_regs_lut[i].r6d_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x6e, fc2580_freq_regs_lut[i].r6e_val);
-	ret |= fc2580_wr_reg_ff(dev, 0x6f, fc2580_freq_regs_lut[i].r6f_val);
 	if (ret)
 		goto err;
 
@@ -507,9 +481,9 @@ int fc2580_set_gain_mode(void *dev, int manual)
 static const int fc2580_gains[] = {
 //Total dB*10
 	0,30,60,90,120,150,180,210,240,270,300,330,360,390,420,450,480,510,540,570,600,630,660,690};
-static const int fc2580_r73[] = {
+static const uint8_t fc2580_r73[] = {
 	5, 5, 5, 5,  5,  5,  5,  5,  5,  4,  4,  3,  3,  2,  2,  1,  1,  0,  0,  0,  0,  0,  0,  0};
-static const int fc2580_r74[] = {
+static const uint8_t fc2580_r74[] = {
     0,12,24,36, 48, 60, 72, 84, 96, 84, 96, 84, 96, 84, 96, 84, 96, 84, 96,108,120,132,144,156};
 
 #define GAIN_CNT	(sizeof(fc2580_gains) / sizeof(int))

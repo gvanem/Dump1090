@@ -25,79 +25,15 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #include "rtlsdr_i2c.h"
 #include "rtl-sdr.h"
 #include "tuner_fc001x.h"
-
-
-static int fc001x_write(void *dev, uint8_t reg, uint8_t *buf, int len)
-{
-	int rc = rtlsdr_i2c_write_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
-	if (rc != len) {
-		printf( "%s: i2c wr failed=%d reg=%02x len=%d\n",
-			   __FUNCTION__, rc, reg, len);
-		if (rc < 0)
-			return rc;
-		return -1;
-	}
-
-	return 0;
-}
-
-static inline int fc001x_writereg(void *dev, uint8_t reg, uint8_t val)
-{
-	return fc001x_write(dev, reg, &val, 1);
-}
-
-static int fc001x_read(void *dev, uint8_t reg, uint8_t *buf, int len)
-{
-	int rc = rtlsdr_i2c_read_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
-	if (rc != len) {
-		printf( "%s: i2c rd failed=%d reg=%02x len=%d\n",
-			   __FUNCTION__, rc, reg, len);
-		if (rc < 0)
-			return rc;
-		return -1;
-	}
-
-	return 0;
-}
-
-static inline int fc001x_readreg(void *dev, uint8_t reg, uint8_t *val)
-{
-	return fc001x_read(dev, reg, val, 1);
-}
-
-static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t bit_mask)
-{
-	int rc;
-	uint8_t val;
-
-	if(bit_mask == 0xff)
-		val = data;
-	else
-	{
-		rc = fc001x_read(dev, reg, &val, 1);
-		if(rc < 0)
-			return -1;
-		val = (val & ~bit_mask) | (data & bit_mask);
-	}
-	return fc001x_writereg(dev, reg, val);
-}
-
-/*static int print_registers(void *dev)
-{
-	uint8_t data[22];
-	unsigned int i;
-
-	if (fc001x_read(dev, 0, data, sizeof(data)) < 0)
-		return -1;
-	for(i=0; i<22; i++)
-		printf("%02x ", data[i]);
-	printf("\n");
-	return 0;
-}*/
-
 
 /* Incomplete list of FC0012 register settings:
  *
@@ -145,7 +81,7 @@ static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t b
  * LNA_COMPS		0x15	3	?
  */
 
-/* Incomplete list of FC0013 register settings:
+/* Incomplete list of FC0013 additional register settings:
  *
  * Name				Reg		BitsDesc
  * CHIP_ID			0x00	0-7	Chip ID (constant 0xA3)
@@ -161,14 +97,109 @@ static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t b
  * VHF_TRACK_FILTER	0x1d	2-4 VHF track filter
  */
 
+extern int16_t interpolate(int16_t freq, int size, const int16_t *freqs, const int16_t *gains);
+extern uint16_t rtlsdr_demod_read_reg(rtlsdr_dev_t *dev, uint16_t page, uint16_t addr, uint8_t len);
+
+static const int16_t abs_freqs[] = {
+	22,25,50,100,200,300,300,400,500,600,700,800,900,950,1000,1050,1100,1200,1300,1400,1500,1600,1700,1800};
+static const int16_t abs_gains[] = {
+	-7,-5, 0, -2, -4,-15,-20,-28,-33,-38,-37,-29,-35,-44, -65, -76,-103,-140,-187,-240,-296,-360,-446,-456};
+static int abs_gain = 0;
+static uint8_t if_reg, lna_reg;
+static enum rtlsdr_tuner tuner_type;
+static uint8_t RSSI_Calibration_Value;
+
+static int fc001x_write(void *dev, uint8_t reg, uint8_t *buf, int len)
+{
+	int rc = rtlsdr_i2c_write_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
+	if (rc != len) {
+		printf( "%s: i2c wr failed=%d reg=%02x len=%d\n",
+			__FUNCTION__, rc, reg, len);
+		if (rc < 0)
+			return rc;
+		return -1;
+	}
+
+	return 0;
+}
+
+static inline int fc001x_writereg(void *dev, uint8_t reg, uint8_t val)
+{
+	return fc001x_write(dev, reg, &val, 1);
+}
+
+static int fc001x_read(void *dev, uint8_t reg, uint8_t *buf, int len)
+{
+	int rc = rtlsdr_i2c_read_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
+	if (rc != len) {
+		printf( "%s: i2c rd failed=%d reg=%02x len=%d\n",
+			__FUNCTION__, rc, reg, len);
+		if (rc < 0)
+			return rc;
+		return -1;
+	}
+	return 0;
+}
+
+static inline int fc001x_readreg(void *dev, uint8_t reg, uint8_t *val)
+{
+	return fc001x_read(dev, reg, val, 1);
+}
+
+static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t bit_mask)
+{
+	int rc;
+	uint8_t val;
+
+	if(bit_mask == 0xff)
+		val = data;
+	else
+	{
+		rc = fc001x_read(dev, reg, &val, 1);
+		if(rc < 0)
+			return -1;
+		val = (val & ~bit_mask) | (data & bit_mask);
+	}
+	return fc001x_writereg(dev, reg, val);
+}
+
+/*static int print_registers(void *dev)
+{
+	uint8_t data[22];
+	unsigned int i;
+
+	if (fc001x_read(dev, 0, data, sizeof(data)) < 0)
+		return -1;
+	for(i=0; i<22; i++)
+		printf("%02x ", data[i]);
+	printf("\n");
+	return 0;
+}*/
+
+
+int RSSI_Calibration(void *dev)
+{
+	int ret;
+	ret = fc001x_write_reg_mask(dev, 0x09, 0x10, 0x10);	// set the register 9 bit4 EN_CAL_RSSI as 1
+	ret |= fc001x_write_reg_mask(dev, 0x06, 0x01, 0x01);	// set the register 6 bit 0 LNA_POWER_DOWN as 1
+	Sleep(100);									// delay 100ms
+	// read DC value from RSSI pin as rssi_calibration
+	RSSI_Calibration_Value = rtlsdr_demod_read_reg(dev, 3, 0x01, 1);
+	ret |= fc001x_write_reg_mask(dev, 0x09, 0x00, 0x10);	// set the register 9 bit4 EN_CAL_RSSI as 0
+	ret |= fc001x_write_reg_mask(dev, 0x06, 0x00, 0x01);	// set the register 6 bit 0 LNA_POWER_DOWN as 0
+	//printf("RSSI=%d\n",RSSI_Calibration_Value);
+	return ret;
+}
+
 int fc0012_init(void *dev)
 {
+	int ret;
 	uint8_t reg[] = {
 		0x05,	/* reg. 0x01 */
 		0x10,	/* reg. 0x02 */
 		0x00,	/* reg. 0x03 */
 		0x00,	/* reg. 0x04 */
-		0x0f,	/* reg. 0x05: may also be 0x0a */
+		0x0f,	/* reg. 0x05: modify for Realtek CNR test, may also be 0x0a */
 		0x80,	/* reg. 0x06: BW 6 Mhz, divider 2, VCO slow */
 		0x20,	/* reg. 0x07: may also be 0x0f */
 		0xff,	/* reg. 0x08: AGC Clock divide by 256, AGC gain 1/256,
@@ -184,28 +215,34 @@ int fc0012_init(void *dev)
 		0x00,	/* reg. 0x10 */
 		0x00,	/* reg. 0x11 */
 		0x1f,	/* reg. 0x12: Set to maximum gain */
-		0x08,	/* reg. 0x13: Set to Middle Gain: 0x08,
-							  Low Gain: 0x00, High Gain: 0x10, enable IX2: 0x80 */
+		0x10,	/* reg. 0x13: Set to High Gain: 0x10,
+							  Low Gain: 0x00, Middle Gain: 0x08, enable IX2: 0x80 */
 		0x00,	/* reg. 0x14 */
 		0x04,	/* reg. 0x15: Enable LNA COMPS */
 	};
-	return fc001x_write(dev, 1, reg, sizeof(reg));
+	tuner_type = RTLSDR_TUNER_FC0012;
+	if_reg = 0x12;
+	lna_reg = 0x13;
+	ret = fc001x_write(dev, 1, reg, sizeof(reg));
+	ret |= RSSI_Calibration(dev);
+	return ret;
 }
 
 int fc0013_init(void *dev)
 {
+	int ret;
 	uint8_t reg[] = {
 		0x09,	/* reg. 0x01 */
 		0x16,	/* reg. 0x02 */
 		0x00,	/* reg. 0x03 */
 		0x00,	/* reg. 0x04 */
 		0x17,	/* reg. 0x05 */
-		0x02,	/* reg. 0x06: LPF bandwidth */
-		0x2a,	/* reg. 0x07: CHECK */
+		0x82,	/* reg. 0x06: BW 6 Mhz, divider 2, VCO slow */
+		0x2a,	/* reg. 0x07: 28.8MHz, modified by Realtek */
 		0xff,	/* reg. 0x08: AGC Clock divide by 256, AGC gain 1/256, Loop Bw 1/8 */
 		0x6e,	/* reg. 0x09: Disable LoopThrough, Enable LoopThrough: 0x6f */
 		0xb8,	/* reg. 0x0a: Disable LO Test Buffer */
-		0x82,	/* reg. 0x0b: CHECK */
+		0x82,	/* reg. 0x0b: */
 		0xfc,	/* reg. 0x0c: depending on AGC Up-Down mode, may need 0xf8 */
 		0x11,	/* reg. 0x0d: AGC Not Forcing & LNA Forcing, forcing rc_cal */
 		0x00,	/* reg. 0x0e */
@@ -214,10 +251,15 @@ int fc0013_init(void *dev)
 		0x00,	/* reg. 0x11 */
 		0x00,	/* reg. 0x12 */
 		0x00,	/* reg. 0x13 */
-		0x08,	/* reg. 0x14: VHF Middle Gain */
+		0x10,	/* reg. 0x14: VHF High Gain */
 		0x01,	/* reg. 0x15 */
 	};
-	return fc001x_write(dev, 1, reg, sizeof(reg));
+	tuner_type = RTLSDR_TUNER_FC0013;
+	if_reg = 0x13;
+	lna_reg = 0x14;
+	ret = fc001x_write(dev, 1, reg, sizeof(reg));
+	ret |= RSSI_Calibration(dev);
+	return ret;
 }
 
 static int fc0013_set_vhf_track(void *dev, uint32_t freq)
@@ -250,13 +292,13 @@ error_out:
 	return ret;
 }
 
-static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_type)
+static int fc001x_set_freq(void *dev, uint32_t freq)
 {
 	int ret = 0;
 	uint8_t reg[7], am, pm, tmp;
 	uint8_t multi;				//multi * freq = f_vco
 	int64_t f_vco;				//VCO frequency
-	double xtal_freq_div_2;	//14.4 MHz
+	double xtal_freq_div_2;		//14.4 MHz
 	uint16_t xdiv;
 	int16_t xin;
 	int vco_select = 0;
@@ -270,36 +312,27 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 		if (ret)
 			goto exit;
 
-		if (freq < 300000000) {
+		if (freq < 300000000)
+		{
 			/* enable VHF filter */
-			ret = fc001x_readreg(dev, 0x07, &tmp);
+			ret = fc001x_write_reg_mask(dev, 0x07, 0x10, 0x10);
 			if (ret)
 				goto exit;
-			ret = fc001x_writereg(dev, 0x07, tmp | 0x10);
-			if (ret)
-			goto exit;
 
 			/* disable UHF & disable GPS */
-			ret = fc001x_readreg(dev, 0x14, &tmp);
+			ret = fc001x_write_reg_mask(dev, 0x14, 0, 0x60);
 			if (ret)
 				goto exit;
-			ret = fc001x_writereg(dev, 0x14, tmp & 0x1f);
-			if (ret)
-				goto exit;
-		} else {
+		}
+		else
+		{
 			/* disable VHF filter */
-			ret = fc001x_readreg(dev, 0x07, &tmp);
+			ret = fc001x_write_reg_mask(dev, 0x07, 0, 0x10);
 			if (ret)
 				goto exit;
-			ret = fc001x_writereg(dev, 0x07, tmp & 0xef);
-			if (ret)
-			goto exit;
 
 			/* enable UHF & disable GPS */
-			ret = fc001x_readreg(dev, 0x14, &tmp);
-			if (ret)
-				goto exit;
-			ret = fc001x_writereg(dev, 0x14, (tmp & 0x1f) | 0x40);
+			ret = fc001x_write_reg_mask(dev, 0x14, 0x40, 0x60);
 			if (ret)
 				goto exit;
 		}
@@ -309,51 +342,30 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 	if (freq < 37084000) {			/* freq * 96 < 3560000000 */
 		multi = 96;
 		reg[5] = 0x82;
-		reg[6] = 0x00;
 	} else if (freq < 55625000) {	/* freq * 64 < 3560000000 */
 		multi = 64;
-		if(tuner_type == RTLSDR_TUNER_FC0012)
-			reg[5] = 0x82;
-		else
-			reg[5] = 0x02;
-		reg[6] = 0x02;
+		reg[5] = (tuner_type == RTLSDR_TUNER_FC0012) ? 0x82 : 0x02;
 	} else if (freq < 74167000) {	/* freq * 48 < 3560000000 */
 		multi = 48;
 		reg[5] = 0x42;
-		reg[6] = 0x00;
 	} else if (freq < 111250000) {	/* freq * 32 < 3560000000 */
 		multi = 32;
-		if(tuner_type == RTLSDR_TUNER_FC0012)
-			reg[5] = 0x42;
-		else
-			reg[5] = 0x82;
-		reg[6] = 0x02;
+		reg[5] = (tuner_type == RTLSDR_TUNER_FC0012) ? 0x42 : 0x82;
 	} else if (freq < 148334000) {	/* freq * 24 < 3560000000 */
 		multi = 24;
 		reg[5] = 0x22;
-		reg[6] = 0x00;
 	} else if (freq < 222500000) {	/* freq * 16 < 3560000000 */
 		multi = 16;
-		if(tuner_type == RTLSDR_TUNER_FC0012)
-			reg[5] = 0x22;
-		else
-			reg[5] = 0x42;
-		reg[6] = 0x02;
+		reg[5] = (tuner_type == RTLSDR_TUNER_FC0012) ? 0x22 : 0x42;
 	} else if (freq < 296667000) {	/* freq * 12 < 3560000000 */
 		multi = 12;
 		reg[5] = 0x12;
-		reg[6] = 0x00;
 	} else if (freq < 445000000) {	/* freq * 8 < 3560000000 */
 		multi = 8;
-		if(tuner_type == RTLSDR_TUNER_FC0012)
-			reg[5] = 0x12;
-		else
-			reg[5] = 0x22;
-		reg[6] = 0x02;
+		reg[5] = (tuner_type == RTLSDR_TUNER_FC0012) ? 0x12 : 0x22;
 	} else if (freq < 593334000) {	/* freq * 6 < 3560000000 */
 		multi = 6;
 		reg[5] = 0x0a;
-		reg[6] = 0x00;
 	} else {
 		if(tuner_type == RTLSDR_TUNER_FC0012)
 		{
@@ -362,7 +374,7 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 		}
 		else
 		{
-			if (freq < 950000000) {	/* freq * 4 < 3800000000 */
+			if (freq < 948600000) {	/* freq * 4 < 3800000000 */
 				multi = 4;
 				reg[5] = 0x12;
 			} else {
@@ -370,8 +382,8 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 				reg[5] = 0x0a;
 			}
 		}
-		reg[6] = 0x02;
 	}
+	reg[6] = ((multi % 3) == 0) ? 0x00 : 0x02;
 
 	f_vco = (int64_t)freq * multi;
 	if (f_vco >= 3060000000U) {
@@ -431,13 +443,10 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 
 	if(tuner_type == RTLSDR_TUNER_FC0013)
 	{
-		ret = fc001x_readreg(dev, 0x11, &tmp);
-		if (ret)
-			goto exit;
 		if (multi == 64)
-			ret = fc001x_writereg(dev, 0x11, tmp | 0x04);
+			ret = fc001x_write_reg_mask(dev, 0x11, 0x04, 0x04);
 		else
-			ret = fc001x_writereg(dev, 0x11, tmp & 0xfb);
+			ret = fc001x_write_reg_mask(dev, 0x11, 0, 0x04);
 		if (ret)
 			goto exit;
 	}
@@ -450,10 +459,8 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 	/* VCO Re-Calibration if needed */
 	if (!ret)
 		ret = fc001x_writereg(dev, 0x0e, 0x00);
-
-	if (!ret) {
+	if (!ret)
 		ret = fc001x_readreg(dev, 0x0e, &tmp);
-	}
 	if (ret)
 		goto exit;
 
@@ -479,7 +486,6 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 				ret = fc001x_writereg(dev, 0x0e, 0x00);
 		}
 	}
-#if 1
 	{
 		int64_t actual_vco = xtal_freq_div_2 * xdiv + xtal_freq_div_2 * xin / 32768;
 		int tuning_error = (f_vco - actual_vco) / multi;
@@ -487,7 +493,9 @@ static int fc001x_set_freq(void *dev, uint32_t freq, enum rtlsdr_tuner tuner_typ
 		//printf("actual_vco = %lld, tuning_error = %d\n", actual_vco, tuning_error);
 		ret = rtlsdr_set_if_freq(dev, tuning_error);
 	}
-#endif
+	abs_gain = interpolate(freq/1000000, ARRAY_SIZE(abs_gains), abs_freqs, abs_gains);
+	//printf("abs_gain = %d\n", abs_gain);
+
 
 exit:
 	return ret;
@@ -496,11 +504,11 @@ exit:
 int fc0012_set_freq(void *dev, uint32_t freq) {
 	// select V-band/U-band filter
 	rtlsdr_set_gpio_bit(dev, 6, (freq > 300000000) ? 1 : 0);
-	return fc001x_set_freq(dev, freq, RTLSDR_TUNER_FC0012);
+	return fc001x_set_freq(dev, freq);
 }
 
 int fc0013_set_freq(void *dev, uint32_t freq) {
-	return fc001x_set_freq(dev, freq, RTLSDR_TUNER_FC0013);
+	return fc001x_set_freq(dev, freq);
 }
 
 int fc001x_set_gain_mode(void *dev, int manual)
@@ -509,21 +517,17 @@ int fc001x_set_gain_mode(void *dev, int manual)
 }
 
 
-static const uint8_t lna_gains[]=
-//LNA dB
-//0    0    0    0    3.6  7.4  7.4  7.4  17   17   17  27.8 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6 29.6
-{0x02,0x02,0x02,0x02,0x00,0x1e,0x1e,0x1e,0x08,0x08,0x08,0x17,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10,0x10};
-static const uint8_t if_gains[]=
-//IF dB
-//0    3.1  6.5 10.3 10.3 10.3 14.3 18.3 12.3 16.3 20.3 12.3 14.3 18.3 22.3 26.3 30.3 34.3 38.3 42.3 46.3 50.3 54.3 58.3 62.3 66.3 70.3
-{0x80,0x40,0x20,0x01,0x01,0x01,0x03,0x05,0x02,0x04,0x06,0x02,0x03,0x05,0x07,0x09,0x0b,0x0d,0x0f,0x11,0x13,0x15,0x17,0x19,0x1b,0x1d,0x1f};
 static const int fc001x_gains[] =
 //Total dB*10
-{  0,  31,  65, 103, 139, 177, 217, 257, 293, 333, 373, 401, 439, 479, 519, 559, 599, 639, 679, 719, 759, 799, 839, 879, 919, 959, 999 };
+{   0,  31,  65, 103, 143, 183, 223, 263, 303, 343, 383, 423, 463, 503, 543, 583, 623, 663, 703};
+
+static const uint8_t if_gains[]=
+{0x80,0x40,0x20,0x01,0x03,0x05,0x07,0x09,0x0b,0x0d,0x0f,0x11,0x13,0x15,0x17,0x19,0x1b,0x1d,0x1f};
+
 
 #define GAIN_CNT	(sizeof(fc001x_gains) / sizeof(int))
 
-static int fc001x_set_gain(void *dev, int gain, uint8_t if_reg, uint8_t lna_reg)
+static int fc001x_set_gain(void *dev, int gain)
 {
 	unsigned int i;
 	uint8_t gain_mode;
@@ -533,33 +537,33 @@ static int fc001x_set_gain(void *dev, int gain, uint8_t if_reg, uint8_t lna_reg)
 		return ret;
 	if((gain_mode & 8) == 0)
 		return 0; //don't set gain in AGC mode
-	if(if_reg == 0x13)
+	if(tuner_type == RTLSDR_TUNER_FC0013)
 		ret = fc001x_writereg(dev, 0x12, 0); //set FC0013 mixer gain to 0
 	for (i = 0; i < GAIN_CNT; i++)
 		if ((fc001x_gains[i] >= gain) || (i+1 == GAIN_CNT))
 			break;
 	ret |= fc001x_writereg(dev, if_reg, if_gains[i]);
-	ret |= fc001x_write_reg_mask(dev, lna_reg, lna_gains[i], 0x1f);
 	//print_registers(dev);
 	return ret;
 }
 
 int fc0012_set_gain(void *dev, int gain)
 {
-	return fc001x_set_gain(dev, gain, 0x12, 0x13);
+	return fc001x_set_gain(dev, gain);
 }
 
 int fc0013_set_gain(void *dev, int gain)
 {
-	return fc001x_set_gain(dev, gain, 0x13, 0x14);
+	return fc001x_set_gain(dev, gain);
 }
 
 int fc001x_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)
 {
-	*applied_bw = 5000000;
 	(void) dev;
 	(void) bw;
 	(void) apply;
+
+	*applied_bw = 5000000;
 	return 0;
 }
 
@@ -581,14 +585,10 @@ int fc001x_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, uns
 }
 
 static const int lna_gain_table[] = {
-	/* low gain */
-	-63, -58, -99, -73,	-63, -65, -54, -60,
-	/* middle gain */
-	 71,  70,  68,  67,	 65,  63,  61,  58,
-	/* high gain */
-	197, 191, 188, 186,	184, 182, 181, 179,
-	/* low gain */
-	-28, -27, -43, -32, -27, -28, -25, -27
+	 32,   37,  0,  25,	 32,  30,  41,  36, // very low gain
+	167, 165, 163, 161, 159, 156, 154, 151, // middle gain
+	307, 301, 297, 294,	290, 286, 280, 274, // high gain
+	 69,  71,  54,  65,  69,  68,  78,  72	// low gain
 };
 static const int if_gain_table[] = { 83, 65, 31, 48, 0, 0, 13, 0};
 
@@ -601,21 +601,23 @@ static int fc001x_get_signal_strength(uint8_t vga, uint8_t lna, uint8_t mix)
 	int lna_gain = lna_gain_table[lna & 0x1f];
 	int mix_gain = mix_gain_table[mix & 0x0f] + ((mix >> 4) & 3) * 6;
 	if_gain += if_gain_table[(vga >> 5) & 0x07];
-	return if_gain + lna_gain + mix_gain + 80;
+	return if_gain + lna_gain + mix_gain + abs_gain;
 }
 
-static int fc001x_get_i2c_register(void *dev, unsigned char* data, int *len, int *tuner_gain,
-									uint8_t if_reg, uint8_t lna_reg)
+static int fc001x_get_i2c_register(void *dev, unsigned char* data, int *len, int *tuner_gain)
 {
 	int rc;
 	uint8_t mixer, gain_mode;
+	uint8_t LNA_value;
+	uint8_t RSSI_Value;
+	int RSSI_Difference;
 
 	rc = fc001x_readreg(dev, 0x0d, &gain_mode);
 	if (rc < 0)
 		return rc;
 	if((gain_mode & 8) == 0) //AGC mode
 	{
-		if(if_reg == 0x13) //FC0013
+		if(tuner_type == RTLSDR_TUNER_FC0013)
 		{
 			rc = fc001x_writereg(dev, 0x12, 0); //mixer gain
 			if (rc < 0)
@@ -628,51 +630,59 @@ static int fc001x_get_i2c_register(void *dev, unsigned char* data, int *len, int
 	rc = fc001x_read(dev, 0, data, *len);
 	if (rc < 0)
 		return rc;
-	if(if_reg == 0x13) //FC0013
-		mixer = data[0x12];
-	else
-		mixer = 0;
+
+	mixer = (tuner_type == RTLSDR_TUNER_FC0013) ? data[0x12] : 0;
 	*tuner_gain = fc001x_get_signal_strength(data[if_reg], data[lna_reg], mixer);
-	if((gain_mode & 8) == 0) //Set LAN gain in AGC mode
+
+	RSSI_Value = rtlsdr_demod_read_reg(dev, 3, 0x01, 1);
+	RSSI_Difference = RSSI_Value - RSSI_Calibration_Value;	// Calculate voltage difference of RSSI
+
+	LNA_value = data[lna_reg] & 0x1f;
+	switch(LNA_value)
 	{
-		int lna = data[lna_reg] & 0x1f;
-		if(lna == 0x10)
-		{
-			if(*tuner_gain < 450)
-				lna = 0x08;
-		}
-		else if(lna == 0x02)
-		{
-			if(*tuner_gain > 200)
-				lna = 0x08;
-		}
-		else // 0x08
-		{
-			if (*tuner_gain > 500)
-				lna = 0x10;
-			else if (*tuner_gain < 150)
-				lna = 0x02;
-		}
-		if(lna != (data[lna_reg] & 0x1f))
-		{
-			rc = fc001x_write_reg_mask(dev, lna_reg, lna, 0x1f);
-			//printf("tuner_gain=%d, lna=%x\n",*tuner_gain,lna);
-		}
-		return rc;
+		case 0x10:
+			if( RSSI_Difference > 6 )
+				rc = fc001x_write_reg_mask(dev, lna_reg, 0x17, 0x1f);
+			break;
+		case 0x17:
+			if( RSSI_Difference > 15 )
+				rc = fc001x_write_reg_mask(dev, lna_reg, 0x08, 0x1f);
+			else if( RSSI_Difference < 3 )
+				rc = fc001x_write_reg_mask(dev, lna_reg, 0x10, 0x1f);
+			break;
+		case 0x08:
+			if( RSSI_Difference > 14 )
+				rc = fc001x_write_reg_mask(dev, lna_reg, 0x1e, 0x1f);
+			else if( RSSI_Difference < 3 )
+				rc = fc001x_write_reg_mask(dev, lna_reg, 0x17, 0x1f);
+			break;
+		case 0x1e:
+			if( RSSI_Difference > 13 )
+				rc = fc001x_write_reg_mask(dev, lna_reg, 0x02, 0x1f);
+			else if( RSSI_Difference < 3 )
+				rc = fc001x_write_reg_mask(dev, lna_reg, 0x08, 0x1f);
+			break;
+		case 0x02:
+			if( RSSI_Difference < 3 )
+				rc = fc001x_write_reg_mask(dev, lna_reg, 0x1e, 0x1f);
+			break;
+		default:
+			rc = fc001x_write_reg_mask(dev, lna_reg, 0x10, 0x1f);
+			break;
 	}
-	return 0;
+	return rc;
 }
 
 int fc0012_get_i2c_register(void *dev, unsigned char *data, int *len, int *strength)
 {
 	*len = 22;
-	return fc001x_get_i2c_register(dev, data, len, strength, 0x12, 0x13);
+	return fc001x_get_i2c_register(dev, data, len, strength);
 }
 
 int fc0013_get_i2c_register(void *dev, unsigned char *data, int *len, int *strength)
  {
 	*len = 30;
-	return fc001x_get_i2c_register(dev, data, len, strength, 0x13, 0x14);
+	return fc001x_get_i2c_register(dev, data, len, strength);
 }
 
 const int *fc001x_get_gains(int *len)

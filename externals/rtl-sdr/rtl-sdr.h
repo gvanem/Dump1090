@@ -186,6 +186,15 @@ RTLSDR_API int rtlsdr_set_freq_correction(rtlsdr_dev_t *dev, int ppm);
 RTLSDR_API int rtlsdr_set_freq_correction_100ppm(rtlsdr_dev_t *dev, int ppm);
 
 /*!
+ * Set the frequency correction value for the device.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param ppb correction value in parts per billion (ppb)
+ * \return 0 on success
+ */
+RTLSDR_API int rtlsdr_set_freq_correction_ppb(rtlsdr_dev_t *dev, int ppb);
+
+/*!
  * Get actual frequency correction value of the device.
  *
  * \param dev the device handle given by rtlsdr_open()
@@ -200,6 +209,14 @@ RTLSDR_API int rtlsdr_get_freq_correction(rtlsdr_dev_t *dev);
  * \return correction value in parts per 100 million (ppm)
  */
 RTLSDR_API int rtlsdr_get_freq_correction_100ppm(rtlsdr_dev_t *dev);
+
+/*!
+ * Get actual frequency correction value of the device.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \return correction value in parts per billion (ppb)
+ */
+RTLSDR_API int rtlsdr_get_freq_correction_ppb(rtlsdr_dev_t *dev);
 
 enum rtlsdr_tuner {
 	RTLSDR_TUNER_UNKNOWN = 0,
@@ -269,7 +286,7 @@ RTLSDR_API int rtlsdr_get_tuner_gains(rtlsdr_dev_t *dev, int *gains);
 RTLSDR_API int rtlsdr_set_tuner_gain(rtlsdr_dev_t *dev, int gain);
 
 /*!
- * Set the bandwidth for the device.
+ * Set (and retrieve) the bandwidth for the device.
  *
  * \param dev the device handle given by rtlsdr_open()
  * \param bw bandwidth in Hz. Zero means automatic BW selection.
@@ -279,6 +296,13 @@ RTLSDR_API int rtlsdr_set_tuner_gain(rtlsdr_dev_t *dev, int gain);
  */
 RTLSDR_API int rtlsdr_set_and_get_tuner_bandwidth(rtlsdr_dev_t *dev, uint32_t bw, uint32_t *applied_bw, int apply_bw );
 
+/*!
+ * Set the bandwidth for the device.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param bw bandwidth in Hz. Zero means automatic BW selection.
+ * \return 0 on success
+ */
 RTLSDR_API int rtlsdr_set_tuner_bandwidth(rtlsdr_dev_t *dev, uint32_t bw );
 
 /*!
@@ -419,8 +443,22 @@ RTLSDR_API int rtlsdr_get_offset_tuning(rtlsdr_dev_t *dev);
 
 /* streaming functions */
 
+/*!
+ * Reset buffer in RTL2832
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \return 0 on success
+ * \return -1 on error
+ */
 RTLSDR_API int rtlsdr_reset_buffer(rtlsdr_dev_t *dev);
 
+/*!
+ * Read data synchronously
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \return 0 on success
+ * \return -1 on error or error code from libusb
+ */
 RTLSDR_API int rtlsdr_read_sync(rtlsdr_dev_t *dev, void *buf, int len, int *n_read);
 
 typedef void(*rtlsdr_read_async_cb_t)(unsigned char *buf, uint32_t len, void *ctx);
@@ -521,7 +559,7 @@ RTLSDR_API int rtlsdr_set_bias_tee_gpio(rtlsdr_dev_t *dev, int gpio, int on);
  *
  * \param dev the device handle given by rtlsdr_open()
  * \param opts described option string
- * \param verbose print parsed options to stderr
+ * \param verbose print parsed options to stdout
  */
 RTLSDR_API int rtlsdr_set_opt_string(rtlsdr_dev_t *dev, const char *opts, int verbose);
 
@@ -531,7 +569,7 @@ RTLSDR_API const char * rtlsdr_get_opt_help(int longInfo);
  * Exposes/permits hacking of Tuner-specific I2C registers
  *
  * \param dev           the device handle given by rtlsdr_open()
- * \param i2c_register  1 for Bias T on. 0 for Bias T off.
+ * \param i2c_register  register address
  * \param mask          8-bit bitmask, indicating which bits shall be set
  * \param data          8-bit data, which shall be set
  * \return -1 if device is not initialized. 0 otherwise.
@@ -545,7 +583,7 @@ RTLSDR_API void rtlsdr_cal_imr(const int cal_imr);
 RTLSDR_API int rtlsdr_reset_demod(rtlsdr_dev_t *dev);
 
 /*!
- * Enable or disable frequency dithering for r820t tuners.
+ * Enable or disable frequency dithering for r820t/r828d tuners.
  * Must be performed before freq_set().
  * Fails for other tuners.
  *
@@ -554,6 +592,7 @@ RTLSDR_API int rtlsdr_reset_demod(rtlsdr_dev_t *dev);
  * \return 0 on success
  */
 RTLSDR_API int rtlsdr_set_dithering(rtlsdr_dev_t *dev, int dither);
+
 RTLSDR_API int rtlsdr_set_if_freq(rtlsdr_dev_t *dev, int32_t freq);
 
 #ifdef DEBUG

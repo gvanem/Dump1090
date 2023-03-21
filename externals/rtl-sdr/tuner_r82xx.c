@@ -348,7 +348,7 @@ R24		[7]		pw_ringout		RingPLL Test VCO Output Enable
 R25		[7] 	PWD_RFFILT		RF Filter power
 0x19							0: off, 1:on
 		[6:5]	POLYFIL_CUR		RF poly filter current
-								00: min
+								11: min
 		[4] 	SW_AGC			Switch agc_pin
 								0:agc=agc_in
 								1:agc=agc_in2
@@ -628,11 +628,13 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t *buf, int len)
 	printf("\n");
 }*/
 
+//RTL-SDR.COM
 static const int16_t abs_freqs_r820t[] = {
   25, 26, 27, 28, 30, 32, 35, 40, 50, 50, 55, 55, 60, 60, 65, 65, 70, 70, 75, 75,100,100,140,140,174,174,200,200,240,240,280,280,320,345,345,600,850,1000,1500,1700,1750};
 static const int16_t abs_gains_r820t[] = {
  194,178,169,161,149,141,134,137,143,139,139,127,127,127,127,118,118,113,114, 90, 92,104,107,107,102, 86, 83, 77, 72, 69, 68, 59, 66, 71, 71, 92,109, 118, 138, 145, 153};
 
+//Astrometa
 static const int16_t abs_freqs_r828d[] = {
  25, 26, 27, 28, 30, 32, 35, 40, 50, 50, 55, 55, 60, 60, 65, 65, 70, 70, 75, 75,100,100,140,140,174,174,200,200,240,240,260,280,280,320,345,345,365,400,500,600,850,1000,1500,1700,1750};
 static const int16_t abs_gains_r828d[] = {
@@ -1000,15 +1002,27 @@ static const int r82xx_mixer_gains[]  = {
  	0, 13, 32, 49, 63, 76, 91, 105, 119, 133, 148, 161, 174, 174, 174, 174
 };
 
+//RTL-SDR.COM
 static const int16_t if_agc_tab_r820t[] = {
-	0xe000,0xf800,0xfc80,0x00d0,0x0250,0x0820,0x0f50,0x1030,0x12d0,0x1440,0x1610,0x1820,0x1980,0x1b50,0x1fff
+	0xe000,0xffa0,0x02a0,0x0480,0x06b0,0x08f0,0x0ae0,0x0c70,0x0e20,0x0fb0,0x10e0,0x11d0,0x12d0,0x13c0,0x1520,0x16a0,0x1870,0x1a50,0x1fff
 };
 static const int16_t if_gain_tab_r820t[] = {
-	   -60,   -50,   -40,   -20,     0,    80,   200,   220,   300,   340,   380,   420,   440,   460,   470
+	   -60,   -41,   -01,    29,    59,    89,   119,   149,   179,   209,   239,   268,  297,   327,   356,   384,   412,   440,  459
 };
 
-static const int16_t if_agc_tab_r828d[]  = {0xe000,0x10a0,0x1720,0x1fff};
-static const int16_t if_gain_tab_r828d[] = {   -55,     0,   105,   320};
+//Astrometa
+static const int16_t if_agc_tab_r828d[]  = {
+	0xe000,0x0bc0,0xf30,0x11a0,0x13d0,0x15e0,0x1770,0x1920,0x1ac0,0x1c40,0x1d50,0x1e20,0x1ee0,0x1fc0,0x1fff};
+static const int16_t if_gain_tab_r828d[] = {
+	   -73,   -43,  -13,   17,     47,    77,   107,   137,   167,   197,   227,   257,   287,   315,   324};
+
+/*NESDDR Nano2+
+static const int16_t if_agc_tab_r820t[]  = {
+	0xe000,0xf260,0xf8e0,0xfc80,0x00d0,0x0330,0x0550,0x07b0,0x09a0,0x0b60,0x0ca0,0x0dd0,0x0ee5,0x0fe0,0x10d0,0x11a0,0x1250,0x1350,0x13e0,0x1fff
+};
+static const int16_t if_gain_tab_r820t[] = {
+	   -54,   -24,    06,    36,    66,    95,   124,   153,   179,   208,   235,   259,   283,   305,   332,   344,   366,   378,   395,  400
+};*/
 
 static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* data)
 {
@@ -1090,7 +1104,6 @@ struct r82xx_val {
 	uint8_t hp; 	// high pass filter and low pass course filter
 	int int_freq;	// intermediate frequency
 };
-
 static const struct r82xx_val r82xx[]= {
 	{ 400, 0x0f, 0xe8, 1780},
 	{ 500, 0x0f, 0xe9, 1710},
@@ -1098,25 +1111,24 @@ static const struct r82xx_val r82xx[]= {
 	{ 900, 0x0f, 0xeb, 1500},
 	{1150, 0x0f, 0xec, 1380},
 	{1250, 0x0f, 0xed, 1340},
-	{1350, 0x0f, 0xee, 1300},
-	{1500, 0x0f, 0xef, 1240},
-    {1540, 0x0e, 0xef, 1260},
-    {1570, 0x0d, 0xef, 1275},
-    {1610, 0x0c, 0xef, 1290},
-    {1640, 0x0b, 0xef, 1310},
-    {1680, 0x0a, 0xef, 1330},
-    {1720, 0x09, 0xef, 1350},
-    {1760, 0x08, 0xef, 1370},
-    {1790, 0x07, 0xef, 1390},
-    {1830, 0x06, 0xef, 1410},
-    {1870, 0x05, 0xef, 1430},
-    {1920, 0x04, 0xef, 1450},
-    {1960, 0x03, 0xef, 1470},
-    {2000, 0x02, 0xef, 1490},
-    {2100, 0x09, 0xaf, 1515},
-    {2200, 0x0f, 0x8f, 1575},
-    {3000, 0x04, 0x8f, 2000},
-    {5000, 0x0b, 0x6b, 3570},
+	{1370, 0x0f, 0xee, 1305},
+	{1410, 0x0e, 0xee, 1320},
+	{1440, 0x0d, 0xee, 1340},
+	{1480, 0x0c, 0xee, 1360},
+	{1510, 0x0b, 0xee, 1375},
+	{1550, 0x0a, 0xee, 1395},
+	{1590, 0x09, 0xee, 1415},
+	{1630, 0x08, 0xee, 1435},
+	{1660, 0x07, 0xee, 1450},
+	{1700, 0x06, 0xee, 1470},
+	{1740, 0x05, 0xee, 1490},
+	{1790, 0x04, 0xee, 1515},
+	{1830, 0x03, 0xee, 1535},
+	{1870, 0x02, 0xee, 1555},
+	{2000, 0x09, 0xae, 1580},
+	{2100, 0x0f, 0x8e, 1620},
+	{2900, 0x04, 0x8e, 2060},
+	{5000, 0x0b, 0x6b, 3570},
 };
 
 int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t * applied_bw, int apply)
@@ -1517,6 +1529,9 @@ int r82xx_init(struct r82xx_priv *priv)
 	priv->int_freq = 3570 * 1000;
 
 	if ((rc = r82xx_sysfreq_sel(priv, TUNER_DIGITAL_TV)) < 0) goto err;
+	rc = r82xx_write_reg_mask(priv, 0x08, priv->reg8[12], 0x3f);
+	if(rc < 0)
+		goto err;
 	priv->init_done = 1;
 
 err:
