@@ -20,7 +20,7 @@ USE_CRT_DEBUG ?= 0
 # Enable bundling *all* web_root pages inside dump1090.exe.
 # Also if 'USE_MINIFY = 1', compress all .css, .js and .html files first.
 #
-USE_PACKED_WEB  ?= 0
+USE_PACKED_WEB  ?= 1
 USE_MINIFY      ?= 0
 PACKED_WEB_ROOT ?= web_root-Tar1090
 
@@ -29,7 +29,7 @@ PACKED_WEB_ROOT ?= web_root-Tar1090
 # table into '$(OBJ_DIR)/py_gen_magnitude_lut.h'. This is to save
 # some time in generating 'Modes.magnitude_lut' at runtime.
 #
-USE_GEN_LUT ?= 0
+USE_GEN_LUT ?= 1
 
 #
 # For SDRplay support, load the "rtlsdr-emul-$(CPU).DLL" at runtime instead.
@@ -46,7 +46,7 @@ USE_WIN_SQLITE ?= 1
 #
 # Use the 'external/Zip' code in favour of an external 'unzip.exe' program.
 #
-USE_ZIP ?= 0
+USE_ZIP ?= 1
 
 #
 # Enable "Address Sanitation".
@@ -60,7 +60,7 @@ USE_ASAN ?= 0
 #
 # Compile using 'cl -MP ...'. For MSVC only.
 #
-USE_MP_COMPILE ?= 0
+USE_MP_COMPILE ?= 1
 
 #
 # Enable "Visual Leak Detector".
@@ -87,7 +87,7 @@ USE_ASTYLE ?= 1
 #
 # Python is needed for:
 #   *) .c-file preprocessing.
-#   *) generation of 'packed_webfs.c'.
+#   *) generation of '$(OBJ_DIR)/packed_webfs.c'.
 #   *) and in the 'link_EXE()' macro.
 #
 PYTHON ?= py -3
@@ -244,8 +244,8 @@ else
 endif
 
 ifeq ($(USE_PACKED_WEB),1)
-  GENERATED = packed_webfs.c
-  SOURCES  += packed_webfs.c
+  GENERATED = $(OBJ_DIR)/packed_webfs.c
+  SOURCES  += $(OBJ_DIR)/packed_webfs.c
   CFLAGS   += -DMG_ENABLE_PACKED_FS=1 -DPACKED_WEB_ROOT=\"$(PACKED_WEB_ROOT)\"
 
   ifeq ($(USE_MINIFY),1)
@@ -318,7 +318,7 @@ ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
 	$(call C_compile, $(OBJ_DIR)\\, -MP $(SOURCES))
 
 else
-  $(OBJ_DIR)/packed_webfs.obj: packed_webfs.c
+  $(OBJ_DIR)/packed_webfs.obj: $(OBJ_DIR)/packed_webfs.c
 	$(call red_msg, Compiling $< will take some time...)
 	$(call C_compile, $@, $<)
 
@@ -326,23 +326,40 @@ else
 	$(call C_compile, $@, $<)
 endif
 
-packed_webfs.c: tools/gen_packed_fs.py
+$(OBJ_DIR)/packed_webfs.c: tools/gen_packed_fs.py
 	$(call green_msg, Generating $@ will take some time...)
 	$(file > $@,$(call Warning,//))
 	$(PYTHON) tools/gen_packed_fs.py $(MINIFY) --verbose --outfile $@ --recursive $(PACKED_WEB_ROOT)/
 
 .PHONY: packed_test
-packed_test: packed_webfs_1.c packed_webfs_2.c
-	ls -lS packed_webfs_*.c
-	$(call C_compile, $(OBJ_DIR)/packed_webfs_2.obj, packed_webfs_2.c)
+packed_test: $(OBJ_DIR)/packed_webfs_1.c $(OBJ_DIR)/packed_webfs_2.c
+	ls -lS $(OBJ_DIR)/packed_webfs_*.c
 
-packed_webfs_1.c: tools/gen_packed_fs.py FORCE
+$(OBJ_DIR)/packed_webfs_1.c: tools/gen_packed_fs.py FORCE
 	$(call green_msg, Generating $@)
 	$(PYTHON) tools/gen_packed_fs.py --verbose --outfile $@ web_root-OpenLayers3/
 
-packed_webfs_2.c: tools/gen_packed_fs.py FORCE
+$(OBJ_DIR)/packed_webfs_2.c: tools/gen_packed_fs.py FORCE
 	$(call green_msg, Generating $@)
 	$(PYTHON) tools/gen_packed_fs.py --verbose --outfile $@ --minify web_root-OpenLayers3/
+
+#
+# Compare the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
+#
+$(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c
+	$(call C_compile, $@, -Dmg_pack=mg_pack_$* -Dmg_unpack=mg_unpack_$* -Dmg_unlist=mg_unlist_$* -Dmg_pack_case=mg_pack_case_$* $<)
+
+$(OBJ_DIR)/packed_webfs_main.obj: tools/packed_webfs_main.c
+	$(call C_compile, $@, $<)
+
+packed_test.exe: $(OBJ_DIR)/packed_webfs_main.obj $(OBJ_DIR)/packed_webfs_1.obj $(OBJ_DIR)/packed_webfs_2.obj
+	$(call link_EXE, $@, $^)
+
+run_packed_test: packed_test.exe
+	packed_test.exe -1 | lynx -dump -stdin > packed_test-1.dump
+	packed_test.exe -2 | lynx -dump -stdin > packed_test-2.dump
+	diff -u3 packed_test-1.dump packed_test-2.dump
+	@echo
 
 $(OBJ_DIR)/py_gen_magnitude_lut.h: tools/gen_magnitude_lut.py
 	$(call Generate, $@, //)
@@ -400,7 +417,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
 
 OTHER_JUNK = link.tmp link.args vc1*.pdb cpp-filter.py \
              json-1.txt json-2.txt json-3.txt json-4.txt \
-             packed_webfs_1.c packed_webfs_2.c
+           # packed_webfs_1.c packed_webfs_2.c
 
 clean: docs_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
