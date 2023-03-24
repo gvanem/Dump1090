@@ -4505,6 +4505,12 @@ static void connection_read (connection *conn, msg_handler handler, bool is_serv
   }
 }
 
+#if defined(USE_ZIP)
+  #define NEED_ZIP ""
+#else
+  #define NEED_ZIP "Needs `unzip.exe' on PATH. "
+#endif
+
 /**
  * Show the program usage
  */
@@ -4525,10 +4531,9 @@ static void show_help (const char *fmt, ...)
             "  General options:\n"
             "    --database <file>        The CSV file for the aircraft database\n"
             "                             (default: `%s').\n"
-            "    --database-update<=url>  Redownload the above .csv-file if older than 10 days.\n"
-            "                             (needs `unzip.exe' on PATH. default URL:\n"
-            "                             `%s').\n"
-            "                             Also recreate `<file>.sqlite' and exit.\n"
+            "    --database-update<=url>  Redownload the above .csv-file if older than 10 days and\n"
+            "                             recreate `<file>.sqlite' and exit. " NEED_ZIP "\n"
+            "                             (default URL: `%s').\n"
             "    --database-sql           Create a `<file>.sqlite' from the above .CSV-file if it does not exist.\n"
             "                             Or use the `<file>.sqlite' if it exist.\n"
             "    --debug <flags>          Debug mode; see below for details.\n"

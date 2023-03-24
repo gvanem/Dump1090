@@ -500,6 +500,23 @@ static void aircraft_test_2 (void)
   aircraft_dump_json (aircraft_make_json(true), "json-4.txt");
 }
 
+
+#if defined(USE_ZIP)
+/**
+ * The callback called from `zip_extract()`.
+ */
+static int extract_cb (const char *file, void *arg)
+{
+  const char *tmp_file = arg;
+
+  TRACE ("Copying extracted file '%s' to '%s'\n", file, tmp_file);
+  if (!CopyFile (file, tmp_file, FALSE))
+     LOG_STDERR ("CopyFile (\"%s\", \"%s\") failed: %s\n", file, tmp_file, win_strerror(GetLastError()));
+  return (0);
+}
+
+#else
+
 /**
  * Check if `unzip.exe` is on `PATH` by simply running
  * `unzip.exe -h` with output ignored.
@@ -508,7 +525,6 @@ static void aircraft_test_2 (void)
  * `_popen()` does not set `errno` on non-existing programs. <br>
  * Hence, use `system()`; invoke the shell and check for `%errorlevel% != 0`.
  */
-#if !defined(USE_ZIP)
 static bool unzip_find (void)
 {
   const char *comspec;
@@ -535,7 +551,7 @@ static bool unzip_extract (const char *zip_file, const char *tmp_file)
   FILE *p;
   char  unzip_cmd [MAX_PATH+50];
 
-  /* '-p  extract files to pipe, no messages'
+  /* '-p extract files to pipe, no messages'
    */
   snprintf (unzip_cmd, sizeof(unzip_cmd), "unzip.exe -p %s > %s", zip_file, tmp_file);
   p = _popen (unzip_cmd, "r");
@@ -544,21 +560,7 @@ static bool unzip_extract (const char *zip_file, const char *tmp_file)
   _pclose (p);
   return (true);
 }
-#else
-
-/**
- * The callback called from `zip_extract()`.
- */
-static int extract_cb (const char *file, void *arg)
-{
-  const char *tmp_file = arg;
-
-  TRACE ("Copying extracted file '%s' to '%s'\n", file, tmp_file);
-  if (!CopyFile (file, tmp_file, FALSE))
-     LOG_STDERR ("CopyFile (\"%s\", \"%s\") failed: %s\n", file, tmp_file, win_strerror(GetLastError()));
-  return (0);
-}
-#endif
+#endif  /* USE_ZIP */
 
 /**
  * Check if the aircraft .CSV-database is older than 10 days.
@@ -648,7 +650,7 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
   }
 #endif
 
-  if (!CopyFile (tmp_file, db_file, FALSE))
+  if (!CopyFile(tmp_file, db_file, FALSE))
   {
     LOG_STDERR ("CopyFile (\"%s\", \"%s\") failed: %s\n", tmp_file, db_file, win_strerror(GetLastError()));
     return (false);
