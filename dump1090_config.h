@@ -88,7 +88,7 @@
 
 #if !defined(USE_WIN_SQLITE)
   /*
-   * Options for 'externals/sqlite3.c
+   * Options for 'externals/sqlite3.c':
    */
   #define SQLITE_API
   #define SQLITE_DQS           3   /* Double-quoted string literals are allowed */

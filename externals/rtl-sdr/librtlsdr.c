@@ -693,7 +693,7 @@ static int List_Devices (int index, found_device *found)
       continue;
     }
 
-    TRACE (2, "%d: Found device: '%s'.\n", DeviceIndex, DeviceID);
+    TRACE (2, "%d: Found device: '%s'\n", DeviceIndex, DeviceID);
 
     DeviceIndex++;
 
@@ -763,7 +763,7 @@ static int List_Devices (int index, found_device *found)
 
     RegCloseKey (hkeyDevInfo);
 
-    TRACE (2, "%d: %04X:%04X %s %s.\n", count, vid, pid, Mfg, &devInterfaceGuidArray[0]);
+    TRACE (2, "%d: %04X:%04X %s %s\n", count, vid, pid, Mfg, &devInterfaceGuidArray[0]);
 
     if (found && index == count)  /* not when 'index == -1' */
     {
@@ -813,7 +813,7 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath, int *err)
 {
   BOOL rc = TRUE;
 
-  TRACE (2, "Calling 'CreateFile (\"%s\")'.\n", DevicePath);
+  TRACE (2, "Calling 'CreateFile (\"%s\")'\n", DevicePath);
 
   dev->usbHandle = INVALID_HANDLE_VALUE;
 
@@ -826,7 +826,7 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath, int *err)
   {
     last_error = GetLastError();
     *err = -1 * last_error;
-    TRACE (1, "CreateFile(\"%s\") failed: %s.\n", DevicePath, trace_strerror(last_error));
+    TRACE (1, "CreateFile(\"%s\") failed: %s\n", DevicePath, trace_strerror(last_error));
     rc = FALSE;
   }
   else if (!WinUsb_Initialize(dev->deviceHandle, &dev->usbHandle))
@@ -838,7 +838,7 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath, int *err)
     rc = FALSE;
   }
 
-  TRACE (1, "dev->deviceHandle: 0x%p, dev->usbHandle: 0x%p.\n", dev->deviceHandle, dev->usbHandle);
+  TRACE (1, "dev->deviceHandle: 0x%p, dev->usbHandle: 0x%p\n", dev->deviceHandle, dev->usbHandle);
   *err = 0;
   return (rc);
 }
@@ -879,7 +879,7 @@ static int usb_control_transfer (rtlsdr_dev_t *dev,      /* the active device */
   setupPacket.Index       = wIndex;
   setupPacket.Length      = wLength;
 
-  TRACE (2, "%u: type: %s data: 0x%p, wLength: %u.\n",
+  TRACE (2, "%u: type: %s data: 0x%p, wLength: %u\n",
          line,
          type == CTRL_IN  ? "CTRL_IN, " :
          type == CTRL_OUT ? "CTRL_OUT," : "?,",
@@ -957,7 +957,7 @@ int rtlsdr_i2c_write_fn (void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int
      return (-1);
 
   wr_len = rtlsdr_write_array ((rtlsdr_dev_t*)dev, TUNB, reg << 8 | addr, buf, len);
-  TRACE (2, "I2C-bus addr: 0x%02X, reg: 0x%02X, wr_len: %d,\n", addr, reg, wr_len);
+  TRACE (2, "I2C-bus addr: 0x%02X, reg: 0x%02X, wr_len: %d\n", addr, reg, wr_len);
   return (wr_len);
 }
 
@@ -1144,13 +1144,13 @@ static int rtlsdr_set_fir (rtlsdr_dev_t *dev, int table)
   }
 
   TRACE (1, "FIR Filter %d kHz: FIR-coeff from 'fir_default[%d]':\n"
-         "                       %s\n",
+         "                   %s\n",
          fir_bw[table], table, dump_fir_values (fir, sizeof(fir)));
   return (0);
 
 fail:
   TRACE (1, "FIR Filter %d kHz, r: %d, wrong FIR-coeff at 'fir_default[%d][%d]':\n",
-         "                       %s\n",
+         "                   %s\n",
          fir_bw[table], r, table, i, dump_fir_values (fir, i));
   return (-1);
 }
@@ -1871,7 +1871,7 @@ int rtlsdr_set_sample_rate (rtlsdr_dev_t *dev, uint32_t samp_rate)
   if (dev->offs_freq)
      rtlsdr_set_offset_tuning (dev, 1);
 
-  TRACE (1, "%s(): real_rate: %.3f MS/s,r: %d\n", __FUNCTION__, real_rate / 1E6, r);
+  TRACE (1, "%s(): real_rate: %.3f MS/s, r: %d\n", __FUNCTION__, real_rate / 1E6, r);
   return (r);
 }
 
@@ -1963,7 +1963,7 @@ int rtlsdr_set_direct_sampling (rtlsdr_dev_t *dev, int on)
     /* opt_adc_iq = 0, default ADC_I/ADC_Q datapath */
     // r |= rtlsdr_demod_write_reg(dev, 0, 0x06, 0x80, 1);
 
-    TRACE (1, "Disabled direct sampling mode, r: %d.\n", r);
+    TRACE (1, "Disabled direct sampling mode, r: %d\n", r);
     dev->direct_sampling = 0;
   }
 
@@ -2124,7 +2124,7 @@ int rtlsdr_get_offset_tuning (rtlsdr_dev_t *dev)
 
 uint32_t rtlsdr_get_device_count (void)
 {
-  TRACE (2, "Calling 'List_Devices (-1, NULL)'.\n");
+  TRACE (2, "Calling 'List_Devices (-1, NULL)'\n");
   return List_Devices (-1, NULL);
 }
 
@@ -2133,7 +2133,7 @@ const char *rtlsdr_get_device_name (uint32_t index)
   found_device found;
   const rtlsdr_dongle_t *device = NULL;
 
-  TRACE (2, "Calling 'List_Devices (%d, &found)'.\n", index);
+  TRACE (2, "Calling 'List_Devices (%d, &found)'\n", index);
   if (List_Devices(index, &found) < 0 || !found.DevicePath[0])
      return (NULL);
 
@@ -2519,7 +2519,7 @@ demod_found:
      r = (*dev->tuner->init) (dev);
 
   int r2 = rtlsdr_set_i2c_repeater (dev, 0);
-  TRACE (1, "rtlsdr_set_i2c_repeater(0): r: %d.\n", r2);
+  TRACE (1, "rtlsdr_set_i2c_repeater(0): r: %d\n", r2);
   *out_dev = dev;
   return (0);
 
