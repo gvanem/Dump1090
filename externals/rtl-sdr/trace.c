@@ -9,7 +9,7 @@
 #include "trace.h"
 #include "version.h"
 
-static int                        show_version = 1;
+static int                        show_version = 0;
 static int                        show_winusb = 0;
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE                     stdout_hnd;
@@ -35,6 +35,8 @@ static int trace_init (void)
       *winusb = '\0';
     }
     rc = atoi (env);
+    if (rc > 0)
+       show_version = 1;
   }
   return (rc);
 }

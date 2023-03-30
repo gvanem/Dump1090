@@ -1844,7 +1844,7 @@ int rtlsdr_set_sample_rate (rtlsdr_dev_t *dev, uint32_t samp_rate)
   if ((samp_rate <= 225000) || (samp_rate > 3200000) ||
        ((samp_rate > 300000) && (samp_rate <= 900000)))
   {
-    TRACE (0, "Invalid sample rate: %u Hz\n", samp_rate);
+    TRACE (1, "Invalid sample rate: %u Hz\n", samp_rate);
     return (-EINVAL);
   }
 
@@ -2507,7 +2507,7 @@ demod_found:
          break;
 
     case RTLSDR_TUNER_UNKNOWN:
-         TRACE (0, "No supported tuner found\n");
+         TRACE (1, "No supported tuner found\n");
          rtlsdr_set_direct_sampling (dev, 1);
          break;
 
