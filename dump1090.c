@@ -932,6 +932,12 @@ static bool modeS_init_RTLSDR (void)
     return (false);
   }
 
+  if (Modes.band_width > 0 && (rc = rtlsdr_set_tuner_bandwidth(Modes.rtlsdr.device, Modes.band_width)) != 0)
+  {
+    LOG_STDERR ("Error setting bandwidth: %d.\n", rc);
+    return (false);
+  }
+
   rtlsdr_reset_buffer (Modes.rtlsdr.device);
 
   LOG_STDOUT ("Tuned to %.03f MHz.\n", Modes.freq / 1E6);
@@ -4904,6 +4910,9 @@ static void modeS_exit (void)
     fclose (Modes.log);
   }
 
+  if (Modes.aircraft_jsonf)
+     fclose (Modes.aircraft_jsonf);
+
 #if defined(USE_RTLSDR_EMUL)
   RTLSDR_emul_unload_DLL();
 #endif
@@ -5014,49 +5023,51 @@ static bool select_if_mode (const char *arg)
 }
 
 static struct option long_options[] = {
-  { "agc",              no_argument,        &Modes.dig_agc,            1   },
-  { "aggressive",       no_argument,        &Modes.aggressive,         1   },
-  { "database",         required_argument,  NULL,                     'b'  },
-  { "database-update",  optional_argument,  NULL,                     'u'  },
-  { "database-sql",     no_argument,        &Modes.use_sql_db,         1   },
-  { "bias",             no_argument,        &Modes.bias_tee,           1   },
-  { "calibrate",        no_argument,        &Modes.rtlsdr.calibrate,   1   },
-  { "debug",            required_argument,  NULL,                      'd' },
-  { "device",           required_argument,  NULL,                      'D' },
-  { "freq",             required_argument,  NULL,                      'f' },
-  { "gain",             required_argument,  NULL,                      'g' },
-  { "help",             no_argument,        NULL,                      'h' },
-  { "if-mode",          required_argument,  NULL,                      'I' },
-  { "infile",           required_argument,  NULL,                      'i' },
-  { "interactive",      no_argument,        &Modes.interactive,        1   },
-  { "interactive-ttl",  required_argument,  NULL,                      't' },
-  { "location",         no_argument,        &Modes.win_location,       1 },
-  { "logfile",          required_argument,  NULL,                      'L' },
-  { "loop",             optional_argument,  NULL,                      'l' },
-  { "max-messages",     required_argument,  NULL,                      'm' },
-  { "metric",           no_argument,        &Modes.metric,             1   },
-  { "net",              no_argument,        &Modes.net,                1   },
-  { "net-active",       no_argument,        &Modes.net_active,         1   },
-  { "net-only",         no_argument,        &Modes.net_only,           1   },
-  { "net-http-port",    required_argument,  NULL,                      'x' + MODES_NET_SERVICE_HTTP },
-  { "net-ri-port",      required_argument,  NULL,                      'x' + MODES_NET_SERVICE_RAW_IN },
-  { "net-ro-port",      required_argument,  NULL,                      'x' + MODES_NET_SERVICE_RAW_OUT },
-  { "net-sbs-port",     required_argument,  NULL,                      'x' + MODES_NET_SERVICE_SBS_OUT },
-  { "host-raw",         required_argument,  NULL,                      'Y' + MODES_NET_SERVICE_RAW_IN },
-  { "host-sbs",         required_argument,  NULL,                      'Y' + MODES_NET_SERVICE_SBS_IN },
-  { "no-keep-alive",    no_argument,        &Modes.keep_alive,         0   },
-  { "only-addr",        no_argument,        &Modes.only_addr,          1   },
-  { "ppm",              required_argument,  NULL,                      'p' },
-  { "raw",              no_argument,        &Modes.raw,                1   },
-  { "samplerate",       required_argument,  NULL,                      's' },
-  { "silent",           no_argument,        &Modes.silent,             1   },
-  { "strip",            required_argument,  NULL,                      'S' },
-  { "web-page",         required_argument,  NULL,                      'w' },
-  { "test",             optional_argument,  NULL,                      'T' },
+  { "agc",              no_argument,        &Modes.dig_agc,            1  },
+  { "aggressive",       no_argument,        &Modes.aggressive,         1  },
+  { "database",         required_argument,  NULL,                     'b' },
+  { "database-update",  optional_argument,  NULL,                     'u' },
+  { "database-sql",     no_argument,        &Modes.use_sql_db,         1  },
+  { "bandwidth",        required_argument,  NULL,                     'B' },
+  { "bias",             no_argument,        &Modes.bias_tee,           1  },
+  { "calibrate",        no_argument,        &Modes.rtlsdr.calibrate,   1  },
+  { "debug",            required_argument,  NULL,                     'd' },
+  { "device",           required_argument,  NULL,                     'D' },
+  { "freq",             required_argument,  NULL,                     'f' },
+  { "gain",             required_argument,  NULL,                     'g' },
+  { "help",             no_argument,        NULL,                     'h' },
+  { "if-mode",          required_argument,  NULL,                     'I' },
+  { "infile",           required_argument,  NULL,                     'i' },
+  { "json",             required_argument,  NULL,                     'j' },
+  { "interactive",      no_argument,        &Modes.interactive,        1  },
+  { "interactive-ttl",  required_argument,  NULL,                     't' },
+  { "location",         no_argument,        &Modes.win_location,       1  },
+  { "logfile",          required_argument,  NULL,                     'L' },
+  { "loop",             optional_argument,  NULL,                     'l' },
+  { "max-messages",     required_argument,  NULL,                     'm' },
+  { "metric",           no_argument,        &Modes.metric,             1  },
+  { "net",              no_argument,        &Modes.net,                1  },
+  { "net-active",       no_argument,        &Modes.net_active,         1  },
+  { "net-only",         no_argument,        &Modes.net_only,           1  },
+  { "net-http-port",    required_argument,  NULL,                     'x' + MODES_NET_SERVICE_HTTP },
+  { "net-ri-port",      required_argument,  NULL,                     'x' + MODES_NET_SERVICE_RAW_IN },
+  { "net-ro-port",      required_argument,  NULL,                     'x' + MODES_NET_SERVICE_RAW_OUT },
+  { "net-sbs-port",     required_argument,  NULL,                     'x' + MODES_NET_SERVICE_SBS_OUT },
+  { "host-raw",         required_argument,  NULL,                     'Y' + MODES_NET_SERVICE_RAW_IN },
+  { "host-sbs",         required_argument,  NULL,                     'Y' + MODES_NET_SERVICE_SBS_IN },
+  { "no-keep-alive",    no_argument,        &Modes.keep_alive,         0  },
+  { "only-addr",        no_argument,        &Modes.only_addr,          1  },
+  { "ppm",              required_argument,  NULL,                     'p' },
+  { "raw",              no_argument,        &Modes.raw,                1  },
+  { "samplerate",       required_argument,  NULL,                     's' },
+  { "silent",           no_argument,        &Modes.silent,             1  },
+  { "strip",            required_argument,  NULL,                     'S' },
+  { "web-page",         required_argument,  NULL,                     'w' },
+  { "test",             optional_argument,  NULL,                     'T' },
 #if MG_ENABLE_FILE
-  { "touch",            no_argument,        &Modes.touch_web_root,     1   },
+  { "touch",            no_argument,        &Modes.touch_web_root,     1  },
 #endif
-  { NULL,               no_argument,        NULL,                      0   }
+  { NULL,               no_argument,        NULL,                      0  }
 };
 
 static void parse_cmd_line (int argc, char **argv)
@@ -5072,6 +5083,12 @@ static void parse_cmd_line (int argc, char **argv)
     {
       case 'b':
            strncpy (Modes.aircraft_db, optarg, sizeof(Modes.aircraft_db)-1);
+           break;
+
+      case 'B':
+           Modes.band_width = ato_hertz (optarg);
+           if (Modes.band_width == 0)
+              show_help ("Illegal band-width: %s\n", optarg);
            break;
 
       case 'D':
@@ -5131,6 +5148,13 @@ static void parse_cmd_line (int argc, char **argv)
 
       case 'u':
            Modes.aircraft_db_update = optarg ? optarg : AIRCRAFT_DATABASE_URL;
+           break;
+
+      case 'j':
+           Modes.aircraft_json = optarg;
+           Modes.aircraft_jsonf = fopen (Modes.aircraft_json, "at+");
+           if (!Modes.aircraft_jsonf)
+              show_help ("Failed to open %s for appending.\n", optarg);
            break;
 
       case 'x' + MODES_NET_SERVICE_RAW_OUT:

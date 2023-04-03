@@ -204,7 +204,7 @@ typedef struct cartesian_t {
 #define VALID_POS(pos)   (fabs(pos.lon) >= SMALL_VAL && fabs(pos.lat) >= SMALL_VAL)
 #define ASSERT_POS(pos)  do {                                         \
                            assert (pos.lon >= -180 && pos.lon < 180); \
-                           assert (pos.lat >= -180 && pos.lat < 180); \
+                           assert (pos.lat >= -90 &&  pos.lat < 90);  \
                          } while (0)
 
 #define MAX_ME_TYPE    37
@@ -343,6 +343,7 @@ typedef struct global_data {
         int               dig_agc;                  /**< Enable digital AGC. */
         int               bias_tee;                 /**< Enable bias-T voltage on coax input. */
         int               gain_auto;                /**< Use auto-gain */
+        uint32_t          band_width;               /**< The wanted bandwidth. Default is 0. */
         uint16_t          gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
         uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
         uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE.
@@ -395,6 +396,8 @@ typedef struct global_data {
         char        aircraft_db  [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file. */
         char        aircraft_sql [MG_PATH_MAX]; /**< The `aircraftDatabase.csv.sqlite` file. */
         char       *aircraft_db_update;         /**< Option `--database-update<=url>` was used. */
+        char       *aircraft_json;              /**< The .json-file for dumping `aircraft_make_json()` into. */
+        FILE       *aircraft_jsonf;             /**< The `FILE *` of the above. */
         int         use_sql_db;                 /**< Option `--database-sql` was used. */
         int         strip_level;                /**< For '--strip X' mode. */
         pos_t       home_pos;                   /**< Coordinates of home position. */
