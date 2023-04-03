@@ -1421,20 +1421,12 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
                       "seen_pos", 1 /* tv_now.tv_sec - a->seen_first/1000 */);
     p    += sz;
     left -= (int)sz;
-    assert (left > 3);
   }
 
+  assert (left > 3);
   *p++ = '}';
-  left--;
-
-  if (a->next && VALID_POS(a->next->position))
-  {
-    *p++ = ',';
-    left--;
-    assert (left > 2);
-  }
+  *p++ = ',';
   *p++ = '\n';
-  left--;
   return (p - p_start);
 }
 
@@ -1463,9 +1455,11 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
  */
 char *aircraft_make_json (bool extended_client)
 {
+  static uint32_t json_record = 0;
   struct timeval tv_now;
   aircraft      *a = Modes.aircrafts;
   int            size, left = 1024;        /* The initial buffer is incremented as needed. */
+  uint32_t       aircrafts = 0;
   char          *buf = malloc (left);
   char          *p = buf;
 
@@ -1477,9 +1471,9 @@ char *aircraft_make_json (bool extended_client)
     _gettimeofday (&tv_now, NULL);
     size = mg_snprintf (p, left,
                         "{%Q:%lu.%03lu, %Q:%llu, %Q:\n[",
-                       "now",      tv_now.tv_sec, tv_now.tv_usec/1000,
-                       "messages", Modes.stat.messages_total,
-                       "aircraft");
+                        "now",      tv_now.tv_sec, tv_now.tv_usec/1000,
+                        "messages", Modes.stat.messages_total,
+                        "aircraft");
     p    += size;
     left -= size;
   }
@@ -1498,6 +1492,7 @@ char *aircraft_make_json (bool extended_client)
     p    += size;
     left -= size;
     assert (left > 0);
+    aircrafts++;
 
     if (left < 256)    /* Resize 'buf' if needed */
     {
@@ -1511,10 +1506,28 @@ char *aircraft_make_json (bool extended_client)
     }
   }
 
+  if (aircrafts > 0) /* ignore the last ",\n" */
+  {
+    p    -= 2;
+    left += 2;
+  }
+
+  assert (left > 3);
+
   *p++ = ']';   /* Close the json array */
+
   if (extended_client)
-     *p++ = '}';
+  {
+    *p++ = '\n';
+    *p++ = '}';
+  }
   *p = '\0';
+
+  DEBUG (DEBUG_GENERAL2, "Returning %u bytes JSON data for %u aircrafts.\n", p - buf + 1, aircrafts);
+
+  if (Modes.aircraft_jsonf)
+     fprintf (Modes.aircraft_jsonf, "Dumping record %u for %u aircrafts JSON-data:\n%s\n\n",
+              json_record++, aircrafts, buf);
   return (buf);
 }
 
