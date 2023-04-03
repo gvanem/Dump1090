@@ -1635,6 +1635,8 @@ int rtlsdr_set_and_get_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t bw, uint32_t
 {
   int r2, r = 0;
 
+  TRACE (1, "%s(): bw: %u, apply_bw: %d\n", __FUNCTION__, bw, apply_bw);
+
   *applied_bw = 0;    /* unknown */
 
   if (!dev || !dev->tuner)
@@ -1685,7 +1687,7 @@ int rtlsdr_set_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t bw)
   uint32_t applied_bw = 0;
   int      r = rtlsdr_set_and_get_tuner_bandwidth (dev, bw, &applied_bw, 1 /* =apply_bw */);
 
-  TRACE (1, "%s (%.3f MHz): r: %d\n", __FUNCTION__, (double)bw / 1E6 ,r);
+  TRACE (1, "%s (%.3f MHz): applied_bw: %.3f, r: %d\n", __FUNCTION__, (double)bw / 1E6, applied_bw / 1E6, r);
   return (r);
 }
 
