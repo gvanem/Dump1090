@@ -396,8 +396,6 @@ typedef struct global_data {
         char        aircraft_db  [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file. */
         char        aircraft_sql [MG_PATH_MAX]; /**< The `aircraftDatabase.csv.sqlite` file. */
         char       *aircraft_db_update;         /**< Option `--database-update<=url>` was used. */
-        char       *aircraft_json;              /**< The .json-file for dumping `aircraft_make_json()` into. */
-        FILE       *aircraft_jsonf;             /**< The `FILE *` of the above. */
         int         use_sql_db;                 /**< Option `--database-sql` was used. */
         int         strip_level;                /**< For '--strip X' mode. */
         pos_t       home_pos;                   /**< Coordinates of home position. */

@@ -1525,9 +1525,9 @@ char *aircraft_make_json (bool extended_client)
 
   DEBUG (DEBUG_GENERAL2, "Returning %u bytes JSON data for %u aircrafts.\n", p - buf + 1, aircrafts);
 
-  if (Modes.aircraft_jsonf)
-     fprintf (Modes.aircraft_jsonf, "Dumping record %u for %u aircrafts JSON-data:\n%s\n\n",
-              json_record++, aircrafts, buf);
+  if (Modes.log && (Modes.debug & DEBUG_GENERAL))
+     fprintf (Modes.log, "JSON dump of record %u for %u aircrafts, extended_client: %d:\n%s\n\n",
+              json_record++, aircrafts, extended_client, buf);
   return (buf);
 }
 

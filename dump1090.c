@@ -270,32 +270,46 @@ static void set_colour (int colour)
  */
 static void console_title_stats (void)
 {
+  #define GAIN_TOO_LOW   " (too low?)"
+  #define GAIN_TOO_HIGH  " (too high?)"
+  #define GAIN_ERASE     "            "
+
   char            buf [100];
   char            gain [10];
   static uint64_t last_good_CRC, last_bad_CRC;
-  static int      ovl_count = 0;
-  static char    *overload = "            ";
+  static int      overload_count = 0;
+  static char    *overload = GAIN_ERASE;
   uint64_t        good_CRC = Modes.stat.good_CRC + Modes.stat.fixed;
   uint64_t        bad_CRC  = Modes.stat.bad_CRC  - Modes.stat.fixed;
 
   if (Modes.gain_auto)
-       strcpy (gain, "auto");
-  else snprintf (gain, sizeof(gain), "%.1f", (double)Modes.gain / 10.0);
+       strcpy (gain, "Auto");
+  else snprintf (gain, sizeof(gain), "%.1f dB", (double)Modes.gain / 10.0);
 
-  if (bad_CRC - last_bad_CRC > 2*(good_CRC - last_good_CRC))
+  if (overload_count > 0)
   {
-     overload = " (too high?)";
-     ovl_count = 3;   /* let it show for 3 period (750 msec) */
+    if (--overload_count == 0)
+       overload = GAIN_ERASE;
   }
-  else if (ovl_count > 0 && --ovl_count == 0)
-    overload = "            ";
+  else if (bad_CRC - last_bad_CRC > 2*(good_CRC - last_good_CRC))
+  {
+    overload = GAIN_TOO_HIGH;
+    overload_count = 4;     /* let it show for 4 period (1 sec) */
+  }
+#if 0
+  else if (bad_CRC == last_bad_CRC && good_CRC == last_good_CRC)
+  {
+    overload = GAIN_TOO_LOW;
+    overload_count = 4;     /* let it show for 4 period (1 sec) */
+  }
+#endif
 
-  snprintf (buf, sizeof(buf), "Dev: %s. CRC: %llu / %llu / %llu. Gain: %s dB%s",
-            Modes.selected_dev ? Modes.selected_dev : "?",
-            good_CRC, Modes.stat.fixed, bad_CRC, gain, overload);
+  snprintf (buf, sizeof(buf), "Dev: %s. CRC: %llu / %llu / %llu. Gain: %s%s",
+            Modes.selected_dev, good_CRC, Modes.stat.fixed, bad_CRC, gain, overload);
 
   last_good_CRC = good_CRC;
   last_bad_CRC  = bad_CRC;
+
   SetConsoleTitle (buf);
 }
 
@@ -305,13 +319,14 @@ static int gain_increase (int gain_idx)
   {
     Modes.gain = Modes.rtlsdr.gains [++gain_idx];
     rtlsdr_set_tuner_gain (Modes.rtlsdr.device, Modes.gain);
+    LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
   else if (Modes.sdrplay.device && gain_idx < Modes.sdrplay.gain_count-1)
   {
     Modes.gain = Modes.sdrplay.gains [++gain_idx];
     sdrplay_set_gain (Modes.sdrplay.device, Modes.gain);
+    LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
-  LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   return (gain_idx);
 }
 
@@ -321,13 +336,14 @@ static int gain_decrease (int gain_idx)
   {
     Modes.gain = Modes.rtlsdr.gains [--gain_idx];
     rtlsdr_set_tuner_gain (Modes.rtlsdr.device, Modes.gain);
+    LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
   else if (Modes.sdrplay.device && gain_idx > 0)
   {
     Modes.gain = Modes.sdrplay.gains [--gain_idx];
     sdrplay_set_gain (Modes.sdrplay.device, Modes.gain);
+    LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
-  LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   return (gain_idx);
 }
 
@@ -932,13 +948,23 @@ static bool modeS_init_RTLSDR (void)
     return (false);
   }
 
-  if (Modes.band_width > 0 && (rc = rtlsdr_set_tuner_bandwidth(Modes.rtlsdr.device, Modes.band_width)) != 0)
+  if (Modes.band_width > 0)
   {
-    LOG_STDERR ("Error setting bandwidth: %d.\n", rc);
-    return (false);
-  }
+    uint32_t applied_bw = 0;
 
-  rtlsdr_reset_buffer (Modes.rtlsdr.device);
+    rc = rtlsdr_set_and_get_tuner_bandwidth (Modes.rtlsdr.device, 0, &applied_bw, 0);
+    if (rc == 0)
+         LOG_STDOUT ("Bandwidth reported by device: %.3f MHz.\n", applied_bw/1E6);
+    else LOG_STDOUT ("Bandwidth reported by device: <unknown>.\n");
+
+    LOG_STDOUT ("Setting Bandwidth to: %.3f MHz.\n", Modes.band_width/1E6);
+    rc = rtlsdr_set_tuner_bandwidth(Modes.rtlsdr.device, Modes.band_width);
+    if (rc != 0)
+    {
+      LOG_STDERR ("Error setting bandwidth: %d.\n", rc);
+      return (false);
+    }
+  }
 
   LOG_STDOUT ("Tuned to %.03f MHz.\n", Modes.freq / 1E6);
 
@@ -946,6 +972,9 @@ static bool modeS_init_RTLSDR (void)
   if ((unsigned int)gain == 0)
        LOG_STDOUT ("Gain reported by device: AUTO.\n");
   else LOG_STDOUT ("Gain reported by device: %.2f dB.\n", gain/10.0);
+
+  rtlsdr_reset_buffer (Modes.rtlsdr.device);
+
   return (true);
 }
 
@@ -4910,9 +4939,6 @@ static void modeS_exit (void)
     fclose (Modes.log);
   }
 
-  if (Modes.aircraft_jsonf)
-     fclose (Modes.aircraft_jsonf);
-
 #if defined(USE_RTLSDR_EMUL)
   RTLSDR_emul_unload_DLL();
 #endif
@@ -5038,7 +5064,6 @@ static struct option long_options[] = {
   { "help",             no_argument,        NULL,                     'h' },
   { "if-mode",          required_argument,  NULL,                     'I' },
   { "infile",           required_argument,  NULL,                     'i' },
-  { "json",             required_argument,  NULL,                     'j' },
   { "interactive",      no_argument,        &Modes.interactive,        1  },
   { "interactive-ttl",  required_argument,  NULL,                     't' },
   { "location",         no_argument,        &Modes.win_location,       1  },
@@ -5148,13 +5173,6 @@ static void parse_cmd_line (int argc, char **argv)
 
       case 'u':
            Modes.aircraft_db_update = optarg ? optarg : AIRCRAFT_DATABASE_URL;
-           break;
-
-      case 'j':
-           Modes.aircraft_json = optarg;
-           Modes.aircraft_jsonf = fopen (Modes.aircraft_json, "at+");
-           if (!Modes.aircraft_jsonf)
-              show_help ("Failed to open %s for appending.\n", optarg);
            break;
 
       case 'x' + MODES_NET_SERVICE_RAW_OUT:
