@@ -60,7 +60,7 @@ USE_ASAN ?= 0
 #
 # Compile using 'cl -MP ...'. For MSVC only.
 #
-USE_MP_COMPILE ?= 1
+USE_MP_COMPILE ?= 0
 
 #
 # Enable "Visual Leak Detector".
@@ -216,6 +216,12 @@ SOURCES = aircraft.c           \
           location.c           \
           externals/mongoose.c
 
+#
+# Empty by default
+#
+GENERATED =
+MINIFY    =
+
 ifeq ($(USE_WIN_SQLITE),1)
   CFLAGS += -DUSE_WIN_SQLITE
 else
@@ -244,15 +250,13 @@ else
 endif
 
 ifeq ($(USE_PACKED_WEB),1)
-  GENERATED = $(OBJ_DIR)/packed_webfs.c
-  SOURCES  += $(OBJ_DIR)/packed_webfs.c
-  CFLAGS   += -DMG_ENABLE_PACKED_FS=1 -DPACKED_WEB_ROOT=\"$(PACKED_WEB_ROOT)\"
+  GENERATED += $(OBJ_DIR)/packed_webfs.c
+  SOURCES   += $(OBJ_DIR)/packed_webfs.c
+  CFLAGS    += -DMG_ENABLE_PACKED_FS=1 -DPACKED_WEB_ROOT=\"$(PACKED_WEB_ROOT)\"
 
   ifeq ($(USE_MINIFY),1)
-    MINIFY = --minify --no-comments
+    MINIFY += --minify --no-comments
   endif
-else
-  GENERATED =
 endif
 
 ifeq ($(USE_GEN_LUT),1)
@@ -329,7 +333,7 @@ endif
 $(OBJ_DIR)/packed_webfs.c: tools/gen_packed_fs.py
 	$(call green_msg, Generating $@ will take some time...)
 	$(file > $@,$(call Warning,//))
-	$(PYTHON) tools/gen_packed_fs.py $(MINIFY) --verbose --outfile $@ --recursive $(PACKED_WEB_ROOT)/
+	$(PYTHON) tools/gen_packed_fs.py $(MINIFY) --verbose --recursive $(PACKED_WEB_ROOT)/ --outfile $@
 
 .PHONY: packed_test
 packed_test: $(OBJ_DIR)/packed_webfs_1.c $(OBJ_DIR)/packed_webfs_2.c
