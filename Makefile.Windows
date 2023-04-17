@@ -333,7 +333,7 @@ endif
 $(OBJ_DIR)/packed_webfs.c: tools/gen_packed_fs.py
 	$(call green_msg, Generating $@ will take some time...)
 	$(file > $@,$(call Warning,//))
-	$(PYTHON) tools/gen_packed_fs.py $(MINIFY) --verbose --recursive $(PACKED_WEB_ROOT)/ --outfile $@
+	$(PYTHON) tools/gen_packed_fs.py $(MINIFY) --outfile $@ --verbose --recursive $(PACKED_WEB_ROOT)/
 
 .PHONY: packed_test
 packed_test: $(OBJ_DIR)/packed_webfs_1.c $(OBJ_DIR)/packed_webfs_2.c
@@ -341,11 +341,11 @@ packed_test: $(OBJ_DIR)/packed_webfs_1.c $(OBJ_DIR)/packed_webfs_2.c
 
 $(OBJ_DIR)/packed_webfs_1.c: tools/gen_packed_fs.py FORCE
 	$(call green_msg, Generating $@)
-	$(PYTHON) tools/gen_packed_fs.py --verbose --outfile $@ web_root-OpenLayers3/
+	$(PYTHON) tools/gen_packed_fs.py --outfile $@ --verbose web_root-OpenLayers3/
 
 $(OBJ_DIR)/packed_webfs_2.c: tools/gen_packed_fs.py FORCE
 	$(call green_msg, Generating $@)
-	$(PYTHON) tools/gen_packed_fs.py --verbose --outfile $@ --minify web_root-OpenLayers3/
+	$(PYTHON) tools/gen_packed_fs.py --outfile $@ --verbose --minify web_root-OpenLayers3/
 
 #
 # Compare the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
