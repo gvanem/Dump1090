@@ -2724,7 +2724,7 @@ static double geocentric_latitude (double lat)
 
 /**
  * Convert spherical coordinate to cartesian.
- * Also calculates radius and a normal vector
+ * Also calculates radius and a normal vector.
  */
 static void spherical_to_cartesian (cartesian_t *cart, pos_t pos)
 {
@@ -2755,10 +2755,10 @@ static void cartesian_to_spherical (pos_t *pos, cartesian_t cart)
  */
 static double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
 {
-  double dX = b->c_x - a->c_x;
-  double dY = b->c_y - a->c_y;
+  double delta_X = b->c_x - a->c_x;
+  double delta_Y = b->c_y - a->c_y;
 
-  return hypot (dX, dY);
+  return hypot (delta_X, delta_Y);   /* sqrt (delta_X*delta_X, delta_Y*delta_Y) */
 }
 
 /**
@@ -2780,7 +2780,8 @@ static double closest_to (double val, double val1, double val2)
  */
 static void set_est_home_distance (aircraft *a, uint64_t now)
 {
-  double      heading, distance, gc_distance, cart_distance, dX, dY;
+  double      heading, distance, gc_distance, cart_distance;
+  double      delta_X, delta_Y;
   cartesian_t cpos;
 
   if (!Modes.home_pos_ok || a->speed == 0 || !a->heading_is_valid)
@@ -2794,18 +2795,20 @@ static void set_est_home_distance (aircraft *a, uint64_t now)
   /* Ensure heading is in range '[-Phi .. +Phi]'
    */
   if (a->heading >= 180)
-       heading = TWO_PI * (a->heading - 360) / 360;
-  else heading = TWO_PI * a->heading / 360;
+       heading = a->heading - 360;
+  else heading = a->heading;
+
+  heading = (TWO_PI * heading) / 360;  /* In radians */
 
   /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
    */
   distance = 0.001852 * (double)a->speed * (now - a->EST_seen_last);
   a->EST_seen_last = now;
 
-  dX = distance * sin (heading);
-  dY = distance * cos (heading);
-  cpos.c_x += dX;
-  cpos.c_y += dY;
+  delta_X = distance * sin (heading);
+  delta_Y = distance * cos (heading);
+  cpos.c_x += delta_X;
+  cpos.c_y += delta_Y;
 
   cartesian_to_spherical (&a->EST_position, cpos);
 
@@ -2814,8 +2817,8 @@ static void set_est_home_distance (aircraft *a, uint64_t now)
   a->EST_distance = closest_to (a->EST_distance, gc_distance, cart_distance);
 
 #if 0
-  LOG_FILEONLY ("addr %04X: heading: %+7.1lf, dX: %+8.3lf, dY: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
-                a->addr, 360.0*heading/TWO_PI, dX, dY, gc_distance/1000, cart_distance/1000);
+  LOG_FILEONLY ("addr %04X: heading: %+7.1lf, delta_X: %+8.3lf, delta_Y: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
+                a->addr, 360.0*heading/TWO_PI, delta_X, delta_Y, gc_distance/1000, cart_distance/1000);
 #endif
 }
 
@@ -3372,16 +3375,16 @@ static char *receiver_to_json (void)
   if (!Modes.json_aircraft_history [history_size].ptr)
      history_size = Modes.json_aircraft_history_next;
 
-  return mg_mprintf ("{%Q: %Q, "    /* "version", PROG_VERSION */
-                      "%Q: %llu, "  /* "refresh", Modes.json_interval */
-                      "%Q: %d, "    /* "history", history_size */
-                      "%Q: %.6g, "  /* "lat",     Modes.home_pos.lat; if 'Modes.home_pos_ok == false', this is 0. */
-                      "%Q: %.6g}",  /* "lon",     Modes.home_pos.lon; ditto */
-                      "version", PROG_VERSION,
-                      "refresh", Modes.json_interval,
-                      "history", history_size,
-                      "lat",     Modes.home_pos.lat,
-                      "lon",     Modes.home_pos.lon);
+  return mg_mprintf ("{\"version\": \"%s\", "
+                      "\"refresh\": %llu, "
+                      "\"history\": %d, "
+                      "\"lat\": %.6g, "          /* if 'Modes.home_pos_ok == false', this is 0. */
+                      "\"lon\": %.6g}",          /* ditto */
+                      PROG_VERSION,
+                      Modes.json_interval,
+                      history_size,
+                      Modes.home_pos.lat,
+                      Modes.home_pos.lon);
 }
 
 /**

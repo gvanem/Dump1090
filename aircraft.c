@@ -1337,13 +1337,16 @@ static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec)
 
   memcpy (&copy, rec, sizeof(copy));
 
-  /* Use the '%Q' format to escape some control characters.
+  /* Use the '%m' format to escape some control characters.
    * Another "feature" of Sqlite is that upper-case hex values are
    * turned into lower-case when 'SELECT * FROM' is done!
    */
   len = mg_snprintf (buf, sizeof(buf),
-                     DB_INSERT " ('%06x',%Q,%Q,%Q)",
-                     copy.addr, copy.reg_num, copy.manufact, copy.call_sign);
+                     DB_INSERT " ('%06x',%m,%m,%m)",
+                     copy.addr,
+                     mg_print_esc, 0, copy.reg_num,
+                     mg_print_esc, 0, copy.manufact,
+                     mg_print_esc, 0, copy.call_sign);
 
   values = buf + sizeof(DB_INSERT) + 1;
 
@@ -1398,14 +1401,14 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
      len--;
 
   sz = mg_snprintf (p, left,
-                    "{%Q: \"%06X\", %Q: \"%.*s\", %Q: %f, %Q: %f, %Q: %d, %Q: %d, %Q: %d",
-                    "hex",      a->addr,
-                    "flight",   (int)len, a->flight,
-                    "lat",      a->position.lat,
-                    "lon",      a->position.lon,
-                    "altitude", altitude,
-                    "track",    a->heading,
-                    "speed",    speed);
+                    "{\"hex\": \"%06X\", \"flight\": \"%.*s\", \"lat\": %f, \"lon\": %f, \"altitude\": %d, \"track\": %d, \"speed\": %d",
+                     a->addr,
+                     (int)len, a->flight,
+                     a->position.lat,
+                     a->position.lon,
+                     altitude,
+                     a->heading,
+                     speed);
 
   p    += sz;
   left -= (int)sz;
@@ -1414,11 +1417,8 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
   if (extended_client)
   {
     sz = mg_snprintf (p, left,
-                      ", %Q: %Q, %Q: %u, %Q: %lu, %Q: %lu",
-                      "type",     "adsb_icao",
-                      "messages", a->messages,
-                      "seen",     2,
-                      "seen_pos", 1 /* tv_now.tv_sec - a->seen_first/1000 */);
+                      ", \"type\": \"adsb_icao\", \"messages\": %u, \"seen\": %lu, \"seen_pos\": %lu",
+                      a->messages, 2, 1 /* tv_now.tv_sec - a->seen_first/1000 */);
     p    += sz;
     left -= (int)sz;
   }
@@ -1458,7 +1458,7 @@ char *aircraft_make_json (bool extended_client)
   static uint32_t json_record = 0;
   struct timeval tv_now;
   aircraft      *a = Modes.aircrafts;
-  int            size, left = 1024;        /* The initial buffer is incremented as needed. */
+  int            size, left = 1024;    /* The initial buffer is incremented as needed */
   uint32_t       aircrafts = 0;
   char          *buf = malloc (left);
   char          *p = buf;
@@ -1470,18 +1470,14 @@ char *aircraft_make_json (bool extended_client)
   {
     _gettimeofday (&tv_now, NULL);
     size = mg_snprintf (p, left,
-                        "{%Q:%lu.%03lu, %Q:%llu, %Q:\n[",
-                        "now",      tv_now.tv_sec, tv_now.tv_usec/1000,
-                        "messages", Modes.stat.messages_total,
-                        "aircraft");
+                        "{\"now\":%lu.%03lu, \"messages\":%llu, \"aircraft\":\n",
+                        tv_now.tv_sec, tv_now.tv_usec/1000, Modes.stat.messages_total);
     p    += size;
     left -= size;
   }
-  else
-  {
-    *p++ = '[';
-    left--;
-  }
+
+  *p++ = '[';   /* Start the json array */
+  left--;
 
   for (a = Modes.aircrafts; a; a = a->next)
   {
