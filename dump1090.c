@@ -3869,7 +3869,6 @@ static int connection_handler_http (mg_connection *conn,
     else
     {
       struct mg_http_serve_opts opts;
-    //struct stat st;
       char        file [MG_PATH_MAX];
 
       memset (&opts, '\0', sizeof(opts));
@@ -4163,13 +4162,13 @@ static bool check_web_page (void)
 #else
 static bool check_web_page (void)
 {
-//struct stat st;
+  struct stat st;
   char full_name [MG_PATH_MAX];
 
   snprintf (full_name, sizeof(full_name), "%s/%s", Modes.web_root, Modes.web_page);
   DEBUG (DEBUG_NET, "Web-page: \"%s\"\n", full_name);
 
-  if (access(full_name, 0) != 0)
+  if (stat(full_name, &st) != 0)
   {
     LOG_STDERR ("Web-page \"%s\" does not exist.\n", full_name);
     return (false);
