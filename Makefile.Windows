@@ -84,11 +84,11 @@ PYTHON ?= py -3
 
 #
 # Change the 'CLANG_[32|64]' directory to suite:
-# Only important if 'USE_ASAN = 1'.
+# Only important if 'USE_ASAN = 1' and 'CC = clang-cl'.
 #
-CLANG_32  ?= f:/ProgramFiler/LLVM-11-32bit
-CLANG_64  ?= f:/ProgramFiler/LLVM-11-64bit
-CLANG_VER ?= 11.0.0
+CLANG_32  ?= f:/ProgramFiler/LLVM-15-32bit
+CLANG_64  ?= f:/ProgramFiler/LLVM-15-64bit
+CLANG_VER ?= 15.0.0
 
 define Usage
 
@@ -214,7 +214,6 @@ SOURCES = aircraft.c           \
 #
 GENERATED =
 MINIFY    =
-
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
              librtlsdr.c                   \
