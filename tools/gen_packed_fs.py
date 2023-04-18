@@ -19,6 +19,7 @@ PY2        = (sys.version_info.major == 2)
 
 total_in_bytes  = 0
 total_out_bytes = 0
+num_already_minified = 0
 
 C_TOP = """//
 // Generated at %s by
@@ -27,16 +28,11 @@ C_TOP = """//
 //
 #include <time.h>
 #include <ctype.h>
+#include <string.h>
 
 int         mg_pack_case (int on);
 const char *mg_unlist (size_t i);
 const char *mg_unpack (const char *name, size_t *size, time_t *mtime);
-
-#if defined(__clang__) || defined(__GNUC__)
-  #pragma GCC diagnostic ignored "-Wcomment"  /* multi-line // comment [-Wcomment] */
-#elif defined(_MSC_VER)
-  #pragma warning (disable:4010) /* single-line comment contains line-continuation character */
-#endif
 
 """
 
@@ -53,40 +49,6 @@ static const struct packed_file {
 C_BOTTOM = """  { NULL, 0, 0, NULL }
 };
 
-static int str_cmp (const char *a, const char *b)
-{
-  while (*a && (*a == *b))
-  {
-    a++;
-    b++;
-  }
-  return *(const unsigned char*)a - *(const unsigned char*)b;
-}
-
-static int str_cmpi (const char *a, const char *b)
-{
-  int _a, _b;
-
-  while (*a && (toupper(*a) == toupper(*b)))
-  {
-    a++;
-    b++;
-  }
-  _a = toupper (*a);
-  _b = toupper (*b);
-  return (_a - _b);
-}
-
-static int casesensitive = %d; // 1 if option '--case' was used
-
-int mg_pack_case (int on)
-{
-  int old = casesensitive;
-
-  casesensitive = on;
-  return (old);
-}
-
 const char *mg_unlist (size_t i)
 {
   return (packed_files[i].name);
@@ -95,11 +57,10 @@ const char *mg_unlist (size_t i)
 const char *mg_unpack (const char *name, size_t *size, time_t *mtime)
 {
   const struct packed_file *p;
-  int (*cmp_func) (const char*, const char*) = (casesensitive ? str_cmp : str_cmpi);
 
   for (p = packed_files; p->name; p++)
   {
-    if ((*cmp_func)(p->name, name))
+    if (strcmp(p->name, name))
        continue;
     if (size)
        *size = p->size - 1;
@@ -221,8 +182,7 @@ def walktree (top, callback):
 
 def add_file (file, st):
   file  = file.replace ("\\", "/")
-  match = [ fnmatch.fnmatch, fnmatch.fnmatchcase] [opt.casesensitive]
-  if match (file, opt.spec):
+  if fnmatch.fnmatch (file, opt.spec):
      files_dict [file] = { "mtime" : st.st_mtime,
                            "fsize" : st.st_size,
                            "fname" : file
@@ -254,7 +214,6 @@ def show_help (error=None):
 def parse_cmdline():
   parser = argparse.ArgumentParser (add_help = False)
   parser.add_argument ("-h", "--help",        dest = "help", action = "store_true")
-  parser.add_argument ("-c", "--case",        dest = "casesensitive", action = "store_true")
   parser.add_argument ("-m", "--minify",      dest = "minify", action = "store_true")
   parser.add_argument (      "--no-comments", dest = "nocomments", action = "store_true", default = False)
   parser.add_argument ("-o", "--outfile",     dest = "outfile", type = str)
@@ -311,13 +270,13 @@ minifiers [".*"]    = generate_array
 
 for n, f in enumerate (files_dict):
     size = fmt_number (files_dict[f]["fsize"])
-    already_minified = (f.endswith(".min.css") or f.endswith(".js.css"))
-    if already_minified:
-       trace (1, "Not minifying '%s'" % f)
+    already_minified = f.endswith (".min.css") or f.endswith (".min.js")
+    num_already_minified += already_minified
+    comment = ["", "(already_minified)" ]
 
-    if already_minified or not opt.minify:
-       trace (1, "%10s: Generating C-array for '%s'" % (size, f))
-       len_in, len_out = generate_array (f, out, n)
+    if not opt.minify or already_minified:
+       trace (1, "%10s: Generating C-array for '%s' %s" % (size, f, comment [already_minified]))
+       len_in, len_out = minifiers [".*"] (f, out, n)
     else:
        ext = f [f.rfind("."):]
        if ext in minifiers:
@@ -333,9 +292,11 @@ for n, f in enumerate (files_dict):
 out.write (C_ARRAY)
 write_packed_files_array (out)
 
-out.write (C_BOTTOM % opt.casesensitive)
+out.write (C_BOTTOM)
 out.close()
 
 if opt.minify:
    savings = 100 - 100 * total_out_bytes / total_in_bytes
    trace (1, "The '--minify' option gave %d%% total savings." % savings)
+else:
+   trace (1, "Found %d files already minified." % num_already_minified)
