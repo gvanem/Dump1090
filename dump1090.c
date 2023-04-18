@@ -775,10 +775,19 @@ static bool modeS_init (void)
     mg_log_set (MG_LL_VERBOSE);
   }
 
-  if (Modes.aircraft_db_update && stricmp(Modes.aircraft_db, "NUL"))
+  if (strcmp(Modes.aircraft_db, "NUL"))
   {
-    if (!aircraft_CSV_update(Modes.aircraft_db, Modes.aircraft_db_update))
-       return (false);
+    if (Modes.use_sql_db)
+    {
+      snprintf (Modes.aircraft_sql, sizeof(Modes.aircraft_sql), "%s.sqlite", Modes.aircraft_db);
+      Modes.have_sql_file = (access(Modes.aircraft_sql, 0) == 0);
+    }
+    if (Modes.aircraft_db_update)
+    {
+      aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_update);
+      aircraft_CSV_load();
+      return (false);
+    }
   }
 
   env = getenv ("DUMP1090_HOMEPOS");
@@ -3452,7 +3461,7 @@ static void connection_free (connection *this_conn, intptr_t service)
 static unsigned connection_free_all (void)
 {
   intptr_t service;
-  int      num = 0;
+  unsigned num = 0;
 
   for (service = MODES_NET_SERVICE_RAW_OUT; service < MODES_NET_SERVICES_NUM; service++)
   {
@@ -3860,7 +3869,7 @@ static int connection_handler_http (mg_connection *conn,
     else
     {
       struct mg_http_serve_opts opts;
-      struct stat st;
+    //struct stat st;
       char        file [MG_PATH_MAX];
 
       memset (&opts, '\0', sizeof(opts));
@@ -3879,7 +3888,7 @@ static int connection_handler_http (mg_connection *conn,
       DEBUG (DEBUG_NET, "extra-headers: '%s'.\n", opts.extra_headers);
 
       mg_http_serve_file (conn, hm, file, &opts);
-      if (stat(file, &st) != 0)
+      if (access(file, 0) != 0)
       {
         Modes.stat.HTTP_404_responses++;
         rc = 404;
@@ -4154,13 +4163,13 @@ static bool check_web_page (void)
 #else
 static bool check_web_page (void)
 {
-  struct stat st;
+//struct stat st;
   char full_name [MG_PATH_MAX];
 
   snprintf (full_name, sizeof(full_name), "%s/%s", Modes.web_root, Modes.web_page);
   DEBUG (DEBUG_NET, "Web-page: \"%s\"\n", full_name);
 
-  if (stat(full_name, &st) != 0)
+  if (access(full_name, 0) != 0)
   {
     LOG_STDERR ("Web-page \"%s\" does not exist.\n", full_name);
     return (false);
@@ -4543,12 +4552,6 @@ static void connection_read (connection *conn, msg_handler handler, bool is_serv
   }
 }
 
-#if defined(USE_ZIP)
-  #define NEED_ZIP ""
-#else
-  #define NEED_ZIP "Needs `unzip.exe' on PATH. "
-#endif
-
 /**
  * Show the program usage
  */
@@ -4569,8 +4572,8 @@ static void show_help (const char *fmt, ...)
             "  General options:\n"
             "    --database <file>        The CSV file for the aircraft database\n"
             "                             (default: `%s').\n"
-            "    --database-update<=url>  Redownload the above .csv-file if older than 10 days and\n"
-            "                             recreate `<file>.sqlite' and exit. " NEED_ZIP "\n"
+            "    --database-update<=url>  Redownload the above .csv-file if older than 10 days,\n"
+            "                             recreate the `<file>.sqlite' and exit the program.\n"
             "                             (default URL: `%s').\n"
             "    --database-sql           Create a `<file>.sqlite' from the above .CSV-file if it does not exist.\n"
             "                             Or use the `<file>.sqlite' if it exist.\n"

@@ -43,13 +43,11 @@
     #pragma warning (disable:4312)
   #endif
 
-  #ifdef USE_ZIP
-    /*
-     * externals\Zip\miniz.h(6560): warning C4127: conditional expression is constant
-     * externals\Zip\zip.c(224):    warning C4706: assignment within conditional expression
-     */
-    #pragma warning (disable:4127 4706)
-  #endif
+  /*
+   * externals\Zip\miniz.h(6560): warning C4127: conditional expression is constant
+   * externals\Zip\zip.c(224):    warning C4706: assignment within conditional expression
+   */
+  #pragma warning (disable:4127 4706)
 #endif
 
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
@@ -105,6 +103,7 @@
 #define stricmp(s1, s2)      _stricmp (s1, s2)
 #define strnicmp(s1, s2, sz) _strnicmp (s1, s2, sz)
 #define strdup(s)            _strdup (s)
+#define access(file, mode)   _access(file, mode)
 
 #if defined(_DEBUG) && !defined(RC_INVOKED)
   #include <malloc.h>

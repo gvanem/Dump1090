@@ -112,8 +112,8 @@ static HRESULT __stdcall OnLocationChanged (ILocationEvents2 *self, const IID *r
 
   hr = (*lat_long_report->lpVtbl->GetLatitude) (lat_long_report, &g_pos.lat);
   if (SUCCEEDED(hr))
-       TRACE ("Latitude: %12.6f", g_pos.lat);
-  else TRACE ("Latitude: Not available: %s", win_strerror(hr));
+       TRACE ("Latitude:  %12.6f", g_pos.lat);
+  else TRACE ("Latitude:  Not available: %s", win_strerror(hr));
 
   hr = (*lat_long_report->lpVtbl->GetLongitude) (lat_long_report, &g_pos.lon);
   if (SUCCEEDED(hr))

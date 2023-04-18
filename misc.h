@@ -395,6 +395,7 @@ typedef struct global_data {
         int         touch_web_root;             /**< Touch all files in `web_root` first. */
         char        aircraft_db  [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file. */
         char        aircraft_sql [MG_PATH_MAX]; /**< The `aircraftDatabase.csv.sqlite` file. */
+        bool        have_sql_file;              /**< The `aircraftDatabase.csv.sqlite` file exists. */
         char       *aircraft_db_update;         /**< Option `--database-update<=url>` was used. */
         int         use_sql_db;                 /**< Option `--database-sql` was used. */
         int         strip_level;                /**< For '--strip X' mode. */

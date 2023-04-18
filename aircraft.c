@@ -181,7 +181,7 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
 
   if (from_sql)
   {
-    /* Need to duplicate record from sql_exec().
+    /* Need to duplicate record from sqlite3_exec().
      * free() it on `aircraft_exit(true)`.
      */
     a->SQL = malloc (sizeof(*a->SQL));
@@ -321,7 +321,7 @@ static const aircraft_CSV *CSV_lookup_entry (uint32_t addr)
 /**
  * Do a simple test on the `Modes.aircraft_list_CSV`.
  *
- * Also, if `Modes.use_sql_db != 0` compare the lookup speed
+ * Also, if `Modes.use_sql_db == true` compare the lookup speed
  * of Sqlite3 compared to our `bsearch()` lookup.
  */
 static void aircraft_test_1 (void)
@@ -338,9 +338,8 @@ static void aircraft_test_1 (void)
   const aircraft_CSV *t = a_tests + 0;
   char  sql_file [MAX_PATH] = "";
 
-  if (Modes.aircraft_sql[0])
-     snprintf (sql_file, sizeof(sql_file), " and \"%s\"",
-               basename(Modes.aircraft_sql));
+  if (Modes.have_sql_file)
+     snprintf (sql_file, sizeof(sql_file), " and \"%s\"", basename(Modes.aircraft_sql));
 
   LOG_STDOUT ("Checking %zu fixed records against \"%s\"%s:\n",
               DIM(a_tests), basename(Modes.aircraft_db), sql_file);
@@ -500,12 +499,10 @@ static void aircraft_test_2 (void)
   aircraft_dump_json (aircraft_make_json(true), "json-4.txt");
 }
 
-
-#if defined(USE_ZIP)
 /**
  * The callback called from `zip_extract()`.
  */
-static int extract_cb (const char *file, void *arg)
+static int extract_callback (const char *file, void *arg)
 {
   const char *tmp_file = arg;
 
@@ -515,64 +512,13 @@ static int extract_cb (const char *file, void *arg)
   return (0);
 }
 
-#else
-
-/**
- * Check if `unzip.exe` is on `PATH` by simply running
- * `unzip.exe -h` with output ignored.
- *
- * \note
- * `_popen()` does not set `errno` on non-existing programs. <br>
- * Hence, use `system()`; invoke the shell and check for `%errorlevel% != 0`.
- */
-static bool unzip_find (void)
-{
-  const char *comspec;
-  char        unzip_cmd [MAX_PATH+50];
-  int         rc;
-
-  comspec = getenv ("COMSPEC");
-  if (!comspec)
-     comspec = "cmd.exe";
-
-  snprintf (unzip_cmd, sizeof(unzip_cmd), "%s /C unzip.exe -h >NUL 2>NUL", comspec);
-  rc = system (unzip_cmd);
-  if (rc != 0)
-  {
-    rc == 2 ? LOG_STDERR ("'unzip.exe' not found on PATH.\n") :
-              LOG_STDERR ("Failed to run '%s'.\n", unzip_cmd);
-    return (false);
-  }
-  return (true);
-}
-
-static bool unzip_extract (const char *zip_file, const char *tmp_file)
-{
-  FILE *p;
-  char  unzip_cmd [MAX_PATH+50];
-
-  /* '-p extract files to pipe, no messages'
-   */
-  snprintf (unzip_cmd, sizeof(unzip_cmd), "unzip.exe -p %s > %s", zip_file, tmp_file);
-  p = _popen (unzip_cmd, "r");
-  if (!p)
-     return (false);
-  _pclose (p);
-  return (true);
-}
-#endif  /* USE_ZIP */
-
 /**
  * Check if the aircraft .CSV-database is older than 10 days.
  * If so:
  *  1) download the OpenSky .zip file to `%TEMP%\\aircraft-database-temp.zip`,
- *  2) call `unzip - %TEMP%\\aircraft-database-temp.zip > %TEMP%\\aircraft-database-temp.csv`.
+ *  2) calls `zip_extract (\"%TEMP%\\aircraft-database-temp.zip\", \"%TEMP%\\aircraft-database-temp.csv\")`.
  *  3) copy `%TEMP%\\aircraft-database-temp.csv` over to 'db_file'.
- *  4) with option `--database-sql`, remove `Modes.aircraft_sql` to rebuild it.
- *
- * \todo:
- * Use the `ZIP` package from `https://github.com/kuba--/zip.git` to replace an external
- * `unzip.exe` program.
+ *  4) with option `--database-sql`, remove `Modes.aircraft_sql` to force a rebuild of it.
  */
 bool aircraft_CSV_update (const char *db_file, const char *url)
 {
@@ -587,16 +533,12 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
     LOG_STDERR ("Illegal parameters; db_file=%s, url=%s.\n", db_file, url);
     return (false);
   }
+
   if (!tmp)
   {
     LOG_STDERR ("%%TEMP%% is not defined!\n");
     return (false);
   }
-
-#if !defined(USE_ZIP)
-  if (!unzip_find())
-     return (false);
-#endif
 
   if (stat(db_file, &st) != 0)
   {
@@ -635,20 +577,12 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
 
   snprintf (tmp_file, sizeof(tmp_file), "%s\\%s.csv", tmp, AIRCRAFT_DATABASE_TMP);
 
-#if defined(USE_ZIP)
-  int rc = zip_extract (zip_file, tmp, extract_cb, tmp_file);
+  int rc = zip_extract (zip_file, tmp, extract_callback, tmp_file);
   if (rc < 0)
   {
     LOG_STDERR ("Failed in call to 'zip_extract()': %s (%d)\n", zip_strerror(rc), rc);
     return (false);
   }
-#else
-  if (!unzip_extract(zip_file, tmp_file))
-  {
-    LOG_STDERR ("Failed to run 'unzip.exe': %s\n", strerror(errno));
-    return (false);
-  }
-#endif
 
   if (!CopyFile(tmp_file, db_file, FALSE))
   {
@@ -663,8 +597,9 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
 
   if (Modes.use_sql_db)
   {
-    DeleteFile (Modes.aircraft_sql);  /* For a rebuild */
-    aircraft_CSV_load();
+    LOG_STDERR ("Deleting '%s' to force a rebuild in 'aircraft_CSV_load()'\n", Modes.aircraft_sql);
+    DeleteFile (Modes.aircraft_sql);
+    Modes.have_sql_file = false;
   }
   return (true);
 }
@@ -721,14 +656,17 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
  */
 bool aircraft_CSV_load (void)
 {
+  static bool done = false;
   struct stat st_csv;
-  struct stat st_sql;
   double usec;
   double csv_load_t  = 0.0;
   double sql_load_t  = 0.0;
   double sql_create_t = 0.0;
   bool   sql_created = false;
   bool   sql_opened  = false;
+
+  assert (!done);  /* Do this only once */
+  done = true;
 
   if (!stricmp(Modes.aircraft_db, "NUL"))   /* User want no .csv file */
      return (true);
@@ -744,6 +682,8 @@ bool aircraft_CSV_load (void)
 
   get_usec_now(); /* calls 'QueryPerformanceFrequency()' */
 
+  LOG_STDERR ("%susing Sqlite file: \"%s\".\n", Modes.use_sql_db ? "" : "Not ", Modes.aircraft_sql);
+
   if (Modes.use_sql_db)
   {
 #ifdef SQLITE_OMIT_AUTOINIT
@@ -754,22 +694,30 @@ bool aircraft_CSV_load (void)
     else
 #endif
     {
-      snprintf (Modes.aircraft_sql, sizeof(Modes.aircraft_sql), "%s.sqlite", Modes.aircraft_db);
-      if (stat(Modes.aircraft_sql, &st_sql) == 0)
+      if (Modes.have_sql_file)
       {
+        struct stat st_sql;
+        int    diff_days;
+
+        memset (&st_sql, '\0', sizeof(st_sql));
+        stat (Modes.aircraft_sql, &st_sql);
+        diff_days = (st_csv.st_mtime - st_sql.st_mtime) / (3600*24);
+
+        /**
+         * \todo If `st_sql.st_mtime + slack_seconds < csv_st.st_mtime`, call `sql_create()`?
+         */
+        TRACE ("'%s' is %d days older than the CSV-file.\n", Modes.aircraft_sql, diff_days);
         usec = get_usec_now();
         sql_opened = sql_open();
         sql_load_t = get_usec_now() - usec;
-
-        /**
-         * \todo If `sql_st.st_mtime < csv_st.st_mtime`, call `sql_create()`?
-         */
       }
       else
       {
         TRACE ("Aircraft Sqlite database \"%s\" does not exist.\n"
                "Creating new from \"%s\".\n", Modes.aircraft_sql, Modes.aircraft_db);
         sql_created = sql_create();
+        if (sql_created)
+           Modes.have_sql_file = true;
       }
     }
   }
@@ -813,11 +761,15 @@ bool aircraft_CSV_load (void)
     sql_begin();
 
     for (i = 0; i < Modes.aircraft_num_CSV; i++, a++)
-        sql_add_entry (i, a);
+        if (!sql_add_entry (i, a))
+           break;
 
     sql_end();
     sql_create_t = get_usec_now() - usec;
-    LOG_STDOUT ("\ncreated %u records\n", i);
+
+    if (i != Modes.aircraft_num_CSV)
+         LOG_STDOUT ("\nCreated only %u out of %u records!\n", i, Modes.aircraft_num_CSV);
+    else LOG_STDOUT ("\nCreated %u records\n", i);
   }
 
   if (Modes.tests > 0)
@@ -1327,32 +1279,35 @@ static bool sql_end (void)
   return (rc == SQLITE_OK);
 }
 
+/**
+ * Add a CSV-record to the SQlite database.
+ *
+ * Use the `%m` format and `mg_print_esc()` to escape some possible control characters.
+ * The `%m` format adds double-quotes around the strings. Hence single-quotes needs no
+ * ESCaping.
+ *
+ * Another "feature" of Sqlite is that upper-case hex values are turned into lower-case
+ * when 'SELECT * FROM' is done!
+ */
 static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec)
 {
-  aircraft_CSV copy;
-  char   buf [sizeof(copy) + sizeof(DB_INSERT) + 100];
+  char   buf [sizeof(*rec) + sizeof(DB_INSERT) + 100];
   char  *values, *err_msg = NULL;
   int    rc;
   size_t len;
 
-  memcpy (&copy, rec, sizeof(copy));
-
-  /* Use the '%m' format to escape some control characters.
-   * Another "feature" of Sqlite is that upper-case hex values are
-   * turned into lower-case when 'SELECT * FROM' is done!
-   */
   len = mg_snprintf (buf, sizeof(buf),
                      DB_INSERT " ('%06x',%m,%m,%m)",
-                     copy.addr,
-                     mg_print_esc, 0, copy.reg_num,
-                     mg_print_esc, 0, copy.manufact,
-                     mg_print_esc, 0, copy.call_sign);
+                     rec->addr,
+                     mg_print_esc, 0, rec->reg_num,
+                     mg_print_esc, 0, rec->manufact,
+                     mg_print_esc, 0, rec->call_sign);
 
   values = buf + sizeof(DB_INSERT) + 1;
 
   rc = sqlite3_exec (Modes.sql_db, buf, NULL, NULL, &err_msg);
 
-  if (((num+1) % 1000) == 0)
+  if (((num + 1) % 1000) == 0)
   {
     if (num >= 100000)
        printf ("%u\b\b\b\b\b\b", num);

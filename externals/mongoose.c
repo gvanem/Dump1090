@@ -6215,7 +6215,7 @@ static bool mg_tcpip_driver_imxrt1020_init(struct mg_tcpip_if *ifp) {
 
   // Configure ENET
   ENET->RCR = 0x05ee0104; // #CRCFWD=0 (CRC kept in frame) + RMII + MII Enable
-  
+
   ENET->TCR = BIT(8) | BIT(2); // Addins (MAC address from PAUR+PALR) + Full duplex enable
   //ENET->TFWR = BIT(8); // Store And Forward Enable, 64 bytes (minimize tx latency)
 

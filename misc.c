@@ -556,9 +556,6 @@ static const char *build_features (void)
   #if defined(USE_ASAN)
     "ASAN",
   #endif
-  #if defined(USE_WIN_SQLITE)
-    "Win-Sqlite",
-  #endif
   #if defined(PACKED_WEB_ROOT)
     "Packed-Web",
   #endif

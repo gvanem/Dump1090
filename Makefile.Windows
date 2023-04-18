@@ -39,16 +39,6 @@ USE_GEN_LUT ?= 1
 USE_RTLSDR_EMUL ?= 0
 
 #
-# Use the Sqlite from the Windows SDK?
-#
-USE_WIN_SQLITE ?= 1
-
-#
-# Use the 'external/Zip' code in favour of an external 'unzip.exe' program.
-#
-USE_ZIP ?= 1
-
-#
 # Enable "Address Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
@@ -131,8 +121,9 @@ ifneq ($(CC),cl)
   endif
 endif
 
-VPATH = externals \
-        externals/rtl-sdr
+VPATH = externals         \
+        externals/rtl-sdr \
+        externals/Zip
 
 CFLAGS = -nologo -Zi -W4           \
          -FI./dump1090_config.h    \
@@ -214,7 +205,9 @@ SOURCES = aircraft.c           \
           dump1090.c           \
           misc.c               \
           location.c           \
-          externals/mongoose.c
+          externals/mongoose.c \
+          externals/sqlite3.c  \
+          externals/Zip/zip.c
 
 #
 # Empty by default
@@ -222,17 +215,6 @@ SOURCES = aircraft.c           \
 GENERATED =
 MINIFY    =
 
-ifeq ($(USE_WIN_SQLITE),1)
-  CFLAGS += -DUSE_WIN_SQLITE
-else
-  SOURCES += externals/sqlite3.c
-endif
-
-ifeq ($(USE_ZIP),1)
-  CFLAGS  += -DUSE_ZIP
-  VPATH   += externals/Zip
-  SOURCES += externals/Zip/zip.c
-endif
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
              librtlsdr.c                   \
