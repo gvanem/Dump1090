@@ -17,4 +17,6 @@
 #ifndef RTLSDR_RC
 #define RTLSDR_RC ""
 
+#define RTL_VER_ID	"github.com/old-dab/rtlsdr"
+
 #endif

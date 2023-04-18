@@ -28,6 +28,7 @@ extern "C" {
 #define usleep(usec) Sleep ((usec)/1000)
 #endif
 
+#define RTLSDR_OLD_DAB 1
 
 #include <stdint.h>
 #include <stddef.h>
@@ -57,6 +58,15 @@ RTLSDR_API int rtlsdr_get_device_usb_strings(uint32_t index,
 					     char *product,
 					     char *serial);
 
+RTLSDR_API int rtlsdr_open(rtlsdr_dev_t **dev, uint32_t index);
+
+/*!
+ * Close device.
+ * \param dev the device handle given by rtlsdr_open()
+ * \return -1 if device handle was already close - or never opened
+ */
+RTLSDR_API int rtlsdr_close(rtlsdr_dev_t *dev);
+
 /*!
  * Get device index by USB serial string descriptor.
  *
@@ -67,10 +77,6 @@ RTLSDR_API int rtlsdr_get_device_usb_strings(uint32_t index,
  * \return -3 if devices were found, but none with matching name
  */
 RTLSDR_API int rtlsdr_get_index_by_serial(const char *serial);
-
-RTLSDR_API int rtlsdr_open(rtlsdr_dev_t **dev, uint32_t index);
-
-RTLSDR_API int rtlsdr_close(rtlsdr_dev_t *dev);
 
 /* configuration functions */
 
@@ -441,6 +447,17 @@ RTLSDR_API int rtlsdr_set_offset_tuning(rtlsdr_dev_t *dev, int on);
  */
 RTLSDR_API int rtlsdr_get_offset_tuning(rtlsdr_dev_t *dev);
 
+/*!
+ * Enable or disable frequency dithering for r820t/r828d tuners.
+ * Must be performed before freq_set().
+ * Fails for other tuners.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param on 0 means disabled, 1 enabled
+ * \return 0 on success
+ */
+RTLSDR_API int rtlsdr_set_dithering(rtlsdr_dev_t *dev, int dither);
+
 /* streaming functions */
 
 /*!
@@ -582,18 +599,22 @@ RTLSDR_API void rtlsdr_cal_imr(const int cal_imr);
 
 RTLSDR_API int rtlsdr_reset_demod(rtlsdr_dev_t *dev);
 
-/*!
- * Enable or disable frequency dithering for r820t/r828d tuners.
- * Must be performed before freq_set().
- * Fails for other tuners.
- *
- * \param dev the device handle given by rtlsdr_open()
- * \param on 0 means disabled, 1 enabled
- * \return 0 on success
- */
-RTLSDR_API int rtlsdr_set_dithering(rtlsdr_dev_t *dev, int dither);
-
 RTLSDR_API int rtlsdr_set_if_freq(rtlsdr_dev_t *dev, int32_t freq);
+
+/*!
+ * request version id string to identify source and date of library
+ *
+ * \return pointer to C string, e.g. "github.com/rtlsdr/old-dab" with build date (in parantheses)
+ *   string keeps owned by library
+ */
+RTLSDR_API const char * rtlsdr_get_ver_id(void);
+
+/*!
+ * request version numbers of library
+ *
+ * \return major, minor, micro and nano revision
+ */
+RTLSDR_API uint32_t rtlsdr_get_version(void);
 
 #ifdef DEBUG
 RTLSDR_API void print_demod_register(rtlsdr_dev_t *dev, uint8_t page);

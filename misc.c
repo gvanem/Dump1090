@@ -518,6 +518,17 @@ static void sql_info (void)
 }
 
 /**
+ * Print some details about the RTL-SDR "library".
+ */
+static void rtl_info (void)
+{
+  uint32_t ver = rtlsdr_get_version();
+
+  printf ("RTL-SDR version: %d.%d.%d.%d from %s\n",
+          ver >> 24, (ver >> 16) & 0xFF, (ver >> 8) & 0xFF, ver & 0xFF, rtlsdr_get_ver_id());
+}
+
+/**
  * Return the compiler info the program was built with.
  */
 static const char *compiler_info (void)
@@ -589,6 +600,7 @@ void show_version_info (bool verbose)
   {
  // print_cflags();
  // print_ldflags();
+    rtl_info();
     sql_info();
   }
   exit (0);
