@@ -80,7 +80,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
@@ -97,7 +97,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -114,7 +114,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -130,7 +130,7 @@
     <ClCompile>
       <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
