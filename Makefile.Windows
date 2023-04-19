@@ -260,7 +260,7 @@ TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
 ifeq ($(CC),clang-cl)
   _CC = $(realpath $(CLANG_$(BITS)))/bin/clang-cl.exe
 else
-  _CC = $(TOOLS_ROOT)/bin/HostX86/$(CPU)/cl.exe
+  _CC = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/cl.exe
 endif
 
 #
