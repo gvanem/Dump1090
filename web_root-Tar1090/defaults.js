@@ -18,7 +18,7 @@ let MessageRateInTitle = false;
 
 // -- Output Settings -------------------------------------
 // The DisplayUnits setting controls whether nautical (ft, nmi, kt),
-// metric (m, km, km/h) or imperial (ft, mi, mph) units are used in the 
+// metric (m, km, km/h) or imperial (ft, mi, mph) units are used in the
 // plane table and in the detailed plane info. Valid values are
 // "nautical", "metric", or "imperial".
 let DisplayUnits = "nautical";
@@ -43,6 +43,9 @@ let SiteShow    = true;           // true to show a center marker
 let SiteLat     = null;            // position of the marker
 let SiteLon     = null;
 let SiteName    = "My Radar Site"; // tooltip of the marker
+
+// Update GPS location (keep map centered on GPS location)
+let updateLocation = false;
 
 // Color controls for the range outline
 let range_outline_color = '#0000DD';
@@ -91,6 +94,8 @@ let outlineWidth = 1;
 // constant html color for markers / tracks
 let monochromeMarkers = null;
 let monochromeTracks = null;
+
+let altitudeChartDefaultState = true;
 
 // These settings control the coloring of aircraft by altitude.
 // All color values are given as Hue (0-359) / Saturation (0-100) / Lightness (0-100)
@@ -268,6 +273,7 @@ let HideCols = [
 	"#icao",
 //	"#flag",
 //	"#flight",
+	"#route",
 	"#registration",
 //	"#aircraft_type",
 //	"#squawk",
@@ -290,8 +296,14 @@ let HideCols = [
 let showPictures = true;
 // get pictures from planespotters.net
 let planespottersAPI = true;
+let planespottersAPIurl = "https://api.planespotters.net/pub/photos/";
 // get pictures from planespotting.be
 let planespottingAPI = false;
+
+// get flight route from routeApi service
+let useRouteAPI = false;
+// which routeApi service to use
+let routeApiUrl = "https://api.adsb.lol/api/0/routeset";
 
 // show a link to jetphotos, only works if planespottersAPI is disabled
 let jetphotoLinks = false;
@@ -372,3 +384,6 @@ let disableGeoLocation = false;
 
 // when data is available from both 1090 and 978, give some preference to the 978 data for up to X seconds old 978 data (set this to 15 or 30 for example)
 let prefer978 = 0;
+
+
+let dynGlobeRate = false; // enable use of globeRates.json in index.html directory to steer client refresh rate
