@@ -30,23 +30,24 @@ C_TOP = """//
 #include <ctype.h>
 #include <string.h>
 
-int         mg_pack_case (int on);
+unsigned    mg_usage_count (size_t i);
 const char *mg_unlist (size_t i);
 const char *mg_unpack (const char *name, size_t *size, time_t *mtime);
 
 """
 
 C_ARRAY = """
-static const struct packed_file {
+static struct packed_file {
   const unsigned char *data;
   size_t               size;
+  unsigned             count;
   time_t               mtime;
   const char          *name;
 } packed_files[] = {
-//  data ---------------------------------- fsize, modified
+//  data, fsize, count, modified
 """
 
-C_BOTTOM = """  { NULL, 0, 0, NULL }
+C_BOTTOM = """  { NULL, 0, 0, 0, NULL }
 };
 
 const char *mg_unlist (size_t i)
@@ -54,9 +55,14 @@ const char *mg_unlist (size_t i)
   return (packed_files[i].name);
 }
 
+unsigned mg_usage_count (size_t i)
+{
+  return (packed_files[i].count);
+}
+
 const char *mg_unpack (const char *name, size_t *size, time_t *mtime)
 {
-  const struct packed_file *p;
+  struct packed_file *p;
 
   for (p = packed_files; p->name; p++)
   {
@@ -65,7 +71,10 @@ const char *mg_unpack (const char *name, size_t *size, time_t *mtime)
     if (size)
        *size = p->size - 1;
     if (mtime)
-       *mtime = p->mtime;
+    {
+      *mtime = p->mtime;
+      p->count++;   // count for Mongoose and calls to 'packed_stat()'
+    }
     return (const char*) p->data;
   }
   return (NULL);
@@ -159,7 +168,7 @@ def write_packed_files_array (out):
 
       ftime_str = time.strftime ('%Y-%m-%d %H:%M:%S', time.localtime(ftime))
       comment   = " // %6d, %s" % (fsize, ftime_str)
-      line      = "  { file%d, sizeof(file%d), %d,  %s\n    \"%s\"\n  },\n" % (i, i, ftime, comment, fname)
+      line      = "  { file%d, sizeof(file%d), 0, %d,  %s\n    \"%s\"\n  },\n" % (i, i, ftime, comment, fname)
       out.write (line)
       bytes += fsize
   trace (1, "Total %s bytes data to '%s'" % (fmt_number(bytes), opt.outfile))

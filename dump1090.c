@@ -4119,14 +4119,14 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
   return (conn);
 }
 
+#if defined(PACKED_WEB_ROOT)
 /**
- * Functions for a Web Packed Filesystem
- */
-#if MG_ENABLE_PACKED_FS
-/*
- * In the generated 'packed_webfs.c' file.
+ * Functions for a "Web Packed Filesystem"
+ *
+ * Functions in the generated '$(OBJ_DIR)/packed_webfs.c' file.
  */
 extern const char *mg_unlist (size_t i);
+extern unsigned    mg_usage_count (size_t i);
 
 static size_t num_packed = 0;
 static bool   has_index_html = false;
@@ -4142,6 +4142,19 @@ static void count_packed_fs (void)
        has_index_html = true;
   }
   num_packed = i;
+}
+
+static void show_packed_usage (void)
+{
+  unsigned i, count;
+  const char *fname;
+
+  for (i = 0; (fname = mg_unlist(i)) != NULL; i++)
+  {
+    count = mg_usage_count (i);
+    if (count > 0)
+       LOG_FILEONLY ("%3u: %s\n", count, fname);
+  }
 }
 
 static bool check_web_page (void)
@@ -4180,7 +4193,12 @@ static bool check_web_page (void)
   }
   return (true);
 }
-#endif
+
+static void show_packed_usage (void)
+{
+  LOG_FILEONLY ("<None>");
+}
+#endif  /* PACKED_WEB_ROOT */
 
 /**
  * Initialize the Mongoose network manager and:
@@ -4762,7 +4780,7 @@ static void sigint_handler (int sig)
   }
 }
 
-static void show_connection_stats (void)
+static void show_network_stats (void)
 {
   const char *cli_srv = (Modes.net_active ? "server" : "client(s)");
   uint64_t    sum;
@@ -4818,6 +4836,9 @@ static void show_connection_stats (void)
     LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv[s]);
     LOG_STDOUT ("    %8u %s now.\n", *handler_num_connections(s), cli_srv);
   }
+
+  LOG_FILEONLY ("\nPacked-Web statistics:\n");
+  show_packed_usage();
 }
 
 static void show_raw_SBS_stats (void)
@@ -4864,7 +4885,7 @@ static void show_statistics (void)
   if (!Modes.net_only)
      show_decoder_stats();
   if (Modes.net)
-     show_connection_stats();
+     show_network_stats();
   if (Modes.net_active)
      show_raw_SBS_stats();
 }
@@ -5357,7 +5378,7 @@ int main (int argc, char **argv)
   }
 
 quit:
-  if (print_server_errors() == 0 && dev_opened && net_opened)
+  if (print_server_errors() == 0 && (dev_opened || net_opened))
      show_statistics();
   modeS_exit();
   return (0);
