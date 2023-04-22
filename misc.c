@@ -435,7 +435,7 @@ char *_mg_straddr (struct mg_addr *a, char *buf, size_t len)
  * Parse and split a `host[:port]` string into a host and port.
  * Set default port if the `:port` is missing.
  */
-void set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
+bool set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
 {
   mg_str  str;
   mg_addr addr;
@@ -445,27 +445,27 @@ void set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
   str = mg_url_host (host_port);
   memset (&addr, '\0', sizeof(addr));
   addr.port = mg_url_port (host_port);
+  mg_aton (str, &addr);
+  is_ip6 = addr.is_ip6;
+  snprintf (buf, sizeof(buf), "%.*s", (int)str.len, str.ptr);
+
   if (addr.port == 0)
      addr.port = def_port;
 
-  if (mg_aton(str, &addr))
-  {
-    is_ip6 = addr.is_ip6;
-    _mg_straddr (&addr, buf, sizeof(buf));
-  }
-  else
-  {
-    strncpy (buf, str.ptr, min(str.len, sizeof(buf))-1);
-    buf [str.len] = '\0';
-  }
+  DEBUG (DEBUG_NET, "host_port: '%s', buf: '%s', addr.port: %u\n",
+         host_port, buf, addr.port);
 
   if (is_ip6 == -1 && strstr(host_port, "::"))
-     printf ("Illegal address: '%s'. Try '[::ffff:a.b.c.d]:port' instead.\n", host_port);
+  {
+    printf ("Illegal address: '%s'. Try '[::ffff:a.b.c.d]:port' instead.\n", host_port);
+    return (false);
+  }
 
   serv->host   = strdup (buf);
   serv->port   = addr.port;
   serv->is_ip6 = (is_ip6 == 1);
   DEBUG (DEBUG_NET, "is_ip6: %d, host: %s, port: %u.\n", is_ip6, serv->host, serv->port);
+  return (true);
 }
 
 /**
