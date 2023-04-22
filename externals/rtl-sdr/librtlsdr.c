@@ -2809,7 +2809,9 @@ int rtlsdr_cancel_async (rtlsdr_dev_t *dev)
   r = -2;
 
 quit:
-  exit_state = dev->async_status;
+  if (!dev)
+       exit_state = RTLSDR_INACTIVE;
+  else exit_state = dev->async_status;
   TRACE (1, "%s(): r: %d, dev: 0x%p, state: %s -> %s\n",
          __FUNCTION__, r, dev, async_status_name(entry_state), async_status_name(exit_state));
 
