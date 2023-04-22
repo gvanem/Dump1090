@@ -682,7 +682,8 @@ bool aircraft_CSV_load (void)
 
   get_usec_now(); /* calls 'QueryPerformanceFrequency()' */
 
-  LOG_STDERR ("%susing Sqlite file: \"%s\".\n", Modes.use_sql_db ? "" : "Not ", Modes.aircraft_sql);
+  if (Modes.aircraft_sql[0])
+     LOG_STDERR ("%susing Sqlite file: \"%s\".\n", Modes.use_sql_db ? "" : "Not ", Modes.aircraft_sql);
 
   if (Modes.use_sql_db)
   {
