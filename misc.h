@@ -419,6 +419,23 @@ typedef struct global_data {
 
 extern global_data Modes;
 
+#if defined(USE_READSB_DEMOD)
+  typedef struct mag_buf {
+          uint16_t *data;            /**< Magnitude data, starting with overlap from the previous block */
+          unsigned  length;          /**< Number of valid samples _after_ overlap */
+          unsigned  overlap;         /**< Number of leading overlap samples at the start of "data" */
+                                     /**< also the number of trailing samples that will be preserved for next time */
+          uint64_t sampleTimestamp;  /**< Clock timestamp of the start of this block, 12MHz clock */
+          uint64_t sysTimestamp;     /**< Estimated system time at start of block */
+          double   mean_level;       /**< Mean of normalized (0..1) signal level */
+          double   mean_power;       /**< Mean of normalized (0..1) power level */
+          unsigned dropped;          /**< (approx) number of dropped samples */
+          struct mag_buf *next;      /**< linked list forward link */
+        } mag_buf;
+
+  extern void demodulate2400 (struct mag_buf *mag);
+#endif
+
 /*
  * Defined in MSVC's <sal.h>.
  */
@@ -445,7 +462,7 @@ extern int        _gettimeofday (struct timeval *tv, void *timezone);
 extern double     get_usec_now (void);
 extern const char *win_strerror (DWORD err);
 extern char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
-extern void        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+extern bool        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
 extern uint32_t    random_range (uint32_t min, uint32_t max);
 extern int32_t     random_range2 (int32_t min, int32_t max);
 extern int         touch_file (const char *file);

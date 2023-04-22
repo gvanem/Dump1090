@@ -39,6 +39,11 @@ USE_GEN_LUT ?= 1
 USE_RTLSDR_EMUL ?= 0
 
 #
+# Enable the 2.4 MS/s decoder from 'readsb'?
+#
+USE_READSB_DEMOD ?= 0
+
+#
 # Enable "Address Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
@@ -222,6 +227,11 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_fc001x.c                \
              tuner_fc2580.c                \
              tuner_r82xx.c)
+
+ifeq ($(USE_READSB_DEMOD),1)
+  CFLAGS  += -DUSE_READSB_DEMOD
+  SOURCES += externals/demod_2400.c
+endif
 
 ifeq ($(USE_RTLSDR_EMUL),1)
   CFLAGS  += -DUSE_RTLSDR_EMUL
