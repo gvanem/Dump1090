@@ -176,7 +176,7 @@ static void        spherical_to_cartesian (cartesian_t *cart, pos_t point);
 
 static int         fix_single_bit_errors (uint8_t *msg, int bits);
 static int         fix_two_bits_errors (uint8_t *msg, int bits);
-static int         detect_modeS (uint16_t *m, uint32_t mlen);
+static void        detect_modeS (uint16_t *m, uint32_t mlen);
 static void        decode_hex_message (mg_iobuf *msg, int loop_cnt);
 static void        decode_SBS_message (mg_iobuf *msg, int loop_cnt);
 static int         modeS_message_len_by_type (int type);
@@ -2334,19 +2334,35 @@ static void apply_phase_correction (uint16_t *m)
   }
 }
 
+#if defined(USE_READSB_DEMOD)
+/**
+ * Use a rewrite of the 'demodulate2400()' function from
+ * https://github.com/wiedehopf/readsb.git
+ */
+static void detect_modeS (uint16_t *m, uint32_t mlen)
+{
+  struct mag_buf mag;
+
+  memset (&mag, '\0', sizeof(mag));
+  mag.data   = m;
+  mag.length = mlen;
+  mag.sysTimestamp = MSEC_TIME();
+  demodulate2400 (&mag);
+}
+#else
 /**
  * Detect a Mode S messages inside the magnitude buffer pointed by `m` and of
  * size `mlen` bytes. Every detected Mode S message is converted into a
  * stream of bits and passed to the function to display it.
  */
-static int detect_modeS (uint16_t *m, uint32_t mlen)
+static void detect_modeS (uint16_t *m, uint32_t mlen)
 {
   uint8_t  bits [MODES_LONG_MSG_BITS];
   uint8_t  msg [MODES_LONG_MSG_BITS/2];
   uint16_t aux [MODES_LONG_MSG_BITS*2];
   uint32_t j;
   bool     use_correction = false;
-  int      rc = 0;  /**\todo fix this */
+//int      rc = 0;  /**\todo fix this */
 
   /* The Mode S preamble is made of impulses of 0.5 microseconds at
    * the following time offsets:
@@ -2619,8 +2635,8 @@ good_preamble:
       use_correction = false;
     }
   }
-  return (rc);
 }
+#endif  /* USE_READSB_DEMOD */
 
 /**
  * When a new message is available, because it was decoded from the
@@ -5121,10 +5137,11 @@ static struct option long_options[] = {
   { NULL,               no_argument,        NULL,                      0  }
 };
 
-static void parse_cmd_line (int argc, char **argv)
+static bool parse_cmd_line (int argc, char **argv)
 {
   char *end;
   int   c, show_ver = 0, idx = 0;
+  bool  rc = true;
 
   while ((c = getopt_long (argc, argv, "+h?V", long_options, &idx)) != EOF)
   {
@@ -5222,11 +5239,13 @@ static void parse_cmd_line (int argc, char **argv)
            break;
 
       case 'Y' + MODES_NET_SERVICE_RAW_IN:
-           set_host_port (optarg, &modeS_net_services [MODES_NET_SERVICE_RAW_IN], MODES_NET_PORT_RAW_IN);
+           if (!set_host_port (optarg, &modeS_net_services [MODES_NET_SERVICE_RAW_IN], MODES_NET_PORT_RAW_IN))
+              rc = false;
            break;
 
       case 'Y' + MODES_NET_SERVICE_SBS_IN:
-           set_host_port (optarg, &modeS_net_services [MODES_NET_SERVICE_SBS_IN], MODES_NET_PORT_SBS);
+           if (!set_host_port (optarg, &modeS_net_services [MODES_NET_SERVICE_SBS_IN], MODES_NET_PORT_SBS))
+              rc = false;
            break;
 
       case 'p':
@@ -5276,6 +5295,8 @@ static void parse_cmd_line (int argc, char **argv)
 
   if (Modes.net_only || Modes.net_active)
      Modes.net = Modes.net_only = true;
+
+  return (rc);
 }
 
 /**
@@ -5293,7 +5314,8 @@ int main (int argc, char **argv)
 
   modeS_init_config();  /* Set sane defaults */
 
-  parse_cmd_line (argc, argv);
+  if (!parse_cmd_line (argc, argv))
+     goto quit;
 
   rc = modeS_init();    /* Initialization based on cmd-line options */
   if (!rc)
