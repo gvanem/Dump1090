@@ -17,10 +17,16 @@ MAKEFLAGS += --warn-undefined-variables
 USE_CRT_DEBUG ?= 0
 
 #
+# Use a minified version of PD-Curses from
+# https://github.com/wmcbrine/PDCurses.git
+#
+USE_CURSES ?= 1
+
+#
 # Enable bundling *all* web_root pages inside dump1090.exe.
 # Also if 'USE_MINIFY = 1', compress all .css, .js and .html files first.
 #
-USE_PACKED_WEB  ?= 1
+USE_PACKED_WEB  ?= 0
 USE_MINIFY      ?= 0
 PACKED_WEB_ROOT ?= web_root-Tar1090
 
@@ -208,6 +214,7 @@ TARGETS = dump1090.exe
 SOURCES = aircraft.c           \
           csv.c                \
           dump1090.c           \
+          interactive.c        \
           misc.c               \
           location.c           \
           externals/mongoose.c \
@@ -227,6 +234,42 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_fc001x.c                \
              tuner_fc2580.c                \
              tuner_r82xx.c)
+
+ifeq ($(USE_CURSES),1)
+  VPATH  += externals/Curses
+  CFLAGS += -DUSE_CURSES -I./externals/Curses
+  SOURCES += $(addprefix externals/Curses/, \
+               addch.c                      \
+               addstr.c                     \
+               attr.c                       \
+               border.c                     \
+               clear.c                      \
+               color.c                      \
+               getch.c                      \
+               initscr.c                    \
+               inopts.c                     \
+               kernel.c                     \
+               mouse.c                      \
+               move.c                       \
+               outopts.c                    \
+               overlay.c                    \
+               pad.c                        \
+               pdcclip.c                    \
+               pdcdisp.c                    \
+               pdcgetsc.c                   \
+               pdckbd.c                     \
+               pdcscrn.c                    \
+               pdcsetsc.c                   \
+               pdcutil.c                    \
+               printw.c                     \
+               refresh.c                    \
+               scroll.c                     \
+               slk.c                        \
+               touch.c                      \
+               window.c)
+
+  EX_LIBS += user32.lib
+endif
 
 ifeq ($(USE_READSB_DEMOD),1)
   CFLAGS  += -DUSE_READSB_DEMOD

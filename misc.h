@@ -436,6 +436,87 @@ extern global_data Modes;
   extern void demodulate2400 (struct mag_buf *mag);
 #endif
 
+#define MODES_DEFAULT_RATE         2000000
+#define MODES_DEFAULT_FREQ         1090000000
+#define MODES_ASYNC_BUF_NUMBER     12
+#define MODES_DATA_LEN             (16*16384)   /* 256k */
+
+#define MODES_PREAMBLE_US             8         /* microseconds */
+#define MODES_LONG_MSG_BITS         112
+#define MODES_SHORT_MSG_BITS         56
+#define MODES_FULL_LEN             (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS)
+#define MODES_LONG_MSG_BYTES       (MODES_LONG_MSG_BITS / 8)
+#define MODES_SHORT_MSG_BYTES      (MODES_SHORT_MSG_BITS / 8)
+#define MODES_MAX_SBS_SIZE          256
+
+#define MODES_ICAO_CACHE_LEN       1024   /* Power of two required. */
+#define MODES_ICAO_CACHE_TTL         60   /* Time to live of cached addresses (sec). */
+
+/**
+ * When debug is set to DEBUG_NOPREAMBLE, the first sample must be
+ * at least greater than a given level for us to dump the signal.
+ */
+#define DEBUG_NOPREAMBLE_LEVEL           25
+#define MODES_CONNECT_TIMEOUT          5000   /* msec timeout for an active connect */
+
+#define MG_NET_POLL_TIME             (MODES_INTERACTIVE_REFRESH_TIME / 2)
+
+#define MODES_CONTENT_TYPE_ICON   "image/x-icon"
+#define MODES_CONTENT_TYPE_JSON   "application/json"
+#define MODES_CONTENT_TYPE_PNG    "image/png"
+
+/**
+ * The structure we use to store information about a decoded message.
+ */
+typedef struct modeS_message {
+        uint8_t  msg [MODES_LONG_MSG_BYTES]; /**< Binary message. */
+        int      msg_bits;                   /**< Number of bits in message */
+        int      msg_type;                   /**< Downlink format # */
+        bool     CRC_ok;                     /**< True if CRC was valid */
+        uint32_t CRC;                        /**< Message CRC */
+        double   sig_level;                  /**< RSSI, in the range [0..1], as a fraction of full-scale power */
+        int      error_bit;                  /**< Bit corrected. -1 if no bit corrected. */
+        uint8_t  AA [3];                     /**< ICAO Address bytes 1, 2 and 3 (big-endian) */
+        bool     phase_corrected;            /**< True if phase correction was applied. */
+
+        /** DF11
+         */
+        int ca;                              /**< Responder capabilities. */
+
+        /** DF 17
+         */
+        int  ME_type;                        /**< Extended squitter message type. */
+        int  ME_subtype;                     /**< Extended squitter message subtype. */
+        int  heading;                        /**< Horizontal angle of flight. */
+        bool heading_is_valid;               /**< We got a valid `heading` */
+        int  aircraft_type;                  /**< Aircraft identification. "Type A..D" */
+        int  odd_flag;                       /**< 1 = Odd, 0 = Even CPR message. */
+        int  UTC_flag;                       /**< UTC synchronized? */
+        int  raw_latitude;                   /**< Non decoded latitude */
+        int  raw_longitude;                  /**< Non decoded longitude */
+        char flight [9];                     /**< 8 chars flight number. */
+        int  EW_dir;                         /**< 0 = East, 1 = West. */
+        int  EW_velocity;                    /**< E/W velocity. */
+        int  NS_dir;                         /**< 0 = North, 1 = South. */
+        int  NS_velocity;                    /**< N/S velocity. */
+        int  vert_rate_source;               /**< Vertical rate source. */
+        int  vert_rate_sign;                 /**< Vertical rate sign. */
+        int  vert_rate;                      /**< Vertical rate. */
+        int  velocity;                       /**< Computed from EW and NS velocity. */
+
+        /** DF4, DF5, DF20, DF21
+         */
+        int flight_status;                   /**< Flight status for DF4, 5, 20 and 21 */
+        int DR_status;                       /**< Request extraction of downlink request. */
+        int UM_status;                       /**< Request extraction of downlink request. */
+        int identity;                        /**< 13 bits identity (Squawk). */
+
+        /** Fields used by multiple message types.
+         */
+        int           altitude;
+        metric_unit_t unit;
+      } modeS_message;
+
 /*
  * Defined in MSVC's <sal.h>.
  */
@@ -449,26 +530,32 @@ extern global_data Modes;
   #define ATTR_PRINTF(_1, _2)
 #endif
 
-extern void        modeS_log (const char *buf);
-extern void        modeS_logc (char c, void *param);
-extern void        modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
-extern uint32_t    ato_hertz (const char *Hertz);
-extern bool        str_startswith (const char *s1, const char *s2);
-extern bool        str_endswith (const char *s1, const char *s2);
-extern char       *basename (const char *fname);
-extern char       *dirname (const char *fname);
-extern char       *slashify (char *fname);
-extern int        _gettimeofday (struct timeval *tv, void *timezone);
-extern double     get_usec_now (void);
-extern const char *win_strerror (DWORD err);
-extern char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
-extern bool        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
-extern uint32_t    random_range (uint32_t min, uint32_t max);
-extern int32_t     random_range2 (int32_t min, int32_t max);
-extern int         touch_file (const char *file);
-extern int         touch_dir (const char *dir, bool recurse);
-extern uint32_t    download_file (const char *file, const char *url);
-extern void        show_version_info (bool verbose);
+void        modeS_log (const char *buf);
+void        modeS_logc (char c, void *param);
+void        modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
+uint32_t    ato_hertz (const char *Hertz);
+bool        str_startswith (const char *s1, const char *s2);
+bool        str_endswith (const char *s1, const char *s2);
+char       *basename (const char *fname);
+char       *dirname (const char *fname);
+char       *slashify (char *fname);
+int        _gettimeofday (struct timeval *tv, void *timezone);
+double     get_usec_now (void);
+const char *win_strerror (DWORD err);
+char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
+bool        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+uint32_t    random_range (uint32_t min, uint32_t max);
+int32_t     random_range2 (int32_t min, int32_t max);
+int         touch_file (const char *file);
+int         touch_dir (const char *dir, bool recurse);
+uint32_t    download_file (const char *file, const char *url);
+void        show_version_info (bool verbose);
+void        spherical_to_cartesian (cartesian_t *cart, pos_t pos);
+void        cartesian_to_spherical (pos_t *pos, cartesian_t cart);
+double      cartesian_distance (const cartesian_t *a, const cartesian_t *b);
+double      great_circle_dist (pos_t pos1, pos_t pos2);
+double      closest_to (double val, double val1, double val2);
+void        decode_CPR (struct aircraft *a);
 
 /*
  * Generic table for loading DLLs and functions from them.

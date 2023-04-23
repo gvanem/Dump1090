@@ -146,6 +146,7 @@
     <ClCompile Include="aircraft.c" />
     <ClCompile Include="dump1090.c" />
     <ClCompile Include="csv.c" />
+    <ClCompile Include="interactive.c" />
     <ClCompile Include="location.c" />
     <ClCompile Include="misc.c" />
     <ClCompile Include="sdrplay.c" />
@@ -163,6 +164,7 @@
   <ItemGroup>
     <ClInclude Include="aircraft.h" />
     <ClInclude Include="csv.h" />
+    <ClInclude Include="interactive.h" />
     <ClInclude Include="location.h" />
     <ClInclude Include="misc.h" />
     <ClInclude Include="sdrplay.h" />

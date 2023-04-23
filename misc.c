@@ -12,6 +12,8 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <wininet.h>
+
+#include "aircraft.h"
 #include "sqlite3.h"
 #include "misc.h"
 
@@ -846,6 +848,281 @@ quit:
 
   unload_dynamic_table (wininet_funcs, DIM(wininet_funcs));
   return (written);
+}
+
+/**
+ * From SDRangel's 'sdrbase/util/azel.cpp':
+ *
+ * Convert geodetic latitude to geocentric latitude;
+ * angle from centre of Earth between the point and equator.
+ *
+ * https://en.wikipedia.org/wiki/Latitude#Geocentric_latitude
+ */
+static double geocentric_latitude (double lat)
+{
+  double e2 = 0.00669437999014;
+
+  return atan ((1.0 - e2) * tan(lat));
+}
+
+/**
+ * Convert spherical coordinate to cartesian.
+ * Also calculates radius and a normal vector.
+ */
+void spherical_to_cartesian (cartesian_t *cart, pos_t pos)
+{
+  double lat  = TWO_PI * pos.lat / 360.0;
+  double lon  = TWO_PI * pos.lon / 360.0;
+  double clat = geocentric_latitude (lat);
+
+  cart->c_x = 6371000.0 * cos (lon) * cos (clat);
+  cart->c_y = 6371000.0 * sin (lon) * cos (clat);
+  cart->c_z = 6371000.0 * sin (clat);
+}
+
+/**
+ * \ref https://keisan.casio.com/exec/system/1359533867
+ */
+void cartesian_to_spherical (pos_t *pos, cartesian_t cart)
+{
+  /* We do not need this; close to earth's radius = 6371000 m.
+   *
+   * double radius = sqrt (cart.c_x*cart.c_x + cart.c_y*cart.c_y + cart.c_z*cart->c_z);
+   */
+  pos->lon = 360.0 * atan2 (cart.c_y, cart.c_x) / TWO_PI;
+  pos->lat = 360.0 * atan2 (hypot(cart.c_x, cart.c_y), cart.c_z) / TWO_PI;
+}
+
+/**
+ * Return the distance between 2 cartesian points.
+ */
+double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
+{
+  double delta_X = b->c_x - a->c_x;
+  double delta_Y = b->c_y - a->c_y;
+
+  return hypot (delta_X, delta_Y);   /* sqrt (delta_X*delta_X, delta_Y*delta_Y) */
+}
+
+/**
+ * Return the closest of `val1` and `val2` to `val`.
+ */
+double closest_to (double val, double val1, double val2)
+{
+  double diff1 = fabs (val1 - val);
+  double diff2 = fabs (val2 - val);
+
+  return (diff2 > diff1 ? val1 : val2);
+}
+
+/**
+ * Distance between 2 points on a spherical earth.
+ * This has up to 0.5% error because the earth isn't actually spherical
+ * (but we don't use it in situations where that matters)
+ *
+ * \ref https://en.wikipedia.org/wiki/Great-circle_distance
+ */
+double great_circle_dist (pos_t pos1, pos_t pos2)
+{
+  double lat1 = TWO_PI * pos1.lat / 360.0;  /* convert to radians */
+  double lon1 = TWO_PI * pos1.lon / 360.0;
+  double lat2 = TWO_PI * pos2.lat / 360.0;
+  double lon2 = TWO_PI * pos2.lon / 360.0;
+  double angle;
+
+  /* Avoid a 'NaN'
+   */
+  if (fabs(lat1 - lat2) < SMALL_VAL && fabs(lon1 - lon2) < SMALL_VAL)
+     return (0.0);
+
+  angle = sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(fabs(lon1 - lon2));
+
+  /* Radius of the Earth * 'arcosine of angular distance'.
+   */
+  return (6371000.0 * acos(angle));
+}
+
+/**
+ * Helper function for decoding the **CPR** (*Compact Position Reporting*). <br>
+ * Always positive MOD operation, used for CPR decoding.
+ */
+static int CPR_mod_func (int a, int b)
+{
+  int res = a % b;
+
+  if (res < 0)
+     res += b;
+  return (res);
+}
+
+/**
+ * Helper function for decoding the **CPR** (*Compact Position Reporting*).
+ *
+ * Calculates **NL** *(lat)*; *Number of Longitude* zone. <br>
+ * Given the latitude, this function returns the number of longitude zones between 1 and 59.
+ *
+ * The NL function uses the precomputed table from 1090-WP-9-14. <br>
+ * Refer [The-1090MHz-riddle](./The-1090MHz-riddle.pdf), page 45 for the exact equation.
+ */
+static int CPR_NL_func (double lat)
+{
+  if (lat < 0) lat = -lat;   /* Table is symmetric about the equator. */
+  if (lat < 10.47047130) return (59);
+  if (lat < 14.82817437) return (58);
+  if (lat < 18.18626357) return (57);
+  if (lat < 21.02939493) return (56);
+  if (lat < 23.54504487) return (55);
+  if (lat < 25.82924707) return (54);
+  if (lat < 27.93898710) return (53);
+  if (lat < 29.91135686) return (52);
+  if (lat < 31.77209708) return (51);
+  if (lat < 33.53993436) return (50);
+  if (lat < 35.22899598) return (49);
+  if (lat < 36.85025108) return (48);
+  if (lat < 38.41241892) return (47);
+  if (lat < 39.92256684) return (46);
+  if (lat < 41.38651832) return (45);
+  if (lat < 42.80914012) return (44);
+  if (lat < 44.19454951) return (43);
+  if (lat < 45.54626723) return (42);
+  if (lat < 46.86733252) return (41);
+  if (lat < 48.16039128) return (40);
+  if (lat < 49.42776439) return (39);
+  if (lat < 50.67150166) return (38);
+  if (lat < 51.89342469) return (37);
+  if (lat < 53.09516153) return (36);
+  if (lat < 54.27817472) return (35);
+  if (lat < 55.44378444) return (34);
+  if (lat < 56.59318756) return (33);
+  if (lat < 57.72747354) return (32);
+  if (lat < 58.84763776) return (31);
+  if (lat < 59.95459277) return (30);
+  if (lat < 61.04917774) return (29);
+  if (lat < 62.13216659) return (28);
+  if (lat < 63.20427479) return (27);
+  if (lat < 64.26616523) return (26);
+  if (lat < 65.31845310) return (25);
+  if (lat < 66.36171008) return (24);
+  if (lat < 67.39646774) return (23);
+  if (lat < 68.42322022) return (22);
+  if (lat < 69.44242631) return (21);
+  if (lat < 70.45451075) return (20);
+  if (lat < 71.45986473) return (19);
+  if (lat < 72.45884545) return (18);
+  if (lat < 73.45177442) return (17);
+  if (lat < 74.43893416) return (16);
+  if (lat < 75.42056257) return (15);
+  if (lat < 76.39684391) return (14);
+  if (lat < 77.36789461) return (13);
+  if (lat < 78.33374083) return (12);
+  if (lat < 79.29428225) return (11);
+  if (lat < 80.24923213) return (10);
+  if (lat < 81.19801349) return (9);
+  if (lat < 82.13956981) return (8);
+  if (lat < 83.07199445) return (7);
+  if (lat < 83.99173563) return (6);
+  if (lat < 84.89166191) return (5);
+  if (lat < 85.75541621) return (4);
+  if (lat < 86.53536998) return (3);
+  if (lat < 87.00000000) return (2);
+  return (1);
+}
+
+static int CPR_N_func (double lat, int is_odd)
+{
+  int nl = CPR_NL_func (lat) - is_odd;
+
+  if (nl < 1)
+     nl = 1;
+  return (nl);
+}
+
+static double CPR_Dlong_func (double lat, int is_odd)
+{
+  return 360.0 / CPR_N_func (lat, is_odd);
+}
+
+/**
+ * Set this aircraft's distance to our home position.
+ *
+ * The reference time-tick is the latest of `a->odd_CPR_time` and `a->even_CPR_time`.
+ */
+static void set_home_distance (aircraft *a)
+{
+  if (VALID_POS(Modes.home_pos) && VALID_POS(a->position))
+  {
+    double distance = great_circle_dist (a->position, Modes.home_pos);
+
+    if (distance != 0.0)
+       a->distance = distance;
+    a->EST_position  = a->position;
+    a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
+  }
+}
+
+/**
+ * Decode the **CPR** (*Compact Position Reporting*).
+ *
+ * This algorithm comes from: <br>
+ * http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html.
+ *
+ * A few remarks:
+ *
+ * \li 131072 is 2^17 since CPR latitude and longitude are encoded in 17 bits.
+ * \li We assume that we always received the odd packet as last packet for
+ *     simplicity. This may provide a position that is less fresh of a few seconds.
+ */
+void decode_CPR (struct aircraft *a)
+{
+  const double AirDlat0 = 360.0 / 60;
+  const double AirDlat1 = 360.0 / 59;
+  double lat0 = a->even_CPR_lat;
+  double lat1 = a->odd_CPR_lat;
+  double lon0 = a->even_CPR_lon;
+  double lon1 = a->odd_CPR_lon;
+
+  /* Compute the Latitude Index "j"
+   */
+  int    j = (int) floor (((59*lat0 - 60*lat1) / 131072) + 0.5);
+  double rlat0 = AirDlat0 * (CPR_mod_func(j, 60) + lat0 / 131072);
+  double rlat1 = AirDlat1 * (CPR_mod_func(j, 59) + lat1 / 131072);
+
+  if (rlat0 >= 270)
+     rlat0 -= 360;
+
+  if (rlat1 >= 270)
+     rlat1 -= 360;
+
+  /* Check that both are in the same latitude zone, or return.
+   */
+  if (CPR_NL_func(rlat0) != CPR_NL_func(rlat1))
+     return;
+
+  /* Compute ni and the longitude index m
+   */
+  if (a->even_CPR_time > a->odd_CPR_time)
+  {
+    /* Use even packet */
+    int ni = CPR_N_func (rlat0, 0);
+    int m = (int) floor ((((lon0 * (CPR_NL_func(rlat0)-1)) -
+                         (lon1 * CPR_NL_func(rlat0))) / 131072) + 0.5);
+    a->position.lon = CPR_Dlong_func (rlat0, 0) * (CPR_mod_func(m, ni) + lon0/131072);
+    a->position.lat = rlat0;
+  }
+  else
+  {
+    /* Use odd packet */
+    int ni = CPR_N_func (rlat1, 1);
+    int m  = (int) floor ((((lon0 * (CPR_NL_func(rlat1)-1)) -
+                          (lon1 * CPR_NL_func(rlat1))) / 131072.0) + 0.5);
+    a->position.lon = CPR_Dlong_func (rlat1, 1) * (CPR_mod_func (m, ni) + lon1/131072);
+    a->position.lat = rlat1;
+  }
+
+  if (a->position.lon > 180)
+     a->position.lon -= 360;
+
+  set_home_distance (a);
 }
 
 /*
