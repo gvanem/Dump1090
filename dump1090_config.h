@@ -7,7 +7,7 @@
 #define DUMP1090_CONFIG_H
 
 #define VER_MAJOR 0
-#define VER_MINOR 3
+#define VER_MINOR 4
 #define VER_MICRO 0
 
 /* Warning control:
@@ -21,10 +21,6 @@
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
   #pragma clang diagnostic ignored "-Wunused-but-set-variable"
   #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-
-  #if defined(USE_CURSES)
-  #pragma clang diagnostic ignored "-Wunused-parameter"
-  #endif
 
 #elif defined(_MSC_VER)
   #pragma warning (disable:4005 4244 4267)
@@ -47,12 +43,6 @@
     #pragma warning (disable:4312)
   #endif
 
-  #if defined(USE_CURSES)
-    /*
-     * 'opts': unreferenced formal parameter
-     */
-    #pragma warning (disable: 4100)
-  #endif
   /*
    * externals\Zip\miniz.h(6560): warning C4127: conditional expression is constant
    * externals\Zip\zip.c(224):    warning C4706: assignment within conditional expression
@@ -113,7 +103,7 @@
 #define stricmp(s1, s2)      _stricmp (s1, s2)
 #define strnicmp(s1, s2, sz) _strnicmp (s1, s2, sz)
 #define strdup(s)            _strdup (s)
-#define access(file, mode)   _access(file, mode)
+#define access(file, mode)   _access (file, mode)
 
 #if defined(_DEBUG) && !defined(RC_INVOKED)
   #include <malloc.h>

@@ -140,7 +140,6 @@ CFLAGS = -nologo -Zi -W4           \
          -FI./dump1090_config.h    \
          -I.                       \
          -I./externals             \
-         -I./externals/Curses      \
          -I./externals/rtl-sdr     \
          -I./externals/SDRplay-API \
          -I./externals/Zip         \
@@ -238,37 +237,8 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
 
 ifeq ($(USE_CURSES),1)
   VPATH   += externals/Curses
-  CFLAGS  += -DUSE_CURSES
-  SOURCES += $(addprefix externals/Curses/, \
-               addch.c                      \
-               addstr.c                     \
-               attr.c                       \
-               border.c                     \
-               clear.c                      \
-               color.c                      \
-               getch.c                      \
-               initscr.c                    \
-               inopts.c                     \
-               kernel.c                     \
-               mouse.c                      \
-               move.c                       \
-               outopts.c                    \
-               overlay.c                    \
-               pad.c                        \
-               pdcclip.c                    \
-               pdcdisp.c                    \
-               pdcgetsc.c                   \
-               pdckbd.c                     \
-               pdcscrn.c                    \
-               pdcsetsc.c                   \
-               pdcutil.c                    \
-               printw.c                     \
-               refresh.c                    \
-               scroll.c                     \
-               slk.c                        \
-               touch.c                      \
-               window.c)
-
+  CFLAGS  += -DUSE_CURSES -I./externals/Curses
+  SOURCES += externals/Curses/amalgamation.c
   EX_LIBS += user32.lib
 endif
 
@@ -352,7 +322,7 @@ $(OBJ_DIR)/dump1090.res: dump1090.rc
 	@echo
 
 ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
- $(OBJECTS): $(SOURCES)
+  $(OBJECTS): $(SOURCES)
 	$(call green_msg, Compiling $(words $(SOURCES)) .c-files in one go...)
 	$(call C_compile, $(OBJ_DIR)\\, -MP $(SOURCES))
 

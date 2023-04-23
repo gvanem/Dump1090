@@ -1,5 +1,7 @@
 /* PDCurses */
 
+#pragma once
+
 #if defined(PDC_WIDE) && !defined(UNICODE)
 # define UNICODE
 #endif
