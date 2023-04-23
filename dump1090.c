@@ -17,7 +17,6 @@
 #include <assert.h>
 #include <sys/stat.h>
 #include <io.h>
-#include <conio.h>
 #include <process.h>
 
 #include "misc.h"

@@ -13,6 +13,11 @@
 #include <windows.h>
 #include <wininet.h>
 
+#if defined(USE_CURSES)
+  #undef MOUSE_MOVED
+  #include <curses.h>
+#endif
+
 #include "aircraft.h"
 #include "sqlite3.h"
 #include "misc.h"
@@ -520,6 +525,16 @@ static void sql_info (void)
 }
 
 /**
+ * Print some details about the PD-Curses package.
+ */
+static void curses_info (void)
+{
+#if defined(USE_CURSES)
+  printf ("PDCurses: ver. %s\n", PDC_VERDOT);
+#endif
+}
+
+/**
  * Print some details about the RTL-SDR "library".
  */
 static void rtl_info (void)
@@ -569,6 +584,9 @@ static const char *build_features (void)
   #if defined(USE_ASAN)
     "ASAN",
   #endif
+  #if defined(USE_CURSES)
+    "Curses",
+  #endif
   #if defined(PACKED_WEB_ROOT)
     "Packed-Web",
   #endif
@@ -603,6 +621,7 @@ void show_version_info (bool verbose)
  // print_cflags();
  // print_ldflags();
     rtl_info();
+    curses_info();
     sql_info();
   }
   exit (0);

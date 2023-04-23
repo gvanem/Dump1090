@@ -5,6 +5,7 @@
  * Function for interactive mode.
  * Using either Windows-Console or Curses functions.
  */
+#include <io.h>
 #include <conio.h>
 
 #include "interactive.h"
@@ -12,16 +13,17 @@
 #include "sdrplay.h"
 #include "misc.h"
 
-static void set_est_home_distance (aircraft *a, uint64_t now);
-
 #if defined(USE_CURSES)
-  #define PRINTF(row, fmt, ...)   mvprintw (row, 0, fmt, ##__VA_ARGS__)
+  #undef MOUSE_MOVED
+  #include <curses.h>
+
+  #define PRINTF(row, fmt, ...)   mvprintw (row, 0, fmt, __VA_ARGS__)
   #define clrscr()                clear()
-  #define gotoxy(x, y)            move (x, y)
+  #define gotoxy(x, y)            move (y-1, x-1)
   #define set_colour(c)           ((void) 0)   /* not yet */
 
 #else
-  #define PRINTF(row, fmt, ...)   printf (fmt "\n", ##__VA_ARGS__)
+  #define PRINTF(row, fmt, ...)   printf (fmt, __VA_ARGS__)
 
   static CONSOLE_SCREEN_BUFFER_INFO  console_info;
   static HANDLE                      console_hnd = INVALID_HANDLE_VALUE;
@@ -96,6 +98,56 @@ static void set_est_home_distance (aircraft *a, uint64_t now);
 #endif  /* USE_CURSES */
 
 /**
+ * Set this aircraft's estimated distance to our home position.
+ *
+ * Assuming a constant good last heading and speed, calculate the
+ * new position from that using the elapsed time.
+ */
+static void set_est_home_distance (aircraft *a, uint64_t now)
+{
+  double      heading, distance, gc_distance, cart_distance;
+  double      delta_X, delta_Y;
+  cartesian_t cpos;
+
+  if (!Modes.home_pos_ok || a->speed == 0 || !a->heading_is_valid)
+     return;
+
+  if (!VALID_POS(a->EST_position) || a->EST_seen_last < a->seen_last)
+     return;
+
+  spherical_to_cartesian (&cpos, a->EST_position);
+
+  /* Ensure heading is in range '[-Phi .. +Phi]'
+   */
+  if (a->heading >= 180)
+       heading = a->heading - 360;
+  else heading = a->heading;
+
+  heading = (TWO_PI * heading) / 360;  /* In radians */
+
+  /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
+   */
+  distance = 0.001852 * (double)a->speed * (now - a->EST_seen_last);
+  a->EST_seen_last = now;
+
+  delta_X = distance * sin (heading);
+  delta_Y = distance * cos (heading);
+  cpos.c_x += delta_X;
+  cpos.c_y += delta_Y;
+
+  cartesian_to_spherical (&a->EST_position, cpos);
+
+  gc_distance     = great_circle_dist (a->EST_position, Modes.home_pos);
+  cart_distance   = cartesian_distance (&cpos, &Modes.home_pos_cart);
+  a->EST_distance = closest_to (a->EST_distance, gc_distance, cart_distance);
+
+#if 0
+  LOG_FILEONLY ("addr %04X: heading: %+7.1lf, delta_X: %+8.3lf, delta_Y: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
+                a->addr, 360.0*heading/TWO_PI, delta_X, delta_Y, gc_distance/1000, cart_distance/1000);
+#endif
+}
+
+/**
  * Return a string showing this aircraft's distance to our home position.
  *
  * If `Modes.metric == true`, return it in kilo-meters. <br>
@@ -133,7 +185,6 @@ static const char *get_est_home_distance (const aircraft *a, const char **km_nm)
   snprintf (buf, sizeof(buf), "%.1lf", a->EST_distance / divisor);
   return (buf);
 }
-
 
 /*
  * Called every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`) while
@@ -341,7 +392,6 @@ void interactive_exit (void)
 }
 #endif /* USE_CURSES */
 
-
 /**
  * Show information for a single aircraft.
  *
@@ -457,8 +507,16 @@ static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
   if (!cc_short)
      cc_short = "--";
 
-  PRINTF (row, "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s ", a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf);
-  PRINTF (row, "%6s  %5s %5u  %2llu sec \n", distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
+  PRINTF (row, "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s ",
+          a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf);
+
+  PRINTF (row, "%6s  %5s %5u  %2llu sec \n",
+          distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
+
+#if defined(USE_CURSES)
+  LOG_FILEONLY ("row: %d, %06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s ",
+                row, a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf);
+#endif
 
   if (restore_colour)
      set_colour (0);
@@ -495,13 +553,27 @@ static bool console_messed_up (void)
  */
 void interactive_show_data (uint64_t now)
 {
+  #define HEADER "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c"
+
   static int spin_idx = 0;
   static int old_count = -1;
-  int        count = 0;
+  int        row, count = 0;
   char       spinner[] = "|/-\\";
   aircraft  *a = Modes.aircrafts;
-  int        row = 2;
 
+#if defined(USE_CURSES)
+  static bool done_header = false;
+
+  if (!done_header)
+  {
+    set_colour (COLOR_WHITE);
+    mvprintw (0, 0, HEADER, spinner[spin_idx & 3]);
+    set_colour (0);
+    mvhline (1, 0, ACS_HLINE, 100);
+    done_header = true;
+  }
+
+#else
   /* Unless debug or raw-mode is active, clear the screen to remove old info.
    * But only if current number of aircrafts is less than last time. This is to
    * avoid an annoying blinking of the console.
@@ -514,19 +586,13 @@ void interactive_show_data (uint64_t now)
   }
 
   set_colour (COLOR_WHITE);
-
-#if defined(USE_CURSES)
-  static bool hline = false;
-
-  if (!hline)
-     mvhline (1, 0, ACS_HLINE, 100);
-  hline = true;
+  printf (HEADER "\n", spinner[spin_idx & 3]);
+  set_colour (0);
+  puts ("-----------------------------------------------------------------------------------------------------");
 #endif
 
-  PRINTF (0, "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c",
-          spinner[spin_idx & 3]);
   spin_idx++;
-  set_colour (0);
+  row = 2;
 
   while (a && count < Modes.interactive_rows && !Modes.exit)
   {
@@ -535,7 +601,8 @@ void interactive_show_data (uint64_t now)
     if (a->show != A_SHOW_NONE)
     {
       set_est_home_distance (a, now);
-      colour_changed = interactive_show_aircraft (a, row++, now);
+      colour_changed = interactive_show_aircraft (a, row, now);
+      row++;
     }
 
     /* Simple state-machine for the plane's show-state
@@ -663,55 +730,5 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
     }
   }
   return (a);
-}
-
-/**
- * Set this aircraft's estimated distance to our home position.
- *
- * Assuming a constant good last heading and speed, calculate the
- * new position from that using the elapsed time.
- */
-static void set_est_home_distance (aircraft *a, uint64_t now)
-{
-  double      heading, distance, gc_distance, cart_distance;
-  double      delta_X, delta_Y;
-  cartesian_t cpos;
-
-  if (!Modes.home_pos_ok || a->speed == 0 || !a->heading_is_valid)
-     return;
-
-  if (!VALID_POS(a->EST_position) || a->EST_seen_last < a->seen_last)
-     return;
-
-  spherical_to_cartesian (&cpos, a->EST_position);
-
-  /* Ensure heading is in range '[-Phi .. +Phi]'
-   */
-  if (a->heading >= 180)
-       heading = a->heading - 360;
-  else heading = a->heading;
-
-  heading = (TWO_PI * heading) / 360;  /* In radians */
-
-  /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
-   */
-  distance = 0.001852 * (double)a->speed * (now - a->EST_seen_last);
-  a->EST_seen_last = now;
-
-  delta_X = distance * sin (heading);
-  delta_Y = distance * cos (heading);
-  cpos.c_x += delta_X;
-  cpos.c_y += delta_Y;
-
-  cartesian_to_spherical (&a->EST_position, cpos);
-
-  gc_distance     = great_circle_dist (a->EST_position, Modes.home_pos);
-  cart_distance   = cartesian_distance (&cpos, &Modes.home_pos_cart);
-  a->EST_distance = closest_to (a->EST_distance, gc_distance, cart_distance);
-
-#if 0
-  LOG_FILEONLY ("addr %04X: heading: %+7.1lf, delta_X: %+8.3lf, delta_Y: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
-                a->addr, 360.0*heading/TWO_PI, delta_X, delta_Y, gc_distance/1000, cart_distance/1000);
-#endif
 }
 

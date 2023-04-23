@@ -7,10 +7,7 @@
 #ifndef _INTERACTIVE_H
 #define _INTERACTIVE_H
 
-#undef MOUSE_MOVED
-#include <curses.h>
 #include <stdint.h>
-
 #include "aircraft.h"
 
 #define MODES_INTERACTIVE_REFRESH_TIME  250   /* Milliseconds */
