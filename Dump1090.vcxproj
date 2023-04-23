@@ -78,7 +78,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip;./externals/Curses;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -95,7 +95,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip;./externals/Curses;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -112,7 +112,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip;./externals/Curses;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -128,7 +128,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;./externals;./externals/rtl-sdr;./externals/SDRplay-API;./externals/Zip;./externals/Curses;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>

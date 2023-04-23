@@ -140,6 +140,7 @@ CFLAGS = -nologo -Zi -W4           \
          -FI./dump1090_config.h    \
          -I.                       \
          -I./externals             \
+         -I./externals/Curses      \
          -I./externals/rtl-sdr     \
          -I./externals/SDRplay-API \
          -I./externals/Zip         \
@@ -236,8 +237,8 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_r82xx.c)
 
 ifeq ($(USE_CURSES),1)
-  VPATH  += externals/Curses
-  CFLAGS += -DUSE_CURSES -I./externals/Curses
+  VPATH   += externals/Curses
+  CFLAGS  += -DUSE_CURSES
   SOURCES += $(addprefix externals/Curses/, \
                addch.c                      \
                addstr.c                     \
