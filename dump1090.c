@@ -3159,7 +3159,7 @@ static void show_packed_usage (void)
   {
     count = mg_usage_count (i);
     if (count > 0)
-       LOG_FILEONLY ("%3u: %s\n", count, fname);
+       LOG_FILEONLY ("  %3u: %s\n", count, fname);
   }
 }
 
@@ -3202,7 +3202,7 @@ static bool check_web_page (void)
 
 static void show_packed_usage (void)
 {
-  LOG_FILEONLY ("<None>");
+  LOG_FILEONLY ("  <None>");
 }
 #endif  /* PACKED_WEB_ROOT */
 
