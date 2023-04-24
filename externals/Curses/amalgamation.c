@@ -48,6 +48,7 @@
 #include "scroll.c"
 #include "slk.c"
 #include "touch.c"
+#include "util.c"
 #include "window.c"
 
 #endif /* USE_CURSES */
