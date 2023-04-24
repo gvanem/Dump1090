@@ -682,7 +682,7 @@ int load_dynamic_table (struct dyn_struct *tab, int tab_size)
 
     if (prev && !stricmp(tab->mod_name, prev->mod_name))
          mod_handle = prev->mod_handle;
-    else mod_handle = LoadLibrary (tab->mod_name);
+    else mod_handle = LoadLibraryA (tab->mod_name);
 
     if (mod_handle && mod_handle != INVALID_HANDLE_VALUE)
     {
@@ -718,7 +718,7 @@ int unload_dynamic_table (struct dyn_struct *tab, int tab_size)
  */
 const char *wininet_strerror (DWORD err)
 {
-  HMODULE mod = GetModuleHandle ("wininet.dll");
+  HMODULE mod = GetModuleHandleA ("wininet.dll");
   static char buf [512];
 
   Modes.wininet_last_error = NULL;

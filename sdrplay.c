@@ -735,12 +735,12 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   if (!sdr.rx_data)
      goto nomem;
 
-  sdr.dll_hnd = LoadLibrary (sdr.dll_name);
+  sdr.dll_hnd = LoadLibraryA (sdr.dll_name);
   if (!sdr.dll_hnd)
   {
     DWORD err = GetLastError();
 
-    /* The 'LoadLibrary()' will fail with 'GetLastError() ==  ERROR_BAD_EXE_FORMAT' (193)
+    /* The 'LoadLibraryA()' will fail with 'GetLastError() ==  ERROR_BAD_EXE_FORMAT' (193)
      * if we're running a 32-bit Dump1090 and loaded a 64-bit "sdrplay_api.dll".
      * And vice-versa.
      */
@@ -752,7 +752,7 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
     goto failed;
   }
 
-  if (!GetModuleFileName(sdr.dll_hnd, sdr.full_dll_name, sizeof(sdr.full_dll_name)))
+  if (!GetModuleFileNameA(sdr.dll_hnd, sdr.full_dll_name, sizeof(sdr.full_dll_name)))
      strcpy (sdr.full_dll_name, "?");
   TRACE ("sdrplay DLL: '%s'.\n", sdr.full_dll_name);
 

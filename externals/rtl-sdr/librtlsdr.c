@@ -671,7 +671,7 @@ static int List_Devices (int index, found_device *found)
   if (found)
      memset (found, '\0', sizeof(*found));
 
-  DeviceInfoSet = SetupDiGetClassDevs (NULL, "USB", NULL, DIGCF_ALLCLASSES | DIGCF_PRESENT);
+  DeviceInfoSet = SetupDiGetClassDevsA (NULL, "USB", NULL, DIGCF_ALLCLASSES | DIGCF_PRESENT);
   if (DeviceInfoSet == INVALID_HANDLE_VALUE)
   {
     last_error = GetLastError();
@@ -720,7 +720,7 @@ static int List_Devices (int index, found_device *found)
       DWORD hParentInst;
 
       if (CM_Get_Parent(&hParentInst, DeviceInfoData.DevInst, 0) == ERROR_SUCCESS)
-         CM_Get_Device_ID (hParentInst, DeviceID2, sizeof(DeviceID2) - 1, 0);
+         CM_Get_Device_IDA (hParentInst, DeviceID2, sizeof(DeviceID2) - 1, 0);
     }
 
     /* Get SPDRP_SERVICE */
@@ -814,20 +814,20 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath, int *err)
 {
   BOOL rc = TRUE;
 
-  TRACE (2, "Calling 'CreateFile (\"%s\")'\n", DevicePath);
+  TRACE (2, "Calling 'CreateFileA (\"%s\")'\n", DevicePath);
 
   dev->usbHandle = INVALID_HANDLE_VALUE;
 
-  dev->deviceHandle = CreateFile (DevicePath, GENERIC_WRITE | GENERIC_READ,
-                                  FILE_SHARE_WRITE | FILE_SHARE_READ, NULL,
-                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
-                                  NULL);
+  dev->deviceHandle = CreateFileA (DevicePath, GENERIC_WRITE | GENERIC_READ,
+                                   FILE_SHARE_WRITE | FILE_SHARE_READ, NULL,
+                                   OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
+                                   NULL);
 
   if (dev->deviceHandle == INVALID_HANDLE_VALUE)
   {
     last_error = GetLastError();
     *err = -1 * last_error;
-    TRACE (1, "CreateFile(\"%s\") failed: %s\n", DevicePath, trace_strerror(last_error));
+    TRACE (1, "CreateFileA(\"%s\") failed: %s\n", DevicePath, trace_strerror(last_error));
     rc = FALSE;
   }
   else if (!WinUsb_Initialize(dev->deviceHandle, &dev->usbHandle))

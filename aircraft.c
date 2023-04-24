@@ -507,8 +507,8 @@ static int extract_callback (const char *file, void *arg)
   const char *tmp_file = arg;
 
   TRACE ("Copying extracted file '%s' to '%s'\n", file, tmp_file);
-  if (!CopyFile (file, tmp_file, FALSE))
-     LOG_STDERR ("CopyFile (\"%s\", \"%s\") failed: %s\n", file, tmp_file, win_strerror(GetLastError()));
+  if (!CopyFileA (file, tmp_file, FALSE))
+     LOG_STDERR ("CopyFileA (\"%s\", \"%s\") failed: %s\n", file, tmp_file, win_strerror(GetLastError()));
   return (0);
 }
 
@@ -584,9 +584,9 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
     return (false);
   }
 
-  if (!CopyFile(tmp_file, db_file, FALSE))
+  if (!CopyFileA(tmp_file, db_file, FALSE))
   {
-    LOG_STDERR ("CopyFile (\"%s\", \"%s\") failed: %s\n", tmp_file, db_file, win_strerror(GetLastError()));
+    LOG_STDERR ("CopyFileA (\"%s\", \"%s\") failed: %s\n", tmp_file, db_file, win_strerror(GetLastError()));
     return (false);
   }
   else
@@ -598,7 +598,7 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
   if (Modes.use_sql_db)
   {
     LOG_STDERR ("Deleting '%s' to force a rebuild in 'aircraft_CSV_load()'\n", Modes.aircraft_sql);
-    DeleteFile (Modes.aircraft_sql);
+    DeleteFileA (Modes.aircraft_sql);
     Modes.have_sql_file = false;
   }
   return (true);
