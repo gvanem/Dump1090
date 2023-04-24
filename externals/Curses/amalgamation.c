@@ -17,13 +17,17 @@
     #pragma warning (disable: 4459)  /* declaration of 'first_col' hides global declaration */
   #endif
 
+  #define PDC_99 1
+
 #include "addch.c"
 #include "addstr.c"
 #include "attr.c"
 #include "border.c"
+#include "bkgd.c"
 #include "clear.c"
 #include "color.c"
 #include "getch.c"
+#include "getyx.c"
 #include "initscr.c"
 #include "inopts.c"
 #include "kernel.c"
