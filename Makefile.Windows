@@ -238,6 +238,15 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
 ifeq ($(USE_CURSES),1)
   VPATH   += externals/Curses
   CFLAGS  += -DUSE_CURSES -I./externals/Curses
+
+  #
+  # Other possible PDCurses defines:
+  #
+  # CFLAGS += -DPDC_WIDE
+  # CFLAGS += -DPDC_RGB
+  # CFLAGS += -DPDC_FORCE_UTF8
+  # CFLAGS += -DPDCDEBUG
+
   SOURCES += externals/Curses/amalgamation.c
   EX_LIBS += user32.lib
 endif
@@ -276,8 +285,8 @@ OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
 #
 # E.g.:
 #  'VCToolkitInstallDir=c:\dev\VC_2019\VC\Tools\MSVC\%VC_VER%' is the root of the MSVC tools.
-#  'WK_ROOT=c:\ProgramFiles-x86\Windows-Kits' -- the root of the 'WindowsKits' API.
-#  'WK_VER=10.0.19041.0'                      -- the 'WindowsKits' version.
+#  'WindowsSdkDir=c:\ProgramFiles-x86\Windows-Kits' -- the root of the 'WindowsKits' API.
+#  'WindowsSdkVer=10.0.19041.0'                     -- the 'WindowsKits' version.
 #
 TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
 
@@ -296,17 +305,17 @@ LDFLAGS += -libpath:$(TOOLS_ROOT)/lib/$(CPU)
 # The path for the "Windows Kit" libraries.
 #
 # E.g. the User-Mode libraries for 'x86' are in:
-#   $(WK_ROOT)/Lib/$(WK_VER)/um/x86/
+#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/x86/
 #
-LDFLAGS += -libpath:$(realpath $(WK_ROOT))/Lib/$(WK_VER)/um/$(CPU)
+LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/um/$(CPU)
 
 #
 # The path for the "Universal CRT" (UCRT) libraries.
 #
 # E.g. the UCRT libraries for 'x86' are in:
-#   $(WK_ROOT)/Lib/$(WK_VER)/ucrt/x86/
+#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/x86/
 #
-LDFLAGS += -libpath:$(realpath $(WK_ROOT))/Lib/$(WK_VER)/ucrt/$(CPU)
+LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/ucrt/$(CPU)
 
 all: $(OBJ_DIR) $(GENERATED) $(TARGETS)
 	$(call green_msg, Welcome to Dump1090.)
