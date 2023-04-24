@@ -18,12 +18,10 @@
   #include <curses.h>
 
   #define PRINTF(row, fmt, ...)   mvprintw (row, 0, fmt, __VA_ARGS__)
-  #define clrscr()                clear()
-  #define gotoxy(x, y)            move (y-1, x-1)
-  #define set_colour(c)           ((void) 0)   /* not yet */
+  static int colour_map [15];
 
 #else
-  #define PRINTF(row, fmt, ...)   printf (fmt, __VA_ARGS__)
+  #define PRINTF(row, fmt, ...)   printf (fmt "\n", __VA_ARGS__)
 
   static CONSOLE_SCREEN_BUFFER_INFO  console_info;
   static HANDLE                      console_hnd = INVALID_HANDLE_VALUE;
@@ -338,8 +336,23 @@ void interactive_update_gain (void)
 #if defined(USE_CURSES)
 bool interactive_init (void)
 {
-  if (!initscr())
-     return (false);
+  initscr();
+  Modes.interactive_rows = getmaxy (stdscr);
+  start_color();
+  use_default_colors();
+
+  init_pair (1, COLOR_WHITE, COLOR_BLUE);
+  init_pair (2, COLOR_GREEN, COLOR_BLUE);
+  init_pair (3, COLOR_YELLOW, COLOR_GREEN);
+  init_pair (4, COLOR_RED, COLOR_BLUE);
+  colour_map [COLOR_BLACK]  = 0;
+  colour_map [COLOR_WHITE]  = 1;
+  colour_map [COLOR_GREEN]  = 2 | A_BOLD;
+  colour_map [COLOR_YELLOW] = 3;
+  colour_map [COLOR_RED]    = 4 | A_BOLD;
+
+  noecho();
+  mousemask (0, NULL);
   clear();
   refresh();
   return (true);
@@ -354,6 +367,18 @@ void interactive_clreol (void)
 {
   if (stdscr)
      wclrtoeol (stdscr);
+}
+
+static void set_colour (int colour)
+{
+  int colour_index;
+
+  assert (colour >= 0);
+  assert (colour < DIM(colour_map));
+
+  colour_index = colour_map [colour];
+  assert (colour_index < COLOR_PAIRS);
+  attrset (COLOR_PAIR(colour_map[colour]));
 }
 #else
 
@@ -490,8 +515,10 @@ static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
 
     if (altitude >= 1)
        _itoa (altitude, alt_buf2, 10);
+
     set_colour (COLOR_RED);
     restore_colour = true;
+
     LOG_FILEONLY ("plane '%06X' leaving. Active for %.1lf sec. Altitude: %s m, Distance: %s/%s %s.\n",
                   a->addr, (double)(now - a->seen_first) / 1000.0,
                   alt_buf2,
@@ -507,16 +534,9 @@ static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
   if (!cc_short)
      cc_short = "--";
 
-  PRINTF (row, "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s ",
-          a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf);
-
-  PRINTF (row, "%6s  %5s %5u  %2llu sec \n",
+  PRINTF (row, "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s %6s  %5s %5u  %2llu sec ",
+          a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
           distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
-
-#if defined(USE_CURSES)
-  LOG_FILEONLY ("row: %d, %06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s ",
-                row, a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf);
-#endif
 
   if (restore_colour)
      set_colour (0);
@@ -553,7 +573,7 @@ static bool console_messed_up (void)
  */
 void interactive_show_data (uint64_t now)
 {
-  #define HEADER "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c"
+  #define HEADER  "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c"
 
   static int spin_idx = 0;
   static int old_count = -1;
@@ -564,17 +584,18 @@ void interactive_show_data (uint64_t now)
 #if defined(USE_CURSES)
   static bool done_header = false;
 
+  attrset (A_BOLD);
+  mvprintw (0, 0, HEADER, spinner[spin_idx & 3]);
+  attrset (A_NORMAL);
+
   if (!done_header)
   {
-    set_colour (COLOR_WHITE);
-    mvprintw (0, 0, HEADER, spinner[spin_idx & 3]);
-    set_colour (0);
-    mvhline (1, 0, ACS_HLINE, 100);
+    mvhline (1, 0, ACS_HLINE, strlen(HEADER)-1);
     done_header = true;
   }
-
 #else
-  /* Unless debug or raw-mode is active, clear the screen to remove old info.
+  /*
+   * Unless debug or raw-mode is active, clear the screen to remove old info.
    * But only if current number of aircrafts is less than last time. This is to
    * avoid an annoying blinking of the console.
    */
