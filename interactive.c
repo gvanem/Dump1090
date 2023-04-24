@@ -18,7 +18,13 @@
   #include <curses.h>
 
   #define PRINTF(row, fmt, ...)   mvprintw (row, 0, fmt, __VA_ARGS__)
-  static int colour_map [15];
+
+  typedef struct pair_attr {
+          int pair;
+          int bold;
+        } pair_attr;
+
+  static pair_attr colour_map [15];
 
 #else
   #define PRINTF(row, fmt, ...)   printf (fmt "\n", __VA_ARGS__)
@@ -230,7 +236,7 @@ void interactive_title_stats (void)
   last_good_CRC = good_CRC;
   last_bad_CRC  = bad_CRC;
 
-  SetConsoleTitle (buf);
+  SetConsoleTitleA (buf);
 }
 
 static int gain_increase (int gain_idx)
@@ -345,11 +351,21 @@ bool interactive_init (void)
   init_pair (2, COLOR_GREEN, COLOR_BLUE);
   init_pair (3, COLOR_YELLOW, COLOR_GREEN);
   init_pair (4, COLOR_RED, COLOR_BLUE);
-  colour_map [COLOR_BLACK]  = 0;
-  colour_map [COLOR_WHITE]  = 1;
-  colour_map [COLOR_GREEN]  = 2 | A_BOLD;
-  colour_map [COLOR_YELLOW] = 3;
-  colour_map [COLOR_RED]    = 4 | A_BOLD;
+
+  colour_map [COLOR_BLACK].pair  = 0;
+  colour_map [COLOR_BLACK].bold  = A_NORMAL;
+
+  colour_map [COLOR_WHITE].pair  = 1;
+  colour_map [COLOR_WHITE].bold  = A_BOLD;
+
+  colour_map [COLOR_GREEN].pair  = 2;
+  colour_map [COLOR_GREEN].bold  = A_BOLD;
+
+  colour_map [COLOR_YELLOW].pair = 3;
+  colour_map [COLOR_YELLOW].bold = A_NORMAL;
+
+  colour_map [COLOR_RED].pair    = 4;
+  colour_map [COLOR_RED].bold    = A_BOLD;
 
   noecho();
   mousemask (0, NULL);
@@ -371,14 +387,17 @@ void interactive_clreol (void)
 
 static void set_colour (int colour)
 {
-  int colour_index;
+  int pair, bold;
 
   assert (colour >= 0);
   assert (colour < DIM(colour_map));
 
-  colour_index = colour_map [colour];
-  assert (colour_index < COLOR_PAIRS);
-  attrset (COLOR_PAIR(colour_map[colour]));
+  pair = colour_map [colour].pair;
+  assert (pair < COLOR_PAIRS);
+
+  bold = colour_map [colour].bold;
+  assert (bold == A_NOPRMAL || bold == A_BOLD);
+  attrset (COLOR_PAIR(pair) | bold);
 }
 #else
 
@@ -584,9 +603,9 @@ void interactive_show_data (uint64_t now)
 #if defined(USE_CURSES)
   static bool done_header = false;
 
-  attrset (A_BOLD);
+  set_colour (COLOR_WHITE);
   mvprintw (0, 0, HEADER, spinner[spin_idx & 3]);
-  attrset (A_NORMAL);
+  set_colour (0);
 
   if (!done_header)
   {
