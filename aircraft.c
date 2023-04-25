@@ -735,6 +735,7 @@ bool aircraft_CSV_load (void)
     Modes.csv_ctx.line_size = 2000;
 
     usec = get_usec_now();
+    LOG_STDOUT ("Loading '%s' could take some time.\n", Modes.aircraft_db);
 
     if (!CSV_open_and_parse_file(&Modes.csv_ctx))
     {
