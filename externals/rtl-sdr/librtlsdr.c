@@ -2545,7 +2545,7 @@ err:
 /*
  * Free the transfer buffers
  */
-static int rtlsdr_free (rtlsdr_dev_t *dev)
+static void rtlsdr_free (rtlsdr_dev_t *dev)
 {
   int i;
 
