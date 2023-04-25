@@ -16,90 +16,111 @@
 #if defined(USE_CURSES)
   #undef MOUSE_MOVED
   #include <curses.h>
-
-  #define PRINTF(row, fmt, ...)   mvprintw (row, 0, fmt, __VA_ARGS__)
-
-  typedef struct pair_attr {
-          int pair;
-          int bold;
-        } pair_attr;
-
-  static pair_attr colour_map [15];
-
 #else
-  #define PRINTF(row, fmt, ...)   printf (fmt "\n", __VA_ARGS__)
+  #define chtype WORD
+#endif
 
-  static CONSOLE_SCREEN_BUFFER_INFO  console_info;
-  static HANDLE                      console_hnd = INVALID_HANDLE_VALUE;
-  static DWORD                       console_mode = 0;
+typedef enum colours {
+        COLOUR_DEFAULT = 0,
+        COLOUR_WHITE,
+        COLOUR_GREEN,
+        COLOUR_RED,
+        COLOUR_YELLOW,
+        COLOUR_MAX,
+      } colours;
 
-  #define COLOR_GREEN   10  /* bright green;  FOREGROUND_INTENSITY + 2 */
-  #define COLOR_RED     12  /* bright red;    FOREGROUND_INTENSITY + 4 */
-  #define COLOR_YELLOW  14  /* bright yellow; FOREGROUND_INTENSITY + 6 */
-  #define COLOR_WHITE   15  /* bright white;  FOREGROUND_INTENSITY + 7 */
+typedef struct colour_mapping {
+        int    pair;    /* Not used in 'wincon_*()' functions */
+        chtype attrib;
+      } colour_mapping;
 
-  static int alternate_colours = 1;
+typedef struct API_funcs {
+        int  (*init) (void);
+        void (*exit) (void);
+        void (*set_colour) (enum colours colour);
+        int  (*clr_scr) (void);
+        int  (*clr_eol) (void);
+        int  (*gotoxy) (int y, int x);
+        int  (*refresh) (int y, int x);
+        int  (*print) (int y, int x, const char *str);
+        void (*print_header) (int count);
+      } API_funcs;
 
-  static void gotoxy (int x, int y)
-  {
-    COORD coord;
+static int  wincon_init (void);
+static void wincon_exit (void);
+static void wincon_set_colour (enum colours colour);
+static int  wincon_gotoxy (int y, int x);
+static int  wincon_clreol (void);
+static int  wincon_clrscr (void);
+static int  wincon_refresh (int y, int x);
+static int  wincon_print (int y, int x, const char *str);
+static void wincon_print_header (int count);
 
-    if (console_hnd == INVALID_HANDLE_VALUE)
-       return;
+static CONSOLE_SCREEN_BUFFER_INFO  console_info;
+static HANDLE                      console_hnd = INVALID_HANDLE_VALUE;
+static DWORD                       console_mode = 0;
+static int                         alternate_colours = 1;
+static colour_mapping              colour_map [COLOUR_MAX];
 
-    coord.X = x - 1 + console_info.srWindow.Left;
-    coord.Y = y - 1 + console_info.srWindow.Top;
-    SetConsoleCursorPosition (console_hnd, coord);
-  }
+#if defined(USE_CURSES)
+  static int  curses_init (void);
+  static void curses_exit (void);
+  static void curses_set_colour (enum colours colour);
+  static void curses_print_header (int count);
+  static int  curses_refresh (int y, int x);
 
-  static void clrscr (void)
-  {
-    WORD width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
-    WORD y = console_info.srWindow.Top;
+  static API_funcs curses_api = {
+         .init         = curses_init,
+         .exit         = curses_exit,
+         .set_colour   = curses_set_colour,
+         .clr_scr      = clear,
+         .clr_eol      = clrtoeol,
+         .gotoxy       = move,
+         .refresh      = curses_refresh,
+         .print        = mvaddstr,
+         .print_header = curses_print_header
+        };
+#endif
 
-    while (y <= console_info.srWindow.Bottom)
-    {
-      DWORD written;
-      COORD coord = { console_info.srWindow.Left, y++ };
+static API_funcs wincon_api = {
+       .init         = wincon_init,
+       .exit         = wincon_exit,
+       .set_colour   = wincon_set_colour,
+       .clr_scr      = wincon_clrscr,
+       .clr_eol      = wincon_clreol,
+       .gotoxy       = wincon_gotoxy,
+       .refresh      = wincon_refresh,
+       .print        = wincon_print,
+       .print_header = wincon_print_header,
+     };
 
-      FillConsoleOutputCharacter (console_hnd, ' ', width, coord, &written);
-      FillConsoleOutputAttribute (console_hnd, console_info.wAttributes, width, coord, &written);
-    }
-  }
+/*
+ * List of API function for the TUI (text user interface).
+ * Set to 'api = &curses_api' when 'Modes.tui_interface == TUI_CURSES'
+ */
+static API_funcs *api = &wincon_api;
 
-  /*
-   * Fill the current line with spaces and put the cursor back at position 0.
-   */
-  void interactive_clreol (void)
-  {
-    if (console_hnd != INVALID_HANDLE_VALUE)
-    {
-      WORD   width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
-      char *filler = alloca (width+1);
+bool interactive_init (void)
+{
+#ifdef USE_CURSES
+  if (Modes.tui_interface == TUI_CURSES)
+     api = &curses_api;
+#endif
+  return ((*api->init)() == 0);
+}
 
-      memset (filler, ' ', width-3);
-      filler [width-2] = '\r';
-      filler [width-1] = '\0';
-      fputs (filler, stdout);
-    }
-  }
+void interactive_exit (void)
+{
+  if (api)
+    (*api->exit)();
+  api = NULL;
+}
 
-  static void set_colour (int colour)
-  {
-    WORD attr;
-
-    if (console_hnd == INVALID_HANDLE_VALUE)
-       return;
-
-    attr = console_info.wAttributes;
-    if (colour > 0)
-    {
-      attr &= ~7;
-      attr |= colour;
-    }
-    SetConsoleTextAttribute (console_hnd, attr);
-  }
-#endif  /* USE_CURSES */
+void interactive_clreol (void)
+{
+  if (api)
+    (*api->clr_eol)();
+}
 
 /**
  * Set this aircraft's estimated distance to our home position.
@@ -339,103 +360,6 @@ void interactive_update_gain (void)
 #endif
 }
 
-#if defined(USE_CURSES)
-bool interactive_init (void)
-{
-  initscr();
-  Modes.interactive_rows = getmaxy (stdscr);
-  start_color();
-  use_default_colors();
-
-  init_pair (1, COLOR_WHITE, COLOR_BLUE);
-  init_pair (2, COLOR_GREEN, COLOR_BLUE);
-  init_pair (3, COLOR_YELLOW, COLOR_GREEN);
-  init_pair (4, COLOR_RED, COLOR_BLUE);
-
-  colour_map [COLOR_BLACK].pair  = 0;
-  colour_map [COLOR_BLACK].bold  = A_NORMAL;
-
-  colour_map [COLOR_WHITE].pair  = 1;
-  colour_map [COLOR_WHITE].bold  = A_BOLD;
-
-  colour_map [COLOR_GREEN].pair  = 2;
-  colour_map [COLOR_GREEN].bold  = A_BOLD;
-
-  colour_map [COLOR_YELLOW].pair = 3;
-  colour_map [COLOR_YELLOW].bold = A_NORMAL;
-
-  colour_map [COLOR_RED].pair    = 4;
-  colour_map [COLOR_RED].bold    = A_BOLD;
-
-  noecho();
-  mousemask (0, NULL);
-  clear();
-  refresh();
-  return (true);
-}
-
-void interactive_exit (void)
-{
-  endwin();
-}
-
-void interactive_clreol (void)
-{
-  if (stdscr)
-     wclrtoeol (stdscr);
-}
-
-static void set_colour (int colour)
-{
-  int pair, bold;
-
-  assert (colour >= 0);
-  assert (colour < DIM(colour_map));
-
-  pair = colour_map [colour].pair;
-  assert (pair < COLOR_PAIRS);
-
-  bold = colour_map [colour].bold;
-  assert (bold == A_NOPRMAL || bold == A_BOLD);
-  attrset (COLOR_PAIR(pair) | bold);
-}
-#else
-
-bool interactive_init (void)
-{
-  console_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
-  if (console_hnd == INVALID_HANDLE_VALUE)
-     return (false);
-
-  if (_isatty(1) == 0)
-  {
-    LOG_STDERR ("Do not redirect 'stdout' in interactive mode.\n"
-                "Do '%s [options] 2> file` instead.\n", Modes.who_am_I);
-    return (false);
-  }
-
-  GetConsoleScreenBufferInfo (console_hnd, &console_info);
-  GetConsoleMode (console_hnd, &console_mode);
-  if (console_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)
-     SetConsoleMode (console_hnd, console_mode | DISABLE_NEWLINE_AUTO_RETURN);
-
-  DWORD new_mode = console_mode & ~(ENABLE_ECHO_INPUT | ENABLE_QUICK_EDIT_MODE | ENABLE_MOUSE_INPUT);
-  SetConsoleMode (console_hnd, new_mode);
-
-  Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
-  return (true);
-}
-
-void interactive_exit (void)
-{
-  gotoxy (1, Modes.interactive_rows);
-  set_colour (0);
-  if (console_hnd != INVALID_HANDLE_VALUE)
-     SetConsoleMode (console_hnd, console_mode);
-  console_hnd = INVALID_HANDLE_VALUE;
-}
-#endif /* USE_CURSES */
-
 /**
  * Show information for a single aircraft.
  *
@@ -456,6 +380,7 @@ static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
   char  heading_buf [8]    = " - ";
   char  distance_buf [10]  = " - ";
   char  RSSI_buf [7]       = " - ";
+  char  line_buf [120];
   bool  restore_colour     = false;
   const char *reg_num      = "";
   const char *call_sign    = "";
@@ -524,7 +449,7 @@ static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
 
   if (a->show == A_SHOW_FIRST_TIME)
   {
-    set_colour (COLOR_GREEN);
+    (*api->set_colour) (COLOUR_GREEN);
     restore_colour = true;
     LOG_FILEONLY ("plane '%06X' entering.\n", a->addr);
   }
@@ -535,7 +460,7 @@ static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
     if (altitude >= 1)
        _itoa (altitude, alt_buf2, 10);
 
-    set_colour (COLOR_RED);
+    (*api->set_colour) (COLOUR_RED);
     restore_colour = true;
 
     LOG_FILEONLY ("plane '%06X' leaving. Active for %.1lf sec. Altitude: %s m, Distance: %s/%s %s.\n",
@@ -553,37 +478,18 @@ static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
   if (!cc_short)
      cc_short = "--";
 
-  PRINTF (row, "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s %6s  %5s %5u  %2llu sec ",
-          a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
-          distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
+  snprintf (line_buf, sizeof(line_buf),
+            "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s %6s  %5s %5u  %2llu sec ",
+            a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
+            distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
+
+  (*api->print) (row, 0, line_buf);
 
   if (restore_colour)
-     set_colour (0);
+     (*api->set_colour) (0);
 
   (void) row;
   return (!restore_colour);
-}
-
-/**
- * \todo
- * Check if the console has scrolled (due to a QuickEdit action).
- * Do it by 'ReadConsoleOutputCharacter()' and look for "ICAO  "
- * at lines > 1.
- */
-static bool console_messed_up (void)
-{
-#if 0
-  if (console_hnd != INVALID_HANDLE_VALUE)
-  {
-    char  buf [sizeof("ICAO  ")];
-    COORD coord = { 0, 20 };
-    DWORD read  = 0;
-
-    ReadConsoleOutputCharacter (console_hnd, buf, sizeof(buf), coord, &read);
-    LOG_FILEONLY ("buf: '%.*s'\n", (int)read, buf);
-  }
-#endif
-  return (false);
 }
 
 /**
@@ -592,47 +498,11 @@ static bool console_messed_up (void)
  */
 void interactive_show_data (uint64_t now)
 {
-  #define HEADER  "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c"
-
-  static int spin_idx = 0;
   static int old_count = -1;
-  int        row, count = 0;
-  char       spinner[] = "|/-\\";
+  int        row = 2, count = 0;
   aircraft  *a = Modes.aircrafts;
 
-#if defined(USE_CURSES)
-  static bool done_header = false;
-
-  set_colour (COLOR_WHITE);
-  mvprintw (0, 0, HEADER, spinner[spin_idx & 3]);
-  set_colour (0);
-
-  if (!done_header)
-  {
-    mvhline (1, 0, ACS_HLINE, strlen(HEADER)-1);
-    done_header = true;
-  }
-#else
-  /*
-   * Unless debug or raw-mode is active, clear the screen to remove old info.
-   * But only if current number of aircrafts is less than last time. This is to
-   * avoid an annoying blinking of the console.
-   */
-  if (Modes.debug == 0)
-  {
-    if (old_count == -1 || aircraft_numbers() < old_count || console_messed_up())
-       clrscr();
-    gotoxy (1, 1);
-  }
-
-  set_colour (COLOR_WHITE);
-  printf (HEADER "\n", spinner[spin_idx & 3]);
-  set_colour (0);
-  puts ("-----------------------------------------------------------------------------------------------------");
-#endif
-
-  spin_idx++;
-  row = 2;
+  (*api->print_header) (old_count);
 
   while (a && count < Modes.interactive_rows && !Modes.exit)
   {
@@ -658,7 +528,7 @@ void interactive_show_data (uint64_t now)
 #if 0
     if (colour_changed || alternate_colours)
     {
-      set_colour (COLOR_YELLOW);
+      (*api->set_colour) (COLOUR_YELLOW);
       alternate_colours ^= 1;
     }
 #else
@@ -666,13 +536,7 @@ void interactive_show_data (uint64_t now)
 #endif
   }
 
-#if defined(USE_CURSES)
-  move (row, 0);
-  clrtobot();
-  refresh();
-#else
-  (void) row;
-#endif
+  (*api->refresh) (row, 0);
 
   old_count = count;
 }
@@ -771,4 +635,229 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
   }
   return (a);
 }
+
+/**
+ * "Windows Console" API functions
+ */
+static int wincon_init (void)
+{
+  console_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
+  if (console_hnd == INVALID_HANDLE_VALUE)
+     return (-1);
+
+  if (_isatty(1) == 0)
+  {
+    LOG_STDERR ("Do not redirect 'stdout' in interactive mode.\n"
+                "Do '%s [options] 2> file` instead.\n", Modes.who_am_I);
+    return (-1);
+  }
+
+  GetConsoleScreenBufferInfo (console_hnd, &console_info);
+  GetConsoleMode (console_hnd, &console_mode);
+  if (console_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+     SetConsoleMode (console_hnd, console_mode | DISABLE_NEWLINE_AUTO_RETURN);
+
+  DWORD new_mode = console_mode & ~(ENABLE_ECHO_INPUT | ENABLE_QUICK_EDIT_MODE | ENABLE_MOUSE_INPUT);
+  SetConsoleMode (console_hnd, new_mode);
+
+  Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
+  api = &wincon_api;
+
+  colour_map [COLOUR_DEFAULT].attrib = console_info.wAttributes;              /* default colour */
+  colour_map [COLOUR_WHITE  ].attrib = (console_info.wAttributes & ~7) | 15;  /* bright white;  FOREGROUND_INTENSITY + 7 */
+  colour_map [COLOUR_GREEN  ].attrib = (console_info.wAttributes & ~7) | 10;  /* bright green;  FOREGROUND_INTENSITY + 2 */
+  colour_map [COLOUR_RED    ].attrib = (console_info.wAttributes & ~7) | 12;  /* bright red;    FOREGROUND_INTENSITY + 4 */
+  colour_map [COLOUR_YELLOW ].attrib = (console_info.wAttributes & ~7) | 14;  /* bright yellow; FOREGROUND_INTENSITY + 6 */
+  return (0);
+}
+
+static void wincon_exit (void)
+{
+  (*api->gotoxy) (Modes.interactive_rows-1, 0);
+  (*api->set_colour) (0);
+  if (console_hnd != INVALID_HANDLE_VALUE)
+     SetConsoleMode (console_hnd, console_mode);
+  console_hnd = INVALID_HANDLE_VALUE;
+}
+
+static int wincon_gotoxy (int y, int x)
+{
+  COORD coord;
+
+  if (console_hnd == INVALID_HANDLE_VALUE)
+     return (-1);
+
+  coord.X = x + console_info.srWindow.Left;
+  coord.Y = y + console_info.srWindow.Top;
+  SetConsoleCursorPosition (console_hnd, coord);
+  return (0);
+}
+
+static int wincon_clrscr (void)
+{
+  WORD width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
+  WORD y = console_info.srWindow.Top;
+
+  while (y <= console_info.srWindow.Bottom)
+  {
+    DWORD written;
+    COORD coord = { console_info.srWindow.Left, y++ };
+
+    FillConsoleOutputCharacter (console_hnd, ' ', width, coord, &written);
+    FillConsoleOutputAttribute (console_hnd, console_info.wAttributes, width, coord, &written);
+  }
+  return (0);
+}
+
+/*
+ * Fill the current line with spaces and put the cursor back at position 0.
+ */
+static int wincon_clreol (void)
+{
+  if (console_hnd != INVALID_HANDLE_VALUE)
+  {
+    WORD   width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
+    char *filler = alloca (width+1);
+
+    memset (filler, ' ', width-3);
+    filler [width-2] = '\r';
+    filler [width-1] = '\0';
+    fputs (filler, stdout);
+  }
+  return (0);
+}
+
+static void wincon_set_colour (enum colours colour)
+{
+  assert (colour >= 0);
+  assert (colour < COLOUR_MAX);
+  if (console_hnd != INVALID_HANDLE_VALUE)
+     SetConsoleTextAttribute (console_hnd, (WORD)colour_map [colour].attrib);
+}
+
+static int wincon_refresh (int y, int x)
+{
+  /* Nothing to do here */
+  (void) x;
+  (void) y;
+  return (0);
+}
+
+static int wincon_print (int y, int x, const char *str)
+{
+  (void) x; /* Cursor already set */
+  (void) y;
+  puts (str);
+  return (0);
+}
+
+static int  spin_idx = 0;
+static char spinner[] = "|/-\\";
+
+#define HEADER  "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c"
+
+static void wincon_print_header (int count)
+{
+  /*
+   * Unless debug or raw-mode is active, clear the screen to remove old info.
+   * But only if current number of aircrafts is less than last time. This is to
+   * avoid an annoying blinking of the console.
+   */
+  if (Modes.debug == 0)
+  {
+    if (count == -1 || aircraft_numbers() < count)
+       (*api->clr_scr)();
+    (*api->gotoxy) (0, 0);
+  }
+
+  (*api->set_colour) (COLOUR_WHITE);
+  printf (HEADER "\n", spinner[spin_idx & 3]);
+  (*api->set_colour) (0);
+  puts ("-----------------------------------------------------------------------------------------------------");
+  spin_idx++;
+}
+
+/**
+ * PDCurses API functions
+ */
+#if defined(USE_CURSES)
+static int curses_init (void)
+{
+  initscr();
+  Modes.interactive_rows = getmaxy (stdscr);
+  if (Modes.interactive_rows == 0)
+     return (-1);
+
+  start_color();
+  use_default_colors();
+
+  if (!can_change_color())
+     return (-1);
+
+  init_pair (COLOUR_WHITE, COLOR_WHITE, COLOR_BLUE);
+  init_pair (2, COLOR_GREEN, COLOR_BLUE);
+  init_pair (3, COLOR_RED, COLOR_BLUE);
+  init_pair (4, COLOR_YELLOW, COLOR_GREEN);
+
+  colour_map [COLOUR_DEFAULT].pair = 0;  colour_map [COLOUR_DEFAULT].attrib = A_NORMAL;
+  colour_map [COLOUR_WHITE  ].pair = 1;  colour_map [COLOUR_WHITE  ].attrib = A_BOLD;
+  colour_map [COLOUR_GREEN  ].pair = 2;  colour_map [COLOUR_GREEN  ].attrib = A_BOLD;
+  colour_map [COLOUR_RED    ].pair = 3;  colour_map [COLOUR_RED    ].attrib = A_BOLD;
+  colour_map [COLOUR_YELLOW ].pair = 4;  colour_map [COLOUR_YELLOW ].attrib = A_NORMAL;
+
+  noecho();
+  mousemask (0, NULL);
+  clear();
+  refresh();
+  return (0);
+}
+
+static void curses_exit (void)
+{
+  endwin();
+  delscreen (SP);
+  SP = NULL;
+}
+
+static void curses_set_colour (enum colours colour)
+{
+  int pair, attrib;
+
+  assert (colour >= 0);
+  assert (colour < COLOUR_MAX);
+
+  pair = colour_map [colour].pair;
+  assert (pair < COLOR_PAIRS);
+
+  attrib = colour_map [colour].attrib;
+  assert (attrib == A_NORMAL || attrib == A_BOLD);
+  attrset (COLOR_PAIR(pair) | attrib);
+}
+
+static int curses_refresh (int y, int x)
+{
+  move (y, x);
+  clrtobot();
+  refresh();
+  return (0);
+}
+
+static void curses_print_header (int count)
+{
+  static bool done_header = false;
+
+  (*api->set_colour) (COLOUR_WHITE);
+  mvprintw (0, 0, HEADER, spinner[spin_idx & 3]);
+  spin_idx++;
+
+  (*api->set_colour) (0);
+
+  if (!done_header)
+  {
+    mvhline (1, 0, ACS_HLINE, strlen(HEADER)-1);
+    done_header = true;
+  }
+  (void) count;
+}
+#endif  /* USE_CURSES */
 

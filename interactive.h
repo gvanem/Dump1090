@@ -13,6 +13,9 @@
 #define MODES_INTERACTIVE_REFRESH_TIME  250   /* Milliseconds */
 #define MODES_INTERACTIVE_TTL         60000   /* TTL (msec) before being removed */
 
+#define TUI_WINCON 1
+#define TUI_CURSES 2
+
 bool      interactive_init (void);
 void      interactive_exit (void);
 void      interactive_update_gain (void);

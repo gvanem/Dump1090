@@ -405,6 +405,7 @@ typedef struct global_data {
         const char *wininet_last_error;         /**< Last error from WinInet API. */
         int         tests;                      /**< Perform some tests. */
         int         tests_arg;                  /**< With optional tests-count. */
+        int         tui_interface;              /**< Selected `--tui` interface. */
 
         /** For parsing a `Modes.aircraft_db` file:
          */

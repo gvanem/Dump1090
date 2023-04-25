@@ -373,6 +373,7 @@ static void modeS_init_config (void)
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
   Modes.json_interval   = 1000;
   Modes.keep_alive      = 1;
+  Modes.tui_interface   = TUI_WINCON;
 
   InitializeCriticalSection (&Modes.data_mutex);
   InitializeCriticalSection (&Modes.print_mutex);
@@ -3202,7 +3203,7 @@ static bool check_web_page (void)
 
 static void show_packed_usage (void)
 {
-  LOG_FILEONLY ("  <None>");
+  LOG_FILEONLY ("  <None>\n");
 }
 #endif  /* PACKED_WEB_ROOT */
 
@@ -3575,6 +3576,12 @@ static void connection_read (connection *conn, msg_handler handler, bool is_serv
   }
 }
 
+#if defined(USE_CURSES)
+  #define TUI_HELP  "wincon|curses      Select 'Windows-Console' or 'PCurses' interface at run-time.\n"
+#else
+  #define TUI_HELP  "wincon             'Windows-Console' is the default TUI.\n"
+#endif
+
 /**
  * Show the program usage
  */
@@ -3610,6 +3617,7 @@ static void show_help (const char *fmt, ...)
             "    --metric                 Use metric units (meters, km/h, ...).\n"
             "    --silent                 Silent mode for testing network I/O (together with `--debug n').\n"
             "    --test                   Perform some test of internal functions.\n"
+            "    --tui " TUI_HELP
             "     -V, -VV                 Show version info. `-VV' for details.\n"
             "     -h, --help              Show this help.\n\n",
             Modes.who_am_I, Modes.aircraft_db, AIRCRAFT_DATABASE_URL, MODES_INTERACTIVE_TTL/1000);
@@ -3758,7 +3766,6 @@ static void sigint_handler (int sig)
      signal (sig, SIG_DFL);   /* reset signal handler - bit extra safety */
 
   Modes.exit = true;          /* Signal to threads that we are done */
-  interactive_exit();
 
   if (sig == SIGINT)
      LOG_STDOUT ("Caught SIGINT, shutting down ...\n");
@@ -3949,6 +3956,7 @@ static void modeS_exit (void)
      _close (Modes.fd);
 
   aircraft_exit (true);
+  interactive_exit();
 
 #if !defined(USE_GEN_LUT)
   free (Modes.magnitude_lut);
@@ -4017,6 +4025,20 @@ static void select_device (const char *arg)
       Modes.sdrplay.index = -1;
   }
   dev_selection_done = true;
+}
+
+static void select_tui (const char *arg)
+{
+  if (!stricmp(arg, "wincon"))
+       Modes.tui_interface = TUI_WINCON;
+  else if (!stricmp(arg, "curses"))
+       Modes.tui_interface = TUI_CURSES;
+  else show_help ("Unknown argument '%s' for '--tui'.\n", arg);
+
+#if !defined(USE_CURSES)
+  if (Modes.tui_interface == TUI_CURSES)
+     show_help ("I was not built with '-DUSE_CURSES'. Use `--tui wincon` or nothing.\n");
+#endif
 }
 
 static void set_debug_bits (const char *flags)
@@ -4134,6 +4156,7 @@ static struct option long_options[] = {
 #if MG_ENABLE_FILE
   { "touch",            no_argument,        &Modes.touch_web_root,     1  },
 #endif
+  { "tui",              required_argument,  NULL,                     'a' },
   { NULL,               no_argument,        NULL,                      0  }
 };
 
@@ -4281,6 +4304,10 @@ static bool parse_cmd_line (int argc, char **argv)
            strncpy (Modes.web_root, dirname(optarg), sizeof(Modes.web_root)-1);
            strncpy (Modes.web_page, basename(optarg), sizeof(Modes.web_page)-1);
            slashify (Modes.web_root);
+           break;
+
+      case 'a':        /* option `--tui wincon|curses` */
+           select_tui (optarg);
            break;
 
       case 'h':
