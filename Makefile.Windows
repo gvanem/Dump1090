@@ -26,7 +26,7 @@ USE_CURSES ?= 1
 # Enable bundling *all* web_root pages inside dump1090.exe.
 # Also if 'USE_MINIFY = 1', compress all .css, .js and .html files first.
 #
-USE_PACKED_WEB  ?= 0
+USE_PACKED_WEB  ?= 1
 USE_MINIFY      ?= 0
 PACKED_WEB_ROOT ?= web_root-Tar1090
 
@@ -238,15 +238,6 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
 ifeq ($(USE_CURSES),1)
   VPATH   += externals/Curses
   CFLAGS  += -DUSE_CURSES -I./externals/Curses
-
-  #
-  # Other possible PDCurses defines:
-  #
-  # CFLAGS += -DPDC_WIDE
-  # CFLAGS += -DPDC_RGB
-  # CFLAGS += -DPDC_FORCE_UTF8
-  # CFLAGS += -DPDCDEBUG
-
   SOURCES += externals/Curses/amalgamation.c
   EX_LIBS += user32.lib
 endif

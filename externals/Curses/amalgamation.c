@@ -19,6 +19,13 @@
 
   #define PDC_99 1
 
+  /* Other possible PDCurses defines:
+   *   #define PDC_WIDE
+   *   #define PDC_RGB
+   *   #define PDC_FORCE_UTF8
+   *   #define PDCDEBUG
+   */
+
   #include "addch.c"
   #include "addstr.c"
   #include "attr.c"
@@ -50,6 +57,5 @@
   #include "touch.c"
   #include "util.c"
   #include "window.c"
-
 #endif /* USE_CURSES */
 
