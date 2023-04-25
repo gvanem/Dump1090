@@ -365,7 +365,8 @@ void PDC_scr_free(void)
         pdc_con_out = std_con_out;
     }
 
-    SetUnhandledExceptionFilter(xcpt_filter);
+    if (xcpt_filter)
+       SetUnhandledExceptionFilter(xcpt_filter);
     SetConsoleCtrlHandler(_ctrl_break, FALSE);
 }
 
@@ -449,7 +450,7 @@ int PDC_scr_open(void)
             SP->_restore = PDC_RESTORE_BUFFER;
     }
 
-    xcpt_filter = SetUnhandledExceptionFilter(_restore_console);
+//  xcpt_filter = SetUnhandledExceptionFilter(_restore_console);
     SetConsoleCtrlHandler(_ctrl_break, TRUE);
 
     SP->_preserve = (getenv("PDC_PRESERVE_SCREEN") != NULL);
