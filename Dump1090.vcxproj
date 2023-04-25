@@ -83,13 +83,13 @@
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -DUSE_CURSES %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>advapi32.lib;ole32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -99,14 +99,14 @@
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -DUSE_CURSES %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
       <OptimizeReferences>false</OptimizeReferences>
-      <AdditionalDependencies>advapi32.lib;ole32.lib;setupapi.lib;winusb.lib;;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -116,13 +116,13 @@
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -DUSE_CURSES %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX64</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>advapi32.lib;ole32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -132,13 +132,13 @@
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -DUSE_CURSES %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX64</TargetMachine>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>advapi32.lib;ole32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -151,6 +151,7 @@
     <ClCompile Include="misc.c" />
     <ClCompile Include="sdrplay.c" />
     <ClCompile Include="externals\mongoose.c" />
+    <ClCompile Include="externals\Curses\amalgamation.c" />
     <ClCompile Include="externals\sqlite3.c" />
     <ClCompile Include="externals\Zip\zip.c" />
     <ClCompile Include="externals\rtlsdr-emul.c" />
