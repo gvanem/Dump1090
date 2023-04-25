@@ -88,7 +88,7 @@ static void        modeS_user_message (const modeS_message *mm);
 
 static int         fix_single_bit_errors (uint8_t *msg, int bits);
 static int         fix_two_bits_errors (uint8_t *msg, int bits);
-static void        detect_modeS (uint16_t *m, uint32_t mlen);
+static uint32_t    detect_modeS (uint16_t *m, uint32_t mlen);
 static void        decode_hex_message (mg_iobuf *msg, int loop_cnt);
 static void        decode_SBS_message (mg_iobuf *msg, int loop_cnt);
 static int         modeS_message_len_by_type (int type);
@@ -681,6 +681,8 @@ static void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
  */
 static int read_from_data_file (void)
 {
+  uint32_t rc = 0;
+
   if (Modes.loops > 0 && Modes.fd == STDIN_FILENO)
   {
     LOG_STDERR ("Option `--loop <N>` not supported for `stdin`.\n");
@@ -725,7 +727,7 @@ static int read_from_data_file (void)
      }
 
      compute_magnitude_vector (Modes.data);
-     detect_modeS (Modes.magnitude, Modes.data_len/2);
+     rc += detect_modeS (Modes.magnitude, Modes.data_len/2);
      background_tasks();
 
      if (Modes.exit || Modes.fd == STDIN_FILENO)
@@ -740,7 +742,7 @@ static int read_from_data_file (void)
         break;
   }
   while (1);
-  return (0);  /**\todo add a check for errors above */
+  return (rc);
 }
 
 /**
@@ -1419,7 +1421,7 @@ static const char *get_ME_description (const modeS_message *mm)
  *
  * And split it into fields populating a `modeS_message` structure.
  */
-static void decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
+static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
 {
   uint32_t    crc2;   /* Computed CRC, used to verify the message CRC. */
   const char *AIS_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
@@ -1634,6 +1636,7 @@ static void decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
     }
   }
   mm->phase_corrected = false;  /* Set to 'true' by the caller if needed. */
+  return (mm->CRC_ok);
 }
 
 /**
@@ -2008,20 +2011,21 @@ static void detect_modeS (uint16_t *m, uint32_t mlen)
   mag.sysTimestamp = MSEC_TIME();
   demodulate2400 (&mag);
 }
+
 #else
 /**
- * Detect a Mode S messages inside the magnitude buffer pointed by `m` and of
- * size `mlen` bytes. Every detected Mode S message is converted into a
- * stream of bits and passed to the function to display it.
+ * Detect a Mode S messages inside the magnitude buffer pointed by `m`
+ * and of size `mlen` bytes. Every detected Mode S message is converted
+ * into a stream of bits and passed to the function to display it.
  */
-static void detect_modeS (uint16_t *m, uint32_t mlen)
+static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
 {
   uint8_t  bits [MODES_LONG_MSG_BITS];
   uint8_t  msg [MODES_LONG_MSG_BITS/2];
   uint16_t aux [MODES_LONG_MSG_BITS*2];
   uint32_t j;
   bool     use_correction = false;
-//int      rc = 0;  /**\todo fix this */
+  uint32_t rc = 0;  /**\todo fix this */
 
   /* The Mode S preamble is made of impulses of 0.5 microseconds at
    * the following time offsets:
@@ -2179,7 +2183,8 @@ good_preamble:
     int msg_len = modeS_message_len_by_type (msg_type) / 8;
 
     /* Last check, high and low bits are different enough in magnitude
-     * to mark this as real message and not just noise? */
+     * to mark this as real message and not just noise?
+     */
     delta = 0;
     for (i = 0; i < 8 * 2 * msg_len; i += 2)
     {
@@ -2211,7 +2216,7 @@ good_preamble:
 
       /* Decode the received message and update statistics
        */
-      decode_modeS_message (&mm, msg);
+      rc += decode_modeS_message (&mm, msg);
 
       /* measure signal power
        */
@@ -2294,6 +2299,7 @@ good_preamble:
       use_correction = false;
     }
   }
+  return (rc);
 }
 #endif  /* USE_READSB_DEMOD */
 
@@ -4411,7 +4417,8 @@ int main (int argc, char **argv)
 
   if (Modes.infile)
   {
-    read_from_data_file();
+    if (read_from_data_file() == 0)
+       LOG_STDERR ("No good messages found in '%s'.\n", Modes.infile);
   }
   else if (Modes.strip_level == 0)
   {
