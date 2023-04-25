@@ -648,7 +648,45 @@ endef
 DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
 DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.$.obj: @'
 
+#
+# Fixed dependencies:
+#
 $(OBJ_DIR)/dump1090.obj: $(OBJ_DIR)/py_gen_magnitude_lut.h
+
+CURSES_SRC = $(addprefix externals/Curses/, \
+               addch.c                      \
+               addstr.c                     \
+               attr.c                       \
+               border.c                     \
+               bkgd.c                       \
+               clear.c                      \
+               color.c                      \
+               getch.c                      \
+               getyx.c                      \
+               initscr.c                    \
+               inopts.c                     \
+               kernel.c                     \
+               mouse.c                      \
+               move.c                       \
+               outopts.c                    \
+               overlay.c                    \
+               pad.c                        \
+               pdcclip.c                    \
+               pdcdisp.c                    \
+               pdcgetsc.c                   \
+               pdckbd.c                     \
+               pdcscrn.c                    \
+               pdcsetsc.c                   \
+               pdcutil.c                    \
+               printw.c                     \
+               refresh.c                    \
+               scroll.c                     \
+               slk.c                        \
+               touch.c                      \
+               util.c                       \
+               window.c)
+
+$(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
 
 depend:
 	$(call Generate, .depend.Windows, #)
