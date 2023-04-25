@@ -119,8 +119,11 @@ to your browser to **http://localhost:8080**, use this command:
   It will present live traffic to the Web-browser:
   **![web-page](dump1090-web.png)**
 
-  and the console:
+  and the *Windows Console*:
   **![console output](dump1090-win.png)**
+
+  or if started as `c:\dev\Dump1090> dump1090 --interactive --tui curses`, the *PDCurses Console*:
+  **![curses output](dump1090-curses.png)**
 
 In this interactive mode there is a more compact output. Where the screen is refreshed
 up to 4 times per second displaying all the recently seen aircrafts with some additional
