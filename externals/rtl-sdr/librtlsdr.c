@@ -173,6 +173,11 @@ struct rtlsdr_dev {
   int opening;
   int verbose;
   int agc_mode;
+
+  /* transfer buffers */
+  uint8_t    **xfer_buf;
+  OVERLAPPED **overlapped;
+  int         num_xfer_buf;
 };
 
 static int rtlsdr_update_ds (rtlsdr_dev_t *dev, uint32_t freq);
@@ -2537,6 +2542,36 @@ err:
   return (r);
 }
 
+/*
+ * Free the transfer buffers
+ */
+static int rtlsdr_free (rtlsdr_dev_t *dev)
+{
+  int i;
+
+  if (dev->overlapped)
+  {
+    for (i = 0; i < dev->num_xfer_buf; ++i)
+    {
+      if (dev->overlapped[i])
+         free (dev->overlapped[i]);
+    }
+    free (dev->overlapped);
+    dev->overlapped = NULL;
+  }
+
+  if (dev->xfer_buf)
+  {
+    for (i = 0; i < dev->num_xfer_buf; ++i)
+    {
+      if (dev->xfer_buf[i])
+         free (dev->xfer_buf[i]);
+    }
+    free (dev->xfer_buf);
+    dev->xfer_buf = NULL;
+  }
+}
+
 int rtlsdr_close (rtlsdr_dev_t *dev)
 {
   int r, entry_state, exit_state, loops = -1;
@@ -2569,6 +2604,7 @@ int rtlsdr_close (rtlsdr_dev_t *dev)
 
   Close_Device (dev);
   DeleteCriticalSection (&dev->cs_mutex);
+  rtlsdr_free (dev);
   free (dev);
   return (r);
 }
@@ -2630,10 +2666,8 @@ static int rtlsdr_read_buffer (rtlsdr_dev_t *dev, uint8_t *xfer_buf, uint32_t bu
 int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void *ctx,
                        uint32_t buf_num, uint32_t buf_len)
 {
-  UINT         i;
-  UCHAR        policy = 1;
-  OVERLAPPED **overlapped = NULL;
-  uint8_t    **xfer_buf = NULL;
+  UINT  i;
+  UCHAR policy = 1;
 
   if (!dev)
   {
@@ -2672,20 +2706,21 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
 
   /* Alloc async buffers
    */
-  overlapped = malloc (buf_num * sizeof(OVERLAPPED*));
-  if (overlapped)
+  dev->overlapped = calloc (buf_num, sizeof(OVERLAPPED*));
+  dev->num_xfer_buf = buf_num;
+  if (dev->overlapped)
   {
     for (i = 0; i < buf_num; ++i)
-       overlapped [i] = calloc (sizeof(OVERLAPPED), 1);
+       dev->overlapped [i] = calloc (sizeof(OVERLAPPED), 1);
   }
 
-  xfer_buf = calloc (buf_num * sizeof(uint8_t*), 1);
-  if (xfer_buf)
+  dev->xfer_buf = calloc (buf_num * sizeof(uint8_t*), 1);
+  if (dev->xfer_buf)
   {
     for (i = 0; i < buf_num; ++i)
     {
-      xfer_buf [i] = malloc (buf_len);
-      if (!xfer_buf[i])
+      dev->xfer_buf [i] = malloc (buf_len);
+      if (!dev->xfer_buf[i])
       {
         dev->async_cancel = 1;
         break;
@@ -2702,7 +2737,7 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
    */
   for (i = 0; i < buf_num; ++i)
   {
-    if (rtlsdr_read_buffer (dev, xfer_buf[i], buf_len, overlapped[i]))
+    if (rtlsdr_read_buffer (dev, dev->xfer_buf[i], buf_len, dev->overlapped[i]))
        break;
   }
 
@@ -2717,11 +2752,11 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
       /* Wait for the operation to complete before continuing.
        * You could do some background work if you wanted to.
        */
-      if (WinUsb_GetOverlappedResult(dev->usbHandle, overlapped[i], &NumberOfBytesTransferred, TRUE))
+      if (WinUsb_GetOverlappedResult(dev->usbHandle, dev->overlapped[i], &NumberOfBytesTransferred, TRUE))
       {
         if (NumberOfBytesTransferred && callback)
         {
-          (*callback) (xfer_buf[i], NumberOfBytesTransferred, ctx);
+          (*callback) (dev->xfer_buf[i], NumberOfBytesTransferred, ctx);
           TRACE (3, "WinUsb_GetOverlappedResult(): got %lu bytes overlapped.\n", NumberOfBytesTransferred);
         }
       }
@@ -2733,7 +2768,7 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
         break;
       }
 
-      if (rtlsdr_read_buffer(dev, xfer_buf[i], buf_len, overlapped[i]))
+      if (rtlsdr_read_buffer(dev, dev->xfer_buf[i], buf_len, dev->overlapped[i]))
          break;
     }
   }
@@ -2748,28 +2783,7 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
     TRACE_WINUSB ("WinUsb_AbortPipe", last_error);
   }
 
-  /* Free the buffers
-   */
-  if (overlapped)
-  {
-    for (i = 0; i < buf_num; ++i)
-    {
-      if (overlapped[i])
-        free (overlapped[i]);
-    }
-    free (overlapped);
-  }
-
-  if (xfer_buf)
-  {
-    for (i = 0; i < buf_num; ++i)
-    {
-      if (xfer_buf[i])
-         free (xfer_buf[i]);
-    }
-    free (xfer_buf);
-  }
-
+  rtlsdr_free (dev);
   dev->async_status = RTLSDR_INACTIVE;
   return (0);
 }
@@ -3119,4 +3133,5 @@ uint32_t rtlsdr_get_version (void)
   return ((uint32_t)RTLSDR_MAJOR << 24) | ((uint32_t)RTLSDR_MINOR << 16) |
           ((uint32_t)RTLSDR_MICRO << 8) | (uint32_t)RTLSDR_NANO;
 }
+
 
