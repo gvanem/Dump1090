@@ -585,7 +585,7 @@ static const char *build_features (void)
     "ASAN",
   #endif
   #if defined(USE_CURSES)
-    "Curses",
+    "PDCurses",
   #endif
   #if defined(PACKED_WEB_ROOT)
     "Packed-Web",
