@@ -89,8 +89,8 @@ static void        modeS_user_message (const modeS_message *mm);
 static int         fix_single_bit_errors (uint8_t *msg, int bits);
 static int         fix_two_bits_errors (uint8_t *msg, int bits);
 static uint32_t    detect_modeS (uint16_t *m, uint32_t mlen);
-static void        decode_hex_message (mg_iobuf *msg, int loop_cnt);
-static void        decode_SBS_message (mg_iobuf *msg, int loop_cnt);
+static bool        decode_hex_message (mg_iobuf *msg, int loop_cnt);
+static bool        decode_SBS_message (mg_iobuf *msg, int loop_cnt);
 static int         modeS_message_len_by_type (int type);
 static uint16_t   *compute_magnitude_vector (const uint8_t *data);
 static void        background_tasks (void);
@@ -685,7 +685,7 @@ static int read_from_data_file (void)
 
   if (Modes.loops > 0 && Modes.fd == STDIN_FILENO)
   {
-    LOG_STDERR ("Option `--loop <N>` not supported for `stdin`.\n");
+    LOG_STDERR ("Option `--loop <N>' not supported for `stdin'.\n");
     Modes.loops = 0;
   }
 
@@ -1671,12 +1671,12 @@ static uint64_t sum_unrecognized_ME (int type)
  */
 static void print_unrecognized_ME (void)
 {
-  int      i;
+  int      t;
   uint64_t totals = 0;
   int      num_totals = 0;
 
-  for (i = 0; i < MAX_ME_TYPE; i++)
-      totals += sum_unrecognized_ME (i);
+  for (t = 0; t < MAX_ME_TYPE; t++)
+      totals += sum_unrecognized_ME (t);
 
   if (totals == 0ULL)
   {
@@ -1686,15 +1686,15 @@ static void print_unrecognized_ME (void)
 
   LOG_STDOUT (" %8llu unrecognized ME types:", totals);
 
-  for (i = 0; i < MAX_ME_TYPE; i++)
+  for (t = 0; t < MAX_ME_TYPE; t++)
   {
-    const unrecognized_ME *me = &Modes.stat.unrecognized_ME [i];
+    const unrecognized_ME *me = &Modes.stat.unrecognized_ME [t];
     char   sub_types [200];
     char  *p = sub_types;
     size_t j, left = sizeof(sub_types);
     int    n;
 
-    totals = sum_unrecognized_ME (i);
+    totals = sum_unrecognized_ME (t);
     if (totals == 0ULL)
        continue;
 
@@ -1719,8 +1719,8 @@ static void print_unrecognized_ME (void)
        LOG_STDOUT ("! \n                                ");
 
     if (sub_types[0])
-         LOG_STDOUT ("! %3llu: %2d (%s)", totals, i, sub_types);
-    else LOG_STDOUT ("! %3llu: %2d", totals, i);
+         LOG_STDOUT ("! %3llu: %2d (%s)", totals, t, sub_types);
+    else LOG_STDOUT ("! %3llu: %2d", totals, t);
   }
   LOG_STDOUT ("! \n");
 }
@@ -1877,14 +1877,19 @@ static void display_modeS_message (const modeS_message *mm)
       else
         LOG_STDOUT ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
     }
-#if 0
-    /**\todo */
-    else if (mm->ME_type == 29)  /* Target State + Status Message */
+#if 1
+    else if (mm->ME_type == 29)
     {
+      /**\todo
+       * Target State + Status Message
+       */
+      add_unrecognized_ME (29, mm->ME_subtype);
     }
-    /**\todo Ref: chapter 8 in `The-1090MHz-riddle.pdf` */
     else if (mm->ME_type == 31)  /* Aircraft operation status */
     {
+      /**\todo Ref: chapter 8 in `The-1090MHz-riddle.pdf`
+       */
+      add_unrecognized_ME (31, mm->ME_subtype);
     }
 #endif
     else
@@ -3247,7 +3252,7 @@ static bool modeS_init_net (void)
 
     if (!Modes.raw_in && !Modes.sbs_in)
     {
-      LOG_STDERR ("No hosts for any `--net-active` services specified.\n");
+      LOG_STDERR ("No hosts for any `--net-active' services specified.\n");
       return (false);
     }
   }
@@ -3393,14 +3398,14 @@ static int hex_digit_val (int c)
  * raw hex format like: `*8D4B969699155600E87406F5B69F;<eol>`
  *
  * The string is supposed to be at the start of the client buffer
- * and NUL-terminated. It accepts both '\n' and '\r\n' terminated records.
+ * and NUL-terminated. It accepts both `\n` and `\r\n` terminated records.
  *
  * The message is passed to the higher level layers, so it feeds
  * the selected screen output, the network output and so forth.
  *
  * If the message looks invalid, it is silently discarded.
  */
-static void decode_hex_message (mg_iobuf *msg, int loop_cnt)
+static bool decode_hex_message (mg_iobuf *msg, int loop_cnt)
 {
   modeS_message mm;
   uint8_t       bin_msg [MODES_LONG_MSG_BYTES];
@@ -3414,7 +3419,7 @@ static void decode_hex_message (mg_iobuf *msg, int loop_cnt)
        LOG_STDOUT ("RAW(%d): Bogus msg: '%.*s'...\n", loop_cnt, (int)msg->len, msg->buf);
     Modes.stat.unrecognized_raw++;
     mg_iobuf_del (msg, 0, msg->len);
-    return;
+    return (false);
   }
 
   *end++ = '\0';
@@ -3442,13 +3447,13 @@ static void decode_hex_message (mg_iobuf *msg, int loop_cnt)
   {
     Modes.stat.empty_raw++;
     mg_iobuf_del (msg, 0, end - msg->buf);
-    return;
+    return (false);
   }
   if (hex[0] != '*' || !memchr(msg->buf, ';', len))
   {
     Modes.stat.unrecognized_raw++;
     mg_iobuf_del (msg, 0, end - msg->buf);
-    return;
+    return (false);
   }
 
   /* Turn the message into binary.
@@ -3459,7 +3464,7 @@ static void decode_hex_message (mg_iobuf *msg, int loop_cnt)
   {
     Modes.stat.unrecognized_raw++;
     mg_iobuf_del (msg, 0, end - msg->buf);
-    return;
+    return (false);
   }
 
   for (j = 0; j < len; j += 2)
@@ -3471,7 +3476,7 @@ static void decode_hex_message (mg_iobuf *msg, int loop_cnt)
     {
       Modes.stat.unrecognized_raw++;
       mg_iobuf_del (msg, 0, end - msg->buf);
-      return;
+      return (false);
     }
     bin_msg[j/2] = (high << 4) | low;
   }
@@ -3480,6 +3485,7 @@ static void decode_hex_message (mg_iobuf *msg, int loop_cnt)
   decode_modeS_message (&mm, bin_msg);
   if (mm.CRC_ok)
      modeS_user_message (&mm);
+  return (true);
 }
 
 /**
@@ -3510,7 +3516,7 @@ static int modeS_recv_SBS_input (mg_iobuf *msg, modeS_message *mm)
  *
  * It accepts both '\n' and '\r\n' terminated records.
  */
-static void decode_SBS_message (mg_iobuf *msg, int loop_cnt)
+static bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
 {
   modeS_message mm;
   uint8_t      *end = memchr (msg->buf, '\n', msg->len);
@@ -3521,7 +3527,7 @@ static void decode_SBS_message (mg_iobuf *msg, int loop_cnt)
        LOG_STDOUT ("SBS(%d): Bogus msg: '%.*s'...\n", loop_cnt, (int)msg->len, msg->buf);
     Modes.stat.unrecognized_SBS++;
     mg_iobuf_del (msg, 0, msg->len);
-    return;
+    return (false);
   }
   *end++ = '\0';
   if (end[-2] == '\r')
@@ -3536,6 +3542,7 @@ static void decode_SBS_message (mg_iobuf *msg, int loop_cnt)
     Modes.stat.good_SBS++;
   }
   mg_iobuf_del (msg, 0, end - msg->buf);
+  return (true);
 }
 
 /**
@@ -3546,7 +3553,7 @@ static void decode_SBS_message (mg_iobuf *msg, int loop_cnt)
  * when the event `MG_EV_READ` is received in `connection_handler()`.
  *
  * The message is supposed to be separated by the next message by the
- * separator 'sep', that is a NUL-terminated C string.
+ * separator `sep`, that is a NUL-terminated C string.
  *
  * The `handler` function is responsible for freeing `msg` as it consumes each record
  * in the `msg`. This `msg` can consist of several records or incomplete records since
@@ -3557,8 +3564,7 @@ static void decode_SBS_message (mg_iobuf *msg, int loop_cnt)
  *  *8d4b969699155600e87406f5b69f;\n
  * ```
  *
- * This message shows up as ICAO "4B9696" and Reg-num "TC-ETV" in
- * `--interactive` mode.
+ * This message shows up as ICAO "4B9696" and Reg-num "TC-ETV" in `--interactive` mode.
  */
 static void connection_read (connection *conn, msg_handler handler, bool is_server)
 {
@@ -3753,6 +3759,7 @@ static void background_tasks (void)
   {
     interactive_title_stats();
     interactive_update_gain();
+    interactive_other_stats();  /* Only effective if '--tui curses' was used */
   }
 #if 0
   else
@@ -3772,6 +3779,13 @@ static void sigint_handler (int sig)
      signal (sig, SIG_DFL);   /* reset signal handler - bit extra safety */
 
   Modes.exit = true;          /* Signal to threads that we are done */
+
+  /* When PDCurses exists, it restores the startup console-screen.
+   * Hence make it clear what is printed on exit by separating the
+   * startup and shutdown messages with a dotted "----" bar.
+   */
+  if ((sig == SIGINT || sig == SIGBREAK) && Modes.tui_interface == TUI_CURSES)
+     puts ("----------------------------------------------------------------------------------");
 
   if (sig == SIGINT)
      LOG_STDOUT ("Caught SIGINT, shutting down ...\n");
@@ -3962,7 +3976,9 @@ static void modeS_exit (void)
      _close (Modes.fd);
 
   aircraft_exit (true);
-  interactive_exit();
+
+  if (Modes.interactive)
+     interactive_exit();
 
 #if !defined(USE_GEN_LUT)
   free (Modes.magnitude_lut);
@@ -4039,11 +4055,11 @@ static void select_tui (const char *arg)
        Modes.tui_interface = TUI_WINCON;
   else if (!stricmp(arg, "curses"))
        Modes.tui_interface = TUI_CURSES;
-  else show_help ("Unknown argument '%s' for '--tui'.\n", arg);
+  else show_help ("Unknown `--tui %s' mode.\n", arg);
 
 #if !defined(USE_CURSES)
   if (Modes.tui_interface == TUI_CURSES)
-     show_help ("I was not built with '-DUSE_CURSES'. Use `--tui wincon` or nothing.\n");
+     show_help ("I was not built with '-DUSE_CURSES'. Use `--tui wincon' or nothing.\n");
 #endif
 }
 
@@ -4312,7 +4328,7 @@ static bool parse_cmd_line (int argc, char **argv)
            slashify (Modes.web_root);
            break;
 
-      case 'a':        /* option `--tui wincon|curses` */
+      case 'a':        /* option `--tui wincon|curses' */
            select_tui (optarg);
            break;
 
