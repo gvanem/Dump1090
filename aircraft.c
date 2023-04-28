@@ -80,7 +80,7 @@ static const     aircraft_CSV *sql_lookup_entry (uint32_t addr);
   #define ADD_FUNC(func)  { false, NULL, SQLITE_DLL_NAME, #func, (void**) &p_##func }
                          /* ^ no functions are optional */
 
-  static struct dyn_struct winsql_funcs[] = {
+  static struct dyn_struct winsql_funcs [] = {
                            ADD_FUNC (sqlite3_open_v2),
                            ADD_FUNC (sqlite3_exec),
                            ADD_FUNC (sqlite3_free),
@@ -144,7 +144,7 @@ static const aircraft_CSV *aircraft_lookup (uint32_t addr, bool *from_sql)
     a = aircraft_find (addr);
     if (a)
          _a = a->SQL;
-    else _a = sql_lookup_entry (addr); /* do the `SELECT * FROM` */
+    else _a = sql_lookup_entry (addr);   /* do the `SELECT * FROM` */
   }
   if (from_sql && _a)
      *from_sql = true;
@@ -181,8 +181,8 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
 
   if (from_sql)
   {
-    /* Need to duplicate record from sqlite3_exec().
-     * free() it on `aircraft_exit(true)`.
+    /* Need to duplicate record from `sqlite3_exec()`.
+     * free it on `aircraft_exit (true)`.
      */
     a->SQL = malloc (sizeof(*a->SQL));
     if (a->SQL)
@@ -328,7 +328,7 @@ static void aircraft_test_1 (void)
 {
   const char  *country;
   unsigned     i, num_ok;
-  static const aircraft_CSV a_tests[] = {
+  static const aircraft_CSV a_tests [] = {
                { 0xAA3496, "N757FQ",  "Cessna" },
                { 0xAB34DE, "N821DA",  "Beech"  },
                { 0x800737, "VT-ANQ",  "Boeing" },
@@ -806,7 +806,7 @@ typedef struct ICAO_range {
         const char *cc_long;
       } ICAO_range;
 
-static const ICAO_range ICAO_ranges[] = {
+static const ICAO_range ICAO_ranges [] = {
     { 0x004000, 0x0043FF, "ZW", "Zimbabwe" },
     { 0x006000, 0x006FFF, "MZ", "Mozambique" },
     { 0x008000, 0x00FFFF, "ZA", "South Africa" },
@@ -1028,7 +1028,7 @@ const char *aircraft_get_country (uint32_t addr, bool get_short)
 /**
  * Returns TRUE if the ICAO address is in one of these military ranges.
  */
-static const ICAO_range military_range[] = {
+static const ICAO_range military_range [] = {
      { 0xADF7C8,  0xAFFFFF, "US" },
      { 0x010070,  0x01008F, NULL },
      { 0x0A4000,  0x0A4FFF, NULL },
@@ -1115,7 +1115,7 @@ const char *aircraft_get_military (uint32_t addr)
  */
 const char *aircraft_get_details (const uint8_t *_a)
 {
-  static char         buf[100];
+  static char         buf [100];
   const aircraft_CSV *a;
   char               *p = buf;
   size_t              sz, left = sizeof(buf);
