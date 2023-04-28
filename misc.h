@@ -129,7 +129,7 @@ typedef struct mg_str          mg_str;
 typedef struct mg_timer        mg_timer;
 typedef struct mg_iobuf        mg_iobuf;
 typedef struct mg_ws_message   mg_ws_message;
-typedef void (*msg_handler) (mg_iobuf *msg, int loop_cnt);
+typedef bool (*msg_handler) (mg_iobuf *msg, int loop_cnt);
 
 /**
  * Structure used to describe a networking client.
