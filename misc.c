@@ -61,8 +61,9 @@ void modeS_log (const char *buf)
  */
 void modeS_logc (char c, void *param)
 {
-  fputc (c, Modes.log ? Modes.log : stdout);
-  MODES_NOTUSED (param);
+  if (param)
+       fputc (c, param);      /* to 'stderr' */
+  else fputc (c, Modes.log ? Modes.log : stdout);
 }
 
 /**
@@ -87,6 +88,25 @@ void modeS_flogf (FILE *f, const char *fmt, ...)
   }
   if (Modes.log)
      modeS_log (buf);
+}
+
+/**
+ * Disable, then enable Mongoose logging based on the `Modes.debug` bits.
+ */
+void modeS_set_log (void)
+{
+  mg_log_set (0);   /* By default, disable all logging from Mongoose */
+
+  if (Modes.debug & DEBUG_MONGOOSE)
+  {
+    mg_log_set_fn (modeS_logc, NULL);
+    mg_log_set (MG_LL_DEBUG);
+  }
+  else if (Modes.debug & DEBUG_MONGOOSE2)
+  {
+    mg_log_set_fn (modeS_logc, NULL);
+    mg_log_set (MG_LL_VERBOSE);
+  }
 }
 
 /**
@@ -206,7 +226,7 @@ char *dirname (const char *fname)
   const char *p = fname;
   const char *slash = NULL;
   size_t      dirlen;
-  static char dir [MG_PATH_MAX];
+  static mg_file_path dir;
 
   if (!fname)
      return (NULL);
@@ -248,13 +268,13 @@ char *dirname (const char *fname)
 
   if (slash && *slash == ':' && dirlen == 3)
      dir[2] = '.';      /* for "x:foo" return "x:." */
-  dir[dirlen] = '\0';
+  dir [dirlen] = '\0';
   return (dir);
 }
 
 /**
  * Return a filename on Unix form:
- * All `\\` characters replaces with `/`.
+ * All `\\` characters replaced with `/`.
  */
 char *slashify (char *fname)
 {
@@ -395,6 +415,19 @@ uint64_t mg_millis (void)
   return MSEC_TIME();
 }
 #endif
+
+/**
+ * Test what an `assert(0)` does in `Release` vs. `Debug` mode.
+ */
+void test_assert (void)
+{
+#ifdef _DEBUG
+  puts ("Expecting an 'assert(0)' to be catched by us.");
+#else
+  puts ("Expecting an 'assert(0)' to be trapped by Dr. Watson.");
+#endif
+  assert (0);
+}
 
 /**
  * Return err-number and string for 'err'.
@@ -627,10 +660,6 @@ void show_version_info (bool verbose)
   exit (0);
 }
 
-/*
- * For dynamically loading functions from `WinInet.dll`.
- */
-
 /**
  * \def DEF_FUNC
  * Handy macro to both define and declare the function-pointers
@@ -677,8 +706,8 @@ int load_dynamic_table (struct dyn_struct *tab, int tab_size)
   for (i = 0; i < tab_size; tab++, i++)
   {
     const struct dyn_struct *prev = i > 0 ? (tab - 1) : NULL;
-    HINSTANCE               mod_handle;
-    FARPROC                 func_addr;
+    HINSTANCE    mod_handle;
+    FARPROC      func_addr;
 
     if (prev && !stricmp(tab->mod_name, prev->mod_name))
          mod_handle = prev->mod_handle;
@@ -875,7 +904,9 @@ quit:
  * Convert geodetic latitude to geocentric latitude;
  * angle from centre of Earth between the point and equator.
  *
- * https://en.wikipedia.org/wiki/Latitude#Geocentric_latitude
+ * \ref https://en.wikipedia.org/wiki/Latitude#Geocentric_latitude
+ *
+ * \param in lat  The geodetic latitude in radians.
  */
 static double geocentric_latitude (double lat)
 {
@@ -885,42 +916,91 @@ static double geocentric_latitude (double lat)
 }
 
 /**
+ * Try to figure out some issues with cartesian position going crazy.
+ * Ignore the `z` axis (just print level above earth).
+ */
+static void assert_cart (const cartesian_t *cpos, double heading, unsigned line)
+{
+#ifdef _DEBUG
+  if (fabs(cpos->c_x) > EARTH_RADIUS || fabs(cpos->c_y) > EARTH_RADIUS)
+  {
+    double x = cpos->c_x / 1E3;
+    double y = cpos->c_y / 1E3;
+    double z = (EARTH_RADIUS - cpos->c_z) / 1E3;
+
+    fprintf (stderr, "assertion at line %u: x=%.2f, y=%.2f, z=%.2f, heading=%.2f.\n",
+             line, x, y, z, TWO_PI * heading / 360);
+    abort();
+  }
+#else
+  MODES_NOTUSED (cpos);
+  MODES_NOTUSED (heading);
+  MODES_NOTUSED (line);
+#endif
+}
+
+/**
  * Convert spherical coordinate to cartesian.
  * Also calculates radius and a normal vector.
+ *
+ * \param in  pos   The position on the Geoid.
+ * \param out cart  The position on Cartesian form.
  */
-void spherical_to_cartesian (cartesian_t *cart, pos_t pos)
+void spherical_to_cartesian (const pos_t *pos, cartesian_t *cart)
 {
-  double lat  = TWO_PI * pos.lat / 360.0;
-  double lon  = TWO_PI * pos.lon / 360.0;
-  double clat = geocentric_latitude (lat);
+  double lat, lon, geo_lat;
+  pos_t _pos = *pos;
 
-  cart->c_x = 6371000.0 * cos (lon) * cos (clat);
-  cart->c_y = 6371000.0 * sin (lon) * cos (clat);
-  cart->c_z = 6371000.0 * sin (clat);
+  ASSERT_POS (_pos);
+  lat  = TWO_PI * _pos.lat / 360.0;
+  lon  = TWO_PI * _pos.lon / 360.0;
+  geo_lat = geocentric_latitude (lat);
+
+  cart->c_x = EARTH_RADIUS * cos (lon) * cos (geo_lat);
+  cart->c_y = EARTH_RADIUS * sin (lon) * cos (geo_lat);
+  cart->c_z = EARTH_RADIUS * sin (geo_lat);
+  assert_cart (cart, 0.0, __LINE__);
 }
 
 /**
  * \ref https://keisan.casio.com/exec/system/1359533867
  */
-void cartesian_to_spherical (pos_t *pos, cartesian_t cart)
+void cartesian_to_spherical (const cartesian_t *cart, pos_t *pos_out, double heading)
 {
-  /* We do not need this; close to earth's radius = 6371000 m.
+  pos_t pos;
+
+  assert_cart (cart, heading, __LINE__);
+
+  /* We do not need this; close to EARTH_RADIUS.
    *
-   * double radius = sqrt (cart.c_x*cart.c_x + cart.c_y*cart.c_y + cart.c_z*cart->c_z);
+   * double radius = sqrt (cart->c_x * cart->c_x + cart->c_y * cart->c_y + cart->c_z * cart->c_z);
    */
-  pos->lon = 360.0 * atan2 (cart.c_y, cart.c_x) / TWO_PI;
-  pos->lat = 360.0 * atan2 (hypot(cart.c_x, cart.c_y), cart.c_z) / TWO_PI;
+  pos.lon = 360.0 * atan2 (cart->c_y, cart->c_x) / TWO_PI;
+  pos.lat = 360.0 * atan2 (hypot(cart->c_x, cart->c_y), cart->c_z) / TWO_PI;
+
+  ASSERT_POS (pos);
+  *pos_out = pos;
 }
 
 /**
- * Return the distance between 2 cartesian points.
+ * Return the distance between 2 Cartesian points.
  */
 double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
 {
-  double delta_X = b->c_x - a->c_x;
-  double delta_Y = b->c_y - a->c_y;
+  static double old_rc = 0.0;
+  double delta_X, delta_Y, rc;
 
-  return hypot (delta_X, delta_Y);   /* sqrt (delta_X*delta_X, delta_Y*delta_Y) */
+  assert_cart (a, 0.0, __LINE__);
+  assert_cart (b, 0.0, __LINE__);
+
+  delta_X = b->c_x - a->c_x;
+  delta_Y = b->c_y - a->c_y;
+
+  rc = hypot (delta_X, delta_Y);   /* sqrt (delta_X*delta_X, delta_Y*delta_Y) */
+
+//assert (fabs(rc - old_rc) < 6000.0);  /* 6 km */
+  old_rc = rc;
+  return (rc);
 }
 
 /**
@@ -958,7 +1038,7 @@ double great_circle_dist (pos_t pos1, pos_t pos2)
 
   /* Radius of the Earth * 'arcosine of angular distance'.
    */
-  return (6371000.0 * acos(angle));
+  return (EARTH_RADIUS * acos(angle));
 }
 
 /**
@@ -1074,8 +1154,11 @@ static void set_home_distance (aircraft *a)
 
     if (distance != 0.0)
        a->distance = distance;
-    a->EST_position  = a->position;
-    a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
+
+    a->EST_position = a->position;
+
+    if (a->even_CPR_time > 0 && a->odd_CPR_time > 0)
+       a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
   }
 }
 
