@@ -406,8 +406,10 @@ R30		[7]		sw_pdect		det_cap2 input switch
 								1: for ADC readout operation
 	 	[6]		FILTER_EXT		Filter extension under weak signal
 								0: Disable, 1: Enable
-		[5:0]	PDET_CLK		Power detector timing control (LNA discharge current)
-	 							111111: max, 000000: min
+		[5]		att13_ext		channel filter extension start point
+								0: extension @ LNA max, 1: extension @ LNA max-1
+		[4:0]	PDET_CLK		Power detector timing control (LNA discharge current)
+	 							11111: max, 00000: min
 ------------------------------------------------------------------------------------
 R31		[7]		LT_ATT			Loop through attenuation
 0x1F							0: Enable, 1: Disable
@@ -1464,7 +1466,6 @@ static int r82xx_imr_callibrate(struct r82xx_priv *priv)
 
 	gettimeofday(&tv, NULL);
 	StartTime = (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;*/
-	memset(priv->reg8, 0, 16);
 
 	/* Initialize registers */
 	rc = r82xx_write(priv, 0x05, r82xx_calib_array, sizeof(r82xx_calib_array));
@@ -1474,8 +1475,6 @@ static int r82xx_imr_callibrate(struct r82xx_priv *priv)
 	if ((rc = r82xx_set_bandwidth(priv, 400000, &applied_bw, 1)) < 0) goto err;
 
 	if ((rc = r82xx_imr(priv, 1)) < 0) goto err;
-
-	priv->old_gain = 255;
 
 	/*gettimeofday(&tv, NULL);
 	EndTime = (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
@@ -1498,13 +1497,11 @@ int r82xx_init(struct r82xx_priv *priv)
 	uint8_t buf[16];
 	int offset = 0x80;
 
-	//check if calibration is already stored
-	if ((rc = rtlsdr_read_eeprom(priv->rtl_dev, buf, offset, 15)) < 0)	goto err;
-	for(i=1; i<14; i++)
-		checksum += buf[i];
-	if((buf[0] != 14) || ((checksum & 0xff) != buf[14]) || (priv->cfg->cal_imr))
+	memset(priv->reg8, 0, 16);
+	priv->old_gain = 255;
+
+	if (priv->cfg->cal_imr) // (re)calibration wanted
 	{
-		//no
  		if ((rc = r82xx_imr_callibrate(priv)) < 0) goto err;
  		checksum = 0;
  		buf[0] = 14;
@@ -1512,17 +1509,27 @@ int r82xx_init(struct r82xx_priv *priv)
 		for(i = 0; i < 13; i++)
 			checksum += priv->reg8[i];
 		buf[14] = checksum & 0xff;
+		// write calibration results to offset 0x80 in eeprom
 		if ((rc = rtlsdr_write_eeprom(priv->rtl_dev, buf, offset, 15)) < 0)
 			goto err;
 	}
- 	else
- 	{
-		//yes
-		memcpy(priv->reg8, buf+1, 13);
-		for(i = 13; i < 16; i++)
-			priv->reg8[i] = priv->reg8[12];
-		priv->old_gain = 255;
+
+	// read calibration results from offset 0x80 in eeprom
+	if(rtlsdr_read_eeprom(priv->rtl_dev, buf, offset, 15) == 15)
+	{
+		for(i=1; i<14; i++)
+			checksum += buf[i];
+		if((buf[0] == 14) && ((checksum & 0xff) == buf[14])) // checksum ok
+		{
+			memcpy(priv->reg8, buf+1, 13);
+			for(i = 13; i < 16; i++)
+				priv->reg8[i] = priv->reg8[12];
+		}
+		else
+			printf("Image rejection not calibrated yet\n");
 	}
+	else
+		printf("Reading from eeprom failed\n");
 
 	/* Initialize registers */
 	if ((rc = r82xx_write(priv, 0x05, r82xx_init_array, sizeof(r82xx_init_array))) < 0) goto err;
