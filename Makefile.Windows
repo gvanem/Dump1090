@@ -26,7 +26,7 @@ USE_CURSES ?= 1
 # Enable bundling *all* web_root pages inside dump1090.exe.
 # Also if 'USE_MINIFY = 1', compress all .css, .js and .html files first.
 #
-USE_PACKED_WEB  ?= 1
+USE_PACKED_WEB  ?= 0
 USE_MINIFY      ?= 0
 PACKED_WEB_ROOT ?= web_root-Tar1090
 
@@ -61,7 +61,7 @@ USE_ASAN ?= 0
 #
 # Compile using 'cl -MP ...'. For MSVC only.
 #
-USE_MP_COMPILE ?= 0
+USE_MP_COMPILE ?= 1
 
 #
 # Enable "Visual Leak Detector".
@@ -71,7 +71,7 @@ USE_MP_COMPILE ?= 0
 # Can be used for Release mode too.
 #
 USE_VLD  ?= 0
-VLD_ROOT ?= f:/ProgramFiler/VisualLeakDetector/src
+VLD_ROOT ?= f:/MinGW32/src/misc/VisualLeakDetector/src
 
 #
 # For my private build; use the tracing Winsock library?
@@ -132,12 +132,13 @@ ifneq ($(CC),cl)
   endif
 endif
 
-VPATH = externals         \
-        externals/rtl-sdr \
-        externals/Zip
+vpath %.c externals         \
+          externals/rtl-sdr \
+          externals/Zip
 
 CFLAGS = -nologo -Zi -W4           \
          -FI./dump1090_config.h    \
+         -fp:precise               \
          -I.                       \
          -I./externals             \
          -I./externals/rtl-sdr     \
@@ -145,7 +146,8 @@ CFLAGS = -nologo -Zi -W4           \
          -I./externals/Zip         \
          -I./$(OBJ_DIR)
 
-LDFLAGS = -nologo -map -debug -verbose -incremental:no -nodefaultlib:oldnames.lib -machine:$(CPU)
+LDFLAGS = -nologo -map -debug -verbose -incremental:no \
+          -nodefaultlib:oldnames.lib -machine:$(CPU)
 RCFLAGS = -nologo
 
 ifeq ($(USE_CRT_DEBUG),1)
@@ -163,8 +165,8 @@ else
 endif
 
 ifeq ($(USE_VLD),1)
-  CFLAGS  += -DUSE_VLD -DVLD_FORCE_ENABLE -I$(VLD_ROOT)/src
-  EX_LIBS += $(VLD_ROOT)/vld_$(CPU).lib
+  CFLAGS  += -DUSE_VLD -I$(VLD_ROOT)/src
+  EX_LIBS += $(VLD_ROOT)/vld-$(CPU).lib
 endif
 
 #
@@ -179,7 +181,7 @@ else
 endif
 
 ifeq ($(USE_ASAN),1)
-  CFLAGS += -fsanitize=address
+  CFLAGS += -fsanitize=address -DUSE_ASAN
 
   ifeq ($(CC),clang-cl)
     LDFLAGS += -inferasanlibs:no \
@@ -212,6 +214,7 @@ endif
 TARGETS = dump1090.exe
 
 SOURCES = aircraft.c           \
+          airports.c           \
           csv.c                \
           dump1090.c           \
           interactive.c        \
@@ -236,7 +239,7 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_r82xx.c)
 
 ifeq ($(USE_CURSES),1)
-  VPATH   += externals/Curses
+  vpath %.c externals/Curses
   CFLAGS  += -DUSE_CURSES -I./externals/Curses
   SOURCES += externals/Curses/amalgamation.c
   EX_LIBS += user32.lib
@@ -255,9 +258,9 @@ else
 endif
 
 ifeq ($(USE_PACKED_WEB),1)
+  CFLAGS    += -DMG_ENABLE_PACKED_FS=1 -DPACKED_WEB_ROOT=\"$(PACKED_WEB_ROOT)\"
   GENERATED += $(OBJ_DIR)/packed_webfs.c
   SOURCES   += $(OBJ_DIR)/packed_webfs.c
-  CFLAGS    += -DMG_ENABLE_PACKED_FS=1 -DPACKED_WEB_ROOT=\"$(PACKED_WEB_ROOT)\"
 
   ifeq ($(USE_MINIFY),1)
     MINIFY += --minify --no-comments
@@ -371,7 +374,7 @@ run_packed_test: packed_test.exe
 	@echo
 
 $(OBJ_DIR)/py_gen_magnitude_lut.h: tools/gen_magnitude_lut.py
-	$(call Generate, $@, //)
+	$(call generate, $@, //)
 	$(PYTHON) $< >> $@
 
 
@@ -379,7 +382,7 @@ $(OBJ_DIR)/py_gen_magnitude_lut.h: tools/gen_magnitude_lut.py
 # Not needed since 'favicon.c' is not in 'make clean'.
 #
 gen_favicons: favicon.png favicon.ico
-	$(call Generate, favicon.c, //)
+	$(call generate, favicon.c, //)
 	@echo -e '\n// Generated array from favicon.png' >> favicon.c
 	xxd -i favicon.png >> favicon.c
 	@echo -e '\n// Generated array from favicon.ico' >> favicon.c
@@ -398,7 +401,7 @@ docs_clean:
 	rm -f dump1090.chw
 
 doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
-	$(call Generate, $@, #)
+	$(call generate, $@, #)
 	$(file >> $@,$(dump1090_Doxyfile))
 
 %.i: %.c cpp-filter.py FORCE
@@ -407,12 +410,12 @@ doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 FORCE:
 
 cpp-filter.py: $(THIS_FILE)
-	$(call Generate, $@, #)
+	$(call generate, $@, #)
 	$(file >> $@,if 1:)
 	$(file >> $@,$(cpp_filter_py))
 
 check-for-unused-libraries.py: $(THIS_FILE)
-	$(call Generate, $@, #)
+	$(call generate, $@, #)
 	$(file >> $@,if 1:)
 	$(file >> $@,$(check_for_unused_libraries_py))
 
@@ -424,9 +427,10 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
                       $(TARGETS:.exe=.exp) \
                       $(TARGETS:.exe=.lib))
 
-OTHER_JUNK = link.tmp link.args vc1*.pdb cpp-filter.py \
-             json-1.txt json-2.txt json-3.txt json-4.txt \
-           # packed_webfs_1.c packed_webfs_2.c
+OTHER_JUNK = vc1*.pdb link.tmp link.args   \
+             cpp-filter.py                 \
+             check-for-unused-libraries.py \
+             json-{1,2,3,4}.txt
 
 clean: docs_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
@@ -451,11 +455,6 @@ define C_compile
   @echo
 endef
 
-#
-# .obj -> .exe macro
-# arg1, $(1): The .exe file.
-# arg2, $(2): The .obj file(s), extras and libs.
-#
 define link_EXE
   $(call green_msg, Linking $(1))
   $(call make_resp_file, link.args, $(LDFLAGS) $(2))
@@ -473,7 +472,7 @@ define Warning
   $(1)
 endef
 
-define Generate
+define generate
   $(call green_msg, Generating $(1))
   $(file > $(1),$(call Warning,$(strip $(2))))
 endef
@@ -524,12 +523,6 @@ define dump1090_Doxyfile
   CHM_FILE              = dump1090.chm
 endef
 
-ifeq ($(USE_ASTYLE),1)
-  C_FORMATER = | astyle
-else
-  C_FORMATER =
-endif
-
 #
 # clang-cl: /d1PP  Retain macro definitions in /E mode
 #
@@ -537,6 +530,12 @@ ifeq ($(CC),clang-cl)
   d1PP = -d1PP
 else
   d1PP =
+endif
+
+ifeq ($(USE_ASTYLE),1)
+  C_FORMATER = | astyle
+else
+  C_FORMATER =
 endif
 
 define C_preprocess
@@ -566,7 +565,7 @@ define cpp_filter_py
     #
     # MSVC or clang-cl 'line' directive
     #
-    if line.startswith("#line") or line.startswith("# "):
+    if line.lstrip().startswith("#line") or line.lstrip().startswith("# "):
        line = line.replace ("\\\\", "/")
 
     print (line)
@@ -637,7 +636,7 @@ define check_for_unused_libraries_py
 endef
 
 DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
-DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.$.obj: @'
+DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.obj: @'
 
 #
 # Fixed dependencies:
@@ -680,7 +679,7 @@ CURSES_SRC = $(addprefix externals/Curses/, \
 $(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
 
 depend:
-	$(call Generate, .depend.Windows, #)
+	$(call generate, .depend.Windows, #)
 	gcc $(DEP_CFLAGS) $(SOURCES) | sed $(DEP_REPLACE) >> .depend.Windows
 
 -include .depend.Windows
