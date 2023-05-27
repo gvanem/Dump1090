@@ -284,9 +284,9 @@ HideCols = [
 // planespottingAPI = true;
 
 // get flight route from routeApi service
-// useRouteAPI = false;
+   useRouteAPI = true;
 // which routeApi service to use
-// routeApiUrl = "https://api.adsb.lol/api/0/routeset";
+   routeApiUrl = "https://api.adsb.lol/api/0/routeset";
 
 // show a link to jetphotos, only works if planespottersAPI is disabled
 // jetphotoLinks = false;
