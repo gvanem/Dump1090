@@ -24,7 +24,6 @@
  */
 typedef enum airport_t {
         AIRPORT_CSV = 1,
-        AIRPORT_API_DUMMY,
         AIRPORT_API_LIVE,
         AIRPORT_API_CACHED
       } airport_t;

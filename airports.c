@@ -18,7 +18,6 @@ static void     airport_API_test (void);
 static uint32_t airports_numbers (airport_t type);
 
 static void     locale_test (void);
-static bool     flight_info_init (void);
 static void     flight_info_exit (void);
 static void     flight_info_test (void);
 static uint32_t flight_numbers (uint32_t *live_p, uint32_t *cached_p);
@@ -74,9 +73,7 @@ static void     airport_print_rec (const char *ICAO, const airport *a, size_t id
 /**
  * Add an airport record to `Modes.airport_list_CSV`.
  */
-static size_t CSV_allocated = 0;
-
-static DECLSPEC_NOINLINE int CSV_add_entry (const airport *rec)
+static int CSV_add_entry (const airport *rec)
 {
   static airport *copy = NULL;
   static airport *dest = NULL;
@@ -86,7 +83,6 @@ static DECLSPEC_NOINLINE int CSV_add_entry (const airport *rec)
   {
     copy   = dest = malloc (ONE_MEGABYTE);
     hi_end = copy + (ONE_MEGABYTE / sizeof(*rec));
-    CSV_allocated = ONE_MEGABYTE;
   }
   else if (dest == hi_end - 1)
   {
@@ -95,7 +91,6 @@ static DECLSPEC_NOINLINE int CSV_add_entry (const airport *rec)
     copy   = realloc (Modes.airport_list_CSV, sizeof(*rec) * new_num);
     dest   = copy + Modes.airport_num_CSV;
     hi_end = copy + new_num;
-    CSV_allocated = sizeof(*rec) * new_num;
   }
 
   if (!copy)
@@ -217,8 +212,6 @@ static const char *airport_t_str (airport_t type)
 
   if (type == AIRPORT_CSV)
      return ("CSV");
-  if (type == AIRPORT_API_DUMMY)
-     return ("DUMMY");
   if (type == AIRPORT_API_LIVE)
      return ("LIVE");
   if (type == AIRPORT_API_CACHED)
@@ -249,7 +242,7 @@ static bool airports_init_CSV (void)
     return (false);
   }
 
-  TRACE ("Parsed %u records in %.3f msec from: \"%s\"\n",
+  TRACE ("Parsed %u records in %.3f msec from: \"%s\"",
           Modes.airport_num_CSV, (get_usec_now() - start_t) /1E3, Modes.airport_db);
 
   if (Modes.airport_num_CSV > 0)
@@ -266,16 +259,19 @@ static bool airports_init_CSV (void)
     }
   }
 
-  if (Modes.tests > 0)
+  if (Modes.tests >= 1)
   {
-    if (Modes.airport_num_CSV > 0)
+    if (Modes.tests >= 2 && Modes.airport_num_CSV > 0)
     {
       AIRPORT_PRINT_HEADER (false);
       for (i = 0, a = Modes.airports; a; a = a->next, i++)
           airport_print_rec (a->ICAO, a, i, 0.0);
     }
-    locale_test();
-    airport_CSV_test();
+    if (Modes.tests >= 2)
+    {
+      locale_test();
+      airport_CSV_test();
+    }
     airport_API_test();
     flight_info_test();
     return (false);    /* Just force an exit */
@@ -319,16 +315,14 @@ uint32_t airports_numbers_CSV (void)
  */
 uint32_t airports_numbers_API (void)
 {
-  return (airports_numbers (AIRPORT_API_LIVE) +
+  return (airports_numbers(AIRPORT_API_LIVE) +
           airports_numbers(AIRPORT_API_CACHED));
 }
 
-
 static int API_callback (struct CSV_context *ctx, const char *value)
 {
-  MODES_NOTUSED (ctx);
-  MODES_NOTUSED (value);
-  return (0);
+  TRACE ("rec_num: %u, field_mum: %u, value: %s", ctx->rec_num, ctx->field_num, value);
+  return (1);
 }
 
 
@@ -347,9 +341,6 @@ static int API_compare_on_dest_airport (const void *_a, const void *_b)
  */
 static bool airports_init_API (void)
 {
-  if (!flight_info_init()) /* No mem is really bad for the API */
-     return (false);
-
   double       start_t = get_usec_now();
   uint32_t     num;
   mg_file_path fcache;
@@ -364,12 +355,21 @@ static bool airports_init_API (void)
     return (false);
   }
 
+#if 0
+  if (load_dynamic_table(wininet_funcs, DIM(wininet_funcs)) != DIM(wininet_funcs))
+  {
+    LOG_STDERR ("Failed to load WinInet.\n");
+    unload_dynamic_table (wininet_funcs, DIM(wininet_funcs));
+    return (false);
+  }
+#endif
+
   snprintf (fcache, sizeof(fcache), "%s\\%s", tmp, AIRPORT_DATABASE_CACHE);
   if (stat(fcache, &st) != 0)
   {
     LOG_STDERR ("\nCache '%s' does not exists; creating it.\n", fcache);
     f = fopen (fcache, "w+t");
-    fputs ("# API cache...\n", f);
+    fputs ("#departure,destination,timestamp\n", f);
     fclose (f);
     exists = false;  /* avoid parsing an empty .csv-file */
     return (true);
@@ -388,7 +388,7 @@ static bool airports_init_API (void)
   }
 
   num = airports_numbers (AIRPORT_API_CACHED);
-  TRACE ("Parsed %u records in %.3f msec from: \"%s\"\n",
+  TRACE ("Parsed %u records in %.3f msec from: \"%s\"",
          num, (get_usec_now() - start_t) /1E3, fcache);
 
   if (num > 0)
@@ -401,28 +401,8 @@ bool airports_init (void)
 {
   assert (Modes.airports == NULL);
 
-#if 0
-  airport *a;
-
-  /* Create this dummy record only once
-   */
-  a = calloc (sizeof(*a), 1);
-  if (!a)
-     return (false);
-
-  strncpy (a->ICAO, "DUMMY", sizeof(a->ICAO)-1);
-  strncpy (a->IATA, "DUMMY", sizeof(a->IATA)-1);
-  strncpy (a->full_name, "DUMMY", sizeof(a->full_name)-1);
-  a->type = AIRPORT_API_DUMMY;
-
-  Modes.airports = a;
-#endif
-
   if (Modes.tests > 0)
-  {
-    Modes.debug |= DEBUG_GENERAL;
- // setlocale (LC_ALL, "C");
-  }
+     Modes.debug |= DEBUG_GENERAL;
 
   return (airports_init_CSV() &&
           airports_init_freq_CSV() &&
@@ -434,33 +414,32 @@ bool airports_init (void)
  * \todo
  * Close down the WinInet API and rewrite the API file-cache.
  */
-static DECLSPEC_NOINLINE void airports_exit_API (bool free_airports)
+static void airports_exit_API (bool free_airports)
 {
-//unload_dynamic_table (wininet_funcs, DIM(wininet_funcs));
+  airport *a, *a_next;
+
+#if 0
+  unload_dynamic_table (wininet_funcs, DIM(wininet_funcs));
+#endif
 
   if (!free_airports)
      return;
 
-  airport *a = Modes.airports;
-  airport *a_next;
-
-  while (a)
+  for (a = Modes.airports; a; a = a_next)
   {
     a_next = a->next;
     LIST_DELETE (airport, &Modes.airports, a);
-    free (a);
-    a = a_next;
   }
+  Modes.airports = NULL;
 }
 
 void airports_exit (bool free_airports)
 {
+  TRACE ("%5u CSV records in list", airports_numbers_CSV());
+  TRACE ("%5u API records in list", airports_numbers_API());
+
   airports_exit_API (free_airports);
   flight_info_exit();
-
-  TRACE ("%5u CSV records in list.\n", airports_numbers_CSV());
-  TRACE ("%5u API records in list.\n", airports_numbers_API());
-  TRACE ("CSV_allocated: %zu bytes. sizeof(airport): %zu\n", CSV_allocated, sizeof(airport));
 
   if (Modes.airport_list_CSV)
      free (Modes.airport_list_CSV);
@@ -477,7 +456,7 @@ static void airport_print_header (unsigned line, bool use_usec)
 
   printf ("line: %u:\n"
           "  Rec  ICAO       IATA       cont  location                full_name                                                   lat       lon  %s\n"
-          "---------------------------------------------------------------------------------------------------------------------------------------------\n",
+          "-----------------------------------------------------------------------------------------------------------------------------------------------\n",
           line, use_usec ? "usec" : "hit-rate");
 }
 
@@ -497,9 +476,8 @@ static void airport_print_rec (const char *ICAO, const airport *a, size_t idx, d
   if (val > 0.0)
      snprintf (usec_buf, sizeof(usec_buf), usec_fmt, val);
 
-  printf ("%5zu  '%-8.8s' '%-8.8s' '%2.2s'  '%-20.20s'  '%-50.50s'  %9.3f %9.3f  %s, next: %p\n",
-          idx, ICAO, IATA, continent, location, full_name, pos->lat, pos->lon, usec_buf, a->next);
-  fflush (stdout);
+  printf ("%5zu  '%-8.8s' '%-8.8s' '%2.2s'  '%-20.20s'  '%-50.50s'  %9.3f %9.3f  %s\n",
+          idx, ICAO, IATA, continent, location, full_name, pos->lat, pos->lon, usec_buf);
 }
 
 #if defined(__clang__)
@@ -639,24 +617,6 @@ static void locale_test (void)
  */
 static flight_info *g_flight_info = NULL;
 
-static bool flight_info_init (void)
-{
-  flight_info *head;
-
-  /* Create this dummy record only once
-   */
-  assert (g_flight_info == NULL);
-  head = calloc (sizeof(*head), 1);
-  if (!head)
-     return (false);
-
-  strncpy (head->callsign, "DUMMY", sizeof(head->callsign)-1);
-  head->type    = AIRPORT_API_DUMMY;
-  head->created = MSEC_TIME();
-  g_flight_info = head;
-  return (true);
-}
-
 static flight_info *flight_info_create (const char *callsign, airport_t type)
 {
   flight_info *f = calloc (sizeof(*f), 1);
@@ -726,15 +686,12 @@ static uint32_t flight_numbers (uint32_t *live_p, uint32_t *cached_p)
 
   for (f = g_flight_info; f; f = f->next, num++)
   {
-    if (num == 0)
-       assert (f->type == AIRPORT_API_DUMMY);
-
     if (f->type == AIRPORT_API_LIVE)
        live++;
     else if (f->type == AIRPORT_API_CACHED)
        cached++;
     else
-       TRACE ("Unknown f->type: %d for record %u\n", f->type, num);
+       TRACE ("Unknown f->type: %d for record %u", f->type, num);
   }
 
   if (live_p)
