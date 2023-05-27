@@ -506,7 +506,7 @@ static int extract_callback (const char *file, void *arg)
 {
   const char *tmp_file = arg;
 
-  TRACE ("Copying extracted file '%s' to '%s'\n", file, tmp_file);
+  TRACE ("Copying extracted file '%s' to '%s'", file, tmp_file);
   if (!CopyFileA (file, tmp_file, FALSE))
      LOG_STDERR ("CopyFileA (\"%s\", \"%s\") failed: %s\n", file, tmp_file, win_strerror(GetLastError()));
   return (0);
@@ -707,14 +707,14 @@ bool aircraft_CSV_load (void)
         /**
          * \todo If `st_sql.st_mtime + slack_seconds < csv_st.st_mtime`, call `sql_create()`?
          */
-        TRACE ("'%s' is %d days older than the CSV-file.\n", Modes.aircraft_sql, diff_days);
+        TRACE ("'%s' is %d days older than the CSV-file", Modes.aircraft_sql, diff_days);
         usec = get_usec_now();
         sql_opened = sql_open();
         sql_load_t = get_usec_now() - usec;
       }
       else
       {
-        TRACE ("Aircraft Sqlite database \"%s\" does not exist.\n"
+        TRACE ("Aircraft Sqlite database \"%s\" does not exist"
                "Creating new from \"%s\".\n", Modes.aircraft_sql, Modes.aircraft_db);
         sql_created = sql_create();
         if (sql_created)
@@ -743,7 +743,7 @@ bool aircraft_CSV_load (void)
       return (false);
     }
 
-    TRACE ("Parsed %u records from: \"%s\"\n", Modes.aircraft_num_CSV, Modes.aircraft_db);
+    TRACE ("Parsed %u records from: \"%s\"", Modes.aircraft_num_CSV, Modes.aircraft_db);
 
     if (Modes.aircraft_num_CSV > 0)
     {
@@ -776,10 +776,10 @@ bool aircraft_CSV_load (void)
 
   if (Modes.tests > 0)
   {
-    TRACE ("CSV loaded and parsed in %.3f ms.\n", csv_load_t/1E3);
+    TRACE ("CSV loaded and parsed in %.3f ms", csv_load_t/1E3);
     if (sql_create_t > 0.0)
-         TRACE ("SQL created in %.3f ms.\n", sql_create_t/1E3);
-    else TRACE ("SQL loaded in %.3f ms.\n", sql_load_t/1E3);
+         TRACE ("SQL created in %.3f ms", sql_create_t/1E3);
+    else TRACE ("SQL loaded in %.3f ms", sql_load_t/1E3);
 
     aircraft_test_1();
     aircraft_test_2();
@@ -1170,7 +1170,7 @@ static const aircraft_CSV *sql_lookup_entry (uint32_t addr)
 
   if (rc != SQLITE_OK)
   {
-    TRACE ("SQL error: rc: %d, %s\n", rc, err_msg);
+    TRACE ("SQL error: rc: %d, %s", rc, err_msg);
     sqlite3_free (err_msg);
     if (rc == SQLITE_MISUSE)
        aircraft_exit (false);
@@ -1191,7 +1191,7 @@ static bool sql_init (const char *what, int flags)
 #ifdef USE_WIN_SQLITE
     if (load_dynamic_table(winsql_funcs, DIM(winsql_funcs)) != DIM(winsql_funcs))
     {
-      TRACE ("Failed to load the needed '%s' functions.\n", SQLITE_DLL_NAME);
+      TRACE ("Failed to load the needed '%s' functions", SQLITE_DLL_NAME);
       return (false);
     }
 #endif
@@ -1204,7 +1204,7 @@ static bool sql_init (const char *what, int flags)
   rc = sqlite3_open_v2 (Modes.aircraft_sql, &Modes.sql_db, flags, NULL);
   if (rc != SQLITE_OK)
   {
-    TRACE ("Can't %s database: rc: %d, %s\n", what, rc, sqlite3_errmsg(Modes.sql_db));
+    TRACE ("Can't %s database: rc: %d, %s", what, rc, sqlite3_errmsg(Modes.sql_db));
     aircraft_exit (false);
     return (false);
   }
@@ -1242,7 +1242,7 @@ static bool sql_create (void)
 
   if (rc != SQLITE_OK)
   {
-    TRACE ("rc: %d, %s\n", rc, err_msg);
+    TRACE ("rc: %d, %s", rc, err_msg);
     sqlite3_free (err_msg);
     aircraft_exit (false);
     return (false);
@@ -1262,7 +1262,7 @@ static bool sql_begin (void)
 
   if (rc != SQLITE_OK)
   {
-    TRACE ("rc: %d, %s\n", rc, err_msg);
+    TRACE ("rc: %d, %s", rc, err_msg);
     sqlite3_free (err_msg);
   }
   return (rc == SQLITE_OK);
@@ -1275,7 +1275,7 @@ static bool sql_end (void)
 
   if (rc != SQLITE_OK)
   {
-    TRACE ("rc: %d, %s\n", rc, err_msg);
+    TRACE ("rc: %d, %s", rc, err_msg);
     sqlite3_free (err_msg);
   }
   return (rc == SQLITE_OK);
@@ -1321,7 +1321,7 @@ static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec)
 
   if (rc != SQLITE_OK)
   {
-    TRACE ("\nError at record %u: rc:%d, err_msg: %s\nvalues: '%s'\n", num, rc, err_msg, values);
+    TRACE ("\nError at record %u: rc:%d, err_msg: %s\nvalues: '%s'", num, rc, err_msg, values);
     sqlite3_free (err_msg);
     return (false);
   }
@@ -1330,7 +1330,7 @@ static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec)
 
 static void sql_log (void *cb_arg, int err, const char *str)
 {
-  TRACE ("err: %d, %s\n", err, str);
+  TRACE ("err: %d, %s", err, str);
   (void) cb_arg;
 }
 
