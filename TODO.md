@@ -19,6 +19,8 @@
   functions.
 * Support SQLite3. Use this for storing the `aircraftDatabase.csv` into. :heavy_check_mark: *Done* <br>
   Add a build-time option to use `WinSqlite3.dll` as part of Win-10.     :heavy_check_mark: *Done* <br>
+* Switch from `getopt_long()` to `yopt_init()` + `yopt_next()`:
+  https://g.blicky.net/ylib.git/plain/yopt.h
 * Reception and decoding of ACARS (Aircraft Communications Addressing and Reporting System)
   using:
    1) libacars - `https://github.com/szpajder/libacars.git`
