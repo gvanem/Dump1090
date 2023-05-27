@@ -144,6 +144,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="aircraft.c" />
+    <ClCompile Include="airports.c" />
     <ClCompile Include="dump1090.c" />
     <ClCompile Include="csv.c" />
     <ClCompile Include="interactive.c" />
@@ -164,6 +165,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="aircraft.h" />
+    <ClInclude Include="airports.h" />
     <ClInclude Include="csv.h" />
     <ClInclude Include="interactive.h" />
     <ClInclude Include="location.h" />
