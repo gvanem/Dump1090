@@ -10,6 +10,7 @@
 
 #include "interactive.h"
 #include "aircraft.h"
+#include "airports.h"
 #include "sdrplay.h"
 #include "misc.h"
 
@@ -42,8 +43,8 @@ typedef struct API_funcs {
         int  (*clr_eol) (void);
         int  (*gotoxy) (int y, int x);
         int  (*refresh) (int y, int x);
-        int  (*print) (int y, int x, const char *str);
-        void (*print_header) (int count);
+        int  (*print_line) (int y, int x, const char *str);
+        void (*print_header) (void);
       } API_funcs;
 
 static int  wincon_init (void);
@@ -53,21 +54,23 @@ static int  wincon_gotoxy (int y, int x);
 static int  wincon_clreol (void);
 static int  wincon_clrscr (void);
 static int  wincon_refresh (int y, int x);
-static int  wincon_print (int y, int x, const char *str);
-static void wincon_print_header (int count);
+static int  wincon_print_line (int y, int x, const char *str);
+static void wincon_print_header (void);
 
 static CONSOLE_SCREEN_BUFFER_INFO  console_info;
 static HANDLE                      console_hnd = INVALID_HANDLE_VALUE;
 static DWORD                       console_mode = 0;
-static int                         alternate_colours = 1;
 static colour_mapping              colour_map [COLOUR_MAX];
 
 #if defined(USE_CURSES)
   static int  curses_init (void);
   static void curses_exit (void);
   static void curses_set_colour (enum colours colour);
-  static void curses_print_header (int count);
+  static void curses_print_header (void);
   static int  curses_refresh (int y, int x);
+
+  static WINDOW *stats_win  = NULL;
+  static WINDOW *flight_win = NULL;
 
   static API_funcs curses_api = {
          .init         = curses_init,
@@ -77,7 +80,7 @@ static colour_mapping              colour_map [COLOUR_MAX];
          .clr_eol      = clrtoeol,
          .gotoxy       = move,
          .refresh      = curses_refresh,
-         .print        = mvaddstr,
+         .print_line   = mvaddstr,
          .print_header = curses_print_header
         };
 #endif
@@ -90,29 +93,45 @@ static API_funcs wincon_api = {
        .clr_eol      = wincon_clreol,
        .gotoxy       = wincon_gotoxy,
        .refresh      = wincon_refresh,
-       .print        = wincon_print,
+       .print_line   = wincon_print_line,
        .print_header = wincon_print_header,
      };
 
 /*
  * List of API function for the TUI (text user interface).
- * Set to 'api = &curses_api' when 'Modes.tui_interface == TUI_CURSES'
  */
-static API_funcs *api = &wincon_api;
+static API_funcs *api = NULL;
 
+/**
+ * Do some `assert()` checks first and if Curses interface was
+ * selected, set `api = &curses_api`.
+ * Otherwise set `api = &wincon_api`.
+ */
 bool interactive_init (void)
 {
+  aircraft a;
+
+  assert ((DIM(a.sig_levels) & -(int)DIM(a.sig_levels)) == DIM(a.sig_levels));
+
+  assert (api == NULL);
+
 #ifdef USE_CURSES
   if (Modes.tui_interface == TUI_CURSES)
      api = &curses_api;
+  else
 #endif
+     api = &wincon_api;
+
+  airports_init();
+
   return ((*api->init)() == 0);
 }
 
 void interactive_exit (void)
 {
-  if (api)
-    (*api->exit)();
+  assert (api != NULL);
+
+  (*api->exit)();
   api = NULL;
 }
 
@@ -132,7 +151,7 @@ static void set_est_home_distance (aircraft *a, uint64_t now)
 {
   double      heading, distance, gc_distance, cart_distance;
   double      delta_X, delta_Y;
-  cartesian_t cpos;
+  cartesian_t cpos = { 0.0, 0.0, 0.0 };
 
   if (!Modes.home_pos_ok || a->speed == 0 || !a->heading_is_valid)
      return;
@@ -140,7 +159,9 @@ static void set_est_home_distance (aircraft *a, uint64_t now)
   if (!VALID_POS(a->EST_position) || a->EST_seen_last < a->seen_last)
      return;
 
-  spherical_to_cartesian (&cpos, a->EST_position);
+  ASSERT_POS (a->EST_position);
+
+  spherical_to_cartesian (&a->EST_position, &cpos);
 
   /* Ensure heading is in range '[-Phi .. +Phi]'
    */
@@ -160,7 +181,8 @@ static void set_est_home_distance (aircraft *a, uint64_t now)
   cpos.c_x += delta_X;
   cpos.c_y += delta_Y;
 
-  cartesian_to_spherical (&a->EST_position, cpos);
+  cartesian_to_spherical (&cpos, &a->EST_position, heading);
+  ASSERT_POS (a->EST_position);
 
   gc_distance     = great_circle_dist (a->EST_position, Modes.home_pos);
   cart_distance   = cartesian_distance (&cpos, &Modes.home_pos_cart);
@@ -178,42 +200,38 @@ static void set_est_home_distance (aircraft *a, uint64_t now)
  * If `Modes.metric == true`, return it in kilo-meters. <br>
  * Otherwise Nautical Miles.
  */
-static const char *get_home_distance (const aircraft *a, const char **km_nm)
+static void get_home_distance (aircraft *a, const char **km_nmiles)
 {
-  static char buf [20];
   double divisor = Modes.metric ? 1000.0 : 1852.0;
 
-  if (km_nm)
-     *km_nm = Modes.metric ? "km" : "Nm";
+  if (km_nmiles)
+     *km_nmiles = Modes.metric ? "km" : "Nm";
 
-  if (a->distance <= SMALL_VAL)
-     return (NULL);
-
-  snprintf (buf, sizeof(buf), "%.1lf", a->distance / divisor);
-  return (buf);
+  if (a->distance > SMALL_VAL)
+       snprintf (a->distance_buf, sizeof(a->distance_buf), "%.1lf", a->distance / divisor);
+  else a->distance_buf[0] = '\0';
 }
 
 /**
  * As for `get_home_distance()`, but return the estimated distance.
  */
-static const char *get_est_home_distance (const aircraft *a, const char **km_nm)
+static void get_est_home_distance (aircraft *a, const char **km_nmiles)
 {
-  static char buf [20];
   double divisor = Modes.metric ? 1000.0 : 1852.0;
 
-  if (km_nm)
-     *km_nm = Modes.metric ? "km" : "Nm";
+  if (km_nmiles)
+     *km_nmiles = Modes.metric ? "km" : "Nm";
 
-  if (a->EST_distance <= SMALL_VAL)
-     return (NULL);
-
-  snprintf (buf, sizeof(buf), "%.1lf", a->EST_distance / divisor);
-  return (buf);
+  if (a->EST_distance > SMALL_VAL)
+       snprintf (a->EST_distance_buf, sizeof(a->EST_distance_buf), "%.1lf", a->EST_distance / divisor);
+  else a->EST_distance_buf[0] = '\0';
 }
 
 /*
  * Called every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`) while
  * in interactive mode to update the Console Windows Title.
+ *
+ * Called from `background_tasks()` in the main thread.
  */
 void interactive_title_stats (void)
 {
@@ -258,6 +276,38 @@ void interactive_title_stats (void)
   last_bad_CRC  = bad_CRC;
 
   SetConsoleTitleA (buf);
+}
+
+/*
+ * Also called from `background_tasks()` in the main thread.
+ * But this function does nothing when `USE_CURSES` is not defined.
+ */
+void interactive_other_stats (void)
+{
+  if (Modes.tui_interface != TUI_CURSES)    /* this needs PDCurses; get out */
+     return;
+
+#if defined(USE_CURSES)
+  if (stats_win)
+  {
+    /**\todo
+     * Fill the `stats_win' with some handy accumulated statistics.
+     * Like number of unique planes, CSV/SQL-lookups and cache hits,
+     * Number of network clients, bytes etc.
+     */
+    mvwprintw (stats_win, 20, 0, "HTTP GET:   %llu", Modes.stat.HTTP_get_requests);
+    mvwprintw (stats_win, 21, 0, "HTTP bytes: %llu/%llu",
+                      Modes.stat.bytes_sent[MODES_NET_SERVICE_HTTP],
+                      Modes.stat.bytes_recv[MODES_NET_SERVICE_HTTP]);
+  }
+
+  /* Refresh the sub-window for flight-information.
+   */
+  if (flight_win && Modes.airport_show)
+  {
+    // \todo
+  }
+#endif
 }
 
 static int gain_increase (int gain_idx)
@@ -369,25 +419,23 @@ void interactive_update_gain (void)
  * \param in a    the aircraft to show.
  * \param in now  the currect tick-timer in milli-seconds.
  */
-static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
+static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
 {
-  int   altitude           = a->altitude;
-  int   speed              = a->speed;
-  char  alt_buf [10]       = "  - ";
-  char  lat_buf [10]       = "   - ";
-  char  lon_buf [10]       = "    - ";
-  char  speed_buf [8]      = " - ";
-  char  heading_buf [8]    = " - ";
-  char  distance_buf [10]  = " - ";
-  char  RSSI_buf [7]       = " - ";
+  int   altitude          = a->altitude;
+  int   speed             = a->speed;
+  char  alt_buf [10]      = "  - ";
+  char  lat_buf [10]      = "   - ";
+  char  lon_buf [10]      = "    - ";
+  char  speed_buf [8]     = " - ";
+  char  heading_buf [8]   = " - ";
+  char  distance_buf [10] = " - ";
+  char  RSSI_buf [7]      = " - ";
   char  line_buf [120];
-  bool  restore_colour     = false;
-  const char *reg_num      = "";
-  const char *call_sign    = "";
-  const char *flight       = "";
-  const char *distance     = NULL;
-  const char *est_distance = NULL;
-  const char *km_nm = NULL;
+  bool  restore_colour    = false;
+  const char *reg_num     = "";
+  const char *call_sign   = "";
+  const char *flight      = "";
+  const char *km_nmiles   = NULL;
   const char *cc_short;
   double  sig_avg = 0;
   int64_t ms_diff;
@@ -426,10 +474,10 @@ static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
 
   if (Modes.home_pos_ok)
   {
-    distance     = get_home_distance (a, &km_nm);
-    est_distance = get_est_home_distance (a, &km_nm);
-    if (est_distance)
-       snprintf (distance_buf, sizeof(distance_buf), "%s", est_distance);
+    get_home_distance (a, &km_nmiles);
+    get_est_home_distance (a, &km_nmiles);
+    if (a->EST_distance_buf[0])
+       strncpy (distance_buf, a->EST_distance_buf, sizeof(distance_buf)-1);
   }
 
   if (a->SQL)
@@ -466,8 +514,8 @@ static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
     LOG_FILEONLY ("plane '%06X' leaving. Active for %.1lf sec. Altitude: %s m, Distance: %s/%s %s.\n",
                   a->addr, (double)(now - a->seen_first) / 1000.0,
                   alt_buf2,
-                  distance     ? distance     : "-",
-                  est_distance ? est_distance : "-", km_nm);
+                  a->distance_buf[0]     ? a->distance_buf     : "-",
+                  a->EST_distance_buf[0] ? a->EST_distance_buf : "-", km_nmiles);
   }
 
   ms_diff = (now - a->seen_last);
@@ -479,17 +527,14 @@ static bool interactive_show_aircraft (const aircraft *a, int row, uint64_t now)
      cc_short = "--";
 
   snprintf (line_buf, sizeof(line_buf),
-            "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s   %-5s %6s  %5s %5u  %2llu sec ",
+            "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec ",
             a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
             distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
 
-  (*api->print) (row, 0, line_buf);
+  (*api->print_line) (row, 0, line_buf);
 
   if (restore_colour)
      (*api->set_colour) (0);
-
-  (void) row;
-  return (!restore_colour);
 }
 
 /**
@@ -502,16 +547,26 @@ void interactive_show_data (uint64_t now)
   int        row = 2, count = 0;
   aircraft  *a = Modes.aircrafts;
 
-  (*api->print_header) (old_count);
+  /*
+   * Unless debug or raw-mode is active, clear the screen to remove old info.
+   * But only if current number of aircrafts is less than last time. This is to
+   * avoid an annoying blinking of the console.
+   */
+  if (Modes.debug == 0)
+  {
+    if (old_count == -1 || aircraft_numbers() < old_count)
+      (*api->clr_scr)();
+    (*api->gotoxy) (0, 0);
+  }
+
+  (*api->print_header)();
 
   while (a && count < Modes.interactive_rows && !Modes.exit)
   {
-    bool colour_changed = false;
-
     if (a->show != A_SHOW_NONE)
     {
       set_est_home_distance (a, now);
-      colour_changed = interactive_show_aircraft (a, row, now);
+      interactive_show_aircraft (a, row, now);
       row++;
     }
 
@@ -524,16 +579,6 @@ void interactive_show_data (uint64_t now)
 
     a = a->next;
     count++;
-
-#if 0
-    if (colour_changed || alternate_colours)
-    {
-      (*api->set_colour) (COLOUR_YELLOW);
-      alternate_colours ^= 1;
-    }
-#else
-    (void) colour_changed;
-#endif
   }
 
   (*api->refresh) (row, 0);
@@ -562,10 +607,6 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
 
   a->seen_last = now;
   a->messages++;
-
-  /* Ensure number of elements is 2^n.
-   */
-  assert ((DIM(a->sig_levels) & -(int)DIM(a->sig_levels)) == DIM(a->sig_levels));
 
   a->sig_levels [a->sig_idx++] = mm->sig_level;
   a->sig_idx &= DIM(a->sig_levels) - 1;
@@ -664,10 +705,10 @@ static int wincon_init (void)
   api = &wincon_api;
 
   colour_map [COLOUR_DEFAULT].attrib = console_info.wAttributes;              /* default colour */
-  colour_map [COLOUR_WHITE  ].attrib = (console_info.wAttributes & ~7) | 15;  /* bright white;  FOREGROUND_INTENSITY + 7 */
-  colour_map [COLOUR_GREEN  ].attrib = (console_info.wAttributes & ~7) | 10;  /* bright green;  FOREGROUND_INTENSITY + 2 */
-  colour_map [COLOUR_RED    ].attrib = (console_info.wAttributes & ~7) | 12;  /* bright red;    FOREGROUND_INTENSITY + 4 */
-  colour_map [COLOUR_YELLOW ].attrib = (console_info.wAttributes & ~7) | 14;  /* bright yellow; FOREGROUND_INTENSITY + 6 */
+  colour_map [COLOUR_WHITE  ].attrib = (console_info.wAttributes & ~7) | 15;  /* bright white */
+  colour_map [COLOUR_GREEN  ].attrib = (console_info.wAttributes & ~7) | 10;  /* bright green */
+  colour_map [COLOUR_RED    ].attrib = (console_info.wAttributes & ~7) | 12;  /* bright red */
+  colour_map [COLOUR_YELLOW ].attrib = (console_info.wAttributes & ~7) | 14;  /* bright yellow */
   return (0);
 }
 
@@ -714,6 +755,7 @@ static int wincon_clrscr (void)
  */
 static int wincon_clreol (void)
 {
+#if 0
   if (console_hnd != INVALID_HANDLE_VALUE)
   {
     WORD   width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
@@ -724,6 +766,7 @@ static int wincon_clreol (void)
     filler [width-1] = '\0';
     fputs (filler, stdout);
   }
+#endif
   return (0);
 }
 
@@ -743,37 +786,44 @@ static int wincon_refresh (int y, int x)
   return (0);
 }
 
-static int wincon_print (int y, int x, const char *str)
+static int wincon_print_line (int y, int x, const char *str)
 {
+#if 1
+  puts (str);
+#else
+  WriteConsoleA (console_hnd, str, strlen(str), NULL, NULL);
+#endif
+
   (void) x; /* Cursor already set */
   (void) y;
-  puts (str);
   return (0);
 }
 
 static int  spin_idx = 0;
 static char spinner[] = "|/-\\";
 
-#define HEADER  "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg     Dist   RSSI   Msg  Seen %c"
+#define HEADER  "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
 
-static void wincon_print_header (int count)
+static void wincon_print_header (void)
 {
-  /*
-   * Unless debug or raw-mode is active, clear the screen to remove old info.
-   * But only if current number of aircrafts is less than last time. This is to
-   * avoid an annoying blinking of the console.
-   */
-  if (Modes.debug == 0)
-  {
-    if (count == -1 || aircraft_numbers() < count)
-       (*api->clr_scr)();
-    (*api->gotoxy) (0, 0);
-  }
-
   (*api->set_colour) (COLOUR_WHITE);
   printf (HEADER "\n", spinner[spin_idx & 3]);
   (*api->set_colour) (0);
+
+#if 1
   puts ("-----------------------------------------------------------------------------------------------------");
+#else
+  WORD  width = strlen(HEADER) - 1;
+  WORD  attr = console_info.wAttributes | COMMON_LVB_GRID_HORIZONTAL;
+  DWORD written;
+  COORD coord = { .X = console_info.srWindow.Left,
+                  .Y = console_info.srWindow.Top + 2
+                };
+
+  attr |= 15;  /* bright white */
+  FillConsoleOutputAttribute (console_hnd, attr, width, coord, &written);
+#endif
+
   spin_idx++;
 }
 
@@ -788,16 +838,17 @@ static int curses_init (void)
   if (Modes.interactive_rows == 0)
      return (-1);
 
-  start_color();
-  use_default_colors();
+  if (has_colors())
+     start_color();
 
+  use_default_colors();
   if (!can_change_color())
      return (-1);
 
-  init_pair (COLOUR_WHITE, COLOR_WHITE, COLOR_BLUE);
-  init_pair (2, COLOR_GREEN, COLOR_BLUE);
-  init_pair (3, COLOR_RED, COLOR_BLUE);
-  init_pair (4, COLOR_YELLOW, COLOR_GREEN);
+  init_pair (COLOUR_WHITE,  COLOR_WHITE, COLOR_BLUE);
+  init_pair (COLOUR_GREEN,  COLOR_GREEN, COLOR_BLUE);
+  init_pair (COLOUR_RED,    COLOR_RED, COLOR_BLUE);
+  init_pair (COLOUR_YELLOW, COLOR_YELLOW, COLOR_GREEN);
 
   colour_map [COLOUR_DEFAULT].pair = 0;  colour_map [COLOUR_DEFAULT].attrib = A_NORMAL;
   colour_map [COLOUR_WHITE  ].pair = 1;  colour_map [COLOUR_WHITE  ].attrib = A_BOLD;
@@ -806,17 +857,34 @@ static int curses_init (void)
   colour_map [COLOUR_YELLOW ].pair = 4;  colour_map [COLOUR_YELLOW ].attrib = A_NORMAL;
 
   noecho();
+  curs_set (0);
   mousemask (0, NULL);
   clear();
   refresh();
+
+  stats_win = subwin (stdscr, 4, COLS, 0, 0);
+  wattron (stats_win, A_REVERSE);
+  LOG_FILEONLY ("stats_win: %p, SP->lines: %u, SP->cols: %u\n", stats_win, SP->lines, SP->cols);
+
+#if 0 // \todo
+  flight_win = subwin (stdscr, 4, COLS, 0, 0);
+  wattron (flight_win, A_REVERSE);
+  LOG_FILEONLY ("flight_win: %p, SP->lines: %u, SP->cols: %u\n", flight_win, SP->lines, SP->cols);
+#endif
+
+  slk_init (1);
+  slk_set (1, "Help", 0);
+  slk_set (2, "Quit", 0);
+  slk_attron (A_REVERSE);
+
   return (0);
 }
 
 static void curses_exit (void)
 {
+  delwin (stats_win);
   endwin();
-  delscreen (SP);
-  SP = NULL;
+  delscreen (SP);  /* PDCurses does not free this memory */
 }
 
 static void curses_set_colour (enum colours colour)
@@ -836,28 +904,21 @@ static void curses_set_colour (enum colours colour)
 
 static int curses_refresh (int y, int x)
 {
+  wrefresh (stats_win);
   move (y, x);
-  clrtobot();
+//clrtobot();
   refresh();
   return (0);
 }
 
-static void curses_print_header (int count)
+static void curses_print_header (void)
 {
-  static bool done_header = false;
-
   (*api->set_colour) (COLOUR_WHITE);
   mvprintw (0, 0, HEADER, spinner[spin_idx & 3]);
   spin_idx++;
 
   (*api->set_colour) (0);
-
-  if (!done_header)
-  {
-    mvhline (1, 0, ACS_HLINE, strlen(HEADER)-1);
-    done_header = true;
-  }
-  (void) count;
+  mvhline (1, 0, ACS_HLINE, strlen(HEADER)-1);
 }
 #endif  /* USE_CURSES */
 
