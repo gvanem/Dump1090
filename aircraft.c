@@ -15,12 +15,6 @@
 
 #define USE_VARCHAR 0
 
-#define TRACE(fmt, ...) do {                                                \
-                          if (Modes.debug & DEBUG_GENERAL)                  \
-                             modeS_flogf (stdout, "%s(%u): " fmt,           \
-                                          __FILE__, __LINE__, __VA_ARGS__); \
-                        } while (0)
-
 /**
  * \def DB_COLUMNS
  * The Sqlite columns we define.
@@ -499,6 +493,12 @@ static void aircraft_test_2 (void)
   aircraft_dump_json (aircraft_make_json(true), "json-4.txt");
 }
 
+void aircraft_tests (void)
+{
+  aircraft_test_1();
+  aircraft_test_2();
+}
+
 /**
  * The callback called from `zip_extract()`.
  */
@@ -518,7 +518,7 @@ static int extract_callback (const char *file, void *arg)
  *  1) download the OpenSky .zip file to `%TEMP%\\aircraft-database-temp.zip`,
  *  2) calls `zip_extract (\"%TEMP%\\aircraft-database-temp.zip\", \"%TEMP%\\aircraft-database-temp.csv\")`.
  *  3) copy `%TEMP%\\aircraft-database-temp.csv` over to 'db_file'.
- *  4) with option `--database-sql`, remove `Modes.aircraft_sql` to force a rebuild of it.
+ *  4) with option `--aircrafts-sql`, remove `Modes.aircraft_sql` to force a rebuild of it.
  */
 bool aircraft_CSV_update (const char *db_file, const char *url)
 {
@@ -1548,6 +1548,10 @@ void aircraft_exit (bool free_aircrafts)
     free (a->SQL);
     free (a);
   }
+
+  if (Modes.aircraft_list_CSV)
+     free (Modes.aircraft_list_CSV);
+  Modes.aircraft_list_CSV = NULL;
 }
 
 

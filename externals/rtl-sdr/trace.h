@@ -4,13 +4,13 @@
 /*
  * Trace printer controlled by env-var "set RTLSDR_TRACE=level":
  */
-#define TRACE(level, fmt, ...)                                       \
+#define RTL_TRACE(level, fmt, ...)                                   \
         do {                                                         \
           if (trace_level() >= level)                                \
              trace_printf (__FILE__, __LINE__, fmt, ## __VA_ARGS__); \
         } while (0)
 
-#define TRACE_WINUSB(func, win_err) \
+#define RTL_TRACE_WINUSB(func, win_err) \
         trace_winusb(__FILE__, __LINE__, func, win_err)
 
 int         trace_level (void);

@@ -12,7 +12,8 @@
 #include <windows.h>
 #include <rtl-sdr.h>
 #include <sdrplay_api.h>
-#include <mongoose.h>
+
+#include "mongoose.h"
 #include "csv.h"
 
 /**
@@ -83,7 +84,6 @@
 #define DEBUG_JS         0x0200
 #define DEBUG_NET        0x0400
 #define DEBUG_NET2       0x0800
-#define DEBUG_LOCATION   0x1000
 
 /**
  * \def DEBUG(bit, fmt, ...)
@@ -95,6 +95,19 @@
              modeS_flogf (stdout, "%s(%u): " fmt,  \
                  __FILE__, __LINE__, __VA_ARGS__); \
         } while (0)
+
+/**
+ * \def TRACE(fmt, ...)
+ * As `DEBUG()` for only the `DEBUG_GENERAL` bit set; <br>
+ * command-line option `--debug g`.
+ */
+#define TRACE(fmt, ...)                                     \
+        do {                                                \
+          if (Modes.debug & DEBUG_GENERAL)                  \
+             modeS_flogf (stdout, "%s(%u): " fmt ".\n",     \
+                          __FILE__, __LINE__, __VA_ARGS__); \
+        } while (0)
+
 
 /**
  * \def HEX_DUMP(data, len)
@@ -121,14 +134,16 @@
 #define LOG_STDERR(fmt, ...)    modeS_flogf (stderr, fmt, __VA_ARGS__)
 #define LOG_FILEONLY(fmt, ...)  modeS_flogf (Modes.log, fmt, __VA_ARGS__)
 
-typedef struct mg_http_message mg_http_message;
-typedef struct mg_connection   mg_connection;
-typedef struct mg_mgr          mg_mgr;
-typedef struct mg_addr         mg_addr;
-typedef struct mg_str          mg_str;
-typedef struct mg_timer        mg_timer;
-typedef struct mg_iobuf        mg_iobuf;
-typedef struct mg_ws_message   mg_ws_message;
+typedef struct mg_http_message     mg_http_message;
+typedef struct mg_connection       mg_connection;
+typedef struct mg_mgr              mg_mgr;
+typedef struct mg_addr             mg_addr;
+typedef struct mg_str              mg_str;
+typedef struct mg_timer            mg_timer;
+typedef struct mg_iobuf            mg_iobuf;
+typedef struct mg_ws_message       mg_ws_message;
+typedef struct mg_http_serve_opts  mg_http_serve_opts;
+typedef char                       mg_file_path [MG_PATH_MAX];
 typedef bool (*msg_handler) (mg_iobuf *msg, int loop_cnt);
 
 /**
@@ -177,11 +192,13 @@ typedef enum metric_unit_t {
 #define UNIT_NAME(unit) (unit == MODES_UNIT_METERS ? "meters" : "feet")
 
 /**
- * Latitude (East-West) and Longitude (North-South) coordinates.
- * (ignoring altitude).
+ * Spherical position: <br>
+ * Latitude (East-West) and Longitude (North-South) coordinates. <br>
+ *
+ * A position on a Geoid. (ignoring altitude).
  */
 typedef struct pos_t {
-        double lat;
+        double lat;   /* geodetic latitude */
         double lon;
       } pos_t;
 
@@ -202,9 +219,10 @@ typedef struct cartesian_t {
  */
 #define SMALL_VAL        0.0001
 #define VALID_POS(pos)   (fabs(pos.lon) >= SMALL_VAL && fabs(pos.lat) >= SMALL_VAL)
+#define EARTH_RADIUS     6371000.0    /* meters. Assuming a sphere. Approx. 40.000.000 / TWO_PI meters */
 #define ASSERT_POS(pos)  do {                                         \
                            assert (pos.lon >= -180 && pos.lon < 180); \
-                           assert (pos.lat >= -90 &&  pos.lat < 90);  \
+                           assert (pos.lat >= -90  && pos.lat < 90);  \
                          } while (0)
 
 #define MAX_ME_TYPE    37
@@ -309,18 +327,19 @@ typedef struct sdrplay_conf {
 
 /*
  * Forwards:
- * Details in "aircraft.h" and "externals/sqlite3.c"
+ * Details in "aircraft.h", "airports".h" and "externals/sqlite3.c"
  */
 struct aircraft;
 struct aircraft_CSV;
+struct airport;
 struct sqlite3;
 
 /**
  * All program global state is in this structure.
  */
 typedef struct global_data {
-        char              who_am_I [MG_PATH_MAX];   /**< The full name of this program. */
-        char              where_am_I [MG_PATH_MAX]; /**< The current directory (no trailing `\\`. not used). */
+        mg_file_path      who_am_I;                 /**< The full name of this program. */
+        mg_file_path      where_am_I;               /**< The current directory (no trailing `\\`. not used). */
         uintptr_t         reader_thread;            /**< Device reader thread ID. */
         CRITICAL_SECTION  data_mutex;               /**< Mutex to synchronize buffer access. */
         CRITICAL_SECTION  print_mutex;              /**< Mutex to synchronize printouts. */
@@ -334,6 +353,7 @@ typedef struct global_data {
         uint32_t         *ICAO_cache;               /**< Recently seen ICAO addresses. */
         statistics        stat;                     /**< Decoding and network statistics. */
         struct aircraft  *aircrafts;                /**< Linked list of active aircrafts. */
+        struct airport   *airports;                 /**< Linked list of "dynamic" airports. */
         uint64_t          last_update_ms;           /**< Last screen update in milliseconds. */
         uint64_t          max_messages;             /**< How many messages to process before quitting. */
 
@@ -372,50 +392,55 @@ typedef struct global_data {
 
         /** Configuration
          */
-        const char *infile;                     /**< Input IQ samples from file with option `--infile file`. */
-        const char *logfile;                    /**< Write debug/info to file with option `--logfile file`. */
-        FILE       *log;
-        uint64_t    loops;                      /**< Read input file in a loop. */
-        uint32_t    debug;                      /**< `DEBUG()` mode bits. */
-        int         raw;                        /**< Raw output format. */
-        int         net;                        /**< Enable networking. */
-        int         net_only;                   /**< Enable just networking. */
-        int         net_active;                 /**< With `Modes.net`, call `connect()` (not `listen()`). */
-        int         silent;                     /**< Silent mode for network testing. */
-        int         interactive;                /**< Interactive mode */
-        uint16_t    interactive_rows;           /**< Interactive mode: max number of rows. */
-        uint32_t    interactive_ttl;            /**< Interactive mode: TTL before deletion. */
-        int         win_location;               /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
-        int         only_addr;                  /**< Print only ICAO addresses. */
-        int         metric;                     /**< Use metric units. */
-        int         aggressive;                 /**< Aggressive detection algorithm. */
-        int         keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
-        char        web_page [MG_PATH_MAX];     /**< The base-name of the web-page to server for HTTP clients. */
-        char        web_root [MG_PATH_MAX];     /**< And it's directory. */
-        int         touch_web_root;             /**< Touch all files in `web_root` first. */
-        char        aircraft_db  [MG_PATH_MAX]; /**< The `aircraftDatabase.csv` file. */
-        char        aircraft_sql [MG_PATH_MAX]; /**< The `aircraftDatabase.csv.sqlite` file. */
-        bool        have_sql_file;              /**< The `aircraftDatabase.csv.sqlite` file exists. */
-        char       *aircraft_db_update;         /**< Option `--database-update<=url>` was used. */
-        int         use_sql_db;                 /**< Option `--database-sql` was used. */
-        int         strip_level;                /**< For '--strip X' mode. */
-        pos_t       home_pos;                   /**< Coordinates of home position. */
-        cartesian_t home_pos_cart;              /**< Coordinates of home position (cartesian). */
-        bool        home_pos_ok;                /**< We have a good home position. */
-        const char *wininet_last_error;         /**< Last error from WinInet API. */
-        int         tests;                      /**< Perform some tests. */
-        int         tests_arg;                  /**< With optional tests-count. */
-        int         tui_interface;              /**< Selected `--tui` interface. */
+        const char  *infile;                    /**< Input IQ samples from file with option `--infile file`. */
+        const char  *logfile;                   /**< Write debug/info to file with option `--logfile file`. */
+        FILE        *log;
+        uint64_t     loops;                     /**< Read input file in a loop. */
+        uint32_t     debug;                     /**< `DEBUG()` mode bits. */
+        int          raw;                       /**< Raw output format. */
+        int          net;                       /**< Enable networking. */
+        int          net_only;                  /**< Enable just networking. */
+        int          net_active;                /**< With `Modes.net`, call `connect()` (not `listen()`). */
+        int          silent;                    /**< Silent mode for network testing. */
+        int          interactive;               /**< Interactive mode */
+        uint16_t     interactive_rows;          /**< Interactive mode: max number of rows. */
+        uint32_t     interactive_ttl;           /**< Interactive mode: TTL before deletion. */
+        int          win_location;              /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
+        int          only_addr;                 /**< Print only ICAO addresses. */
+        int          metric;                    /**< Use metric units. */
+        int          aggressive;                /**< Aggressive detection algorithm. */
+        int          keep_alive;                /**< Send "Connection: keep-alive" if HTTP client sends it. */
+        mg_file_path web_page;                  /**< The base-name of the web-page to server for HTTP clients. */
+        mg_file_path web_root;                  /**< And it's directory. */
+        int          touch_web_root;            /**< Touch all files in `web_root` first. */
+        mg_file_path aircraft_db;               /**< The `aircraftDatabase.csv` file. */
+        mg_file_path aircraft_sql;              /**< The `aircraftDatabase.csv.sqlite` file. */
+        bool         have_sql_file;             /**< The `aircraftDatabase.csv.sqlite` file exists. */
+        char        *aircraft_db_update;        /**< Option `--aircrafts-update<=url>` was used. */
+        int          use_sql_db;                /**< Option `--aircrafts-sql` was used. */
+        int          strip_level;               /**< For '--strip X' mode. */
+        pos_t        home_pos;                  /**< Coordinates of home position. */
+        cartesian_t  home_pos_cart;             /**< Coordinates of home position (cartesian). */
+        bool         home_pos_ok;               /**< We have a good home position. */
+        const char  *wininet_last_error;        /**< Last error from WinInet API. */
+        int          tests;                     /**< Perform some tests. */
+        int          tests_arg;                 /**< With optional tests-count. */
+        int          tui_interface;             /**< Selected `--tui` interface. */
 
-        /** For parsing a `Modes.aircraft_db` file:
+        /** For handling a `Modes.aircraft_db` file:
          */
-        CSV_context          csv_ctx;
+        CSV_context          csv_ctx;           /**< Structure for the CSV parser */
         struct aircraft_CSV *aircraft_list_CSV; /**< List of aircrafts sorted on address. From CSV-file only. */
         uint32_t             aircraft_num_CSV;  /**< The length of the list */
+        struct sqlite3      *sql_db;            /**< For the `Modes.aircraft_sql` file */
 
-        /** For handling the `Modes.aircraft_sql` file:
+        /** For handling a `Modes.airport_db` file. It reuses the `csv_ctx` above.
          */
-        struct sqlite3 *sql_db;
+        mg_file_path    airport_db;                /**< The `airports-code.csv` file generated by `tools/gen_airport_codes_csv.py` */
+        struct airport *airport_list_CSV;          /**< List of airports sorted on ICAO address. From CSV-file only. */
+        uint32_t        airport_num_CSV;           /**< The length of the above list */
+        int             airport_db_update;         /**< Option `--airports-update` was used. */
+        int             airport_show;              /**< Show airport / flight-info in interactive mode? */
       } global_data;
 
 extern global_data Modes;
@@ -465,6 +490,7 @@ extern global_data Modes;
 #define MODES_CONTENT_TYPE_ICON   "image/x-icon"
 #define MODES_CONTENT_TYPE_JSON   "application/json"
 #define MODES_CONTENT_TYPE_PNG    "image/png"
+#define MODES_RAW_HEART_BEAT      "*0000;\n*0000;\n*0000;\n*0000;\n*0000;\n"
 
 /**
  * The structure we use to store information about a decoded message.
@@ -534,6 +560,7 @@ typedef struct modeS_message {
 void        modeS_log (const char *buf);
 void        modeS_logc (char c, void *param);
 void        modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
+void        modeS_set_log (void);
 uint32_t    ato_hertz (const char *Hertz);
 bool        str_startswith (const char *s1, const char *s2);
 bool        str_endswith (const char *s1, const char *s2);
@@ -541,7 +568,8 @@ char       *basename (const char *fname);
 char       *dirname (const char *fname);
 char       *slashify (char *fname);
 int        _gettimeofday (struct timeval *tv, void *timezone);
-double     get_usec_now (void);
+double      get_usec_now (void);
+void        test_assert (void);
 const char *win_strerror (DWORD err);
 char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
 bool        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
@@ -551,8 +579,8 @@ int         touch_file (const char *file);
 int         touch_dir (const char *dir, bool recurse);
 uint32_t    download_file (const char *file, const char *url);
 void        show_version_info (bool verbose);
-void        spherical_to_cartesian (cartesian_t *cart, pos_t pos);
-void        cartesian_to_spherical (pos_t *pos, cartesian_t cart);
+void        spherical_to_cartesian (const pos_t *pos, cartesian_t *cart);
+void        cartesian_to_spherical (const cartesian_t *cart, pos_t *pos, double heading);
 double      cartesian_distance (const cartesian_t *a, const cartesian_t *b);
 double      great_circle_dist (pos_t pos1, pos_t pos2);
 double      closest_to (double val, double val1, double val2);

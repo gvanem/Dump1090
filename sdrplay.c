@@ -21,12 +21,6 @@
 #define RSP_ACC_SHIFT         13         /* Sets time constant of averaging filter */
 #define MODES_RSP_INITIAL_GR  20
 
-#define TRACE(fmt, ...) do {                                                \
-                          if (Modes.debug & DEBUG_GENERAL)                  \
-                             modeS_flogf (stdout, "%s(%u): " fmt,           \
-                                          __FILE__, __LINE__, __VA_ARGS__); \
-                        } while (0)
-
 /**
  * \def LOAD_FUNC(func)
  *   A `GetProcAddress()` helper.
@@ -62,8 +56,7 @@
 struct sdrplay_priv {
        const char                    *dll_name;
        HANDLE                         dll_hnd;
-       char                           full_dll_name [MG_PATH_MAX];  /**< The full name of the `sdrplay_api.dll`. */
-
+       mg_file_path                   full_dll_name;  /**< The full name of the `sdrplay_api.dll`. */
        float                          version;
        bool                           API_locked;
        bool                           master_initialised;
@@ -327,14 +320,16 @@ static void sdrplay_callback_A (short *xi, short *xq,
       sdr.chParams->tunerParams.gain.gRdB += 1;
       if (sdr.chParams->tunerParams.gain.gRdB > 59)
          sdr.chParams->tunerParams.gain.gRdB = 59;
-      CALL_FUNC (sdrplay_api_Update, g_sdr_handle, sdr.dev->tuner, sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
+      CALL_FUNC (sdrplay_api_Update, g_sdr_handle, sdr.dev->tuner,
+                 sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
     }
     else if (max_sig < RSP_MIN_GAIN_THRESH)
     {
       sdr.chParams->tunerParams.gain.gRdB -= 1;
       if (sdr.chParams->tunerParams.gain.gRdB < 0)
          sdr.chParams->tunerParams.gain.gRdB = 0;
-      CALL_FUNC (sdrplay_api_Update, g_sdr_handle, sdr.dev->tuner, sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
+      CALL_FUNC (sdrplay_api_Update, g_sdr_handle, sdr.dev->tuner,
+                 sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
     }
 
     LeaveCriticalSection (&Modes.print_mutex);
@@ -636,7 +631,9 @@ int sdrplay_read_async (sdrplay_dev *device,
      return (sdr.last_rc);
 
   sdr.chParams->tunerParams.rfFreq.rfHz = Modes.freq;
-  CALL_FUNC (sdrplay_api_Update, g_sdr_handle, sdr.dev->tuner, sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
+  CALL_FUNC (sdrplay_api_Update, g_sdr_handle, sdr.dev->tuner,
+             sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
+
   if (sdr.last_rc != sdrplay_api_Success)
      return (sdr.last_rc);
 
@@ -746,7 +743,7 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
      */
     if (err == ERROR_BAD_EXE_FORMAT)
          snprintf (sdr.last_err, sizeof(sdr.last_err), "%s is not a %d bit version", sdr.dll_name, 8*(int)sizeof(void*));
-    if (err == ERROR_MOD_NOT_FOUND)
+    else if (err == ERROR_MOD_NOT_FOUND)
          snprintf (sdr.last_err, sizeof(sdr.last_err), "%s not found on PATH", sdr.dll_name);
     else snprintf (sdr.last_err, sizeof(sdr.last_err), "Failed to load %s; %lu", sdr.dll_name, GetLastError());
     goto failed;

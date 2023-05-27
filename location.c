@@ -27,12 +27,6 @@
 #include "misc.h"
 #include "location.h"
 
-#define TRACE(fmt, ...) do {                                                \
-                          if (Modes.debug & DEBUG_LOCATION)                 \
-                             modeS_flogf (stdout, "%s(%u): " fmt ".\n",     \
-                                          __FILE__, __LINE__, __VA_ARGS__); \
-                        } while (0)
-
 typedef struct ILocationEvents2 {
         struct ILocationEvents2Vtbl *lpVtbl;
         ULONG                        ref_count;
