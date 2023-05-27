@@ -24,6 +24,7 @@
 #include "sdrplay.h"
 #include "location.h"
 #include "aircraft.h"
+#include "airports.h"
 #include "interactive.h"
 
 global_data Modes;
@@ -95,7 +96,7 @@ static int         modeS_message_len_by_type (int type);
 static uint16_t   *compute_magnitude_vector (const uint8_t *data);
 static void        background_tasks (void);
 static void        modeS_exit (void);
-static void        sigint_handler (int sig);
+static void        signal_handler (int sig);
 
 static u_short        handler_port (intptr_t service);
 static const char    *handler_descr (intptr_t service);
@@ -319,11 +320,9 @@ static uint16_t *c_gen_magnitude_lut (void)
 
 #ifdef USE_GEN_LUT
 #include "py_gen_magnitude_lut.h"
-#endif
 
 static bool check_py_gen_magnitude_lut (void)
 {
-#ifdef USE_GEN_LUT
   uint16_t *lut = c_gen_magnitude_lut();
   int       I, Q, equals;
 
@@ -347,10 +346,16 @@ static bool check_py_gen_magnitude_lut (void)
     return (false);
   }
   puts ("'py_gen_magnitude_lut[]' values all OK.");
-#endif
   return (true);
 }
 
+#else
+static bool check_py_gen_magnitude_lut (void)
+{
+  puts ("No 'py_gen_magnitude_lut[]'. Hence nothing to check.");
+  return (true);
+}
+#endif
 
 /**
  * Step 1: Initialize the program with default values.
@@ -366,6 +371,8 @@ static void modeS_init_config (void)
   slashify (Modes.web_root);
   snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\%s", dirname(Modes.who_am_I), AIRCRAFT_DATABASE_CSV);
   slashify (Modes.aircraft_db);
+  snprintf (Modes.airport_db, sizeof(Modes.airport_db), "%s\\%s", dirname(Modes.who_am_I), AIRPORT_DATABASE_CSV);
+  slashify (Modes.airport_db);
 
   Modes.gain_auto       = true;
   Modes.sample_rate     = MODES_DEFAULT_RATE;
@@ -374,6 +381,7 @@ static void modeS_init_config (void)
   Modes.json_interval   = 1000;
   Modes.keep_alive      = 1;
   Modes.tui_interface   = TUI_WINCON;
+  Modes.airport_show    = true;
 
   InitializeCriticalSection (&Modes.data_mutex);
   InitializeCriticalSection (&Modes.print_mutex);
@@ -397,7 +405,7 @@ static bool modeS_init (void)
   if (Modes.logfile)
   {
     char   args [1000] = "";
-    char   buf [sizeof(args)+MG_PATH_MAX+10];
+    char   buf [sizeof(args) + sizeof(mg_file_path) + 10];
     char  *p = args;
     size_t n, left = sizeof(args);
     int    i;
@@ -419,20 +427,7 @@ static bool modeS_init (void)
     modeS_log (buf);
   }
 
-  /** By default, disable all logging from Mongoose
-   */
-  mg_log_set (0);
-
-  if (Modes.debug & DEBUG_MONGOOSE)
-  {
-    mg_log_set_fn (modeS_logc, NULL);
-    mg_log_set (MG_LL_DEBUG);
-  }
-  else if (Modes.debug & DEBUG_MONGOOSE2)
-  {
-    mg_log_set_fn (modeS_logc, NULL);
-    mg_log_set (MG_LL_VERBOSE);
-  }
+  modeS_set_log();
 
   if (strcmp(Modes.aircraft_db, "NUL"))
   {
@@ -449,6 +444,19 @@ static bool modeS_init (void)
     }
   }
 
+  /**
+   * \todo
+   * Regenerate using `py -3 tools/gen_airport_codes_csv.py > airport-codes.csv`
+   */
+#if 0
+  if (Modes.airport_db_update && strcmp(Modes.airport_db, "NUL"))
+  {
+    airports_update_CSV (Modes.airport_db);
+    airports_init_CSV();
+    return (false);
+  }
+#endif
+
   env = getenv ("DUMP1090_HOMEPOS");
   if (env)
   {
@@ -459,7 +467,7 @@ static bool modeS_init (void)
     }
     Modes.home_pos    = pos;
     Modes.home_pos_ok = true;
-    spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
+    spherical_to_cartesian (&Modes.home_pos, &Modes.home_pos_cart);
   }
 
   /* Use `Windows Location API` to set `Modes.home_pos`.
@@ -469,8 +477,9 @@ static bool modeS_init (void)
   if (Modes.win_location && !location_get_async())
      return (false);
 
-  signal (SIGINT, sigint_handler);
-  signal (SIGBREAK, sigint_handler);
+  signal (SIGINT, signal_handler);
+  signal (SIGBREAK, signal_handler);
+  signal (SIGABRT, signal_handler);
 
   /* We add a full message minus a final bit to the length, so that we
    * can carry the remaining part of the buffer that we can't process
@@ -503,8 +512,15 @@ static bool modeS_init (void)
   Modes.magnitude_lut = c_gen_magnitude_lut();
 #endif
 
-  if (Modes.tests && !check_py_gen_magnitude_lut())
-     return (false);
+  if (Modes.tests)
+  {
+    if (!airports_init())
+       return (false);
+
+    if (!check_py_gen_magnitude_lut())
+       return (false);
+    test_assert();
+  }
 
   if (!aircraft_CSV_load())
      return (false);
@@ -647,8 +663,8 @@ static bool modeS_init_RTLSDR (void)
 }
 
 /**
- * This reading callback gets data from the RTLSDR or SDRplay API asynchronously.
- * We then populate the data buffer.
+ * This reading callback gets data from the RTLSDR or
+ * SDRplay API asynchronously. We then populate the data buffer.
  *
  * A Mutex is used to avoid race-condition with the decoding thread.
  */
@@ -762,7 +778,7 @@ static unsigned int __stdcall data_thread_fn (void *arg)
     DEBUG (DEBUG_GENERAL, "sdrplay_read_async(): rc: %d / %s.\n",
            rc, sdrplay_strerror(rc));
 
-    sigint_handler (0);   /* break out of main_data_loop() */
+    signal_handler (0);   /* break out of main_data_loop() */
   }
   else if (Modes.rtlsdr.device)
   {
@@ -772,7 +788,7 @@ static unsigned int __stdcall data_thread_fn (void *arg)
     DEBUG (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
            rc, get_rtlsdr_error());
 
-    sigint_handler (0);    /* break out of main_data_loop() */
+    signal_handler (0);    /* break out of main_data_loop() */
   }
   MODES_NOTUSED (arg);
   return (0);
@@ -2415,7 +2431,7 @@ static char *receiver_to_json (void)
 }
 
 /**
- * Returns a 'connection *' based on the remote 'addr' and 'service'.
+ * Returns a `connection *` based on the remote `addr` and `service`.
  * This can be either client or server.
  */
 static connection *connection_get_addr (const mg_addr *addr, intptr_t service, bool is_server)
@@ -2886,8 +2902,8 @@ static int connection_handler_http (mg_connection *conn,
 
     else
     {
-      struct mg_http_serve_opts opts;
-      char        file [MG_PATH_MAX];
+      mg_http_serve_opts  opts;
+      mg_file_path        file;
 
       memset (&opts, '\0', sizeof(opts));
       opts.page404       = NULL;
@@ -2935,7 +2951,7 @@ static void connection_timeout (void *fn_data)
             handler_descr(service), host_port);
   handler_store_error (service, err);
 
-  sigint_handler (0);  /* break out of main_data_loop()  */
+  signal_handler (0);  /* break out of main_data_loop()  */
 }
 
 /**
@@ -2965,18 +2981,23 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
     {
       snprintf (err, sizeof(err), "Connection to %s:%u failed: %s", remote, port, (const char*)ev_data);
       handler_store_error (service, err);
-      sigint_handler (0);   /* break out of main_data_loop()  */
+      signal_handler (0);   /* break out of main_data_loop()  */
     }
     return;
   }
 
-  remote = _mg_straddr (&this_conn->rem, remote_buf, sizeof(remote_buf));
 
   if (ev == MG_EV_OPEN)
   {
-    DEBUG (DEBUG_NET, "MG_EV_OPEN for host %s%s\n", remote, this_conn->is_listening ? " (listen socket)" : "");
+    remote = modeS_net_services [service].host;
+    port   = modeS_net_services [service].port;
+
+    DEBUG (DEBUG_NET, "MG_EV_OPEN for host %s, port %u%s\n",
+           remote ? remote : "*", port, this_conn->is_listening ? " (listen socket)" : "");
     return;
   }
+
+  remote = _mg_straddr (&this_conn->rem, remote_buf, sizeof(remote_buf));
 
   if (ev == MG_EV_RESOLVE)
   {
@@ -3107,6 +3128,14 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
   mg_connection *conn = NULL;
   char           url [50];
 
+  /* Temporary enable important errors to go to `stderr` only.
+   * For both an active and listen (passive) coonections we handle
+   * "early" errors (like out of memory) by returning NULL. A failed
+   * active connection will fail later. See comment below.
+   */
+  mg_log_set_fn (modeS_logc, stderr);
+  mg_log_set (MG_LL_ERROR);
+
   if (listen)
   {
     mg_listen_func passive = (service == MODES_NET_SERVICE_HTTP) ? mg_http_listen : mg_listen;
@@ -3132,14 +3161,44 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     conn = mg_connect (&Modes.mgr, url, connection_handler, (void*) service);
   }
 
+  modeS_set_log();
+
   if (conn && (Modes.debug & DEBUG_MONGOOSE2))
      conn->is_hexdumping = 1;
   return (conn);
 }
 
+/**
+ * Setup an active connection for a service.
+ */
+static bool connection_setup_active (intptr_t service, mg_connection **conn)
+{
+  *conn = connection_setup (service, false, false);
+  if (*conn == NULL)
+  {
+    LOG_STDERR ("Fail to set-up active socket for %s.\n", handler_descr(service));
+    return (false);
+  }
+  return (true);
+}
+
+/**
+ * Setup a listen connection for a service.
+ */
+static bool connection_setup_listen (intptr_t service, mg_connection **conn, bool sending)
+{
+  *conn = connection_setup (service, true, sending);
+  if (*conn == NULL)
+  {
+    LOG_STDERR ("Fail to set-up listen socket for %s.\n", handler_descr(service));
+    return (false);
+  }
+  return (true);
+}
+
 #if defined(PACKED_WEB_ROOT)
 /**
- * Functions for a "Web Packed Filesystem"
+ * Functions for a "Packed Web Filesystem"
  *
  * Functions in the generated '$(OBJ_DIR)/packed_webfs.c' file.
  */
@@ -3193,8 +3252,8 @@ static bool check_web_page (void)
 #else
 static bool check_web_page (void)
 {
-  struct stat st;
-  char full_name [MG_PATH_MAX];
+  mg_file_path full_name;
+  struct stat  st;
 
   snprintf (full_name, sizeof(full_name), "%s/%s", Modes.web_root, Modes.web_page);
   DEBUG (DEBUG_NET, "Web-page: \"%s\"\n", full_name);
@@ -3244,11 +3303,13 @@ static bool modeS_init_net (void)
 
   if (Modes.net_active)
   {
-    if (modeS_net_services[MODES_NET_SERVICE_RAW_IN].host)
-       Modes.raw_in = connection_setup (MODES_NET_SERVICE_RAW_IN, false, false);
+    if (modeS_net_services[MODES_NET_SERVICE_RAW_IN].host &&
+        !connection_setup_active (MODES_NET_SERVICE_RAW_IN, &Modes.raw_in))
+       return (false);
 
-    if (modeS_net_services[MODES_NET_SERVICE_SBS_IN].host)
-       Modes.sbs_in = connection_setup (MODES_NET_SERVICE_SBS_IN, false, false);
+    if (modeS_net_services[MODES_NET_SERVICE_SBS_IN].host &&
+        !connection_setup_active (MODES_NET_SERVICE_SBS_IN, &Modes.sbs_in))
+       return (false);
 
     if (!Modes.raw_in && !Modes.sbs_in)
     {
@@ -3258,16 +3319,17 @@ static bool modeS_init_net (void)
   }
   else
   {
-    Modes.raw_out  = connection_setup (MODES_NET_SERVICE_RAW_OUT, true, true);
-    Modes.raw_in   = connection_setup (MODES_NET_SERVICE_RAW_IN, true, false);
-    Modes.sbs_out  = connection_setup (MODES_NET_SERVICE_SBS_OUT, true, true);
-    Modes.http_out = connection_setup (MODES_NET_SERVICE_HTTP, true, true);
+    if (!connection_setup_listen(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in, false))
+       return (false);
 
-    if (!Modes.raw_out || !Modes.raw_in || !Modes.sbs_out || !Modes.http_out)
-    {
-      LOG_STDERR ("Fail to set-up listen socket(s).\n");
-      return (false);
-    }
+    if (!connection_setup_listen(MODES_NET_SERVICE_RAW_OUT, &Modes.raw_out, true))
+       return (false);
+
+    if (!connection_setup_listen(MODES_NET_SERVICE_SBS_OUT, &Modes.sbs_out, true))
+       return (false);
+
+    if (!connection_setup_listen(MODES_NET_SERVICE_HTTP, &Modes.http_out, true))
+       return (false);
   }
   if (Modes.http_out && !check_web_page())
      return (false);
@@ -3404,6 +3466,11 @@ static int hex_digit_val (int c)
  * the selected screen output, the network output and so forth.
  *
  * If the message looks invalid, it is silently discarded.
+ *
+ * The `readsb` program will send 5 heart-beats like this:
+ *  `*0000;\n*0000;\n*0000;\n*0000;\n*0000;\n` (35 bytes)
+ *
+ * on accepting a new client. Hence check for that too.
  */
 static bool decode_hex_message (mg_iobuf *msg, int loop_cnt)
 {
@@ -3430,6 +3497,14 @@ static bool decode_hex_message (mg_iobuf *msg, int loop_cnt)
    */
   hex = msg->buf;
   len = end - msg->buf - 1;
+
+  if (!strcmp((const char*)hex, MODES_RAW_HEART_BEAT))
+  {
+    DEBUG (DEBUG_NET, "Got heart-beat signal.\n");
+    mg_iobuf_del (msg, 0, msg->len);
+    return (true);
+  }
+
   while (len && isspace(hex[len-1]))
   {
     hex[len-1] = '\0';
@@ -3612,12 +3687,14 @@ static void show_help (const char *fmt, ...)
     printf ("A 1090 MHz receiver, decoder and web-server for ADS-B (Automatic Dependent Surveillance - Broadcast).\n"
             "Usage: %s [options]\n"
             "  General options:\n"
-            "    --database <file>        The CSV file for the aircraft database\n"
+            "    --airports <file>        The CSV file for the airports database\n"
             "                             (default: `%s').\n"
-            "    --database-update<=url>  Redownload the above .csv-file if older than 10 days,\n"
+            "    --aircrafts <file>       The CSV file for the aircrafts database\n"
+            "                             (default: `%s').\n"
+            "    --aircrafts-update<=url> Redownload the above .csv-file if older than 10 days,\n"
             "                             recreate the `<file>.sqlite' and exit the program.\n"
             "                             (default URL: `%s').\n"
-            "    --database-sql           Create a `<file>.sqlite' from the above .CSV-file if it does not exist.\n"
+            "    --aircrafts-sql          Create a `<file>.sqlite' from the above .CSV-file if it does not exist.\n"
             "                             Or use the `<file>.sqlite' if it exist.\n"
             "    --debug <flags>          Debug mode; see below for details.\n"
             "    --infile <filename>      Read data from file (use `-' for stdin).\n"
@@ -3632,7 +3709,7 @@ static void show_help (const char *fmt, ...)
             "    --tui " TUI_HELP
             "     -V, -VV                 Show version info. `-VV' for details.\n"
             "     -h, --help              Show this help.\n\n",
-            Modes.who_am_I, Modes.aircraft_db, AIRCRAFT_DATABASE_URL, MODES_INTERACTIVE_TTL/1000);
+            Modes.who_am_I, Modes.airport_db, Modes.aircraft_db, AIRCRAFT_DATABASE_URL, MODES_INTERACTIVE_TTL/1000);
 
     printf ("  Mode-S decoder options:\n"
             "    --aggressive             Use a more aggressive CRC check (two bits fixes, ...).\n"
@@ -3683,7 +3760,6 @@ static void show_help (const char *fmt, ...)
             "                   g = Log general debugging info.\n"
             "                   G = A bit more general debug info than flag `g'.\n"
             "                   j = Log frames to `frames.js', loadable by `debug.html'.\n"
-            "                   l = Log activity in `location.c'.\n"
             "                   m = Log activity in `externals/mongoose.c'.\n"
             "                   M = Log more activity in `externals/mongoose.c'.\n"
             "                   n = Log network debugging information.\n"
@@ -3729,7 +3805,7 @@ static void background_tasks (void)
     location_exit();
     Modes.home_pos = pos;
 
-    spherical_to_cartesian (&Modes.home_pos_cart, Modes.home_pos);
+    spherical_to_cartesian (&Modes.home_pos, &Modes.home_pos_cart);
     if (Modes.home_pos_ok)
        LOG_FILEONLY ("Ignoring the 'DUMP1090_HOMEPOS' env-var "
                      "since we use the 'Windows Location API': Latitude: %.6f, Longitude: %.6f.\n",
@@ -3771,7 +3847,7 @@ static void background_tasks (void)
  * The handler called in for `SIGINT` or `SIGBREAK` . <br>
  * I.e. user presses `^C`.
  */
-static void sigint_handler (int sig)
+static void signal_handler (int sig)
 {
   int rc;
 
@@ -3784,13 +3860,15 @@ static void sigint_handler (int sig)
    * Hence make it clear what is printed on exit by separating the
    * startup and shutdown messages with a dotted "----" bar.
    */
-  if ((sig == SIGINT || sig == SIGBREAK) && Modes.tui_interface == TUI_CURSES)
+  if ((sig == SIGINT || sig == SIGBREAK || sig == SIGABRT) && Modes.tui_interface == TUI_CURSES)
      puts ("----------------------------------------------------------------------------------");
 
   if (sig == SIGINT)
      LOG_STDOUT ("Caught SIGINT, shutting down ...\n");
   else if (sig == SIGBREAK)
      LOG_STDOUT ("Caught SIGBREAK, shutting down ...\n");
+  else if (sig == SIGABRT)
+     LOG_STDOUT ("Caught SIGABRT, shutting down ...\n");
   else if (sig == 0)
      DEBUG (DEBUG_GENERAL, "Breaking 'main_data_loop()', shutting down ...\n");
 
@@ -3976,6 +4054,7 @@ static void modeS_exit (void)
      _close (Modes.fd);
 
   aircraft_exit (true);
+  airports_exit (true);
 
   if (Modes.interactive)
      interactive_exit();
@@ -3986,7 +4065,6 @@ static void modeS_exit (void)
   free (Modes.magnitude);
   free (Modes.data);
   free (Modes.ICAO_cache);
-  free (Modes.aircraft_list_CSV);
   free (Modes.selected_dev);
   free (Modes.rtlsdr.name);
   free (Modes.sdrplay.name);
@@ -4091,9 +4169,6 @@ static void set_debug_bits (const char *flags)
       case 'J':
            Modes.debug |= DEBUG_JS;
            break;
-      case 'l':
-           Modes.debug |= DEBUG_LOCATION;
-           break;
       case 'm':
            Modes.debug |= DEBUG_MONGOOSE;
            break;
@@ -4119,27 +4194,22 @@ static void set_debug_bits (const char *flags)
   }
 }
 
-static bool select_if_mode (const char *arg)
+static void select_if_mode (const char *arg)
 {
   if (!stricmp(arg, "zif"))
-  {
-    Modes.sdrplay.if_mode = false;
-    return (true);
-  }
-  if (!stricmp(arg, "lif"))
-  {
-    Modes.sdrplay.if_mode = true;
-    return (true);
-  }
-  return (false);
+       Modes.sdrplay.if_mode = false;
+  else if (!stricmp(arg, "lif"))
+       Modes.sdrplay.if_mode = true;
+  else show_help ("Illegal '--if-mode': %s.\n", arg);
 }
 
 static struct option long_options[] = {
   { "agc",              no_argument,        &Modes.dig_agc,            1  },
   { "aggressive",       no_argument,        &Modes.aggressive,         1  },
-  { "database",         required_argument,  NULL,                     'b' },
-  { "database-update",  optional_argument,  NULL,                     'u' },
-  { "database-sql",     no_argument,        &Modes.use_sql_db,         1  },
+  { "airports",         required_argument,  NULL,                     'a' },
+  { "aircrafts",        required_argument,  NULL,                     'b' },
+  { "aircrafts-update", optional_argument,  NULL,                     'u' },
+  { "aircrafts-sql",    no_argument,        &Modes.use_sql_db,         1  },
   { "bandwidth",        required_argument,  NULL,                     'B' },
   { "bias",             no_argument,        &Modes.bias_tee,           1  },
   { "calibrate",        no_argument,        &Modes.rtlsdr.calibrate,   1  },
@@ -4160,12 +4230,12 @@ static struct option long_options[] = {
   { "net",              no_argument,        &Modes.net,                1  },
   { "net-active",       no_argument,        &Modes.net_active,         1  },
   { "net-only",         no_argument,        &Modes.net_only,           1  },
-  { "net-http-port",    required_argument,  NULL,                     'x' + MODES_NET_SERVICE_HTTP },
-  { "net-ri-port",      required_argument,  NULL,                     'x' + MODES_NET_SERVICE_RAW_IN },
-  { "net-ro-port",      required_argument,  NULL,                     'x' + MODES_NET_SERVICE_RAW_OUT },
-  { "net-sbs-port",     required_argument,  NULL,                     'x' + MODES_NET_SERVICE_SBS_OUT },
-  { "host-raw",         required_argument,  NULL,                     'Y' + MODES_NET_SERVICE_RAW_IN },
-  { "host-sbs",         required_argument,  NULL,                     'Y' + MODES_NET_SERVICE_SBS_IN },
+  { "net-http-port",    required_argument,  NULL,                     'y' + MODES_NET_SERVICE_HTTP },
+  { "net-ri-port",      required_argument,  NULL,                     'y' + MODES_NET_SERVICE_RAW_IN },
+  { "net-ro-port",      required_argument,  NULL,                     'y' + MODES_NET_SERVICE_RAW_OUT },
+  { "net-sbs-port",     required_argument,  NULL,                     'y' + MODES_NET_SERVICE_SBS_OUT },
+  { "host-raw",         required_argument,  NULL,                     'Z' + MODES_NET_SERVICE_RAW_IN },
+  { "host-sbs",         required_argument,  NULL,                     'Z' + MODES_NET_SERVICE_SBS_IN },
   { "no-keep-alive",    no_argument,        &Modes.keep_alive,         0  },
   { "only-addr",        no_argument,        &Modes.only_addr,          1  },
   { "ppm",              required_argument,  NULL,                     'p' },
@@ -4178,7 +4248,7 @@ static struct option long_options[] = {
 #if MG_ENABLE_FILE
   { "touch",            no_argument,        &Modes.touch_web_root,     1  },
 #endif
-  { "tui",              required_argument,  NULL,                     'a' },
+  { "tui",              required_argument,  NULL,                     'A' },
   { NULL,               no_argument,        NULL,                      0  }
 };
 
@@ -4194,6 +4264,10 @@ static bool parse_cmd_line (int argc, char **argv)
 
     switch (c)
     {
+      case 'a':
+           strncpy (Modes.airport_db, optarg, sizeof(Modes.airport_db)-1);
+           break;
+
       case 'b':
            strncpy (Modes.aircraft_db, optarg, sizeof(Modes.aircraft_db)-1);
            break;
@@ -4231,8 +4305,7 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 'I':
-           if (!select_if_mode(optarg))
-              show_help ("Illegal '--if-mode': %s.\n", optarg);
+           select_if_mode (optarg);
            break;
 
       case 'i':
@@ -4263,32 +4336,32 @@ static bool parse_cmd_line (int argc, char **argv)
            Modes.aircraft_db_update = optarg ? optarg : AIRCRAFT_DATABASE_URL;
            break;
 
-      case 'x' + MODES_NET_SERVICE_RAW_OUT:
+      case 'y' + MODES_NET_SERVICE_RAW_OUT:
            modeS_net_services [MODES_NET_SERVICE_RAW_OUT].port = (uint16_t) atoi (optarg);
            break;
 
-      case 'x' + MODES_NET_SERVICE_RAW_IN:
+      case 'y' + MODES_NET_SERVICE_RAW_IN:
            modeS_net_services [MODES_NET_SERVICE_RAW_IN].port = (uint16_t) atoi (optarg);
            break;
 
-      case 'x' + MODES_NET_SERVICE_HTTP:
+      case 'y' + MODES_NET_SERVICE_HTTP:
            modeS_net_services [MODES_NET_SERVICE_HTTP].port = (uint16_t) atoi (optarg);
            break;
 
-      case 'x' + MODES_NET_SERVICE_SBS_OUT:
+      case 'y' + MODES_NET_SERVICE_SBS_OUT:
            modeS_net_services [MODES_NET_SERVICE_SBS_OUT].port = (uint16_t) atoi (optarg);
            break;
 
-      case 'Y' + MODES_NET_SERVICE_RAW_OUT:
+      case 'Z' + MODES_NET_SERVICE_RAW_OUT:
            modeS_net_services [MODES_NET_SERVICE_RAW_OUT].host = optarg;
            break;
 
-      case 'Y' + MODES_NET_SERVICE_RAW_IN:
+      case 'Z' + MODES_NET_SERVICE_RAW_IN:
            if (!set_host_port (optarg, &modeS_net_services [MODES_NET_SERVICE_RAW_IN], MODES_NET_PORT_RAW_IN))
               rc = false;
            break;
 
-      case 'Y' + MODES_NET_SERVICE_SBS_IN:
+      case 'Z' + MODES_NET_SERVICE_SBS_IN:
            if (!set_host_port (optarg, &modeS_net_services [MODES_NET_SERVICE_SBS_IN], MODES_NET_PORT_SBS))
               rc = false;
            break;
@@ -4328,7 +4401,7 @@ static bool parse_cmd_line (int argc, char **argv)
            slashify (Modes.web_root);
            break;
 
-      case 'a':        /* option `--tui wincon|curses' */
+      case 'A':        /* option `--tui wincon|curses' */
            select_tui (optarg);
            break;
 
