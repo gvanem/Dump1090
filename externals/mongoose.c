@@ -788,12 +788,13 @@ static void *ff_open(const char *path, int flags) {
   unsigned char mode = FA_READ;
   if (flags & MG_FS_WRITE) mode |= FA_WRITE | FA_OPEN_ALWAYS | FA_OPEN_APPEND;
   if (f_open(&f, path, mode) == 0) {
-    FIL *fp = calloc(1, sizeof(*fp));
-    memcpy(fp, &f, sizeof(*fp));
-    return fp;
-  } else {
-    return NULL;
+    FIL *fp;
+    if ((fp = calloc(1, sizeof(*fp))) != NULL) {
+      memcpy(fp, &f, sizeof(*fp));
+      return fp;
+    }
   }
+  return NULL;
 }
 
 static void ff_close(void *fp) {
@@ -913,9 +914,10 @@ static void *packed_open(const char *path, int flags) {
   struct packed_file *fp = NULL;
   if (data == NULL) return NULL;
   if (flags & MG_FS_WRITE) return NULL;
-  fp = (struct packed_file *) calloc(1, sizeof(*fp));
-  fp->size = size;
-  fp->data = data;
+  if ((fp = (struct packed_file *) calloc(1, sizeof(*fp))) != NULL) {
+    fp->size = size;
+    fp->data = data;
+  }
   return (void *) fp;
 }
 
@@ -1461,7 +1463,9 @@ int mg_http_parse(const char *s, size_t len, struct mg_http_message *hm) {
   mg_http_parse_headers(s, end, hm->headers,
                         sizeof(hm->headers) / sizeof(hm->headers[0]));
   if ((cl = mg_http_get_header(hm, "Content-Length")) != NULL) {
-    hm->body.len = (size_t) mg_to64(*cl);
+    int64_t content_len = mg_to64(*cl);
+    if(content_len < 0) return -1;
+    hm->body.len = (size_t) content_len;
     hm->message.len = (size_t) req_len + hm->body.len;
   }
 
@@ -1683,28 +1687,30 @@ void mg_http_serve_file(struct mg_connection *c, struct mg_http_message *hm,
                         const struct mg_http_serve_opts *opts) {
   char etag[64], tmp[MG_PATH_MAX];
   struct mg_fs *fs = opts->fs == NULL ? &mg_fs_posix : opts->fs;
-  struct mg_fd *fd = path == NULL ? NULL : mg_fs_open(fs, path, MG_FS_READ);
+  struct mg_fd *fd = NULL;
   size_t size = 0;
   time_t mtime = 0;
   struct mg_str *inm = NULL;
   struct mg_str mime = guess_content_type(mg_str(path), opts->mime_types);
   bool gzip = false;
 
-  // If file does not exist, we try to open file PATH.gz - and if such
-  // pre-compressed .gz file exists, serve it with the Content-Encoding: gzip
-  // Note - we ignore Accept-Encoding, cause we don't have a choice
-  if (fd == NULL) {
-    MG_DEBUG(("NULL [%s]", path));
-    mg_snprintf(tmp, sizeof(tmp), "%s.gz", path);
-    if ((fd = mg_fs_open(fs, tmp, MG_FS_READ)) != NULL) {
-      gzip = true;
-      path = tmp;
-    } else if (opts->page404 != NULL) {
-      // No precompressed file, serve 404
-      fd = mg_fs_open(fs, opts->page404, MG_FS_READ);
-      mime = guess_content_type(mg_str(path), opts->mime_types);
-      path = opts->page404;
+  if (path != NULL) {
+    // If a browser sends us "Accept-Encoding: gzip", try to open .gz first
+    struct mg_str *ae = mg_http_get_header(hm, "Accept-Encoding");
+    if (ae != NULL && mg_strstr(*ae, mg_str("gzip")) != NULL) {
+      mg_snprintf(tmp, sizeof(tmp), "%s.gz", path);
+      fd = mg_fs_open(fs, tmp, MG_FS_READ);
+      if (fd != NULL) gzip = true, path = tmp;
     }
+    // No luck opening .gz? Open what we've told to open
+    if (fd == NULL) fd = mg_fs_open(fs, path, MG_FS_READ);
+  }
+
+  // Failed to open, and page404 is configured? Open it, then
+  if (fd == NULL && opts->page404 != NULL) {
+    fd = mg_fs_open(fs, opts->page404, MG_FS_READ);
+    mime = guess_content_type(mg_str(path), opts->mime_types);
+    path = opts->page404;
   }
 
   if (fd == NULL || fs->st(path, &size, &mtime) == 0) {
@@ -2917,6 +2923,40 @@ void mg_md5_final(mg_md5_ctx *ctx, unsigned char digest[16]) {
 #define MQTT_HAS_PASSWORD 0x40
 #define MQTT_HAS_USER_NAME 0x80
 
+struct mg_mqtt_pmap {
+  uint8_t id;
+  uint8_t type;
+};
+
+static const struct mg_mqtt_pmap s_prop_map[] = {
+    {MQTT_PROP_PAYLOAD_FORMAT_INDICATOR, MQTT_PROP_TYPE_BYTE},
+    {MQTT_PROP_MESSAGE_EXPIRY_INTERVAL, MQTT_PROP_TYPE_INT},
+    {MQTT_PROP_CONTENT_TYPE, MQTT_PROP_TYPE_STRING},
+    {MQTT_PROP_RESPONSE_TOPIC, MQTT_PROP_TYPE_STRING},
+    {MQTT_PROP_CORRELATION_DATA, MQTT_PROP_TYPE_BINARY_DATA},
+    {MQTT_PROP_SUBSCRIPTION_IDENTIFIER, MQTT_PROP_TYPE_VARIABLE_INT},
+    {MQTT_PROP_SESSION_EXPIRY_INTERVAL, MQTT_PROP_TYPE_INT},
+    {MQTT_PROP_ASSIGNED_CLIENT_IDENTIFIER, MQTT_PROP_TYPE_STRING},
+    {MQTT_PROP_SERVER_KEEP_ALIVE, MQTT_PROP_TYPE_SHORT},
+    {MQTT_PROP_AUTHENTICATION_METHOD, MQTT_PROP_TYPE_STRING},
+    {MQTT_PROP_AUTHENTICATION_DATA, MQTT_PROP_TYPE_BINARY_DATA},
+    {MQTT_PROP_REQUEST_PROBLEM_INFORMATION, MQTT_PROP_TYPE_BYTE},
+    {MQTT_PROP_WILL_DELAY_INTERVAL, MQTT_PROP_TYPE_INT},
+    {MQTT_PROP_REQUEST_RESPONSE_INFORMATION, MQTT_PROP_TYPE_BYTE},
+    {MQTT_PROP_RESPONSE_INFORMATION, MQTT_PROP_TYPE_STRING},
+    {MQTT_PROP_SERVER_REFERENCE, MQTT_PROP_TYPE_STRING},
+    {MQTT_PROP_REASON_STRING, MQTT_PROP_TYPE_STRING},
+    {MQTT_PROP_RECEIVE_MAXIMUM, MQTT_PROP_TYPE_SHORT},
+    {MQTT_PROP_TOPIC_ALIAS_MAXIMUM, MQTT_PROP_TYPE_SHORT},
+    {MQTT_PROP_TOPIC_ALIAS, MQTT_PROP_TYPE_SHORT},
+    {MQTT_PROP_MAXIMUM_QOS, MQTT_PROP_TYPE_BYTE},
+    {MQTT_PROP_RETAIN_AVAILABLE, MQTT_PROP_TYPE_BYTE},
+    {MQTT_PROP_USER_PROPERTY, MQTT_PROP_TYPE_STRING_PAIR},
+    {MQTT_PROP_MAXIMUM_PACKET_SIZE, MQTT_PROP_TYPE_INT},
+    {MQTT_PROP_WILDCARD_SUBSCRIPTION_AVAILABLE, MQTT_PROP_TYPE_BYTE},
+    {MQTT_PROP_SUBSCRIPTION_IDENTIFIER_AVAILABLE, MQTT_PROP_TYPE_BYTE},
+    {MQTT_PROP_SHARED_SUBSCRIPTION_AVAILABLE, MQTT_PROP_TYPE_BYTE}};
+
 void mg_mqtt_send_header(struct mg_connection *c, uint8_t cmd, uint8_t flags,
                          uint32_t len) {
   uint8_t buf[1 + sizeof(len)], *vlen = &buf[1];
@@ -2934,10 +2974,193 @@ static void mg_send_u16(struct mg_connection *c, uint16_t value) {
   mg_send(c, &value, sizeof(value));
 }
 
+static void mg_send_u32(struct mg_connection *c, uint32_t value) {
+  mg_send(c, &value, sizeof(value));
+}
+
+static uint8_t compute_variable_length_size(size_t length) {
+  uint8_t bytes_needed = 0;
+  do {
+    bytes_needed++;
+    length /= 0x80;
+  } while (length > 0);
+  return bytes_needed;
+}
+
+static int encode_variable_length(uint8_t *buf, size_t value) {
+  int len = 0;
+
+  do {
+    uint8_t byte = (uint8_t) (value % 128);
+    value /= 128;
+    if (value > 0) byte |= 0x80;
+    buf[len++] = byte;
+  } while (value > 0);
+
+  return len;
+}
+
+static uint32_t decode_variable_length(const char *buf,
+                                       uint32_t *bytes_consumed) {
+  uint32_t value = 0, multiplier = 1, offset;
+
+  for (offset = 0; offset < 4; offset++) {
+    uint8_t encoded_byte = ((uint8_t *) buf)[offset];
+    value += (encoded_byte & 0x7F) * multiplier;
+    multiplier *= 128;
+
+    if (!(encoded_byte & 0x80)) break;
+  }
+
+  if (bytes_consumed != NULL) *bytes_consumed = offset + 1;
+
+  return value;
+}
+
+static int mqtt_prop_type_by_id(uint8_t prop_id) {
+  size_t i, num_properties = sizeof(s_prop_map) / sizeof(s_prop_map[0]);
+  for (i = 0; i < num_properties; ++i) {
+    if (s_prop_map[i].id == prop_id) return s_prop_map[i].type;
+  }
+  return -1;  // Property ID not found
+}
+
+// Returns the size of the properties section, without the
+// size of the content's length
+static size_t get_properties_length(struct mg_mqtt_prop *props, size_t count) {
+  size_t i, size = 0;
+  for (i = 0; i < count; i++) {
+    size++;  // identifier
+    switch (mqtt_prop_type_by_id(props[i].id)) {
+      case MQTT_PROP_TYPE_STRING_PAIR:
+        size += (uint32_t) (props[i].val.len + props[i].key.len +
+                            2 * sizeof(uint16_t));
+        break;
+      case MQTT_PROP_TYPE_STRING:
+        size += (uint32_t) (props[i].val.len + sizeof(uint16_t));
+        break;
+      case MQTT_PROP_TYPE_BINARY_DATA:
+        size += (uint32_t) (props[i].val.len + sizeof(uint16_t));
+        break;
+      case MQTT_PROP_TYPE_VARIABLE_INT:
+        size += compute_variable_length_size((uint32_t) props[i].iv);
+        break;
+      case MQTT_PROP_TYPE_INT: size += (uint32_t) sizeof(uint32_t); break;
+      case MQTT_PROP_TYPE_SHORT: size += (uint32_t) sizeof(uint16_t); break;
+      default: return size;  // cannot parse further down
+    }
+  }
+
+  return size;
+}
+
+// returns the entire size of the properties section, including the
+// size of the variable length of the content
+static size_t get_props_size(struct mg_mqtt_prop *props, size_t count) {
+  size_t size = get_properties_length(props, count);
+  size += compute_variable_length_size(size);
+  return size;
+}
+
+static void mg_send_mqtt_properties(struct mg_connection *c,
+                                    struct mg_mqtt_prop *props, size_t nprops) {
+  size_t total_size = get_properties_length(props, nprops);
+  uint8_t buf_v[4] = {0, 0, 0, 0};
+  uint8_t buf[4] = {0, 0, 0, 0};
+  int i, len = encode_variable_length(buf, total_size);
+
+  mg_send(c, buf, (size_t) len);
+  for (i = 0; i < (int) nprops; i++) {
+    mg_send(c, &props[i].id, sizeof(props[i].id));
+    switch (mqtt_prop_type_by_id(props[i].id)) {
+      case MQTT_PROP_TYPE_STRING_PAIR:
+        mg_send_u16(c, mg_htons((uint16_t) props[i].key.len));
+        mg_send(c, props[i].key.ptr, props[i].key.len);
+        mg_send_u16(c, mg_htons((uint16_t) props[i].val.len));
+        mg_send(c, props[i].val.ptr, props[i].val.len);
+        break;
+      case MQTT_PROP_TYPE_BYTE:
+        mg_send(c, &props[i].iv, sizeof(uint8_t));
+        break;
+      case MQTT_PROP_TYPE_SHORT:
+        mg_send_u16(c, mg_htons((uint16_t) props[i].iv));
+        break;
+      case MQTT_PROP_TYPE_INT:
+        mg_send_u32(c, mg_htonl((uint32_t) props[i].iv));
+        break;
+      case MQTT_PROP_TYPE_STRING:
+        mg_send_u16(c, mg_htons((uint16_t) props[i].val.len));
+        mg_send(c, props[i].val.ptr, props[i].val.len);
+        break;
+      case MQTT_PROP_TYPE_BINARY_DATA:
+        mg_send_u16(c, mg_htons((uint16_t) props[i].val.len));
+        mg_send(c, props[i].val.ptr, props[i].val.len);
+        break;
+      case MQTT_PROP_TYPE_VARIABLE_INT:
+        len = encode_variable_length(buf_v, props[i].iv);
+        mg_send(c, buf_v, (size_t) len);
+        break;
+    }
+  }
+}
+
+size_t mg_mqtt_next_prop(struct mg_mqtt_message *msg, struct mg_mqtt_prop *prop,
+                         size_t ofs) {
+  uint8_t *i = (uint8_t *) msg->dgram.ptr + msg->props_start + ofs;
+  size_t new_pos = ofs;
+  uint32_t bytes_consumed;
+  prop->id = i[0];
+
+  if (ofs >= msg->dgram.len || ofs >= msg->props_start + msg->props_size)
+    return 0;
+  i++, new_pos++;
+
+  switch (mqtt_prop_type_by_id(prop->id)) {
+    case MQTT_PROP_TYPE_STRING_PAIR:
+      prop->key.len = (uint16_t) ((((uint16_t) i[0]) << 8) | i[1]);
+      prop->key.ptr = (char *) i + 2;
+      i += 2 + prop->key.len;
+      prop->val.len = (uint16_t) ((((uint16_t) i[0]) << 8) | i[1]);
+      prop->val.ptr = (char *) i + 2;
+      new_pos += 2 * sizeof(uint16_t) + prop->val.len + prop->key.len;
+      break;
+    case MQTT_PROP_TYPE_BYTE:
+      prop->iv = (uint8_t) i[0];
+      new_pos++;
+      break;
+    case MQTT_PROP_TYPE_SHORT:
+      prop->iv = (uint16_t) ((((uint16_t) i[0]) << 8) | i[1]);
+      new_pos += sizeof(uint16_t);
+      break;
+    case MQTT_PROP_TYPE_INT:
+      prop->iv = ((uint32_t) i[0] << 24) | ((uint32_t) i[1] << 16) |
+                 ((uint32_t) i[2] << 8) | i[3];
+      new_pos += sizeof(uint32_t);
+      break;
+    case MQTT_PROP_TYPE_STRING:
+      prop->val.len = (uint16_t) ((((uint16_t) i[0]) << 8) | i[1]);
+      prop->val.ptr = (char *) i + 2;
+      new_pos += 2 + prop->val.len;
+      break;
+    case MQTT_PROP_TYPE_BINARY_DATA:
+      prop->val.len = (uint16_t) ((((uint16_t) i[0]) << 8) | i[1]);
+      prop->val.ptr = (char *) i + 2;
+      new_pos += 2 + prop->val.len;
+      break;
+    case MQTT_PROP_TYPE_VARIABLE_INT:
+      prop->iv = decode_variable_length((char *) i, &bytes_consumed);
+      new_pos += bytes_consumed;
+      break;
+    default: new_pos = 0;
+  }
+
+  return new_pos;
+}
+
 void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
-  char rnd[10], client_id[21], zero = 0;
+  char rnd[10], client_id[21];
   struct mg_str cid = opts->client_id;
-  uint32_t total_len = 7 + 1 + 2 + 2;
+  size_t total_len = 7 + 1 + 2 + 2;
   uint8_t hdr[8] = {0, 4, 'M', 'Q', 'T', 'T', opts->version, 0};
 
   if (cid.len == 0) {
@@ -2949,7 +3172,7 @@ void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
 
   if (hdr[6] == 0) hdr[6] = 4;  // If version is not set, use 4 (3.1.1)
   c->is_mqtt5 = hdr[6] == 5;    // Set version 5 flag
-  hdr[7] = (uint8_t) ((opts->will_qos & 3) << 3);  // Connection flags
+  hdr[7] = (uint8_t) ((opts->qos & 3) << 3);  // Connection flags
   if (opts->user.len > 0) {
     total_len += 2 + (uint32_t) opts->user.len;
     hdr[7] |= MQTT_HAS_USER_NAME;
@@ -2958,31 +3181,37 @@ void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
     total_len += 2 + (uint32_t) opts->pass.len;
     hdr[7] |= MQTT_HAS_PASSWORD;
   }
-  if (opts->will_topic.len > 0 && opts->will_message.len > 0) {
-    total_len +=
-        4 + (uint32_t) opts->will_topic.len + (uint32_t) opts->will_message.len;
+  if (opts->topic.len > 0 && opts->message.len > 0) {
+    total_len += 4 + (uint32_t) opts->topic.len + (uint32_t) opts->message.len;
     hdr[7] |= MQTT_HAS_WILL;
   }
   if (opts->clean || cid.len == 0) hdr[7] |= MQTT_CLEAN_SESSION;
-  if (opts->will_retain) hdr[7] |= MQTT_WILL_RETAIN;
+  if (opts->retain) hdr[7] |= MQTT_WILL_RETAIN;
   total_len += (uint32_t) cid.len;
-  if (c->is_mqtt5) total_len += 1U + (hdr[7] & MQTT_HAS_WILL ? 1U : 0);
+  if (c->is_mqtt5) {
+    total_len += get_props_size(opts->props, opts->num_props);
+    if (hdr[7] & MQTT_HAS_WILL)
+      total_len += get_props_size(opts->will_props, opts->num_will_props);
+  }
 
-  mg_mqtt_send_header(c, MQTT_CMD_CONNECT, 0, total_len);
+  mg_mqtt_send_header(c, MQTT_CMD_CONNECT, 0, (uint32_t) total_len);
   mg_send(c, hdr, sizeof(hdr));
   // keepalive == 0 means "do not disconnect us!"
   mg_send_u16(c, mg_htons((uint16_t) opts->keepalive));
 
-  if (c->is_mqtt5) mg_send(c, &zero, sizeof(zero));  // V5 properties
+  if (c->is_mqtt5) mg_send_mqtt_properties(c, opts->props, opts->num_props);
+
   mg_send_u16(c, mg_htons((uint16_t) cid.len));
   mg_send(c, cid.ptr, cid.len);
 
   if (hdr[7] & MQTT_HAS_WILL) {
-    if (c->is_mqtt5) mg_send(c, &zero, sizeof(zero));  // will props
-    mg_send_u16(c, mg_htons((uint16_t) opts->will_topic.len));
-    mg_send(c, opts->will_topic.ptr, opts->will_topic.len);
-    mg_send_u16(c, mg_htons((uint16_t) opts->will_message.len));
-    mg_send(c, opts->will_message.ptr, opts->will_message.len);
+    if (c->is_mqtt5)
+      mg_send_mqtt_properties(c, opts->will_props, opts->num_will_props);
+
+    mg_send_u16(c, mg_htons((uint16_t) opts->topic.len));
+    mg_send(c, opts->topic.ptr, opts->topic.len);
+    mg_send_u16(c, mg_htons((uint16_t) opts->message.len));
+    mg_send(c, opts->message.ptr, opts->message.len);
   }
   if (opts->user.len > 0) {
     mg_send_u16(c, mg_htons((uint16_t) opts->user.len));
@@ -2994,34 +3223,40 @@ void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
   }
 }
 
-void mg_mqtt_pub(struct mg_connection *c, struct mg_str topic,
-                 struct mg_str data, int qos, bool retain) {
-  uint8_t flags = (uint8_t) (((qos & 3) << 1) | (retain ? 1 : 0)), zero = 0;
-  uint32_t len = 2 + (uint32_t) topic.len + (uint32_t) data.len;
-  MG_DEBUG(("%lu [%.*s] -> [%.*s]", c->id, (int) topic.len, (char *) topic.ptr,
-            (int) data.len, (char *) data.ptr));
-  if (qos > 0) len += 2;
-  if (c->is_mqtt5) len++;
-  mg_mqtt_send_header(c, MQTT_CMD_PUBLISH, flags, len);
-  mg_send_u16(c, mg_htons((uint16_t) topic.len));
-  mg_send(c, topic.ptr, topic.len);
-  if (qos > 0) {
+void mg_mqtt_pub(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
+  uint8_t flags = (uint8_t) (((opts->qos & 3) << 1) | (opts->retain ? 1 : 0));
+  size_t len = 2 + opts->topic.len + opts->message.len;
+  MG_DEBUG(("%lu [%.*s] -> [%.*s]", c->id, (int) opts->topic.len,
+            (char *) opts->topic.ptr, (int) opts->message.len,
+            (char *) opts->message.ptr));
+  if (opts->qos > 0) len += 2;
+  if (c->is_mqtt5) len += get_props_size(opts->props, opts->num_props);
+
+  mg_mqtt_send_header(c, MQTT_CMD_PUBLISH, flags, (uint32_t) len);
+  mg_send_u16(c, mg_htons((uint16_t) opts->topic.len));
+  mg_send(c, opts->topic.ptr, opts->topic.len);
+  if (opts->qos > 0) {
     if (++c->mgr->mqtt_id == 0) ++c->mgr->mqtt_id;
     mg_send_u16(c, mg_htons(c->mgr->mqtt_id));
   }
-  if (c->is_mqtt5) mg_send(c, &zero, sizeof(zero));
-  mg_send(c, data.ptr, data.len);
+
+  if (c->is_mqtt5) mg_send_mqtt_properties(c, opts->props, opts->num_props);
+
+  mg_send(c, opts->message.ptr, opts->message.len);
 }
 
-void mg_mqtt_sub(struct mg_connection *c, struct mg_str topic, int qos) {
-  uint8_t qos_ = qos & 3, zero = 0;
-  uint32_t len = 2 + (uint32_t) topic.len + 2 + 1 + (c->is_mqtt5 ? 1 : 0);
-  mg_mqtt_send_header(c, MQTT_CMD_SUBSCRIBE, 2, len);
+void mg_mqtt_sub(struct mg_connection *c, const struct mg_mqtt_opts *opts) {
+  uint8_t qos_ = opts->qos & 3;
+  size_t plen = c->is_mqtt5 ? get_props_size(opts->props, opts->num_props) : 0;
+  size_t len = 2 + opts->topic.len + 2 + 1 + plen;
+
+  mg_mqtt_send_header(c, MQTT_CMD_SUBSCRIBE, 2, (uint32_t) len);
   if (++c->mgr->mqtt_id == 0) ++c->mgr->mqtt_id;
   mg_send_u16(c, mg_htons(c->mgr->mqtt_id));
-  if (c->is_mqtt5) mg_send(c, &zero, sizeof(zero));
-  mg_send_u16(c, mg_htons((uint16_t) topic.len));
-  mg_send(c, topic.ptr, topic.len);
+  if (c->is_mqtt5) mg_send_mqtt_properties(c, opts->props, opts->num_props);
+
+  mg_send_u16(c, mg_htons((uint16_t) opts->topic.len));
+  mg_send(c, opts->topic.ptr, opts->topic.len);
   mg_send(c, &qos_, sizeof(qos_));
 }
 
@@ -3078,14 +3313,17 @@ int mg_mqtt_parse(const uint8_t *buf, size_t len, uint8_t version,
         p += 2;
       }
       if (p > end) return MQTT_MALFORMED;
-      if (version == 5 && p + 2 < end) p += 1 + p[0];  // Skip options
+      if (version == 5 && p + 2 < end) {
+        m->props_size = decode_variable_length((char *) p, &len_len);
+        m->props_start = (size_t) (p + len_len - buf);
+        p += len_len + m->props_size;
+      }
       if (p > end) return MQTT_MALFORMED;
       m->data.ptr = (char *) p;
       m->data.len = (size_t) (end - p);
       break;
     }
-    default:
-      break;
+    default: break;
   }
   return MQTT_OK;
 }
@@ -3119,8 +3357,16 @@ static void mqtt_cb(struct mg_connection *c, int ev, void *ev_data,
                       mm.topic.ptr, (int) mm.data.len, mm.data.ptr));
             if (mm.qos > 0) {
               uint16_t id = mg_htons(mm.id);
-              mg_mqtt_send_header(c, MQTT_CMD_PUBACK, 0, sizeof(id));
+              uint32_t remaining_len = sizeof(id);
+              if (c->is_mqtt5) remaining_len += 1;
+
+              mg_mqtt_send_header(c, MQTT_CMD_PUBACK, 0, remaining_len);
               mg_send(c, &id, sizeof(id));
+
+              if (c->is_mqtt5) {
+                uint16_t zero = 0;
+                mg_send(c, &zero, sizeof(zero));
+              }
             }
             mg_call(c, MG_EV_MQTT_MSG, &mm);
             break;
@@ -3145,8 +3391,17 @@ void mg_mqtt_pong(struct mg_connection *nc) {
   mg_mqtt_send_header(nc, MQTT_CMD_PINGRESP, 0, 0);
 }
 
-void mg_mqtt_disconnect(struct mg_connection *nc) {
-  mg_mqtt_send_header(nc, MQTT_CMD_DISCONNECT, 0, 0);
+void mg_mqtt_disconnect(struct mg_connection *c,
+                        const struct mg_mqtt_opts *opts) {
+  size_t len = 0;
+  if (c->is_mqtt5) len = 1 + get_props_size(opts->props, opts->num_props);
+  mg_mqtt_send_header(c, MQTT_CMD_DISCONNECT, 0, (uint32_t) len);
+
+  if (c->is_mqtt5) {
+    uint8_t zero = 0;
+    mg_send(c, &zero, sizeof(zero));  // reason code
+    mg_send_mqtt_properties(c, opts->props, opts->num_props);
+  }
 }
 
 struct mg_connection *mg_mqtt_connect(struct mg_mgr *mgr, const char *url,
@@ -4294,28 +4549,31 @@ bool mg_open_listener(struct mg_connection *c, const char *url) {
 
     if ((fd = socket(af, type, proto)) == MG_INVALID_SOCKET) {
       MG_ERROR(("socket: %d", MG_SOCK_ERR(-1)));
-#if ((MG_ARCH == MG_ARCH_WIN32) || (MG_ARCH == MG_ARCH_UNIX) || \
-     (defined(LWIP_SOCKET) && SO_REUSE == 1))
-    } else if ((rc = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &on,
-                                sizeof(on))) != 0) {
-      // 1. SO_RESUSEADDR is not enabled on Windows because the semantics of
-      //    SO_REUSEADDR on UNIX and Windows is different. On Windows,
-      //    SO_REUSEADDR allows to bind a socket to a port without error even
-      //    if the port is already open by another program. This is not the
-      //    behavior SO_REUSEADDR was designed for, and leads to hard-to-track
-      //    failure scenarios. Therefore, SO_REUSEADDR was disabled on Windows
-      //    unless SO_EXCLUSIVEADDRUSE is supported and set on a socket.
-      // 2. In case of LWIP, SO_REUSEADDR should be explicitly enabled, by
-      // defining
-      //    SO_REUSE (in lwipopts.h), otherwise the code below will compile
-      //    but won't work! (setsockopt will return EINVAL)
-      MG_ERROR(("reuseaddr: %d", MG_SOCK_ERR(rc)));
-#endif
-#if MG_ARCH == MG_ARCH_WIN32 && !defined(SO_EXCLUSIVEADDRUSE) && !defined(WINCE)
+#if defined(SO_EXCLUSIVEADDRUSE)
     } else if ((rc = setsockopt(fd, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
                                 (char *) &on, sizeof(on))) != 0) {
       // "Using SO_REUSEADDR and SO_EXCLUSIVEADDRUSE"
-      MG_ERROR(("exclusiveaddruse: %d", MG_SOCK_ERR(rc)));
+      MG_ERROR(("setsockopt(SO_EXCLUSIVEADDRUSE): %d %d", on, MG_SOCK_ERR(rc)));
+#elif defined(SO_REUSEADDR) && (!defined(LWIP_SOCKET) || SO_REUSE)
+    } else if ((rc = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &on,
+                                sizeof(on))) != 0) {
+      // 1. SO_REUSEADDR semantics on UNIX and Windows is different.  On
+      // Windows, SO_REUSEADDR allows to bind a socket to a port without error
+      // even if the port is already open by another program. This is not the
+      // behavior SO_REUSEADDR was designed for, and leads to hard-to-track
+      // failure scenarios.
+      //
+      // 2. For LWIP, SO_REUSEADDR should be explicitly enabled by defining
+      // SO_REUSE = 1 in lwipopts.h, otherwise the code below will compile but
+      // won't work! (setsockopt will return EINVAL)
+      MG_ERROR(("setsockopt(SO_REUSEADDR): %d", MG_SOCK_ERR(rc)));
+#endif
+#if defined(IPV6_V6ONLY)
+    } else if (c->loc.is_ip6 &&
+               (rc = setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (char *) &on,
+                                sizeof(on))) != 0) {
+      // See #2089. Allow to bind v4 and v6 sockets on the same port
+      MG_ERROR(("setsockopt(IPV6_V6ONLY): %d", MG_SOCK_ERR(rc)));
 #endif
     } else if ((rc = bind(fd, &usa.sa, slen)) != 0) {
       MG_ERROR(("bind: %d", MG_SOCK_ERR(rc)));
@@ -7593,9 +7851,11 @@ static void rx_udp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
   struct mg_connection *c = getpeer(ifp->mgr, pkt, true);
   if (c == NULL) {
     // No UDP listener on this port. Should send ICMP, but keep silent.
-  } else if (c != NULL) {
+  } else {
     c->rem.port = pkt->udp->sport;
     c->rem.ip = pkt->ip->src;
+    struct connstate *s = (struct connstate *) (c + 1);
+    memcpy(s->mac, pkt->eth->src, sizeof(s->mac));
     if (c->recv.len >= MG_MAX_RECV_SIZE) {
       mg_error(c, "max_recv_buf_size reached");
     } else if (c->recv.size - c->recv.len < pkt->pay.len &&
@@ -7659,6 +7919,10 @@ static void settmout(struct mg_connection *c, uint8_t type) {
 static struct mg_connection *accept_conn(struct mg_connection *lsn,
                                          struct pkt *pkt) {
   struct mg_connection *c = mg_alloc_conn(lsn->mgr);
+  if (c == NULL) {
+    MG_ERROR(("OOM"));
+    return NULL;
+  }
   struct connstate *s = (struct connstate *) (c + 1);
   s->seq = mg_ntohl(pkt->tcp->ack), s->ack = mg_ntohl(pkt->tcp->seq);
   memcpy(s->mac, pkt->eth->src, sizeof(s->mac));
@@ -7682,14 +7946,20 @@ static struct mg_connection *accept_conn(struct mg_connection *lsn,
 long mg_io_send(struct mg_connection *c, const void *buf, size_t len) {
   struct mg_tcpip_if *ifp = (struct mg_tcpip_if *) c->mgr->priv;
   struct connstate *s = (struct connstate *) (c + 1);
-  size_t max_headers_len = 14 + 24 /* max IP */ + 60 /* max TCP */;
-  if (len + max_headers_len > ifp->tx.len) len = ifp->tx.len - max_headers_len;
-  if (tx_tcp(ifp, s->mac, c->rem.ip, TH_PUSH | TH_ACK, c->loc.port, c->rem.port,
-             mg_htonl(s->seq), mg_htonl(s->ack), buf, len) > 0) {
-    s->seq += (uint32_t) len;
-    if (s->ttype == MIP_TTYPE_ACK) settmout(c, MIP_TTYPE_KEEPALIVE);
+  if (c->is_udp) {
+    size_t max_headers_len = 14 + 24 /* max IP */ + 8 /* UDP */;
+    if (len + max_headers_len > ifp->tx.len) len = ifp->tx.len - max_headers_len;
+    tx_udp(ifp, s->mac, ifp->ip, c->loc.port, c->rem.ip, c->rem.port, buf, len);
   } else {
-    return MG_IO_ERR;
+    size_t max_headers_len = 14 + 24 /* max IP */ + 60 /* max TCP */;
+    if (len + max_headers_len > ifp->tx.len) len = ifp->tx.len - max_headers_len;
+    if (tx_tcp(ifp, s->mac, c->rem.ip, TH_PUSH | TH_ACK, c->loc.port, c->rem.port,
+               mg_htonl(s->seq), mg_htonl(s->ack), buf, len) > 0) {
+      s->seq += (uint32_t) len;
+      if (s->ttype == MIP_TTYPE_ACK) settmout(c, MIP_TTYPE_KEEPALIVE);
+    } else {
+      return MG_IO_ERR;
+    }
   }
   return (long) len;
 }
@@ -8018,6 +8288,7 @@ void mg_tcpip_init(struct mg_mgr *mgr, struct mg_tcpip_if *ifp) {
     mg_random(&ifp->eport, sizeof(ifp->eport));   // Random from 0 to 65535
     ifp->eport |=
         MG_EPHEMERAL_PORT_BASE;  // Random from MG_EPHEMERAL_PORT_BASE to 65535
+    if (ifp->tx.ptr == NULL || ifp->recv_queue.buf == NULL) MG_ERROR(("OOM"));
   }
 }
 
@@ -8054,6 +8325,15 @@ void mg_connect_resolved(struct mg_connection *c) {
     MG_DEBUG(("%lu ARP lookup...", c->id));
     arp_ask(ifp, c->rem.ip);
     c->is_arplooking = 1;
+  } else if (c->rem.ip == (ifp->ip | ~ifp->mask)) {
+    struct connstate *s = (struct connstate *) (c + 1);
+    memset(s->mac, 0xFF, sizeof(s->mac));  // local broadcast
+  } else if ((*((uint8_t *) &c->rem.ip) & 0xE0) == 0xE0) {
+    struct connstate *s = (struct connstate *) (c + 1);  // 224 to 239, E0 to EF
+    uint8_t mcastp[3] = {0x01, 0x00, 0x5E};              // multicast group
+    memcpy(s->mac, mcastp, 3);
+    memcpy(s->mac + 3, ((uint8_t *) &c->rem.ip) + 1, 3);  // 23 LSb
+    s->mac[3] &= 0x7F;
   } else {
     struct connstate *s = (struct connstate *) (c + 1);
     memcpy(s->mac, ifp->gwmac, sizeof(ifp->gwmac));

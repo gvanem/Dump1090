@@ -20,7 +20,7 @@
 #ifndef MONGOOSE_H
 #define MONGOOSE_H
 
-#define MG_VERSION "7.9"
+#define MG_VERSION "7.10"
 
 #ifdef __cplusplus
 extern "C" {
@@ -468,7 +468,7 @@ typedef int socklen_t;
   (((errcode) < 0) && (WSAGetLastError() == WSAECONNRESET))
 
 #define realpath(a, b) _fullpath((b), (a), MG_PATH_MAX)
-#define sleep(x) Sleep(x)
+#define sleep(x) Sleep((x) *1000)
 #define mkdir(a, b) _mkdir(a)
 
 #ifndef S_ISDIR
@@ -477,6 +477,10 @@ typedef int socklen_t;
 
 #ifndef MG_ENABLE_DIRLIST
 #define MG_ENABLE_DIRLIST 1
+#endif
+
+#ifndef SIGPIPE
+#define SIGPIPE 0
 #endif
 
 #endif
@@ -833,19 +837,7 @@ char *mg_remove_double_dots(char *s);
 
 
 // Single producer, single consumer non-blocking queue
-//
-// Producer:
-//    char *buf;
-//    while (mg_queue_book(q, &buf) < len) WAIT();  // Wait for space
-//    memcpy(buf, my_data, len);   // Copy data to the queue
-//    mg_queue_add(q, len);
-//
-// Consumer:
-//    char *buf;
-//    while ((len = mg_queue_get(q, &buf)) == 0) WAIT();
-//    mg_hexdump(buf, len); // Handle message
-//    mg_queue_del(q, len);
-//
+
 struct mg_queue {
   char *buf;
   size_t size;
@@ -894,6 +886,9 @@ size_t mg_print_mac(void (*out)(char, void *), void *arg, va_list *ap);
 // Various output functions
 void mg_pfn_iobuf(char ch, void *param);  // param: struct mg_iobuf *
 void mg_pfn_stdout(char c, void *param);  // param: ignored
+
+// A helper macro for printing JSON: mg_snprintf(buf, len, "%m", MG_ESC("hi"))
+#define MG_ESC(str) mg_print_esc, 0, (str)
 
 
 
@@ -1414,29 +1409,80 @@ int64_t mg_sntp_parse(const unsigned char *buf, size_t len);
 #define MQTT_CMD_DISCONNECT 14
 #define MQTT_CMD_AUTH 15
 
+#define MQTT_PROP_PAYLOAD_FORMAT_INDICATOR 0x01
+#define MQTT_PROP_MESSAGE_EXPIRY_INTERVAL 0x02
+#define MQTT_PROP_CONTENT_TYPE 0x03
+#define MQTT_PROP_RESPONSE_TOPIC 0x08
+#define MQTT_PROP_CORRELATION_DATA 0x09
+#define MQTT_PROP_SUBSCRIPTION_IDENTIFIER 0x0B
+#define MQTT_PROP_SESSION_EXPIRY_INTERVAL 0x11
+#define MQTT_PROP_ASSIGNED_CLIENT_IDENTIFIER 0x12
+#define MQTT_PROP_SERVER_KEEP_ALIVE 0x13
+#define MQTT_PROP_AUTHENTICATION_METHOD 0x15
+#define MQTT_PROP_AUTHENTICATION_DATA 0x16
+#define MQTT_PROP_REQUEST_PROBLEM_INFORMATION 0x17
+#define MQTT_PROP_WILL_DELAY_INTERVAL 0x18
+#define MQTT_PROP_REQUEST_RESPONSE_INFORMATION 0x19
+#define MQTT_PROP_RESPONSE_INFORMATION 0x1A
+#define MQTT_PROP_SERVER_REFERENCE 0x1C
+#define MQTT_PROP_REASON_STRING 0x1F
+#define MQTT_PROP_RECEIVE_MAXIMUM 0x21
+#define MQTT_PROP_TOPIC_ALIAS_MAXIMUM 0x22
+#define MQTT_PROP_TOPIC_ALIAS 0x23
+#define MQTT_PROP_MAXIMUM_QOS 0x24
+#define MQTT_PROP_RETAIN_AVAILABLE 0x25
+#define MQTT_PROP_USER_PROPERTY 0x26
+#define MQTT_PROP_MAXIMUM_PACKET_SIZE 0x27
+#define MQTT_PROP_WILDCARD_SUBSCRIPTION_AVAILABLE 0x28
+#define MQTT_PROP_SUBSCRIPTION_IDENTIFIER_AVAILABLE 0x29
+#define MQTT_PROP_SHARED_SUBSCRIPTION_AVAILABLE 0x2A
+
+enum {
+  MQTT_PROP_TYPE_BYTE,
+  MQTT_PROP_TYPE_STRING,
+  MQTT_PROP_TYPE_STRING_PAIR,
+  MQTT_PROP_TYPE_BINARY_DATA,
+  MQTT_PROP_TYPE_VARIABLE_INT,
+  MQTT_PROP_TYPE_INT,
+  MQTT_PROP_TYPE_SHORT
+};
+
 enum { MQTT_OK, MQTT_INCOMPLETE, MQTT_MALFORMED };
 
+struct mg_mqtt_prop {
+  uint8_t id;         // Enumerated at MQTT5 Reference
+  uint32_t iv;        // Integer value for 8-, 16-, 32-bit integers types
+  struct mg_str key;  // Non-NULL only for user property type
+  struct mg_str val;  // Non-NULL only for UTF-8 types and user properties
+};
+
 struct mg_mqtt_opts {
-  struct mg_str user;          // Username, can be empty
-  struct mg_str pass;          // Password, can be empty
-  struct mg_str client_id;     // Client ID
-  struct mg_str will_topic;    // Will topic
-  struct mg_str will_message;  // Will message
-  uint8_t will_qos;            // Will message quality of service
-  uint8_t version;             // Can be 4 (3.1.1), or 5. If 0, assume 4.
-  uint16_t keepalive;          // Keep-alive timer in seconds
-  bool will_retain;            // Retain last will
-  bool clean;                  // Use clean session, 0 or 1
+  struct mg_str user;               // Username, can be empty
+  struct mg_str pass;               // Password, can be empty
+  struct mg_str client_id;          // Client ID
+  struct mg_str topic;              // topic
+  struct mg_str message;            // message
+  uint8_t qos;                      // message quality of service
+  uint8_t version;                  // Can be 4 (3.1.1), or 5. If 0, assume 4.
+  uint16_t keepalive;               // Keep-alive timer in seconds
+  bool retain;                      // Retain last will
+  bool clean;                       // Use clean session, 0 or 1
+  struct mg_mqtt_prop *props;       // MQTT5 props array
+  size_t num_props;                 // number of props
+  struct mg_mqtt_prop *will_props;  // Valid only for CONNECT packet
+  size_t num_will_props;            // Number of will props
 };
 
 struct mg_mqtt_message {
   struct mg_str topic;  // Parsed topic
   struct mg_str data;   // Parsed message
   struct mg_str dgram;  // Whole MQTT datagram, including headers
-  uint16_t id;  // Set for PUBACK, PUBREC, PUBREL, PUBCOMP, SUBACK, PUBLISH
-  uint8_t cmd;  // MQTT command, one of MQTT_CMD_*
-  uint8_t qos;  // Quality of service
-  uint8_t ack;  // Connack return code. 0 - success
+  uint16_t id;          // For PUBACK, PUBREC, PUBREL, PUBCOMP, SUBACK, PUBLISH
+  uint8_t cmd;          // MQTT command, one of MQTT_CMD_*
+  uint8_t qos;          // Quality of service
+  uint8_t ack;          // Connack return code. 0 - success
+  size_t props_start;   // Offset to the start of the properties
+  size_t props_size;    // Length of the properties
 };
 
 struct mg_connection *mg_mqtt_connect(struct mg_mgr *, const char *url,
@@ -1445,15 +1491,16 @@ struct mg_connection *mg_mqtt_connect(struct mg_mgr *, const char *url,
 struct mg_connection *mg_mqtt_listen(struct mg_mgr *mgr, const char *url,
                                      mg_event_handler_t fn, void *fn_data);
 void mg_mqtt_login(struct mg_connection *c, const struct mg_mqtt_opts *opts);
-void mg_mqtt_pub(struct mg_connection *c, struct mg_str topic,
-                 struct mg_str data, int qos, bool retain);
-void mg_mqtt_sub(struct mg_connection *, struct mg_str topic, int qos);
+void mg_mqtt_pub(struct mg_connection *c, const struct mg_mqtt_opts *opts);
+void mg_mqtt_sub(struct mg_connection *, const struct mg_mqtt_opts *opts);
 int mg_mqtt_parse(const uint8_t *, size_t, uint8_t, struct mg_mqtt_message *);
 void mg_mqtt_send_header(struct mg_connection *, uint8_t cmd, uint8_t flags,
                          uint32_t len);
 void mg_mqtt_ping(struct mg_connection *);
 void mg_mqtt_pong(struct mg_connection *);
-void mg_mqtt_disconnect(struct mg_connection *);
+void mg_mqtt_disconnect(struct mg_connection *, const struct mg_mqtt_opts *);
+size_t mg_mqtt_next_prop(struct mg_mqtt_message *, struct mg_mqtt_prop *,
+                         size_t ofs);
 
 
 
@@ -1546,6 +1593,7 @@ void mg_rpc_verr(struct mg_rpc_req *, int code, const char *fmt, va_list *);
 void mg_rpc_list(struct mg_rpc_req *r);
 
 
+#if MG_ENABLE_TCPIP
 
 
 
@@ -1607,7 +1655,6 @@ struct mg_tcpip_spi {
   uint8_t (*txn)(void *, uint8_t);  // SPI transaction: write 1 byte, read reply
 };
 
-#if MG_ENABLE_TCPIP
 #if !defined(MG_ENABLE_DRIVER_STM32H) && !defined(MG_ENABLE_DRIVER_TM4C)
 #define MG_ENABLE_DRIVER_STM32 1
 #else
