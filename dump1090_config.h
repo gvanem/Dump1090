@@ -72,6 +72,7 @@
 
 /* Support various features in 'externals/mongoose.c':
  */
+#define MG_ENABLE_ASSERT        1  /* 'assert()' */
 #define MG_ENABLE_IPV6          0  /* IPv6 */
 #define MG_ENABLE_FILE          1  /* 'opendir()' etc. */
 #define MG_ENABLE_POLL          0  /* 'WSAPoll()' over 'select()' */
@@ -81,7 +82,8 @@
 /* Use "Visual Leak Detector"
  */
 #if defined(USE_VLD)
-#include <vld.h>
+  #define VLD_FORCE_ENABLE
+  #include <vld.h>
 #endif
 
 #if !defined(USE_WIN_SQLITE)
