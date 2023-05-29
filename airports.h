@@ -19,6 +19,12 @@
 #define AIRPORT_DATABASE_CACHE  "airport-api-cache.csv"
 
 /**
+ * \def AIRPORT_FREQ_CSV
+ * Our airport-frequency database relative to `Modes.where_am_I`.
+ */
+#define AIRPORT_FREQ_CSV  "airport-frequencies.csv"
+
+/**
  * \enum airport_t
  * The source type for an \ref airport or \ref flight_info record.
  */
@@ -56,6 +62,19 @@ void     airports_exit (bool free_airports);
 bool     airports_update_CSV (const char *file);
 uint32_t airports_numbers_CSV (void);
 uint32_t airports_numbers_API (void);
+
+/**
+ * \typedef airport_freq
+ *
+ * Data for a single airport frequency.
+ * Also contains a link to a `airport*` node.
+ */
+typedef struct airport_freq {
+        char           freq_id [3];
+        char           ident [10];
+        double         frequency;
+        const airport *airport;
+      } airport_freq;
 
 /*
  * Handling of "Flight Information".
