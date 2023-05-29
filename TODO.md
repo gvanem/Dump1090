@@ -34,7 +34,7 @@
 
 * Reception and decoding of ACARS (Aircraft Communications Addressing and Reporting System)
   using:
-     1)  libacars: `https://github.com/szpajder/libacars.git`.
+    1)  libacars: `https://github.com/szpajder/libacars.git`.
     2)  DumpVDL2:  `https://github.com/szpajder/dumpvdl2`.
     3)  An intro:  `https://medium.com/@xesey/receiving-airplane-data-with-acars-353291cf2786`.
 
