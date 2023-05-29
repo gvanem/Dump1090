@@ -368,7 +368,7 @@ static void modeS_init_config (void)
   GetCurrentDirectoryA (sizeof(Modes.where_am_I), Modes.where_am_I);
   GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
   if (tmp)
-     strcpy (Modes.tmp_dir, tmp);
+     strncpy (Modes.tmp_dir, tmp, sizeof(Modes.tmp_dir)-1);
   else
   {
     LOG_STDERR ("%%TEMP%% is not defined!\n");
