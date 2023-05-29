@@ -339,7 +339,8 @@ struct sqlite3;
  */
 typedef struct global_data {
         mg_file_path      who_am_I;                 /**< The full name of this program. */
-        mg_file_path      where_am_I;               /**< The current directory (no trailing `\\`. not used). */
+        mg_file_path      where_am_I;               /**< The current directory (no trailing `\\` and not used). */
+        mg_file_path      tmp_dir;                  /**< The `%TEMP%` directory. (no trailing `\\`). */
         uintptr_t         reader_thread;            /**< Device reader thread ID. */
         CRITICAL_SECTION  data_mutex;               /**< Mutex to synchronize buffer access. */
         CRITICAL_SECTION  print_mutex;              /**< Mutex to synchronize printouts. */

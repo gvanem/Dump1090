@@ -362,9 +362,18 @@ static bool check_py_gen_magnitude_lut (void)
  */
 static void modeS_init_config (void)
 {
+  const char *tmp = getenv ("TEMP");
+
   memset (&Modes, '\0', sizeof(Modes));
   GetCurrentDirectoryA (sizeof(Modes.where_am_I), Modes.where_am_I);
   GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
+  if (tmp)
+     strcpy (Modes.tmp_dir, tmp);
+  else
+  {
+    LOG_STDERR ("%%TEMP%% is not defined!\n");
+    strcpy (Modes.tmp_dir, "\\");
+  }
 
   strcpy (Modes.web_page, basename(INDEX_HTML));
   snprintf (Modes.web_root, sizeof(Modes.web_root), "%s\\web_root", dirname(Modes.who_am_I));
@@ -373,6 +382,10 @@ static void modeS_init_config (void)
   slashify (Modes.aircraft_db);
   snprintf (Modes.airport_db, sizeof(Modes.airport_db), "%s\\%s", dirname(Modes.who_am_I), AIRPORT_DATABASE_CSV);
   slashify (Modes.airport_db);
+
+  snprintf (Modes.airport_freq_db, sizeof(Modes.airport_freq_db), "%s\\%s", dirname(Modes.who_am_I), AIRPORT_FREQ_CSV);
+  slashify (Modes.airport_freq_db);
+  snprintf (Modes.airport_cache, sizeof(Modes.airport_cache), "%s\\%s", Modes.tmp_dir, AIRPORT_DATABASE_CACHE);
 
   Modes.gain_auto       = true;
   Modes.sample_rate     = MODES_DEFAULT_RATE;
@@ -3048,6 +3061,9 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
 
     DEBUG (DEBUG_NET, "New client %u (service \"%s\") from %s.\n",
            conn->id, handler_descr(service), remote);
+
+    if (this_conn->rem.ip != mg_htonl(0x7f000001U))  /* 127.0.0.1 */
+       LOG_FILEONLY ("New %s client from %s.\n", handler_descr(service), remote);
     return;
   }
 
@@ -3082,6 +3098,9 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
 
   if (ev == MG_EV_CLOSE)
   {
+    if (this_conn->rem.ip != mg_htonl(0x7f000001U))  /* 127.0.0.1 */
+       LOG_FILEONLY ("Closing %s client from %s.\n", handler_descr(service), remote);
+
     conn = connection_get_addr (&this_conn->rem, service, false);
     connection_free (conn, service);
 

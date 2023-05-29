@@ -523,7 +523,6 @@ static int extract_callback (const char *file, void *arg)
 bool aircraft_CSV_update (const char *db_file, const char *url)
 {
   struct stat st;
-  const char *tmp = getenv ("TEMP");
   bool        force_it = false;
   char        tmp_file [MAX_PATH];
   char        zip_file [MAX_PATH];
@@ -534,19 +533,13 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
     return (false);
   }
 
-  if (!tmp)
-  {
-    LOG_STDERR ("%%TEMP%% is not defined!\n");
-    return (false);
-  }
-
   if (stat(db_file, &st) != 0)
   {
     LOG_STDERR ("\nForce updating '%s' since it does not exist.\n", db_file);
     force_it = true;
   }
 
-  snprintf (zip_file, sizeof(zip_file), "%s\\%s.zip", tmp, AIRCRAFT_DATABASE_TMP);
+  snprintf (zip_file, sizeof(zip_file), "%s\\%s.zip", Modes.tmp_dir, AIRCRAFT_DATABASE_TMP);
   if (stat(zip_file, &st) || st.st_size == 0)
   {
     LOG_STDERR ("\nFile '%s' doesn't exist (or is truncated). Forcing a download.\n",
@@ -575,9 +568,9 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
     return (false);
   }
 
-  snprintf (tmp_file, sizeof(tmp_file), "%s\\%s.csv", tmp, AIRCRAFT_DATABASE_TMP);
+  snprintf (tmp_file, sizeof(tmp_file), "%s\\%s.csv", Modes.tmp_dir, AIRCRAFT_DATABASE_TMP);
 
-  int rc = zip_extract (zip_file, tmp, extract_callback, tmp_file);
+  int rc = zip_extract (zip_file, Modes.tmp_dir, extract_callback, tmp_file);
   if (rc < 0)
   {
     LOG_STDERR ("Failed in call to 'zip_extract()': %s (%d)\n", zip_strerror(rc), rc);
