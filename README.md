@@ -3,7 +3,7 @@
 [![MSBuild](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml/badge.svg?branch=main)](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml)
 
 A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<br>
-It requires a RTLSDR USB-stick and Osmocom's **[librtlsdr](https://github.com/osmocom/rtl-sdr)**.
+It requires a RTL-SDR USB-stick and Osmocom's **[librtlsdr](https://github.com/osmocom/rtl-sdr)**.
 
 This *Mode S* decoder is based on the original *Dump1090* by **Salvatore Sanfilippo**
 which is **[here](https://github.com/antirez/dump1090.git)**.<br>
@@ -54,13 +54,13 @@ available, developed by **Malcolm Robb**.
 
 ## Normal usage
 
-Since the uncompress `aircraftDatabase.csv` file is too big to be allowed on Github, first
+Since the uncompressed `aircraftDatabase.csv` file is too big to be allowed on Github, first
 uncompress `aircraftDatabase.csv.gz` (listed above) into `aircraftDatabase.csv` using:
  ```
   c:\dev\Dump1090> gzip -d aircraftDatabase.csv.gz
  ```
 
-To capture traffic directly from your RTLSDR device and show the captured traffic
+To capture traffic directly from your RTL-SDR device and show the captured traffic
 on standard output, just run the program without options at all:
   ```
   c:\dev\Dump1090> dump1090
@@ -131,19 +131,19 @@ information such as call-sign, registration-number, country, altitude, speed, he
 Most items are extracted from the received *Mode S* packets. <br>
 Except for:
  * *Cntry* (2 letter ISO3166) taken from the *official* range of ICAO address/country mapping.
- * *RSSI* (logaritmic *Received Signal Strength Indicator*) is calculated from the 4 last messages.
+ * *RSSI* (logarithmic *Received Signal Strength Indicator*) is calculated from the 4 last messages.
 
 If a `DUMP1090_HOME_POS` environment variable is defined, the distance to the place gets
 calculated. I.e. the `Dist` column above. E.g. a `set DUMP1090_HOMEPOS=60.3016821,5.3208769`
 for Bergen/Norway.
 
-Otherwise the `--location` option will try to get this postion from the
+Otherwise the `--location` option will try to get this position from the
 [**Windows Location API**](https://learn.microsoft.com/en-us/windows/win32/api/locationapi/nn-locationapi-ilocation).
 
 The program supports another Web-root implementation (than the default `./web_root/gmap.html`) using the<br>
-`--web-root <HTML-file>` option. Running it like:
+`--web-page <HTML-file>` option. Running it like:
   ```
-  c:\dev\Dump1090> dump1090 --interactive --web-root c:\dev\Dump1090\web_root-Tar1090\index.html
+  c:\dev\Dump1090> dump1090 --interactive --web-page c:\dev\Dump1090\web_root-Tar1090\index.html
   ```
 
 will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/)
@@ -169,7 +169,7 @@ program that is able to output 8-bit unsigned IQ samples at 2 MHz sample rate):
   ```
 
 In the above example, `rtl_sdr` with AUTO gain is used. Use `rtl_sdr -g 50` for a 50 dB gain.
-A need to experiment with the gain depends on the tuner. But in my expirence, AUTO gain
+A need to experiment with the gain depends on the tuner. But in my experience, AUTO gain
 works best (`--gain 0`).
 
 This is not needed when calling *Dump1090* itself.
@@ -218,7 +218,7 @@ And with option `--database-sql`, also rebuild the `aircraftDatabase.csv.sqlite`
 gain, frequency, and so forth. <br>
 Full list of options use is shown using `dump1090 --help` or `dump1090 -h`.
 
-A syntax like `dump1090 --freq 1090.001M` is possible for cheap RTLSDR devices with
+A syntax like `dump1090 --freq 1090.001M` is possible for cheap RTL-SDR devices with
 high frequency drift. But for most devices, this is not needed (due to the
 *capture effect* of the signal itself?).
 
@@ -301,13 +301,13 @@ If you are interested in a more serious antenna or ADS-B equipment, check the fo
   *  **[Simple ADSB J-pole antenna](http://www.lll.lu/~edward/edward/adsb/antenna/ADSBantenna.html)**.
   *  **[ADS-B / MLAT](https://ieeexplore.ieee.org/document/9129436)**.
        Multilateration; using a *Time Difference of Arrival* (TDOA) calculation
-       based on signals from several receivers (probably not cheap RTLSDRs).
+       based on signals from several receivers (probably not cheap RTL-SDRs).
 
 
 ## Aggressive mode
 
 With `--aggressive` it is possible to activate the *aggressive mode* that is a
-modified version of the *Mode S* packet detection and decoding. The aggresive mode uses
+modified version of the *Mode S* packet detection and decoding. The aggressive mode uses
 more CPU usually (especially if there are many planes sending *DF17* packets), but
 can detect a few more messages.
 
@@ -327,7 +327,7 @@ The Debug mode is a visual help to improve the detection algorithm or to
 understand why the program is not working for a given input.
 
 In this mode messages are displayed in an ASCII-art style graphical
-representation, where the individial magnitude bars sampled at 2 MHz are
+representation, where the individual magnitude bars sampled at 2 MHz are
 displayed.
 
 An index shows the sample number, where 0 is the sample where the first
@@ -354,10 +354,10 @@ based on how the messages look graphically.
 
 ## How to test the program?
 
-If you have an RTLSDR device and you happen to be in an area where there
+If you have an RTL-SDR device and you happen to be in an area where there
 are aircrafts flying over your head, just run the program and check for signals.
 
-If however you don't have an RTLSDR device, or if in your area the presence
+If however you don't have an RTL-SDR device, or if in your area the presence
 of aircrafts is very limited, you may want to try it with the sample file under
 the **[testfiles](testfiles/)** directory. Run it like this: <br>
   ```
@@ -377,7 +377,7 @@ The `--strip` mode was used to create e.g. **[testfiles/modes1.bin](testfiles/mo
 
 *Dump1090* was written during some free time during xmas 2012, it is an hobby
 project so I'll be able to address issues and improve it only during
-free time, however you are incouraged to send pull requests in order to
+free time, however you are encouraged to send pull requests in order to
 improve the program. A good starting point can be the TODO list included in
 the source distribution.
 
