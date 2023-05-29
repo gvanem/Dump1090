@@ -443,9 +443,8 @@ const char *win_strerror (DWORD err)
 
   if (err == ERROR_SUCCESS)
      strcpy (err_buf, "No error");
-  else
-  if (!FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err,
-                      LANG_NEUTRAL, err_buf, sizeof(err_buf)-1, NULL))
+  else if (!FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err,
+                           LANG_NEUTRAL, err_buf, sizeof(err_buf)-1, NULL))
      strcpy (err_buf, "Unknown error");
 
   if (hr)
@@ -585,7 +584,7 @@ static const char *compiler_info (void)
 {
   static char buf [50];
 
-#ifdef __clang__
+#if defined(__clang__)
   snprintf (buf, sizeof(buf), "clang-cl %d.%d.%d",
             __clang_major__, __clang_minor__, __clang_patchlevel__);
 
@@ -1042,6 +1041,27 @@ double great_circle_dist (pos_t pos1, pos_t pos2)
 }
 
 /**
+ * Set this aircraft's distance to our home position.
+ *
+ * The reference time-tick is the latest of `a->odd_CPR_time` and `a->even_CPR_time`.
+ */
+static void set_home_distance (aircraft *a)
+{
+  if (VALID_POS(Modes.home_pos) && VALID_POS(a->position))
+  {
+    double distance = great_circle_dist (a->position, Modes.home_pos);
+
+    if (distance != 0.0)
+       a->distance = distance;
+
+    a->EST_position = a->position;
+
+    if (a->even_CPR_time > 0 && a->odd_CPR_time > 0)
+       a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
+  }
+}
+
+/**
  * Helper function for decoding the **CPR** (*Compact Position Reporting*). <br>
  * Always positive MOD operation, used for CPR decoding.
  */
@@ -1139,27 +1159,6 @@ static int CPR_N_func (double lat, int is_odd)
 static double CPR_Dlong_func (double lat, int is_odd)
 {
   return 360.0 / CPR_N_func (lat, is_odd);
-}
-
-/**
- * Set this aircraft's distance to our home position.
- *
- * The reference time-tick is the latest of `a->odd_CPR_time` and `a->even_CPR_time`.
- */
-static void set_home_distance (aircraft *a)
-{
-  if (VALID_POS(Modes.home_pos) && VALID_POS(a->position))
-  {
-    double distance = great_circle_dist (a->position, Modes.home_pos);
-
-    if (distance != 0.0)
-       a->distance = distance;
-
-    a->EST_position = a->position;
-
-    if (a->even_CPR_time > 0 && a->odd_CPR_time > 0)
-       a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
-  }
 }
 
 /**
