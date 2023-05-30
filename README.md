@@ -135,7 +135,7 @@ Except for:
 
 If a `DUMP1090_HOME_POS` environment variable is defined, the distance to the place gets
 calculated. I.e. the `Dist` column above. E.g. a `set DUMP1090_HOMEPOS=60.3016821,5.3208769`
-for Bergen/Norway.
+for Bergen/Norway. Find your location on [FreeMapTools](https://www.freemaptools.com/elevation-finder.htm).
 
 Otherwise the `--location` option will try to get this position from the
 [**Windows Location API**](https://learn.microsoft.com/en-us/windows/win32/api/locationapi/nn-locationapi-ilocation).
