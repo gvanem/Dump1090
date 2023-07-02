@@ -1,6 +1,7 @@
 # Dump1090
 
 [![MSBuild](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml/badge.svg?branch=main)](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml)
+[![bug](http://www.watt-32.net/misc/bug.gif)](http://www.watt-32.net/misc/bug.gif)
 
 A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<br>
 It requires a RTL-SDR USB-stick and Osmocom's **[librtlsdr](https://github.com/osmocom/rtl-sdr)**.
