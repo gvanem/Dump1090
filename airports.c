@@ -152,8 +152,7 @@ typedef struct airports_priv {
 
         /**
          * \todo
-         * Add the WinInet handles here.
-         * Or use mg_http_connect() + event handler in dump1090.c.
+         * Add the WinInet handles here for faster loading of it's functions.
          *
          * HINTERNET h1;
          * HINTERNET h2;
@@ -778,7 +777,7 @@ void airports_API_remove_stale (uint64_t now)
  */
 static unsigned int __stdcall api_thread_fn (void *arg)
 {
-  while (1)
+  while (1)  // or 'while (!Modes.exit)' ?
   {
     flight_info *f;
 
@@ -974,9 +973,7 @@ bool airports_init (void)
 }
 
 /**
- * Free the `g_data.airports` linked list
- * \todo
- * Close down the WinInet API and rewrite the API file-cache.
+ * Free the resources used by the ADSB-LOL API.
  */
 static void airports_exit_API (void)
 {
