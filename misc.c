@@ -30,12 +30,11 @@
  */
 void modeS_log (const char *buf)
 {
-  char tbuf [30];
+  const char *time = NULL;
 
   if (!Modes.log)
      return;
 
-  tbuf[0] = '\0';
   if (*buf == '!')
      buf++;
   else
@@ -43,15 +42,14 @@ void modeS_log (const char *buf)
     SYSTEMTIME now;
 
     GetLocalTime (&now);
-    snprintf (tbuf, sizeof(tbuf), "%02u:%02u:%02u.%03u",
-              now.wHour, now.wMinute, now.wSecond, now.wMilliseconds);
+    time = modeS_SYSTEMTIME_to_str (&now, false);
   }
 
   if (*buf == '\n')
      buf++;
 
-  if (tbuf[0])
-       fprintf (Modes.log, "%s: %s", tbuf, buf);
+  if (time)
+       fprintf (Modes.log, "%s: %s", time, buf);
   else fprintf (Modes.log, "%*.*s%s", TSIZE, TSIZE, "", buf);
 }
 
@@ -79,7 +77,7 @@ void modeS_flogf (FILE *f, const char *fmt, ...)
   vsnprintf (buf, sizeof(buf), fmt, args);
   va_end (args);
 
-  if (f && f != Modes.log)
+  if (f && f != Modes.log) /* to `stdout` or `stderr` */
   {
     if (*p == '!')
        p++;
@@ -110,11 +108,46 @@ void modeS_set_log (void)
 }
 
 /**
- * Convert standard suffixes (k, M, G) to an `uint32_t`
+ * Format a `SYSTEMTIME` stucture into string. <br>
+ * Optionally show Year/Month/Day-of-Mounth first.
+ */
+static char *modeS_strftime (const SYSTEMTIME *st, bool show_YMD)
+{
+  static char tbuf [50];
+  size_t left = sizeof(tbuf);
+  char  *ptr = tbuf;
+
+  if (show_YMD)
+  {
+    int len = snprintf (ptr, left, "%02u/%02u/%02u, ",
+                        st->wYear, st->wMonth, st->wDay);
+    ptr  += len;
+    left -= len;
+  }
+  snprintf (ptr, left, "%02u:%02u:%02u.%03u",
+            st->wHour, st->wMinute, st->wSecond, st->wMilliseconds);
+  return (tbuf);
+}
+
+char *modeS_SYSTEMTIME_to_str (const SYSTEMTIME *st, bool show_YMD)
+{
+  return modeS_strftime (st, show_YMD);
+}
+
+char *modeS_FILETIME_to_str (const FILETIME *ft, bool show_YMD)
+{
+  SYSTEMTIME st;
+  FileTimeToSystemTime (ft, &st);
+  return modeS_strftime (&st, show_YMD);
+}
+
+/**
+ * Convert a "frequency string" with standard suffixes (k, M, G)
+ * to a `uint32_t` value.
  *
- * \param in Hertz   a string to be parsed
- * \retval   the frequency as a `double`
- * \note Taken from Osmo-SDR's `convenience.c` and modified.
+ * \param in  Hertz   a string to be parsed
+ * \retval    the frequency as a `uint32_t` (max ~4.3 GHz)
+ * \note      Taken from Osmo-SDR's `convenience.c` and modified.
  */
 uint32_t ato_hertz (const char *Hertz)
 {
@@ -268,6 +301,10 @@ char *dirname (const char *fname)
 
   if (slash && *slash == ':' && dirlen == 3)
      dir[2] = '.';      /* for "x:foo" return "x:." */
+
+  if (IS_SLASH(dir[dirlen-1]))
+     dirlen--;
+
   dir [dirlen] = '\0';
   return (dir);
 }
@@ -283,7 +320,7 @@ char *slashify (char *fname)
   while (*p)
   {
     if (*p == '\\')
-       *p = '/';
+      *p = '/';
     p++;
   }
   return (fname);
@@ -295,6 +332,44 @@ char *slashify (char *fname)
 int touch_file (const char *file)
 {
   return _utime (file, NULL);
+}
+
+/**
+ * Open an existing file (or create) in share-mode but deny other
+ * processes to write to the file.
+ */
+FILE *fopen_excl (const char *file, const char *mode)
+{
+  int fd, open_flags, share_flags;
+
+  switch (*mode)
+  {
+    case 'r':
+          open_flags  = _O_RDONLY;
+          share_flags = S_IREAD;
+          break;
+    case 'w':
+          open_flags  = _O_WRONLY;
+          share_flags = S_IWRITE;
+          break;
+    case 'a':
+          open_flags  = _O_CREAT | _O_WRONLY | _O_APPEND;
+          share_flags = S_IWRITE;
+          break;
+    default:
+          return (NULL);
+  }
+
+  if (mode[1] == '+')
+     open_flags |= _O_CREAT | _O_TRUNC;
+
+  if (mode[strlen(mode)-1] == 'b')
+     open_flags |= O_BINARY;
+
+  fd = _sopen (file, open_flags | _O_SEQUENTIAL, SH_DENYWR, share_flags);
+  if (fd <= -1)
+     return (NULL);
+  return _fdopen (fd, mode);
 }
 
 #if MG_ENABLE_FILE
@@ -696,6 +771,12 @@ DEF_FUNC (BOOL, InternetGetLastResponseInfoA, (DWORD *err_code,
 DEF_FUNC (BOOL, InternetCloseHandle, (HINTERNET handle));
 
 /**
+ * \def BUF_INCREMENT
+ * Initial and incremental buffer size of `download_to_buf()`
+ */
+#define BUF_INCREMENT (10*1024)
+
+/**
  * Handles dynamic loading and unloading of DLLs and their functions.
  */
 int load_dynamic_table (struct dyn_struct *tab, int tab_size)
@@ -838,63 +919,177 @@ static struct dyn_struct wininet_funcs[] = {
                          ADD_VALUE (InternetCloseHandle)
                        };
 
+typedef struct download_ctx {
+        const char *url;
+        const char *file;
+        HINTERNET   h1;
+        HINTERNET   h2;
+        FILE       *f;
+        BOOL        wininet_rc;          /* last 'InternetReadFile()' result */
+        char        file_buf [200*1024]; /* for `download_to_file()` only */
+        char       *dl_buf;
+        size_t      dl_buf_sz;
+        size_t      dl_buf_pos;
+        DWORD       bytes_read;
+        DWORD       bytes_read_total;
+        uint32_t    written_to_file;
+        bool        got_last_chunk;
+      } download_ctx;
+
+static bool download_exit (download_ctx *ctx, bool rc)
+{
+  if (ctx->f)
+     fclose (ctx->f);
+
+  if (ctx->h2)
+    (*p_InternetCloseHandle) (ctx->h2);
+
+  if (ctx->h1)
+    (*p_InternetCloseHandle) (ctx->h1);
+
+  ctx->h1 = ctx->h2 = NULL;
+  unload_dynamic_table (wininet_funcs, DIM(wininet_funcs));
+  return (rc);
+}
+
 /**
  * Download a file from url using the Windows *WinInet API*.
  *
- * \param[in] file  the file to write to.
  * \param[in] url   the URL to retrieve from.
+ * \param[in] file  the file to write to.
  * \retval    The number of bytes written to `file`.
  */
-uint32_t download_file (const char *file, const char *url)
+static bool download_to_file_cb (download_ctx *ctx)
 {
-  HINTERNET h1 = NULL;
-  HINTERNET h2 = NULL;
-  uint32_t  written = 0;
-  FILE     *fil = NULL;
-  char      buf [200*1024];
+  DWORD sz;
+
+  if (ctx->got_last_chunk)
+     puts ("");
+
+  sz = (int) fwrite (ctx->dl_buf, 1, (size_t)ctx->bytes_read, ctx->f);
+  if (sz != ctx->bytes_read)
+     return (false);
+
+  ctx->written_to_file += (uint32_t) sz;
+  printf ("Got %u kB.\r", ctx->written_to_file / 1024);
+  assert (ctx->dl_buf_pos == 0);
+  return (true);
+}
+
+static bool download_to_buf_cb (download_ctx *ctx)
+{
+  if (ctx->bytes_read_total + ctx->bytes_read >= ctx->dl_buf_sz)
+  {
+    char *more;
+
+    DEBUG (DEBUG_NET, "Limit reached. dl_buf_sz: %zu\n", ctx->dl_buf_sz);
+    ctx->dl_buf_sz += BUF_INCREMENT;
+    more = realloc (ctx->dl_buf, ctx->dl_buf_sz);
+    if (!more)
+       return (false);
+
+    ctx->dl_buf = more;
+  }
+
+  ctx->dl_buf_pos += ctx->bytes_read;
+  assert (ctx->dl_buf_pos < ctx->dl_buf_sz);
+
+  DEBUG (DEBUG_NET, "bytes_read_total: %lu, dl_buf_pos: %zu\n",
+         ctx->bytes_read_total, ctx->dl_buf_pos);
+  return (true);
+}
+
+static bool download_common (download_ctx *ctx,
+                             const char   *url,
+                             const char   *file,
+                             bool        (*callback)(download_ctx *ctx))
+{
+  memset (ctx, '\0', sizeof(*ctx));
+  ctx->url  = url;
+  ctx->file = file;
+
+  if (ctx->file)
+  {
+    ctx->dl_buf    = ctx->file_buf;
+    ctx->dl_buf_sz = sizeof(ctx->file_buf);
+    ctx->f = fopen (ctx->file, "w+b");
+    if (!ctx->f)
+    {
+      DEBUG (DEBUG_NET, "Failed to create '%s'; %s.\n", ctx->file, strerror(errno));
+      return download_exit (ctx, false);
+    }
+  }
+  else
+  {
+    ctx->dl_buf_sz = BUF_INCREMENT;
+    ctx->dl_buf    = calloc (ctx->dl_buf_sz, 1);
+    if (!ctx->dl_buf)
+    {
+      DEBUG (DEBUG_NET, "Failed to allocate %d kByte!.\n", BUF_INCREMENT/1024);
+      return (false);
+    }
+  }
 
   if (load_dynamic_table(wininet_funcs, DIM(wininet_funcs)) != DIM(wininet_funcs))
   {
     DEBUG (DEBUG_NET, "Failed to load the needed 'WinInet.dll' functions.\n");
-    goto quit;
+    return download_exit (ctx, false);
   }
 
-  fil = fopen (file, "w+b");
-  if (!fil)
-  {
-    DEBUG (DEBUG_NET, "Failed to create '%s'; errno: %d.\n", file, errno);
-    goto quit;
-  }
-
-  if (!download_init(&h1, &h2, url))
-     goto quit;
+  if (!download_init(&ctx->h1, &ctx->h2, ctx->url))
+     return download_exit (ctx, false);
 
   while (1)
   {
-    DWORD bytes_read = 0;
+    ctx->bytes_read = 0;
+    ctx->wininet_rc = (*p_InternetReadFile) (
+                         ctx->h2,
+                         ctx->dl_buf    + ctx->dl_buf_pos,
+                         ctx->dl_buf_sz - ctx->dl_buf_pos,
+                         &ctx->bytes_read);
 
-    if (!(*p_InternetReadFile)(h2, buf, sizeof(buf), &bytes_read) ||
-        bytes_read == 0)  /* Got last chunk */
+    if (!ctx->wininet_rc || ctx->bytes_read == 0)
     {
-      puts ("");
-      break;
+      DEBUG (DEBUG_NET, "got_last_chunk.\n");
+      ctx->got_last_chunk = true;
     }
-    written += (uint32_t) fwrite (buf, 1, (size_t)bytes_read, fil);
-    printf ("Got %u kB.\r", written / 1024);
+    if (!(*callback)(ctx) || ctx->got_last_chunk)
+       break;
+
+    ctx->bytes_read_total += ctx->bytes_read;
   }
+  return download_exit (ctx, ctx->got_last_chunk);
+}
 
-quit:
-  if (fil)
-     fclose (fil);
+/**
+ * Download a file from url using the Windows *WinInet API*.
+ *
+ * \param[in] url   the URL to retrieve from.
+ * \param[in] file  the file to write to.
+ * \retval    The number of bytes written to `file`.
+ */
+uint32_t download_to_file (const char *url, const char *file)
+{
+  download_ctx ctx;
 
-  if (h2)
-    (*p_InternetCloseHandle) (h2);
+  if (!download_common(&ctx, url, file, download_to_file_cb))
+     return (0);
+  return (ctx.written_to_file);
+}
 
-  if (h1)
-    (*p_InternetCloseHandle) (h1);
+/**
+ * Download from an url using the Windows *WinInet API*.
+ *
+ * \param[in] url  the URL to retrieve from.
+ * \retval    The allocated result. Caller must free this.
+ */
+char *download_to_buf (const char *url)
+{
+  download_ctx ctx;
 
-  unload_dynamic_table (wininet_funcs, DIM(wininet_funcs));
-  return (written);
+  if (!download_common(&ctx, url, NULL, download_to_buf_cb))
+     return (NULL);
+  return (ctx.dl_buf);
 }
 
 /**
