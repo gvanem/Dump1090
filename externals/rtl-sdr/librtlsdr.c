@@ -821,6 +821,8 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath, int *err)
 {
   BOOL rc = TRUE;
 
+  *err = 0; /* assume success */
+
   RTL_TRACE (2, "Calling 'CreateFileA (\"%s\")'\n", DevicePath);
 
   dev->usbHandle = INVALID_HANDLE_VALUE;
@@ -847,7 +849,6 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath, int *err)
   }
 
   RTL_TRACE (1, "dev->deviceHandle: 0x%p, dev->usbHandle: 0x%p\n", dev->deviceHandle, dev->usbHandle);
-  *err = 0;
   return (rc);
 }
 
