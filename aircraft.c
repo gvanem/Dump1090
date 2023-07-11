@@ -198,8 +198,8 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
 }
 
 /**
- * Return the aircraft with the specified ICAO address, or NULL if we have
- * no aircraft with this ICAO address.
+ * Return the aircraft with the specified ICAO address, or NULL
+ * if we have no aircraft with this ICAO address.
  *
  * \param in addr  the specific ICAO address.
  */
@@ -562,7 +562,7 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
 
   LOG_STDERR ("%supdating '%s' from '%s'\n", force_it ? "Force " : "", zip_file, url);
 
-  if (download_file(zip_file, url) <= 0)
+  if (download_to_file(url, zip_file) <= 0)
   {
     LOG_STDERR ("Failed to download '%s': '%s'\n", zip_file, Modes.wininet_last_error);
     return (false);
@@ -1332,7 +1332,7 @@ static void sql_log (void *cb_arg, int err, const char *str)
  */
 static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, char *p, int left)
 {
-  size_t sz, len;
+  size_t sz;
   char  *p_start = p;
   int    altitude = a->altitude;
   int    speed    = a->speed;
@@ -1346,14 +1346,10 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
     speed    = (int) (1.852 * (double) a->speed);
   }
 
-  len = strlen (a->flight);
-  while (a->flight[len-1] == ' ')   /* drop trailing spaces */
-     len--;
-
   sz = mg_snprintf (p, left,
-                    "{\"hex\": \"%06X\", \"flight\": \"%.*s\", \"lat\": %f, \"lon\": %f, \"altitude\": %d, \"track\": %d, \"speed\": %d",
+                    "{\"hex\": \"%06X\", \"flight\": \"%s\", \"lat\": %f, \"lon\": %f, \"altitude\": %d, \"track\": %d, \"speed\": %d",
                      a->addr,
-                     (int)len, a->flight,
+                     a->flight,
                      a->position.lat,
                      a->position.lon,
                      altitude,
