@@ -14,6 +14,11 @@
 #include "sdrplay.h"
 #include "misc.h"
 
+/**\todo
+ * Test for 'g_data.ap_stats.CSV_numbers > 0' first.
+ */
+#define SHOW_DEP_DST
+
 #if defined(USE_CURSES)
   #undef MOUSE_MOVED
   #include <curses.h>
@@ -96,6 +101,29 @@ static API_funcs wincon_api = {
        .print_line   = wincon_print_line,
        .print_header = wincon_print_header,
      };
+
+#ifdef SHOW_DEP_DST
+  #define HEADER_BAR  "-------------------------------------------------------------------------------------------------------------"
+  #define HEADER      "ICAO   Callsign  Reg-num  Cntry  DEP DST   Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
+  #define LINE_FMT    "%06X %-9.9s %-8s %-6s %-3s %-3s   %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
+  //                        ^     ^    ^    ^    ^      ^
+  //                        |      |    |    |    |      |__ Altitude
+  //                        |      |    |    |    |__ DST  (IATA destination)
+  //                        |      |    |    |__ DEP       (IATA departure)
+  //                        |      |    |__ Cntry
+  //                        |      |__ Reg-Num
+  //                        |__ Callsign
+
+#else
+  #define HEADER_BAR  "-------------------------------------------------------------------------------------------------------"
+  #define HEADER      "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
+  #define LINE_FMT    "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
+  //                        ^      ^    ^    ^
+  //                        |      |    |    |__ Altitude
+  //                        |      |    |__ Cntry
+  //                        |      |__ Reg-Num
+  //                        |__ Callsign
+#endif
 
 /*
  * List of API function for the TUI (text user interface).
@@ -290,7 +318,8 @@ void interactive_other_stats (void)
 #if defined(USE_CURSES)
   if (stats_win)
   {
-    /**\todo
+    /**
+     * \todo
      * Fill the `stats_win' with some handy accumulated statistics.
      * Like number of unique planes, CSV/SQL-lookups and cache hits,
      * Number of network clients, bytes etc.
@@ -303,9 +332,9 @@ void interactive_other_stats (void)
 
   /* Refresh the sub-window for flight-information.
    */
-  if (flight_win && Modes.airport_show)
+  if (flight_win)
   {
-    // \todo
+    /** \todo */
   }
 #endif
 }
@@ -437,8 +466,12 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   const char *flight      = "";
   const char *km_nmiles   = NULL;
   const char *cc_short;
-  double  sig_avg = 0;
-  int64_t ms_diff;
+  double      sig_avg = 0;
+  int64_t     ms_diff;
+#ifdef SHOW_DEP_DST
+  char dep_buf [5] = " - ";
+  char dst_buf [5] = " - ";
+#endif
 
   /* Convert units to metric if --metric was specified.
    */
@@ -495,6 +528,17 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
        flight = call_sign;
   else flight = a->flight;
 
+  if (flight[0])  // test the airports.c LOL-API request queue
+  {
+    const char *departure, *destination;
+
+    airports_API_get_flight_info (flight, &departure, &destination);
+    if (departure)
+       strncpy (dep_buf, departure, sizeof(dep_buf)-1);
+    if (destination)
+       strncpy (dst_buf, destination, sizeof(dst_buf)-1);
+  }
+
   if (a->show == A_SHOW_FIRST_TIME)
   {
     (*api->set_colour) (COLOUR_GREEN);
@@ -526,10 +570,15 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   if (!cc_short)
      cc_short = "--";
 
-  snprintf (line_buf, sizeof(line_buf),
-            "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec ",
+#ifdef SHOW_DEP_DST
+  snprintf (line_buf, sizeof(line_buf), LINE_FMT,
+            a->addr, flight, reg_num, cc_short, dep_buf, dst_buf, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
+            distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
+#else
+  snprintf (line_buf, sizeof(line_buf), LINE_FMT,
             a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
             distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
+#endif
 
   (*api->print_line) (row, 0, line_buf);
 
@@ -587,12 +636,12 @@ void interactive_show_data (uint64_t now)
 }
 
 /**
- * Receive new messages and populate the interactive mode with more info.
+ * Handle a new ModeS message and add (or update) the
+ * aircraft data with more info.
  */
 aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
 {
   aircraft *a;
-  char     *p;
   uint32_t  addr;
 
   if (!mm->CRC_ok)
@@ -627,10 +676,6 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
     if (mm->ME_type >= 1 && mm->ME_type <= 4)
     {
       memcpy (a->flight, mm->flight, sizeof(a->flight));
-      p = a->flight + sizeof(a->flight)-1;
-      while (*p == ' ')
-        *p-- = '\0';  /* Remove trailing spaces */
-
     }
     else if ((mm->ME_type >= 9  && mm->ME_type <= 18) || /* Airborne Position (Baro Altitude) */
              (mm->ME_type >= 20 && mm->ME_type <= 22))   /* Airborne Position (GNSS Height) */
@@ -802,8 +847,6 @@ static int wincon_print_line (int y, int x, const char *str)
 static int  spin_idx = 0;
 static char spinner[] = "|/-\\";
 
-#define HEADER  "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
-
 static void wincon_print_header (void)
 {
   (*api->set_colour) (COLOUR_WHITE);
@@ -811,7 +854,7 @@ static void wincon_print_header (void)
   (*api->set_colour) (0);
 
 #if 1
-  puts ("-----------------------------------------------------------------------------------------------------");
+  puts (HEADER_BAR);
 #else
   WORD  width = strlen(HEADER) - 1;
   WORD  attr = console_info.wAttributes | COMMON_LVB_GRID_HORIZONTAL;
@@ -833,7 +876,16 @@ static void wincon_print_header (void)
 #if defined(USE_CURSES)
 static int curses_init (void)
 {
+  bool slk_ok = (slk_init(1) == OK);
+
   initscr();
+  if (slk_ok)
+  {
+    slk_set (1, "Help", 0);
+    slk_set (2, "Quit", 0);
+    slk_attron (A_REVERSE);
+  }
+
   Modes.interactive_rows = getmaxy (stdscr);
   if (Modes.interactive_rows == 0)
      return (-1);
@@ -847,14 +899,23 @@ static int curses_init (void)
 
   init_pair (COLOUR_WHITE,  COLOR_WHITE, COLOR_BLUE);
   init_pair (COLOUR_GREEN,  COLOR_GREEN, COLOR_BLUE);
-  init_pair (COLOUR_RED,    COLOR_RED, COLOR_BLUE);
+  init_pair (COLOUR_RED,    COLOR_RED,   COLOR_BLUE);
   init_pair (COLOUR_YELLOW, COLOR_YELLOW, COLOR_GREEN);
 
-  colour_map [COLOUR_DEFAULT].pair = 0;  colour_map [COLOUR_DEFAULT].attrib = A_NORMAL;
-  colour_map [COLOUR_WHITE  ].pair = 1;  colour_map [COLOUR_WHITE  ].attrib = A_BOLD;
-  colour_map [COLOUR_GREEN  ].pair = 2;  colour_map [COLOUR_GREEN  ].attrib = A_BOLD;
-  colour_map [COLOUR_RED    ].pair = 3;  colour_map [COLOUR_RED    ].attrib = A_BOLD;
-  colour_map [COLOUR_YELLOW ].pair = 4;  colour_map [COLOUR_YELLOW ].attrib = A_NORMAL;
+  colour_map [COLOUR_DEFAULT].pair   = 0;
+  colour_map [COLOUR_DEFAULT].attrib = A_NORMAL;
+
+  colour_map [COLOUR_WHITE  ].pair   = 1;
+  colour_map [COLOUR_WHITE  ].attrib = A_BOLD;
+
+  colour_map [COLOUR_GREEN  ].pair   = 2;
+  colour_map [COLOUR_GREEN  ].attrib = A_BOLD;
+
+  colour_map [COLOUR_RED    ].pair   = 3;
+  colour_map [COLOUR_RED    ].attrib = A_BOLD;
+
+  colour_map [COLOUR_YELLOW ].pair   = 4;
+  colour_map [COLOUR_YELLOW ].attrib = A_NORMAL;
 
   noecho();
   curs_set (0);
@@ -866,16 +927,11 @@ static int curses_init (void)
   wattron (stats_win, A_REVERSE);
   LOG_FILEONLY ("stats_win: %p, SP->lines: %u, SP->cols: %u\n", stats_win, SP->lines, SP->cols);
 
-#if 0 // \todo
+#if 1 // \todo
   flight_win = subwin (stdscr, 4, COLS, 0, 0);
   wattron (flight_win, A_REVERSE);
   LOG_FILEONLY ("flight_win: %p, SP->lines: %u, SP->cols: %u\n", flight_win, SP->lines, SP->cols);
 #endif
-
-  slk_init (1);
-  slk_set (1, "Help", 0);
-  slk_set (2, "Quit", 0);
-  slk_attron (A_REVERSE);
 
   return (0);
 }
