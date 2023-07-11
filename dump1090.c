@@ -142,9 +142,15 @@ static void crtdbug_init (void)
 #endif  /* _DEBUG */
 
 /**
- * Return a string describing an error-code from RTLSDR
+ * Return a string describing an error-code from RTLSDR.
  *
- * This can be from `librtlsdr` itself or from `WinUsb`.
+ * `rtlsdr_last_error()` always returns a positive value for WinUSB errors.
+ *
+ * While RTLSDR errors returned from all `rtlsdr_x()` functions are negative.
+ * And rather sparse:
+ *   \li -1 if device handle is invalid
+ *   \li -2 if EEPROM size is exceeded (depends on rtlsdr_x() function)
+ *   \li -3 if no EEPROM was found     (depends on rtlsdr_x() function)
  */
 static const char *get_rtlsdr_error (void)
 {
@@ -156,7 +162,7 @@ static const char *get_rtlsdr_error (void)
 }
 
 /**
- * Set the RTLSDR gain verbosively.
+ * Set the RTLSDR manual gain verbosively.
  */
 static void verbose_gain_set (rtlsdr_dev_t *dev, int gain)
 {
@@ -189,7 +195,7 @@ static void verbose_gain_auto (rtlsdr_dev_t *dev)
  * Set the RTLSDR gain verbosively to the nearest available
  * gain value given in `*target_gain`.
  */
-static void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
+static bool nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
 {
   int    gain_in;
   int    i, err1, err2, nearest;
@@ -200,18 +206,18 @@ static void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
   if (r)
   {
     LOG_STDERR ("WARNING: Failed to enable manual gain.\n");
-    return;
+    return (false);
   }
 
   Modes.rtlsdr.gain_count = rtlsdr_get_tuner_gains (dev, NULL);
   if (Modes.rtlsdr.gain_count <= 0)
-     return;
+     return (false);
 
   Modes.rtlsdr.gains = malloc (sizeof(int) * Modes.rtlsdr.gain_count);
   Modes.rtlsdr.gain_count = rtlsdr_get_tuner_gains (dev, Modes.rtlsdr.gains);
   nearest = Modes.rtlsdr.gains[0];
   if (!target_gain)
-     return;
+     return (true);
 
   gain_in = *target_gain;
 
@@ -228,6 +234,7 @@ static void nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
   p [-2] = '\0';
   LOG_STDOUT ("Supported gains: %s.\n", gbuf);
   *target_gain = (uint16_t) nearest;
+  return (true);
 }
 
 /**
@@ -318,7 +325,7 @@ static uint16_t *c_gen_magnitude_lut (void)
   return (lut);
 }
 
-#ifdef USE_GEN_LUT
+#if defined(USE_GEN_LUT)
 #include "py_gen_magnitude_lut.h"
 
 static bool check_py_gen_magnitude_lut (void)
@@ -358,34 +365,54 @@ static bool check_py_gen_magnitude_lut (void)
 #endif
 
 /**
+ * Initialize the temporary directory
+ */
+static void modeS_init_temp (void)
+{
+  DWORD len_temp  = GetTempPath (sizeof(Modes.tmp_dir)-1, Modes.tmp_dir);
+  bool  have_temp = false;
+
+  if (len_temp > 0 && len_temp < sizeof(Modes.tmp_dir) - sizeof("dump1090") - 1)
+     have_temp = true;
+
+  if (!have_temp)
+  {
+    LOG_STDERR ("'have_temp' failed!\n");
+    strcpy (Modes.tmp_dir, "\\dump1090");   /* use root on current-drive as '%TEMP%'! */
+  }
+
+  strcat_s (Modes.tmp_dir, sizeof(Modes.tmp_dir), "dump1090");
+  if (!CreateDirectory(Modes.tmp_dir, 0) && GetLastError() != ERROR_ALREADY_EXISTS)
+     LOG_STDERR ("'CreateDirectory(\"%s\")' failed; %s.\n", Modes.tmp_dir, win_strerror(GetLastError()));
+}
+
+/**
  * Step 1: Initialize the program with default values.
  */
 static void modeS_init_config (void)
 {
-  const char *tmp = getenv ("TEMP");
-
   memset (&Modes, '\0', sizeof(Modes));
   GetCurrentDirectoryA (sizeof(Modes.where_am_I), Modes.where_am_I);
   GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
-  if (tmp)
-     strncpy (Modes.tmp_dir, tmp, sizeof(Modes.tmp_dir)-1);
-  else
-  {
-    LOG_STDERR ("%%TEMP%% is not defined!\n");
-    strcpy (Modes.tmp_dir, "\\");
-  }
+
+  modeS_init_temp();
 
   strcpy (Modes.web_page, basename(INDEX_HTML));
   snprintf (Modes.web_root, sizeof(Modes.web_root), "%s\\web_root", dirname(Modes.who_am_I));
-  slashify (Modes.web_root);
+
   snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\%s", dirname(Modes.who_am_I), AIRCRAFT_DATABASE_CSV);
-  slashify (Modes.aircraft_db);
   snprintf (Modes.airport_db, sizeof(Modes.airport_db), "%s\\%s", dirname(Modes.who_am_I), AIRPORT_DATABASE_CSV);
-  slashify (Modes.airport_db);
 
   snprintf (Modes.airport_freq_db, sizeof(Modes.airport_freq_db), "%s\\%s", dirname(Modes.who_am_I), AIRPORT_FREQ_CSV);
-  slashify (Modes.airport_freq_db);
   snprintf (Modes.airport_cache, sizeof(Modes.airport_cache), "%s\\%s", Modes.tmp_dir, AIRPORT_DATABASE_CACHE);
+
+#if 0
+  printf ("Modes.web_page:      '%s'\n", Modes.web_page);
+  printf ("Modes.web_root:      '%s'\n", Modes.web_root);
+  printf ("Modes.aircraft_db:   '%s'\n", Modes.aircraft_db);
+  printf ("Modes.airport_db:    '%s'\n", Modes.airport_db);
+  printf ("Modes.airport_cache: '%s'\n", Modes.airport_cache);
+#endif
 
   Modes.gain_auto       = true;
   Modes.sample_rate     = MODES_DEFAULT_RATE;
@@ -394,7 +421,6 @@ static void modeS_init_config (void)
   Modes.json_interval   = 1000;
   Modes.keep_alive      = 1;
   Modes.tui_interface   = TUI_WINCON;
-  Modes.airport_show    = true;
 
   InitializeCriticalSection (&Modes.data_mutex);
   InitializeCriticalSection (&Modes.print_mutex);
@@ -403,7 +429,7 @@ static void modeS_init_config (void)
 /**
  * Step 2:
  *  \li Open and append to the `--logfile` if specified.
- *  \li In `--net` mode (but not `--net-active` mode), check the precence of the Web-page.
+ *  \li
  *  \li Set our home position from the env-var `%DUMP1090_HOMEPOS%`.
  *  \li Initialize the `Modes.data_mutex`.
  *  \li Setup a SIGINT/SIGBREAK handler for a clean exit.
@@ -423,21 +449,24 @@ static bool modeS_init (void)
     size_t n, left = sizeof(args);
     int    i;
 
-    Modes.log = fopen (Modes.logfile, "a");
+    /* Open the log-file exlusive for us
+     */
+    Modes.log = fopen_excl (Modes.logfile, "a");
     if (!Modes.log)
+       LOG_STDERR ("Failed to create/append to \"%s\" (%s). Continuing anyway.\n",
+                   Modes.logfile, strerror(errno));
+    else
     {
-      LOG_STDERR ("Failed to create/append to \"%s\".\n", Modes.logfile);
-      return (false);
+      for (i = 1; i < __argc && left > 2; i++)
+      {
+        n = snprintf (p, left, " %s", __argv[i]);
+        p    += n;
+        left -= n;
+      }
+      fputc ('\n', Modes.log);
+      snprintf (buf, sizeof(buf), "------- Starting '%s%s' -----------\n", Modes.who_am_I, args);
+      modeS_log (buf);
     }
-    for (i = 1; i < __argc && left > 2; i++)
-    {
-      n = snprintf (p, left, " %s", __argv[i]);
-      p    += n;
-      left -= n;
-    }
-    fputc ('\n', Modes.log);
-    snprintf (buf, sizeof(buf), "------- Starting '%s%s' -----------\n", Modes.who_am_I, args);
-    modeS_log (buf);
   }
 
   modeS_set_log();
@@ -457,11 +486,15 @@ static bool modeS_init (void)
     }
   }
 
+#if 0
   /**
    * \todo
-   * Regenerate using `py -3 tools/gen_airport_codes_csv.py > airport-codes.csv`
+   * Regenerate AIRPORT_DATABASE_CSV by:
+   * ```
+   *  python tools/gen_airport_codes_csv.py > %TEMP%\dump1090\airport-codes.csv
+   *  if NOT errorlevel copy %TEMP%\dump1090\airport-codes.csv %CD%
+   * ```
    */
-#if 0
   if (Modes.airport_db_update && strcmp(Modes.airport_db, "NUL"))
   {
     airports_update_CSV (Modes.airport_db);
@@ -475,7 +508,7 @@ static bool modeS_init (void)
   {
     if (sscanf(env, "%lf,%lf", &pos.lat, &pos.lon) != 2 || !VALID_POS(pos))
     {
-      LOG_STDERR ("Invalid home-pos %s\n", env);
+      LOG_STDERR ("Invalid home-pos %s.\n", env);
       return (false);
     }
     Modes.home_pos    = pos;
@@ -500,7 +533,7 @@ static bool modeS_init (void)
    * to process. This way we are able to also detect messages crossing
    * two reads.
    */
-  Modes.data_len = MODES_DATA_LEN + 4*(MODES_FULL_LEN-1);
+  Modes.data_len = MODES_ASYNC_BUF_SIZE + 4*(MODES_FULL_LEN-1);
   Modes.data_ready = false;
 
   /**
@@ -532,6 +565,7 @@ static bool modeS_init (void)
 
     if (!check_py_gen_magnitude_lut())
        return (false);
+
     test_assert();
   }
 
@@ -560,12 +594,13 @@ static bool modeS_init (void)
 static bool modeS_init_RTLSDR (void)
 {
   int    i, rc, device_count;
+  bool   gain_ok;
   double gain;
 
   device_count = rtlsdr_get_device_count();
   if (device_count <= 0)
   {
-    LOG_STDERR ("No supported RTLSDR devices found. Error: %s\n", get_rtlsdr_error());
+    LOG_STDERR ("No supported RTLSDR devices found. Error: %s.\n", get_rtlsdr_error());
     return (false);
   }
 
@@ -611,15 +646,12 @@ static bool modeS_init_RTLSDR (void)
 
   /* Set gain, frequency, sample rate, and reset the device.
    */
-  if (Modes.gain_auto)
+  gain_ok = nearest_gain (Modes.rtlsdr.device, Modes.gain_auto ? NULL : &Modes.gain);
+  if (gain_ok)
   {
-    nearest_gain (Modes.rtlsdr.device, NULL);
-    verbose_gain_auto (Modes.rtlsdr.device);
-  }
-  else
-  {
-    nearest_gain (Modes.rtlsdr.device, &Modes.gain);
-    verbose_gain_set (Modes.rtlsdr.device, Modes.gain);
+    if (Modes.gain_auto)
+         verbose_gain_auto (Modes.rtlsdr.device);
+    else verbose_gain_set (Modes.rtlsdr.device, Modes.gain);
   }
 
   if (Modes.dig_agc)
@@ -689,13 +721,13 @@ static void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
      return;
 
   EnterCriticalSection (&Modes.data_mutex);
-  if (len > MODES_DATA_LEN)
-     len = MODES_DATA_LEN;
+  if (len > MODES_ASYNC_BUF_SIZE)
+     len = MODES_ASYNC_BUF_SIZE;
 
   /* Move the last part of the previous buffer, that was not processed,
    * to the start of the new buffer.
    */
-  memcpy (Modes.data, Modes.data + MODES_DATA_LEN, 4*(MODES_FULL_LEN-1));
+  memcpy (Modes.data, Modes.data + MODES_ASYNC_BUF_SIZE, 4*(MODES_FULL_LEN-1));
 
   /* Read the new data.
    */
@@ -734,8 +766,8 @@ static int read_from_data_file (void)
      /* Move the last part of the previous buffer, that was not processed,
       * on the start of the new buffer.
       */
-     memcpy (Modes.data, Modes.data + MODES_DATA_LEN, 4*(MODES_FULL_LEN-1));
-     toread = MODES_DATA_LEN;
+     memcpy (Modes.data, Modes.data + MODES_ASYNC_BUF_SIZE, 4*(MODES_FULL_LEN-1));
+     toread = MODES_ASYNC_BUF_SIZE;
      data   = Modes.data + 4*(MODES_FULL_LEN-1);
 
      while (toread)
@@ -786,7 +818,7 @@ static unsigned int __stdcall data_thread_fn (void *arg)
   if (Modes.sdrplay.device)
   {
     rc = sdrplay_read_async (Modes.sdrplay.device, rx_callback, (void*)&Modes.exit,
-                             MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
+                             MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
 
     DEBUG (DEBUG_GENERAL, "sdrplay_read_async(): rc: %d / %s.\n",
            rc, sdrplay_strerror(rc));
@@ -796,7 +828,7 @@ static unsigned int __stdcall data_thread_fn (void *arg)
   else if (Modes.rtlsdr.device)
   {
     rc = rtlsdr_read_async (Modes.rtlsdr.device, rx_callback, (void*)&Modes.exit,
-                            MODES_ASYNC_BUF_NUMBER, MODES_DATA_LEN);
+                            MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
 
     DEBUG (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
            rc, get_rtlsdr_error());
@@ -941,10 +973,10 @@ static void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t
     if (fixable > 255)
        fix2 = fixable >> 8;
   }
-  fp = fopen ("frames.js", "a");
+  fp = fopen_excl ("frames.js", "a");
   if (!fp)
   {
-    LOG_STDERR ("Error opening frames.js: %s\n", strerror(errno));
+    LOG_STDERR ("Error opening frames.js: %s.\n", strerror(errno));
     Modes.exit = 1;
     return;
   }
@@ -1594,15 +1626,20 @@ static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
       /* Aircraft Identification and Category
        */
       mm->aircraft_type = mm->ME_type - 1;
-      mm->flight[0] = AIS_charset [msg[5] >> 2];
-      mm->flight[1] = AIS_charset [((msg[5] & 3) << 4) | (msg[6] >> 4)];
-      mm->flight[2] = AIS_charset [((msg[6] & 15) <<2 ) | (msg[7] >> 6)];
-      mm->flight[3] = AIS_charset [msg[7] & 63];
-      mm->flight[4] = AIS_charset [msg[8] >> 2];
-      mm->flight[5] = AIS_charset [((msg[8] & 3) << 4) | (msg[9] >> 4)];
-      mm->flight[6] = AIS_charset [((msg[9] & 15) << 2) | (msg[10] >> 6)];
-      mm->flight[7] = AIS_charset [msg[10] & 63];
-      mm->flight[8] = '\0';
+      mm->flight [0] = AIS_charset [msg[5] >> 2];
+      mm->flight [1] = AIS_charset [((msg[5] & 3) << 4) | (msg[6] >> 4)];
+      mm->flight [2] = AIS_charset [((msg[6] & 15) <<2 ) | (msg[7] >> 6)];
+      mm->flight [3] = AIS_charset [msg[7] & 63];
+      mm->flight [4] = AIS_charset [msg[8] >> 2];
+      mm->flight [5] = AIS_charset [((msg[8] & 3) << 4) | (msg[9] >> 4)];
+      mm->flight [6] = AIS_charset [((msg[9] & 15) << 2) | (msg[10] >> 6)];
+      mm->flight [7] = AIS_charset [msg[10] & 63];
+      mm->flight [8] = '\0';
+
+      char *p = mm->flight + 7;
+      while (*p == ' ')    /* Remove trailing spaces */
+        *p-- = '\0';
+
     }
     else if (mm->ME_type >= 9 && mm->ME_type <= 18)
     {
@@ -2316,7 +2353,7 @@ good_preamble:
     {
       if ((Modes.debug & DEBUG_DEMODERR) && use_correction)
       {
-        LOG_STDERR ("The following message has %d demod errors", errors);
+        LOG_STDOUT ("The following message has %d demod errors:", errors);
         dump_raw_message ("Demodulated with errors", msg, m, j);
       }
     }
@@ -2451,7 +2488,7 @@ static connection *connection_get_addr (const mg_addr *addr, intptr_t service, b
 {
   connection *srv;
 
-  assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
+  ASSERT_SERVICE (service);
 
   for (srv = Modes.connections[service]; srv; srv = srv->next)
   {
@@ -2510,7 +2547,7 @@ static unsigned connection_free_all (void)
   intptr_t service;
   unsigned num = 0;
 
-  for (service = MODES_NET_SERVICE_RAW_OUT; service < MODES_NET_SERVICES_NUM; service++)
+  for (service = MODES_NET_SERVICE_FIRST; service <= MODES_NET_SERVICE_LAST; service++)
   {
     connection *conn, *conn_next;
 
@@ -2605,39 +2642,39 @@ static const char *event_name (int ev)
 
 static mg_connection *handler_conn (intptr_t service)
 {
-  assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
+  ASSERT_SERVICE (service);
   return (*modeS_net_services [service].conn);
 }
 
 static uint16_t *handler_num_connections (intptr_t service)
 {
-  assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
+  ASSERT_SERVICE (service);
   return (&modeS_net_services [service].num_connections);
 }
 
 static const char *handler_descr (intptr_t service)
 {
-  assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
+  ASSERT_SERVICE (service);
   return (modeS_net_services [service].descr);
 }
 
 static u_short handler_port (intptr_t service)
 {
-  assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
+  ASSERT_SERVICE (service);
   return (modeS_net_services [service].port);
 }
 
 static char *handler_error (intptr_t service)
 {
-  assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
+  ASSERT_SERVICE (service);
   return (modeS_net_services [service].last_err);
 }
 
 static char *handler_store_error (intptr_t service, const char *err)
 {
-  assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
-  free (modeS_net_services [service].last_err);
-  modeS_net_services [service].last_err = NULL;
+  ASSERT_SERVICE (service);
+
+  FREE (modeS_net_services [service].last_err);
   if (err)
   {
     modeS_net_services [service].last_err = strdup (err);
@@ -2648,7 +2685,7 @@ static char *handler_store_error (intptr_t service, const char *err)
 
 static bool handler_sending (intptr_t service)
 {
-  assert (service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM);
+  ASSERT_SERVICE (service);
   return (modeS_net_services [service].active_send);
 }
 
@@ -2682,16 +2719,15 @@ static void net_flushall (void)
 
 static int print_server_errors (void)
 {
-  int   service, num = 0;
-  char *err;
+  int num = 0;
 
-  for (service = MODES_NET_SERVICE_RAW_OUT; service < MODES_NET_SERVICES_NUM; service++)
+  SERVICE_FOR_EACH()
   {
-    err = handler_error (service);
+    const char *err = handler_error (service);
+
     if (!err)
        continue;
-
-    LOG_STDERR ("%s\n", err);
+    LOG_STDERR ("%s.\n", err);
     handler_store_error (service, NULL);
     num++;
   }
@@ -2773,6 +2809,16 @@ static void send_favicon (mg_connection *conn,
              "%s\r\n", data_len, set_headers(cli, content_type));
   mg_send (conn, data, data_len);
   conn->is_resp = 0;
+}
+
+/**
+ * \todo
+ * Have we seen this IP-address before?
+ */
+static bool is_a_unique_client_addresses (const mg_addr *addr)
+{
+  (void) addr;
+  return (false);
 }
 
 /**
@@ -2990,7 +3036,7 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
     remote = modeS_net_services [service].host;
     port   = modeS_net_services [service].port;
 
-    if (remote && service >= MODES_NET_SERVICE_RAW_OUT && service < MODES_NET_SERVICES_NUM)
+    if (remote && service >= MODES_NET_SERVICE_FIRST && service <= MODES_NET_SERVICE_LAST)
     {
       snprintf (err, sizeof(err), "Connection to %s:%u failed: %s", remote, port, (const char*)ev_data);
       handler_store_error (service, err);
@@ -3064,6 +3110,10 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
 
     if (this_conn->rem.ip != mg_htonl(0x7f000001U))  /* 127.0.0.1 */
        LOG_FILEONLY ("New %s client from %s.\n", handler_descr(service), remote);
+
+    if (is_a_unique_client_addresses(&this_conn->rem))
+       Modes.stat.unique_clients [service]++;
+
     return;
   }
 
@@ -3148,9 +3198,9 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
   char           url [50];
 
   /* Temporary enable important errors to go to `stderr` only.
-   * For both an active and listen (passive) coonections we handle
-   * "early" errors (like out of memory) by returning NULL. A failed
-   * active connection will fail later. See comment below.
+   * For both an active and listen (passive) coonection we handle
+   * "early" errors (like out of memory) by returning NULL.
+   * A failed active connection will fail later. See comment below.
    */
   mg_log_set_fn (modeS_logc, stderr);
   mg_log_set (MG_LL_ERROR);
@@ -3193,7 +3243,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
 static bool connection_setup_active (intptr_t service, mg_connection **conn)
 {
   *conn = connection_setup (service, false, false);
-  if (*conn == NULL)
+  if (!*conn)
   {
     LOG_STDERR ("Fail to set-up active socket for %s.\n", handler_descr(service));
     return (false);
@@ -3207,7 +3257,7 @@ static bool connection_setup_active (intptr_t service, mg_connection **conn)
 static bool connection_setup_listen (intptr_t service, mg_connection **conn, bool sending)
 {
   *conn = connection_setup (service, true, sending);
-  if (*conn == NULL)
+  if (!*conn)
   {
     LOG_STDERR ("Fail to set-up listen socket for %s.\n", handler_descr(service));
     return (false);
@@ -3217,7 +3267,13 @@ static bool connection_setup_listen (intptr_t service, mg_connection **conn, boo
 
 #if defined(PACKED_WEB_ROOT)
 /**
- * Functions for a "Packed Web Filesystem"
+ * Functions for a "Packed Web Filesystem".
+ *
+ * \todo
+ * Support multiple "Packed Web Filesystem" in a resource .DLL
+ * with option:
+ *   \li `--web-page some.dll;1` for the 1st resource.
+ *   \li `--web-page some.dll;2` for the 2nd resource etc.
  *
  * Functions in the generated '$(OBJ_DIR)/packed_webfs.c' file.
  */
@@ -3298,8 +3354,9 @@ static void show_packed_usage (void)
 
 /**
  * Initialize the Mongoose network manager and:
- *  \li start the 2 active network services.
+ *  \li start the 2 active network services (RAW_IN + SBS_IN).
  *  \li or start the 4 listening (passive) network services.
+ *  \li if HTTP-server is enabled, check the precence of the Web-page.
  */
 static bool modeS_init_net (void)
 {
@@ -3724,7 +3781,7 @@ static void show_help (const char *fmt, ...)
             "    --loop <N>               With `--infile', read the file in a loop <N> times (default: 2^63).\n"
             "    --metric                 Use metric units (meters, km/h, ...).\n"
             "    --silent                 Silent mode for testing network I/O (together with `--debug n').\n"
-            "    --test                   Perform some test of internal functions.\n"
+            "    --test<=arg>             Perform some test of internal functions.\n"
             "    --tui " TUI_HELP
             "     -V, -VV                 Show version info. `-VV' for details.\n"
             "     -h, --help              Show this help.\n\n",
@@ -3742,7 +3799,7 @@ static void show_help (const char *fmt, ...)
     printf ("  Network options:\n"
             "    --net                    Enable network listening services.\n"
             "    --net-active             Enable network active services.\n"
-            "    --net-only               Enable just networking, no physical device or file.\n"
+            "    --net-only               Enable only networking, no physical device or file.\n"
             "    --net-http-port <port>   TCP listening port for HTTP server (default: %u).\n"
             "    --net-ri-port <port>     TCP listening port for raw input   (default: %u).\n"
             "    --net-ro-port <port>     TCP listening port for raw output  (default: %u).\n"
@@ -3845,6 +3902,9 @@ static void background_tasks (void)
 
   aircraft_remove_stale (now);
 
+  airports_API_remove_stale (now);
+  airports_API_show_stats (now);
+
   /* Refresh screen and console-title when in interactive mode
    */
   if (Modes.interactive)
@@ -3918,7 +3978,7 @@ static void show_network_stats (void)
 
   LOG_STDOUT ("\nNetwork statistics:\n");
 
-  for (s = MODES_NET_SERVICE_RAW_OUT; s < MODES_NET_SERVICES_NUM; s++)
+  for (s = MODES_NET_SERVICE_FIRST; s <= MODES_NET_SERVICE_LAST; s++)
   {
     LOG_STDOUT ("  %s (port %u):\n", handler_descr(s), handler_port(s));
 
@@ -3962,6 +4022,7 @@ static void show_network_stats (void)
       LOG_STDOUT ("    %8llu client connections unknown.\n", Modes.stat.cli_unknown[s]);
     }
 
+    LOG_STDOUT ("    %8llu unique clients.\n", Modes.stat.unique_clients[s]);
     LOG_STDOUT ("    %8llu bytes sent.\n", Modes.stat.bytes_sent[s]);
     LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv[s]);
     LOG_STDOUT ("    %8u %s now.\n", *handler_num_connections(s), cli_srv);
@@ -4028,6 +4089,8 @@ static void show_statistics (void)
      show_network_stats();
   if (Modes.net_active)
      show_raw_SBS_stats();
+  if (Modes.airports_priv)
+     airports_show_stats();
 }
 
 /**
@@ -4073,7 +4136,7 @@ static void modeS_exit (void)
      _close (Modes.fd);
 
   aircraft_exit (true);
-  airports_exit (true);
+  airports_exit();
 
   if (Modes.interactive)
      interactive_exit();
@@ -4144,6 +4207,39 @@ static void select_device (const char *arg)
       Modes.sdrplay.index = -1;
   }
   dev_selection_done = true;
+}
+
+static void select_gain (const char *arg)
+{
+  uint16_t gain;
+  char    *end;
+
+  if (!stricmp(arg, "auto"))
+     Modes.gain_auto = true;
+  else
+  {
+    /* Gain is in tens of dBs
+     */
+    gain = (uint16_t) (10.0 * strtof(arg, &end));
+    if (end == arg || *end != '\0')
+       show_help ("Illegal gain: %s.\n", arg);
+    Modes.gain = gain;
+    Modes.gain_auto = false;
+  }
+}
+
+static void select_sample_rate (const char *arg)
+{
+  Modes.sample_rate = ato_hertz (arg);
+  if (Modes.sample_rate == 0)
+     show_help ("Illegal sample_rate: %s\n", optarg);
+
+  if (Modes.sample_rate != MODES_DEFAULT_RATE)
+  {
+    if (Modes.sample_rate == 2400000)
+         show_help ("2.4 MB/s sample_rate is not yet supported\n");
+    else show_help ("Ilegal sample_rate: %s\n", optarg);
+  }
 }
 
 static void select_tui (const char *arg)
@@ -4273,9 +4369,8 @@ static struct option long_options[] = {
 
 static bool parse_cmd_line (int argc, char **argv)
 {
-  char *end;
-  int   c, show_ver = 0, idx = 0;
-  bool  rc = true;
+  int  c, show_ver = 0, idx = 0;
+  bool rc = true;
 
   while ((c = getopt_long (argc, argv, "+h?V", long_options, &idx)) != EOF)
   {
@@ -4312,15 +4407,7 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 'g':
-           if (!stricmp(optarg, "auto"))
-              Modes.gain_auto = true;
-           else
-           {
-             Modes.gain = (uint16_t) (10.0 * strtof(optarg, &end));  /* Gain is in tens of dBs */
-             if (end == optarg || *end != '\0')
-                show_help ("Illegal gain: %s.\n", optarg);
-             Modes.gain_auto = false;
-           }
+           select_gain (optarg);
            break;
 
       case 'I':
@@ -4390,9 +4477,7 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 's':
-           Modes.sample_rate = ato_hertz (optarg);
-           if (Modes.sample_rate == 0)
-              show_help ("Illegal sample_rate: %s\n", optarg);
+           select_sample_rate (optarg);
            break;
 
       case 'S':
@@ -4417,7 +4502,7 @@ static bool parse_cmd_line (int argc, char **argv)
       case 'w':
            strncpy (Modes.web_root, dirname(optarg), sizeof(Modes.web_root)-1);
            strncpy (Modes.web_page, basename(optarg), sizeof(Modes.web_page)-1);
-           slashify (Modes.web_root);
+        // slashify (Modes.web_root);
            break;
 
       case 'A':        /* option `--tui wincon|curses' */
