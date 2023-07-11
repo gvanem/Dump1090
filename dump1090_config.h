@@ -1,10 +1,9 @@
-/*
- * A simple config-file that gets force-included for
- * ALL .c-files in Dump1090.
- * Ref. option '-FI./dump1090_config.h'.
+/**
+ * A simple config-file that gets force-included for *all*
+ * .c-files in Dump1090.
+ * Ref. option `-FI./dump1090_config.h` in Makefile.Windows.
  */
-#ifndef DUMP1090_CONFIG_H
-#define DUMP1090_CONFIG_H
+#pragma once
 
 #define VER_MAJOR 0
 #define VER_MINOR 4
@@ -12,6 +11,11 @@
 
 /* Warning control:
  */
+#define _WINSOCK_DEPRECATED_NO_WARNINGS 1
+#define _CRT_SECURE_NO_WARNINGS         1
+#define _CRT_SECURE_NO_DEPRECATE        1
+#define _CRT_NONSTDC_NO_WARNINGS        1
+
 #if defined(__clang__)
   #pragma clang diagnostic ignored "-Wunused-value"
   #pragma clang diagnostic ignored "-Wunused-variable"
@@ -50,17 +54,17 @@
   #pragma warning (disable:4127 4706)
 #endif
 
-#define _WINSOCK_DEPRECATED_NO_WARNINGS 1
-#define _CRT_SECURE_NO_WARNINGS         1
-#define _CRT_SECURE_NO_DEPRECATE        1
-#define _CRT_NONSTDC_NO_WARNINGS        1
-
 #define _STR2(x)  #x
 #define _STR(x)   _STR2(x)
 
 #define PROG_VERSION  _STR(VER_MAJOR) "." _STR(VER_MINOR) "." _STR(VER_MICRO)
 
+/** Do not add `__declspec(dllexport)` on `externals/rtl-sdr/` functions.
+ */
 #define rtlsdr_STATIC    1
+
+/** Prefer `_gettimeofday` over `GetTickCount64()`.
+ */
 #define USE_gettimeofday 1
 
 #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
@@ -68,18 +72,21 @@
   #define _WIN32_WINNT 0x0600
 #endif
 
-#define _USE_MATH_DEFINES 1  /* To pull in 'M_PI' in <math.h> */
-
-/* Support various features in 'externals/mongoose.c':
+/** To pull in `M_PI` in `<math.h>`
  */
-#define MG_ENABLE_ASSERT        1  /* 'assert()' */
-#define MG_ENABLE_IPV6          0  /* IPv6 */
-#define MG_ENABLE_FILE          1  /* 'opendir()' etc. */
-#define MG_ENABLE_POLL          0  /* 'WSAPoll()' over 'select()' */
-#define MG_ENABLE_DIRLIST       0  /* listing directories for HTTP */
-#define MG_ENABLE_CUSTOM_MILLIS 1  /* use 64-bit tick-time */
+#define _USE_MATH_DEFINES 1
 
-/* Use "Visual Leak Detector"
+/** Support various features in `externals/mongoose.c`:
+ */
+#define MG_ENABLE_ASSERT        1  /* Enable `assert()` calls */
+#define MG_ENABLE_IPV6          0  /* IPv6 */
+#define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
+#define MG_ENABLE_POLL          1  /* Prefer `WSAPoll()` over `select()`? */
+#define MG_ENABLE_DIRLIST       0  /* Enable listing of directories for HTTP */
+#define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
+
+/**
+ * Enable "Visual Leak Detector"?
  */
 #if defined(USE_VLD)
   #define VLD_FORCE_ENABLE
@@ -88,7 +95,7 @@
 
 #if !defined(USE_WIN_SQLITE)
   /*
-   * Options for 'externals/sqlite3.c':
+   * Options for `externals/sqlite3.c`:
    */
   #define SQLITE_API
   #define SQLITE_DQS           3   /* Double-quoted string literals are allowed */
@@ -98,14 +105,18 @@
   #define SQLITE_OMIT_AUTOINIT 1
 #endif
 
+#include <stdio.h>
 #include <string.h>
+#include <io.h>
 
-/* Avoid the dependency on 'oldnames.lib'
+/**
+ * Avoid the dependency on `oldnames.lib`:
  */
 #define stricmp(s1, s2)      _stricmp (s1, s2)
 #define strnicmp(s1, s2, sz) _strnicmp (s1, s2, sz)
 #define strdup(s)            _strdup (s)
 #define access(file, mode)   _access (file, mode)
+#define fileno(stream)       _fileno (stream)
 
 #if defined(_DEBUG) && !defined(RC_INVOKED)
   #include <malloc.h>
@@ -115,4 +126,3 @@
   #include <crtdbg.h>
 #endif
 
-#endif  /* DUMP1090_CONFIG_H */

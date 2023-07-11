@@ -17,8 +17,9 @@
   #define RC_FILEFLAGS  0
 #endif
 
-/*
+/**
  * 'RC_BITS' is defined Makefile.Windows to '32' or '64'.
+ * \todo Add more feature strings like `RC_USE_ASAN`, `RC_USE_UBSAN` etc.
  */
 #define RC_VER_STRING  PROG_VERSION  " (" RC_BUILDER ", " _STR(RC_BITS) "-bits," RC_DBG_REL ")"
 
@@ -41,7 +42,7 @@ BEGIN
       VALUE "FileVersion",      RC_VER_STRING
       VALUE "InternalName",     "Dump1090"
       VALUE "LegalCopyright",   "Copyright (c) 2012 Salvatore Sanfilippo;\n"
-                                "                        Copyright (c) 2022 Gisle Vanem"
+                                "                        Copyright (c) 2021-2023 Gisle Vanem"
       VALUE "LegalTrademarks",  "MIT License "
       VALUE "OriginalFilename", "dump1090.exe"
       VALUE "ProductName",      "Dump1090"

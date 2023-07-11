@@ -43,6 +43,7 @@
 #include <io.h>
 
 #define ftruncate(fd, sz) (-(_chsize_s((fd), (sz)) != 0))
+#undef  fileno
 #define fileno _fileno
 #endif
 
@@ -50,6 +51,7 @@
 #include <io.h>
 
 #define ftruncate(fd, sz) (-(_chsize_s((fd), (sz)) != 0))
+#undef  fileno
 #define fileno _fileno
 #endif
 
