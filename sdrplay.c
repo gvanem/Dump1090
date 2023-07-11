@@ -9,11 +9,10 @@
 #error "Do not compile this file when 'USE_RTLSDR_EMUL' is defined."
 #endif
 
-#include <assert.h>
 #include "sdrplay.h"
 #include "misc.h"
 
-#define MODES_RSP_BUF_SIZE  (16*16384)   /* 256k, same as MODES_DATA_LEN  */
+#define MODES_RSP_BUF_SIZE  (16*16384)   /* 256k, same as MODES_ASYNC_BUF_SIZE  */
 #define MODES_RSP_BUFFERS    16          /* Must be power of 2 */
 
 #define RSP_MIN_GAIN_THRESH  512         /* Increase gain if peaks below this */
