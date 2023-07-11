@@ -2963,6 +2963,7 @@ static int connection_handler_http (mg_connection *conn,
     {
       mg_http_serve_opts  opts;
       mg_file_path        file;
+      const char         *packed = "";
 
       memset (&opts, '\0', sizeof(opts));
       opts.page404       = NULL;
@@ -2970,13 +2971,10 @@ static int connection_handler_http (mg_connection *conn,
 
 #if defined(PACKED_WEB_ROOT)
       opts.fs = &mg_fs_packed;
-      snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
-      DEBUG (DEBUG_NET, "Serving packed file: '%s'.\n", file);
-#else
-      snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
-      DEBUG (DEBUG_NET, "Serving file: '%s'.\n", file);
+      packed  = " packed";
 #endif
-
+      snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
+      DEBUG (DEBUG_NET, "Serving %sfile: '%s'.\n", packed, file);
       DEBUG (DEBUG_NET, "extra-headers: '%s'.\n", opts.extra_headers);
 
       mg_http_serve_file (conn, hm, file, &opts);
