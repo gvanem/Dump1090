@@ -120,11 +120,12 @@ to your browser to **http://localhost:8080**, use this command:
   It will present live traffic to the Web-browser:
   **![web-page](dump1090-web.png)**
 
-  and the *Windows Console*:
+  and the *Windows Legacy Console*:
   **![console output](dump1090-win.png)**
 
-  or if started as `c:\dev\Dump1090> dump1090 --interactive --tui curses`, the *PDCurses Console*:
-  **![curses output](dump1090-curses.png)**
+  or if started as `c:\dev\Dump1090> dump1090 --interactive --tui curses`, inside
+  [**Windows Terminal**](https://github.com/microsoft/terminal) and a suitable background
+  image: **![curses WinTerm](dump1090-wt-1.png)**
 
 In this interactive mode there is a more compact output. Where the screen is refreshed
 up to 4 times per second displaying all the recently seen aircrafts with some additional
@@ -136,7 +137,7 @@ Except for:
 
 If a `DUMP1090_HOME_POS` environment variable is defined, the distance to the place gets
 calculated. I.e. the `Dist` column above. E.g. a `set DUMP1090_HOMEPOS=60.3016821,5.3208769`
-for Bergen/Norway. Find your location on [FreeMapTools](https://www.freemaptools.com/elevation-finder.htm).
+for Bergen/Norway. Find your location on [**FreeMapTools**](https://www.freemaptools.com/elevation-finder.htm).
 
 Otherwise the `--location` option will try to get this position from the
 [**Windows Location API**](https://learn.microsoft.com/en-us/windows/win32/api/locationapi/nn-locationapi-ilocation).
