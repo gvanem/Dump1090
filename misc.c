@@ -632,27 +632,6 @@ static void sql_info (void)
 }
 
 /**
- * Print some details about the PD-Curses package.
- */
-static void curses_info (void)
-{
-#if defined(USE_CURSES)
-  printf ("PDCurses: ver. %s\n", PDC_VERDOT);
-#endif
-}
-
-/**
- * Print some details about the RTL-SDR "library".
- */
-static void rtl_info (void)
-{
-  uint32_t ver = rtlsdr_get_version();
-
-  printf ("RTL-SDR version: %d.%d.%d.%d from %s\n",
-          ver >> 24, (ver >> 16) & 0xFF, (ver >> 8) & 0xFF, ver & 0xFF, rtlsdr_get_ver_id());
-}
-
-/**
  * Return the compiler info the program was built with.
  */
 static const char *compiler_info (void)
@@ -691,6 +670,9 @@ static const char *build_features (void)
   #if defined(USE_ASAN)
     "ASAN",
   #endif
+  #if defined(USE_UBSAN)
+    "UBSAN",
+  #endif
   #if defined(USE_CURSES)
     "PDCurses",
   #endif
@@ -725,10 +707,19 @@ void show_version_info (bool verbose)
   printf ("dump1090 ver. %s (%s, %s). Built at %s.\n", PROG_VERSION, compiler_info(), build_features(), __DATE__);
   if (verbose)
   {
+    uint32_t ver;
+
  // print_cflags();
  // print_ldflags();
-    rtl_info();
-    curses_info();
+
+    ver = rtlsdr_get_version();
+    printf ("RTL-SDR version: %d.%d.%d.%d from %s.\n",
+          ver >> 24, (ver >> 16) & 0xFF, (ver >> 8) & 0xFF, ver & 0xFF, rtlsdr_get_ver_id());
+#if defined(USE_CURSES)
+    printf ("PDCurses: ver. %s, ", PDC_VERDOT);
+#endif
+    printf ("Mongoose: ver. %s, Miniz ver. %s\n", MG_VERSION, mz_version());
+
     sql_info();
   }
   exit (0);
