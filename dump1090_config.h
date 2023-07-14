@@ -48,8 +48,8 @@
   #endif
 
   /*
-   * externals\Zip\miniz.h(6560): warning C4127: conditional expression is constant
-   * externals\Zip\zip.c(224):    warning C4706: assignment within conditional expression
+   * externals\miniz.h(6560): warning C4127: conditional expression is constant
+   * externals\zip.c(224):    warning C4706: assignment within conditional expression
    */
   #pragma warning (disable:4127 4706)
 #endif
@@ -84,6 +84,20 @@
 #define MG_ENABLE_POLL          1  /* Prefer `WSAPoll()` over `select()`? */
 #define MG_ENABLE_DIRLIST       0  /* Enable listing of directories for HTTP */
 #define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
+
+/** Drop some stuff not needed in `externals/zip.c`:
+ */
+#define MINIZ_NO_ZLIB_APIS      1
+
+/**
+ * clang-cl with `ASAN` / `UBSAN` may not like this in `externals/miniz.h`:
+ * ```
+ * #define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 1
+ * ```
+ */
+#if defined(USE_ASAN) || defined(USE_UBSAN)
+#define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 0
+#endif
 
 /**
  * Enable "Visual Leak Detector"?

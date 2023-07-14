@@ -141,9 +141,8 @@ ifneq ($(CC),cl)
   endif
 endif
 
-vpath %.c externals         \
-          externals/rtl-sdr \
-          externals/Zip
+vpath %.c externals \
+          externals/rtl-sdr
 
 CFLAGS = -nologo -Zi -W4           \
          -FI./dump1090_config.h    \
@@ -152,7 +151,6 @@ CFLAGS = -nologo -Zi -W4           \
          -I./externals             \
          -I./externals/rtl-sdr     \
          -I./externals/SDRplay-API \
-         -I./externals/Zip         \
          -I./$(OBJ_DIR)
 
 LDFLAGS = -nologo -map -debug -verbose -incremental:no \
@@ -275,7 +273,7 @@ SOURCES = aircraft.c           \
           location.c           \
           externals/mongoose.c \
           externals/sqlite3.c  \
-          externals/Zip/zip.c
+          externals/zip.c
 
 #
 # Empty by default

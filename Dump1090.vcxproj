@@ -154,7 +154,7 @@
     <ClCompile Include="externals\mongoose.c" />
     <ClCompile Include="externals\Curses\amalgamation.c" />
     <ClCompile Include="externals\sqlite3.c" />
-    <ClCompile Include="externals\Zip\zip.c" />
+    <ClCompile Include="externals\zip.c" />
     <ClCompile Include="externals\rtlsdr-emul.c" />
     <ClCompile Include="externals\rtl-sdr\librtlsdr.c" />
     <ClCompile Include="externals\rtl-sdr\trace.c" />
@@ -174,8 +174,8 @@
     <ClInclude Include="dump1090_config.h" />
     <ClInclude Include="externals\mongoose.h" />
     <ClInclude Include="externals\sqlite3.h" />
-    <ClInclude Include="externals\Zip\zip.h" />
-    <ClInclude Include="externals\Zip\miniz.h" />
+    <ClInclude Include="externals\zip.h" />
+    <ClInclude Include="externals\miniz.h" />
     <ClInclude Include="externals\rtl-sdr\rtlsdr_i2c.h" />
     <ClInclude Include="externals\rtl-sdr\trace.h" />
     <ClInclude Include="externals\rtl-sdr\tuner_e4k.h" />
