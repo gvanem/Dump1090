@@ -10,7 +10,7 @@
  * \def AIRCRAFT_DATABASE_CSV
  * Our default aircraft-database relative to `Modes.where_am_I`.
  */
-#define AIRCRAFT_DATABASE_CSV   "aircraftDatabase.csv"
+#define AIRCRAFT_DATABASE_CSV   "aircraft-database.csv"
 
 /**
  * \def AIRCRAFT_DATABASE_URL
@@ -20,7 +20,7 @@
 
 /**
  * \def AIRCRAFT_DATABASE_TMP
- * The basename for downloading a new `aircraftDatabase.csv`.
+ * The basename for downloading a new `aircraft-database.csv`.
  *
  * E.g. Use WinInet API to download:<br>
  *  `AIRCRAFT_DATABASE_URL` -> `%TEMP%\\aircraft-database-temp.zip`
@@ -45,7 +45,7 @@ typedef enum a_show_t {
       } a_show_t;
 
 /**
- * \typedef aircraft_CSV
+ * \typedef aircraft_CSV  // \todo rename to 'aircraft_info'
  * Describes an aircraft from a .CSV/.SQL-file.
  */
 typedef struct aircraft_CSV {
@@ -108,6 +108,7 @@ bool        aircraft_is_military (uint32_t addr, const char **country);
 char       *aircraft_make_json (bool extended_client);
 void        aircraft_remove_stale (uint64_t now);
 void        aircraft_tests (void);
+void        aircraft_show_stats (void);
 void        aircraft_exit (bool free_aircrafts);
 
 #endif /* _AIRCRAFT_H */

@@ -265,6 +265,9 @@ typedef struct unrecognized_ME {
  * Keep all collected statistics in this structure.
  */
 typedef struct statistics {
+
+        /* Hardware device statistics:
+         */
         uint64_t        valid_preamble;
         uint64_t        demodulated;
         uint64_t        good_CRC;
@@ -273,11 +276,14 @@ typedef struct statistics {
         uint64_t        single_bit_fix;
         uint64_t        two_bits_fix;
         uint64_t        out_of_phase;
+        uint64_t        messages_total;
+        unrecognized_ME unrecognized_ME [MAX_ME_TYPE];
+
+        /* Aircraft statistics: \todo Move to 'aircraft_show_stats()'
+         */
         uint64_t        unique_aircrafts;
         uint64_t        unique_aircrafts_CSV;
         uint64_t        unique_aircrafts_SQL;
-        uint64_t        messages_total;
-        unrecognized_ME unrecognized_ME [MAX_ME_TYPE];
 
         /* Network statistics:
          */
@@ -356,7 +362,7 @@ typedef struct sdrplay_conf {
  * Details in "aircraft.h", "airports".h" and "externals/sqlite3.c"
  */
 struct aircraft;
-struct aircraft_CSV;
+struct aircraft_CSV;   // \todo rename to 'aircraft_info'
 struct airports_priv;
 struct sqlite3;
 
@@ -378,7 +384,7 @@ typedef struct global_data {
         volatile bool     exit;                     /**< Exit from the main loop when true. */
         volatile bool     data_ready;               /**< Data ready to be processed. */
         uint32_t         *ICAO_cache;               /**< Recently seen ICAO addresses. */
-        statistics        stat;                     /**< Decoding and network statistics. */
+        statistics        stat;                     /**< Decoder, aircraft and network statistics. */
         struct aircraft  *aircrafts;                /**< Linked list of active aircrafts. */
         uint64_t          last_update_ms;           /**< Last screen update in milliseconds. */
         uint64_t          max_messages;             /**< How many messages to process before quitting. */
@@ -439,9 +445,9 @@ typedef struct global_data {
         mg_file_path web_page;                  /**< The base-name of the web-page to server for HTTP clients. */
         mg_file_path web_root;                  /**< And it's directory. */
         int          touch_web_root;            /**< Touch all files in `web_root` first. */
-        mg_file_path aircraft_db;               /**< The `aircraftDatabase.csv` file. */
-        mg_file_path aircraft_sql;              /**< The `aircraftDatabase.csv.sqlite` file. */
-        bool         have_sql_file;             /**< The `aircraftDatabase.csv.sqlite` file exists. */
+        mg_file_path aircraft_db;               /**< The `aircraft-database.csv` file. */
+        mg_file_path aircraft_sql;              /**< The `aircraft-database.csv.sqlite` file. */
+        bool         have_sql_file;             /**< The `aircraft-database.csv.sqlite` file exists. */
         char        *aircraft_db_update;        /**< Option `--aircrafts-update<=url>` was used. */
         int          use_sql_db;                /**< Option `--aircrafts-sql` was used. */
         int          strip_level;               /**< For '--strip X' mode. */
@@ -617,6 +623,7 @@ double      cartesian_distance (const cartesian_t *a, const cartesian_t *b);
 double      great_circle_dist (pos_t pos1, pos_t pos2);
 double      closest_to (double val, double val1, double val2);
 void        decode_CPR (struct aircraft *a);
+char       *mz_version (void);  /* in 'externals/zip.c' */
 
 /*
  * Generic table for loading DLLs and functions from them.
