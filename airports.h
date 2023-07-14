@@ -24,12 +24,12 @@
  */
 #define AIRPORT_FREQ_CSV  "airport-frequencies.csv"
 
-bool airports_init (void);
-void airports_exit (void);
-void airports_show_stats (void);
-bool airports_update_CSV (const char *file);
-bool airports_API_get_flight_info (const char *call_sign, const char **departure, const char **destination);
-void airports_API_show_stats (uint64_t now);
-void airports_API_remove_stale (uint64_t now);
+uint32_t airports_init (void);
+void     airports_exit (void);
+void     airports_show_stats (void);
+bool     airports_update_CSV (const char *file);
+bool     airports_API_get_flight_info (const char *call_sign, const char **departure, const char **destination);
+void     airports_API_show_stats (uint64_t now);
+void     airports_API_remove_stale (uint64_t now);
 
 #endif /* _AIRPORTS_H */

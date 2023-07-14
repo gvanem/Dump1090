@@ -107,6 +107,9 @@ static void           connection_free (connection *this_conn, intptr_t service);
 static unsigned       connection_free_all (void);
 
 #if defined(_DEBUG)
+/**
+ * \todo Mode this to misc.c
+ */
 static _CrtMemState start_state;
 
 static void crtdbug_exit (void)
@@ -446,7 +449,7 @@ static bool modeS_init (void)
     char   args [1000] = "";
     char   buf [sizeof(args) + sizeof(mg_file_path) + 10];
     char  *p = args;
-    size_t n, left = sizeof(args);
+    size_t left = sizeof(args);
     int    i;
 
     /* Open the log-file exlusive for us
@@ -457,9 +460,16 @@ static bool modeS_init (void)
                    Modes.logfile, strerror(errno));
     else
     {
+      /**\todo make this a bit nicer. Split into multiple lines (< 80 character per line) with 1 time-stamp.
+       * Like:
+       *  10:03:15.776: ------- Starting 'F:\GV\DX-RADIO\GV-DUMP1090\DUMP1090.EXE --gain 35 --ppm 0 --net \
+       *                --aggressive --metric --aircrafts-sql --airports F:\gv\dx-radio\gv-Dump1090\airport-codes.csv \
+       *                --logfile F:\gv\dx-radio\gv-Dump1090\dump1090.log \
+       *                --web-page F:\gv\dx-radio\gv-Dump1090\web_root-Tar1090\index.html --location --raw
+      */
       for (i = 1; i < __argc && left > 2; i++)
       {
-        n = snprintf (p, left, " %s", __argv[i]);
+        int n = snprintf (p, left, " %s", __argv[i]);
         p    += n;
         left -= n;
       }
@@ -558,19 +568,23 @@ static bool modeS_init (void)
   Modes.magnitude_lut = c_gen_magnitude_lut();
 #endif
 
-  if (Modes.tests)
-  {
-    if (!airports_init())
-       return (false);
-
-    if (!check_py_gen_magnitude_lut())
-       return (false);
-
-    test_assert();
-  }
-
   if (!aircraft_CSV_load())
      return (false);
+
+  if (Modes.tests)
+  {
+    airports_init();
+    check_py_gen_magnitude_lut();
+
+#if defined(_DEBUG) && 0
+    if (Modes.tests >= 2)
+    {
+      test_assert();     /* does it return? */
+      puts ("If we catch this, we will leak.\n");
+    }
+#endif
+    return (false);
+  }
 
   if (Modes.interactive)
      return interactive_init();
@@ -2394,7 +2408,8 @@ static void modeS_user_message (const modeS_message *mm)
   num_clients = Modes.stat.cli_accepted [MODES_NET_SERVICE_HTTP] +
                 Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS_OUT];
 
-  if (Modes.interactive || num_clients > 0)
+// Do this always
+//if (Modes.interactive || num_clients > 0)
   {
     uint64_t  now = MSEC_TIME();
     aircraft *a = interactive_receive_data (mm, now);
@@ -2692,11 +2707,11 @@ static bool handler_sending (intptr_t service)
 static void net_flushall (void)
 {
   mg_connection *conn;
-  unsigned       num_active  = 0;
-  unsigned       num_passive = 0;
-  unsigned       num_unknown = 0;
-  unsigned       total_rx = 0;
-  unsigned       total_tx = 0;
+  uint32_t       num_active  = 0;
+  uint32_t       num_passive = 0;
+  uint32_t       num_unknown = 0;
+  size_t         total_rx = 0;
+  size_t         total_tx = 0;
 
   for (conn = Modes.mgr.conns; conn; conn = conn->next)
   {
@@ -2713,7 +2728,7 @@ static void net_flushall (void)
     else num_unknown++;
   }
   DEBUG (DEBUG_NET,
-         "Flushed %u active connections, %u passive, %u unknown. Remaining bytes: %u Rx, %u Tx.\n",
+         "Flushed %u active connections, %u passive, %u unknown. Remaining bytes: %zu Rx, %zu Tx.\n",
          num_active, num_passive, num_unknown, total_rx, total_tx);
 }
 
@@ -4035,12 +4050,34 @@ static void show_raw_SBS_stats (void)
   LOG_STDOUT ("  SBS-in:  %8llu good messages.\n", Modes.stat.good_SBS);
   LOG_STDOUT ("           %8llu unrecognized messages.\n", Modes.stat.unrecognized_SBS);
   LOG_STDOUT ("           %8llu empty messages.\n", Modes.stat.empty_SBS);
-  LOG_STDOUT ("  Raw-in:  %8llu good messages.\n", Modes.stat.good_raw);
-  LOG_STDOUT ("           %8llu unrecognized messages.\n", Modes.stat.unrecognized_raw);
-  LOG_STDOUT ("           %8llu empty messages.\n", Modes.stat.empty_raw);
   LOG_STDOUT ("  Unknown: %8llu empty messages.\n", Modes.stat.empty_unknown);
 }
 
+/*
+ * Show decoder statistics for a RAW_IN service.
+ * Only if we had a connection with such a server.
+ */
+static void show_raw_RAW_IN_stats (void)
+{
+  int s = MODES_NET_PORT_RAW_IN;
+
+  if (Modes.stat.bytes_recv[s] == 0)
+     LOG_STDOUT ("  Raw-in: nothing.\n");
+  else
+  {
+    const char *remote = modeS_net_services [s].host;
+    uint16_t    port   = modeS_net_services [s].port;
+
+    LOG_STDOUT ("  Raw-in:  %8llu good messages from %s:%u.\n", Modes.stat.good_raw, remote, port);
+    LOG_STDOUT ("           %8llu unrecognized messages.\n", Modes.stat.unrecognized_raw);
+    LOG_STDOUT ("           %8llu empty messages.\n", Modes.stat.empty_raw);
+    LOG_STDOUT ("  Unknown: %8llu empty messages.\n", Modes.stat.empty_unknown);
+  }
+}
+
+/*
+ * Show decoder statistics for a RTLSDR / SDRPlay device.
+ */
 static void show_decoder_stats (void)
 {
   LOG_STDOUT ("Decoder statistics:\n");
@@ -4083,10 +4120,16 @@ static void show_statistics (void)
 {
   if (!Modes.net_only)
      show_decoder_stats();
+
   if (Modes.net)
      show_network_stats();
+
   if (Modes.net_active)
-     show_raw_SBS_stats();
+  {
+    show_raw_SBS_stats();
+    show_raw_RAW_IN_stats();
+  }
+
   if (Modes.airports_priv)
      airports_show_stats();
 }

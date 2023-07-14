@@ -100,6 +100,7 @@ typedef struct flight_info_stats {
         uint32_t  pending;
         uint32_t  cached;
         uint32_t  dead;
+        uint32_t  expired;
         uint32_t  unknown;
       } flight_info_stats;
 
@@ -489,10 +490,13 @@ static void airports_exit_freq_CSV (void)
 {
 }
 
+/**
+ * Return the number of airport records of specified type.
+ */
 static uint32_t airports_numbers (airport_t type)
 {
+  uint32_t       num = 0;
   const airport *a;
-  uint32_t       num =0;
 
   for (a = g_data.airports; a; a = a->next)
       if (a->type == type)
@@ -623,8 +627,7 @@ static void API_dump_records (void)
             airport_t_str(f->type), modeS_FILETIME_to_str(&f->created, true), dtime);
   }
   flight_stats_now (&fs);
-  printf ("  Total: %u, live: %u, cached: %u\n", fs.total, fs.live, fs.cached);
-  puts("");
+  printf ("  Total: %u, pending: %u, live: %u, cached: %u\n\n", fs.total, fs.pending, fs.live, fs.cached);
 }
 
 void airports_show_stats (void)
@@ -649,15 +652,6 @@ void airports_show_stats (void)
   LOG_STDOUT ("  %6u API 503 Service Unavailable.\n", g_data.ap_stats.API_service_503);
   interactive_clreol();
 
-  LOG_STDOUT ("  %6u API live records.\n", g_data.fs_stats.live);
-  interactive_clreol();
-
-  LOG_STDOUT ("  %6u API dead records.\n", g_data.fs_stats.dead);
-  interactive_clreol();
-
-  LOG_STDOUT ("  %6u dropped due to no memory.\n", g_data.ap_stats.API_no_mem);
-  interactive_clreol();
-
   flight_stats_now (&fs_now);
   flight_stats_all (&fs_all);
 
@@ -675,7 +669,7 @@ void airports_show_stats (void)
 }
 
 /*
- * This function blocks the api_thread_fn() function.
+ * This function blocks the `api_thread_fn()` function.
  *
  * Send one request at a time for a call-sign to be resolved into a
  * `AIRPORT_API_LIVE` flight-record.
@@ -731,7 +725,7 @@ static bool API_thread_worker (flight_info *f)
     if (!strcmp(codes, "\"unknown\"") || num != 2)
     {
       g_data.fs_stats.unknown++;
-      rc = false;   /* This request becomes a dead record */
+      rc = false;   /* This request becomes a DEAD record */
     }
     else
     {
@@ -748,15 +742,47 @@ static bool API_thread_worker (flight_info *f)
 
 /**
  * Called from `background_tasks()` 4 times per second.
+ *
+ * It performs:
+ * \li in `--test`, `--debug` or `--raw` modes (`g_data.do_trace == true`),
+ *     just trace current flight-stats.
+ * \li otherwise, print the resolved flight-info for a call-sign and ICAO-address.
+ *     Like:
+ *     ```
+ *     20:08:34.800: plane '48AE23' entering.                         <! printed elsewhere
+ *     20:08:34.900: plane '48AE23': call-sign: route "WAW -> JFK".   <! print this here in fully "EPWA, Warsaw ->  "KJFK, New York"
+ *                                                                                                 ^     ^           ^     ^
+ *                                                                                                 |     |_departure |     |_destination
+ *                                                                                                 |_IATA            |_IATA
+ *
+ *     20:14:32.753: plane '48AE23' leaving. Active for 358.4 sec.    <! printed elsewhere
+ *     ```
  */
 void airports_API_show_stats (uint64_t now)
 {
   flight_info_stats fs;
 
-  flight_stats_now (&fs);
-  API_TRACE ("stats now: total=%u, live=%u, pending=%u, dead=%u, unknown=%u",
-             fs.total, fs.live, fs.pending, fs.dead, fs.unknown);
-  MODES_NOTUSED (now);
+  if (Modes.tests || Modes.debug || Modes.raw) // 1st item above
+  {
+    flight_stats_now (&fs);
+    API_TRACE ("stats now: total=%u, live=%u, pending=%u, dead=%u, unknown=%u",
+               fs.total, fs.live, fs.pending, fs.dead, fs.unknown);
+  }
+  else if (Modes.log)          // 2nd item above
+  {
+    static uint64_t last_log = 0ULL;
+    bool   log_it = ((now - 10*1000) >= last_log);
+
+    if (last_log == 0ULL)
+       log_it = true;
+    if (log_it)
+    {
+      flight_stats_all (&fs);
+      LOG_FILEONLY ("stats all: total=%u, live=%u, pending=%u, dead=%u, unknown=%u, expired=%u\n",
+                    fs.total, fs.live, fs.pending, fs.dead, fs.unknown, fs.expired);
+      last_log = now;
+    }
+  }
 }
 
 /**
@@ -926,16 +952,18 @@ static bool airports_init_API (void)
  *  \li modeS_init() for `--test` mode or from
  *  \li interactive_init() in `--interactive` mode.
  */
-bool airports_init (void)
+uint32_t airports_init (void)
 {
   int  test_lvl = (Modes.tests_arg ? Modes.tests_arg : 1);
   bool rc;
 
   assert (g_data.airports == NULL);
 
+  if (Modes.tests || Modes.debug > 0)
+     g_data.do_trace = true;
+
   if (Modes.tests)
   {
-    g_data.do_trace = true;
     Modes.debug |= DEBUG_GENERAL;
     TRACE ("test_lvl: %d", test_lvl);
   }
@@ -967,9 +995,18 @@ bool airports_init (void)
     if (test_lvl >= 2)
        locale_test();
 
-    rc = false;              /* Just force an exit */
+    rc = false;        /* Just force an exit */
   }
-  return (rc);
+
+  /*
+   * On success, return the number of airport CSV records.
+   * it's needed in `interactive_init()` before deciding
+   * to show the "DEP DST" columns.
+   *
+   * If we have 0 airports, it's little point showing these columns
+   * allthough the ADSB-LOL API does not need that information.
+   */
+  return (rc ? g_data.ap_stats.CSV_numbers : 0);
 }
 
 /**
@@ -1014,8 +1051,8 @@ static void airport_print_header (unsigned line, bool use_usec)
   g_data.usec_fmt = use_usec ? "%.2f" : "%.2f%%";
 
   printf ("line: %u:\n"
-          "  Rec  ICAO       IATA       cont location               full_name                                                   lat       lon  %s\n"
-          "  --------------------------------------------------------------------------------------------------------------------------------------------\n",
+          "  Record  ICAO       IATA       cont location               full_name                                              lat       lon  %s\n"
+          "  ---------------------------------------------------------------------------------------------------------------------------------------\n",
           line, use_usec ? "usec" : "hit-rate");
 }
 
@@ -1033,7 +1070,7 @@ static void airport_print_rec (const char *ICAO, const airport *a, size_t idx, d
   if (val > 0.0)
      snprintf (usec_buf, sizeof(usec_buf), g_data.usec_fmt, val);
 
-  printf ("%5zu  '%-8.8s' '%-8.8s' %2.2s   '%-20.20s' '%-50.50s'  %9.3f %9.3f  %s\n",
+  printf ("  %5zu   '%-8.8s' '%-8.8s' %2.2s   '%-20.20s' '%-45.45s'  %9.3f %9.3f  %s\n",
           idx, ICAO, IATA, continent, location, full_name, pos->lat, pos->lon, usec_buf);
 }
 
@@ -1129,6 +1166,7 @@ static void airport_CSV_test_2 (bool random)
     ICAO  = g_data.airport_CSV [rec_num].ICAO;
     a     = CSV_lookup_ICAO (ICAO);
     usec  = get_usec_now() - usec;
+
     airport_print_rec (ICAO, a, rec_num, usec);
   }
   puts ("");
@@ -1138,8 +1176,8 @@ static void airport_CSV_test_3 (bool random)
 {
   size_t i, num = 10;
 
-  printf ("%s (%s):\n", __FUNCTION__, random ? "true" : "false");
-  printf ("  Checking %zu %s records. ", num, random ? "random" : "fixed");
+  printf ("%s (%s):\n  Checking %zu %s records.\n",
+          __FUNCTION__, random ? "true" : "false", num, random ? "random" : "fixed");
 
   puts ("    Rec  ICAO      ICAO2       full_name\n"
         "  -------------------------------------------------------------------");
@@ -1173,7 +1211,8 @@ static void airport_CSV_test_3 (bool random)
 static void airport_API_test (void)
 {
   flight_info_stats fs;
-  int         i, m_sec = 0;
+  uint32_t    m_sec = 0;
+  int         i;
   bool        rc, save = g_data.do_trace;
   bool        pending_complete;
   const char *departure, *destination;
@@ -1184,33 +1223,48 @@ static void airport_API_test (void)
            };
 
   g_data.do_trace  = false;
-  pending_complete = false;
 
-  printf ("%s(),  lookup phase:\n", __FUNCTION__);
+  printf ("%s(), lookup phase:\n", __FUNCTION__);
 
   for (i = 0; i < (int)DIM(call_signs); i++)
-     airports_API_get_flight_info (call_signs[i], &departure, &destination);
+  {
+    airports_API_get_flight_info (call_signs[i], &departure, &destination);
+#if 0
+    if (airports_numbers(AIRPORT_API_CACHED) == 0)
+       assert (!departure && !destination);
+#endif
+  }
 
   API_dump_records();
 
-  while (API_have_pending())
+  pending_complete = false;
+
+  while (1)
   {
-    printf ("  %3d: Waiting for thread %u to complete.\n", m_sec, g_data.thread_id);
+    printf ("  Waiting for thread %u to complete (%u ms).\n", m_sec, g_data.thread_id);
     Sleep (100);
     m_sec += 100;
-    pending_complete = true;
+    if (!API_have_pending())
+    {
+      pending_complete = true;
+      break;
+    }
+    if (m_sec >= 10*1000 || Modes.exit)
+       break;
   }
 
   flight_stats_now (&fs);
-  printf ("  Num-live: %u, Num-cached: %u.\n", fs.live, g_data.ap_stats.API_added_CSV);
+  printf ("  Num-live: %u, Num-pending: %u Num-cached: %u.\n\n", fs.live, fs.pending, g_data.ap_stats.API_added_CSV);
 
-  if (pending_complete)
+  if (!pending_complete)
+     puts ("  Lookups incomplete!!");
+  else
   {
     puts ("  Results now:");
     API_dump_records();
   }
 
-  puts ("  Testing IATA to ICAO lookup:");
+  puts ("  Testing IATA to ICAO lookups:");
 
   for (i = 0; i < (int)DIM(call_signs); i++)
   {
@@ -1370,7 +1424,6 @@ static void flight_info_exit (FILE *file)
     f_next = f->next;
     LIST_DELETE (flight_info, &g_data.flight_info, f);
     free (f);
-
   }
   g_data.flight_info = NULL;
 }
@@ -1400,6 +1453,9 @@ static void flight_stats_now (flight_info_stats *fs)
            break;
       case AIRPORT_API_DEAD:
            fs->dead++;
+           break;
+      case AIRPORT_API_EXPIRED:
+           fs->expired++;
            break;
       default:
            TRACE ("record %u: Unknown f->type: %d", fs->total, f->type);

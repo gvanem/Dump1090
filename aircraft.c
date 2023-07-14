@@ -335,8 +335,8 @@ static void aircraft_test_1 (void)
   if (Modes.have_sql_file)
      snprintf (sql_file, sizeof(sql_file), " and \"%s\"", basename(Modes.aircraft_sql));
 
-  LOG_STDOUT ("Checking %zu fixed records against \"%s\"%s:\n",
-              DIM(a_tests), basename(Modes.aircraft_db), sql_file);
+  LOG_STDOUT ("%s(): Checking %zu fixed records against \"%s\"%s:\n",
+              __FUNCTION__, DIM(a_tests), basename(Modes.aircraft_db), sql_file);
 
   for (i = num_ok = 0; i < DIM(a_tests); i++, t++)
   {
@@ -384,8 +384,8 @@ static void aircraft_test_1 (void)
   if (!Modes.aircraft_list_CSV)
      return;
 
-  LOG_STDOUT ("\nChecking 5 random records in \"%s\"%s:\n",
-              basename(Modes.aircraft_db), sql_file);
+  LOG_STDOUT ("\n%s(): Checking 5 random records in \"%s\"%s:\n",
+              __FUNCTION__, basename(Modes.aircraft_db), sql_file);
 
   for (i = 0; i < 5; i++)
   {
@@ -430,8 +430,9 @@ static void aircraft_dump_json (char *data, const char *filename)
   FILE  *f;
   char   jq_cmd [100];
   size_t sz = data ? strlen(data) : 0;
+  int    rc;
 
-  printf ("Dumping %d aircrafts (%zu bytes) to '%s'\n", aircraft_numbers(), sz, filename);
+  printf ("\nDumping %d aircrafts (%zu bytes) to '%s'\n", aircraft_numbers(), sz, filename);
   if (!data)
      return;
 
@@ -440,9 +441,13 @@ static void aircraft_dump_json (char *data, const char *filename)
   free (data);
   fclose (f);
   snprintf (jq_cmd, sizeof(jq_cmd), "jq.exe < %s > NUL", filename);
-  if (system(jq_cmd) == 0)
+  errno = 0;
+  rc = system (jq_cmd);
+  if (rc == 0)
        printf ("File %s OK.\n\n", filename);
-  else printf ("File %s failed.\n\n", filename);
+  else if (rc < 0)
+       printf ("File %s failed; errno: %d/%s\n\n", filename, errno, strerror(rc));
+  else printf ("Command '%s' failed; rc: %d.\n\n", jq_cmd, rc);
 }
 
 /**
@@ -774,9 +779,7 @@ bool aircraft_CSV_load (void)
          TRACE ("SQL created in %.3f ms", sql_create_t/1E3);
     else TRACE ("SQL loaded in %.3f ms", sql_load_t/1E3);
 
-    aircraft_test_1();
-    aircraft_test_2();
-    return (false);    /* Just force an exit */
+    aircraft_tests();
   }
   return (true);
 }
@@ -1468,7 +1471,7 @@ char *aircraft_make_json (bool extended_client)
   DEBUG (DEBUG_GENERAL2, "Returning %zu bytes JSON data for %u aircrafts.\n", p - buf + 1, aircrafts);
 
   if (Modes.log && (Modes.debug & DEBUG_GENERAL))
-     fprintf (Modes.log, "JSON dump of record %u for %u aircrafts, extended_client: %d:\n%s\n\n",
+     fprintf (Modes.log, "\nJSON dump of record %u for %u aircrafts, extended_client: %d:\n%s\n\n",
               json_record++, aircrafts, extended_client, buf);
   return (buf);
 }
