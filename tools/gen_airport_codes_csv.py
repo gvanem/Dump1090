@@ -14,6 +14,11 @@ if len(sys.argv) >= 2:
    csv_file = sys.argv[1]
 
 #
+# TODO: regenerate this too.
+#
+sql_file = "%s.sqlite" % csv_file
+
+#
 # https://stackoverflow.com/a/29988426/1213231
 #
 def uprint (*objects, sep=" ", end="\n", file=sys.stdout):

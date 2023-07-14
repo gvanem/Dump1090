@@ -504,6 +504,7 @@ static bool modeS_init (void)
    *  python tools/gen_airport_codes_csv.py > %TEMP%\dump1090\airport-codes.csv
    *  if NOT errorlevel copy %TEMP%\dump1090\airport-codes.csv %CD%
    * ```
+   * (and convert to `airport-database.csv.sqlite`?)
    */
   if (Modes.airport_db_update && strcmp(Modes.airport_db, "NUL"))
   {
