@@ -520,9 +520,9 @@ static int extract_callback (const char *file, void *arg)
 /**
  * Check if the aircraft .CSV-database is older than 10 days.
  * If so:
- *  1) download the OpenSky .zip file to `%TEMP%\\aircraft-database-temp.zip`,
- *  2) calls `zip_extract (\"%TEMP%\\aircraft-database-temp.zip\", \"%TEMP%\\aircraft-database-temp.csv\")`.
- *  3) copy `%TEMP%\\aircraft-database-temp.csv` over to 'db_file'.
+ *  1) download the OpenSky .zip file to `%TEMP%\\dump1090\\aircraft-database-temp.zip`,
+ *  2) calls `zip_extract (\"%TEMP%\\dump1090\\aircraft-database-temp.zip\", \"%TEMP%\\dump1090\\aircraft-database-temp.csv\")`.
+ *  3) copy `%TEMP%\\dump1090\\aircraft-database-temp.csv` over to 'db_file'.
  *  4) with option `--aircrafts-sql`, remove `Modes.aircraft_sql` to force a rebuild of it.
  */
 bool aircraft_CSV_update (const char *db_file, const char *url)
@@ -1404,7 +1404,7 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
  */
 char *aircraft_make_json (bool extended_client)
 {
-  static uint32_t json_record = 0;
+  static uint32_t json_file_num = 0;
   struct timeval tv_now;
   aircraft      *a = Modes.aircrafts;
   int            size, left = 1024;    /* The initial buffer is incremented as needed */
@@ -1471,8 +1471,8 @@ char *aircraft_make_json (bool extended_client)
   DEBUG (DEBUG_GENERAL2, "Returning %zu bytes JSON data for %u aircrafts.\n", p - buf + 1, aircrafts);
 
   if (Modes.log && (Modes.debug & DEBUG_GENERAL))
-     fprintf (Modes.log, "\nJSON dump of record %u for %u aircrafts, extended_client: %d:\n%s\n\n",
-              json_record++, aircrafts, extended_client, buf);
+     fprintf (Modes.log, "\nJSON dump of file-number %u for %u aircrafts, extended_client: %d:\n%s\n\n",
+              json_file_num++, aircrafts, extended_client, buf);
   return (buf);
 }
 

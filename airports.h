@@ -14,7 +14,7 @@
 
 /**
  * \def AIRPORT_DATABASE_CACHE
- * Our airport API cache in the `%TEMP%` directory.
+ * Our airport API cache in the `%TEMP%\\dump1090` directory.
  */
 #define AIRPORT_DATABASE_CACHE  "airport-api-cache.csv"
 

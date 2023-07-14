@@ -23,13 +23,13 @@
  * The basename for downloading a new `aircraft-database.csv`.
  *
  * E.g. Use WinInet API to download:<br>
- *  `AIRCRAFT_DATABASE_URL` -> `%TEMP%\\aircraft-database-temp.zip`
+ *  `AIRCRAFT_DATABASE_URL` -> `%TEMP%\\dump1090\\aircraft-database-temp.zip`
  *
  * extract this using: <br>
- *  `zip_extract (\"%TEMP%\\aircraft-database-temp.zip\", \"%TEMP%\\aircraft-database-temp.csv\")`.
+ *  `zip_extract (\"%TEMP%\\dump1090\\aircraft-database-temp.zip\", \"%TEMP%\\dump1090\\aircraft-database-temp.csv\")`.
  *
  * and finally call: <br>
- *   `CopyFile ("%TEMP%\\aircraft-database-temp.csv", <final_destination>)`.
+ *   `CopyFile ("%TEMP%\\dump1090\\aircraft-database-temp.csv", <final_destination>)`.
  */
 #define AIRCRAFT_DATABASE_TMP  "aircraft-database-temp"
 

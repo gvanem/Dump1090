@@ -40,7 +40,7 @@ typedef enum airport_t {
  * Describes an airport. Data can be from these sources:
  *  \li A .CSV-file         (`Mode.airport_db == "airport-codes.csv"`)
  *  \li A live API request.
- *  \li A cached API request (`Mode.airport_api_cache == "%TEMP%\\airport-api-cache.csv"`).
+ *  \li A cached API request (`Mode.airport_api_cache == "%TEMP%\\dump1090\\airport-api-cache.csv"`).
  *
  * These are NOT on the same order as in `airport-codes.csv`. <br>
  * CSV header:
@@ -841,7 +841,7 @@ static unsigned int __stdcall api_thread_fn (void *arg)
 }
 
 /**
- * Open for writing or create the `%TEMP%\\ AIRPORT_DATABASE_CACHE` file.
+ * Open for writing or create the `%TEMP%\\dump1090\\ AIRPORT_DATABASE_CACHE` file.
  */
 static bool airports_cache_open (FILE **f_ptr)
 {
@@ -887,7 +887,7 @@ static void airports_cache_write (void)
 }
 
 /**
- * Open and parse the `%TEMP%\\ AIRPORT_DATABASE_CACHE` file
+ * Open and parse the `%TEMP%\\dump1090\\ AIRPORT_DATABASE_CACHE` file
  * and append to `g_data.flight_info`.
  *
  * These records are always `a->type == AIRPORT_API_CACHED`.
