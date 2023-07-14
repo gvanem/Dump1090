@@ -14,11 +14,6 @@
 #include "sdrplay.h"
 #include "misc.h"
 
-/**\todo
- * Test for 'g_data.ap_stats.CSV_numbers > 0' first.
- */
-#define SHOW_DEP_DST
-
 #if defined(USE_CURSES)
   #undef MOUSE_MOVED
   #include <curses.h>
@@ -74,6 +69,9 @@ static colour_mapping              colour_map [COLOUR_MAX];
   static void curses_print_header (void);
   static int  curses_refresh (int y, int x);
 
+  /* Or use CreatePseudoConsole() instead?
+   * https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session
+   */
   static WINDOW *stats_win  = NULL;
   static WINDOW *flight_win = NULL;
 
@@ -102,28 +100,29 @@ static API_funcs wincon_api = {
        .print_header = wincon_print_header,
      };
 
-#ifdef SHOW_DEP_DST
-  #define HEADER_BAR  "-------------------------------------------------------------------------------------------------------------"
-  #define HEADER      "ICAO   Callsign  Reg-num  Cntry  DEP DST   Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
-  #define LINE_FMT    "%06X %-9.9s %-8s %-6s %-3s %-3s   %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
-  //                        ^     ^    ^    ^    ^      ^
-  //                        |      |    |    |    |      |__ Altitude
-  //                        |      |    |    |    |__ DST  (IATA destination)
-  //                        |      |    |    |__ DEP       (IATA departure)
-  //                        |      |    |__ Cntry
-  //                        |      |__ Reg-Num
-  //                        |__ Callsign
+static bool show_dep_dst = false;
 
-#else
-  #define HEADER_BAR  "-------------------------------------------------------------------------------------------------------"
-  #define HEADER      "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
-  #define LINE_FMT    "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
-  //                        ^      ^    ^    ^
-  //                        |      |    |    |__ Altitude
-  //                        |      |    |__ Cntry
-  //                        |      |__ Reg-Num
-  //                        |__ Callsign
-#endif
+#define HEADER_BAR_DEP_DST  "-------------------------------------------------------------------------------------------------------------"
+#define HEADER_DEP_DST      "ICAO   Callsign  Reg-num  Cntry  DEP DST   Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
+#define LINE_FMT_DEP_DST    "%06X %-9.9s %-8s %-6s %-3s %-3s   %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
+//                                ^     ^    ^    ^    ^      ^
+//                                |      |    |    |    |      |__ Altitude
+//                                |      |    |    |    |__ DST  (IATA destination)
+//                                |      |    |    |__ DEP       (IATA departure)
+//                                |      |    |__ Cntry
+//                                |      |__ Reg-Num
+//                                |__ Callsign
+//
+
+#define HEADER_BAR_NORMAL   "-------------------------------------------------------------------------------------------------------"
+#define HEADER_NORMAL       "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
+#define LINE_FMT_NORMAL     "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
+//                                ^      ^    ^    ^
+//                                |      |    |    |__ Altitude
+//                                |      |    |__ Cntry
+//                                |      |__ Reg-Num
+//                                |__ Callsign
+//
 
 /*
  * List of API function for the TUI (text user interface).
@@ -150,7 +149,12 @@ bool interactive_init (void)
 #endif
      api = &wincon_api;
 
-  airports_init();
+  if (airports_init() > 0)
+  {
+    /* if 'g_data.ap_stats.CSV_numbers > 0', we can show the "DEP DST" columns
+     */
+    show_dep_dst = true;
+  }
 
   return ((*api->init)() == 0);
 }
@@ -459,6 +463,8 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   char  heading_buf [8]   = " - ";
   char  distance_buf [10] = " - ";
   char  RSSI_buf [7]      = " - ";
+  char  dep_buf [5]       = " - ";
+  char  dst_buf [5]       = " - ";
   char  line_buf [120];
   bool  restore_colour    = false;
   const char *reg_num     = "";
@@ -468,10 +474,6 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   const char *cc_short;
   double      sig_avg = 0;
   int64_t     ms_diff;
-#ifdef SHOW_DEP_DST
-  char dep_buf [5] = " - ";
-  char dst_buf [5] = " - ";
-#endif
 
   /* Convert units to metric if --metric was specified.
    */
@@ -528,15 +530,23 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
        flight = call_sign;
   else flight = a->flight;
 
-  if (flight[0])  // test the airports.c LOL-API request queue
+  /* Post a ADSB-LOL API request for the flight-info.
+   * Or return already cached flight-info.
+   */
+  if (flight[0])
   {
     const char *departure, *destination;
 
     airports_API_get_flight_info (flight, &departure, &destination);
-    if (departure)
-       strncpy (dep_buf, departure, sizeof(dep_buf)-1);
-    if (destination)
-       strncpy (dst_buf, destination, sizeof(dst_buf)-1);
+
+    /* Both are known or both are NULL.
+     * Can never be 'departure == NULL' and 'destination != NULL' or vice-versa.
+     */
+    if (departure && destination)
+    {
+      strncpy (dep_buf, departure, sizeof(dep_buf)-1);
+      strncpy (dst_buf, destination, sizeof(dst_buf)-1);
+    }
   }
 
   if (a->show == A_SHOW_FIRST_TIME)
@@ -570,15 +580,14 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   if (!cc_short)
      cc_short = "--";
 
-#ifdef SHOW_DEP_DST
-  snprintf (line_buf, sizeof(line_buf), LINE_FMT,
-            a->addr, flight, reg_num, cc_short, dep_buf, dst_buf, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
-            distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
-#else
-  snprintf (line_buf, sizeof(line_buf), LINE_FMT,
-            a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
-            distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
-#endif
+  if (show_dep_dst)
+       snprintf (line_buf, sizeof(line_buf), LINE_FMT_DEP_DST,
+                 a->addr, flight, reg_num, cc_short, dep_buf, dst_buf, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
+                 distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
+
+  else snprintf (line_buf, sizeof(line_buf), LINE_FMT_NORMAL,
+                 a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
+                 distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
 
   (*api->print_line) (row, 0, line_buf);
 
@@ -597,11 +606,11 @@ void interactive_show_data (uint64_t now)
   aircraft  *a = Modes.aircrafts;
 
   /*
-   * Unless debug or raw-mode is active, clear the screen to remove old info.
+   * If `--debug X` and `--raw` mode is not active, clear the screen to remove old info.
    * But only if current number of aircrafts is less than last time. This is to
    * avoid an annoying blinking of the console.
    */
-  if (Modes.debug == 0)
+  if (Modes.debug + Modes.raw == 0)
   {
     if (old_count == -1 || aircraft_numbers() < old_count)
       (*api->clr_scr)();
@@ -849,15 +858,24 @@ static char spinner[] = "|/-\\";
 
 static void wincon_print_header (void)
 {
+  const char *header = (show_dep_dst ? HEADER_DEP_DST : HEADER_NORMAL);
+  char       *p, fmt [sizeof(HEADER_DEP_DST)+3];
+
+  strcpy (fmt, header);
+  p = strchr (fmt, '\0');
+  *p++ = '\n';
+  *p = '\0';
+
   (*api->set_colour) (COLOUR_WHITE);
-  printf (HEADER "\n", spinner[spin_idx & 3]);
+  printf (fmt, spinner[spin_idx & 3]);
   (*api->set_colour) (0);
 
 #if 1
-  puts (HEADER_BAR);
+  puts (show_dep_dst ? HEADER_BAR_DEP_DST : HEADER_BAR_NORMAL);
+
 #else
-  WORD  width = strlen(HEADER) - 1;
   WORD  attr = console_info.wAttributes | COMMON_LVB_GRID_HORIZONTAL;
+  WORD  width = strlen (header) - 1;
   DWORD written;
   COORD coord = { .X = console_info.srWindow.Left,
                   .Y = console_info.srWindow.Top + 2
@@ -865,6 +883,7 @@ static void wincon_print_header (void)
 
   attr |= 15;  /* bright white */
   FillConsoleOutputAttribute (console_hnd, attr, width, coord, &written);
+  WriteConsoleA (console_hnd, header, strlen(header), NULL, NULL);
 #endif
 
   spin_idx++;
@@ -969,12 +988,14 @@ static int curses_refresh (int y, int x)
 
 static void curses_print_header (void)
 {
+  const char *header = (show_dep_dst ? HEADER_DEP_DST : HEADER_NORMAL);
+
   (*api->set_colour) (COLOUR_WHITE);
-  mvprintw (0, 0, HEADER, spinner[spin_idx & 3]);
+  mvprintw (0, 0, header, spinner[spin_idx & 3]);
   spin_idx++;
 
   (*api->set_colour) (0);
-  mvhline (1, 0, ACS_HLINE, strlen(HEADER)-1);
+  mvhline (1, 0, ACS_HLINE, strlen(header)-1);
 }
 #endif  /* USE_CURSES */
 
