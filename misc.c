@@ -463,7 +463,29 @@ int _gettimeofday (struct timeval *tv, void *timezone)
 }
 
 /**
+ * Returns a `FILETIME *ft`.
+ *
+ * This is here since the above `#define _WIN32_WINNT 0x0602` (Win-8+)
+ * is *only* defined here.
+ *
+ * From: https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsystemtimepreciseasfiletime
+ *   retrieves the current system date and time with the highest possible level of
+ *   precision (<1us). The retrieved information is in
+ *   Coordinated Universal Time (UTC) format.
+ */
+void get_FILETIME_now (FILETIME *ft)
+{
+  GetSystemTimePreciseAsFileTime (ft);
+}
+
+/**
  * Return micro-second time-stamp as a double.
+ *
+ * \note QueryPerformanceFrequency() is not related to the RDTSC instruction
+ *       since it works poorly when power "management technologies" does it's
+ *       tricks.
+ * \ref  https://learn.microsoft.com/en-us/windows/win32/dxtecharts/game-timing-and-multicore-processors
+ *       https://yakvi.github.io/handmade-hero-notes/html/day10.html
  */
 double get_usec_now (void)
 {

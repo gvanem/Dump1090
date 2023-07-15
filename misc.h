@@ -157,7 +157,10 @@
  */
 #define LOG_STDOUT(fmt, ...)    modeS_flogf (stdout, fmt, __VA_ARGS__)
 #define LOG_STDERR(fmt, ...)    modeS_flogf (stderr, fmt, __VA_ARGS__)
-#define LOG_FILEONLY(fmt, ...)  modeS_flogf (Modes.log, fmt, __VA_ARGS__)
+#define LOG_FILEONLY(fmt, ...)  do {                                           \
+                                 if (Modes.log)                                \
+                                    modeS_flogf (Modes.log, fmt, __VA_ARGS__); \
+                               } while (0);
 
 typedef struct mg_http_message     mg_http_message;
 typedef struct mg_connection       mg_connection;
@@ -516,10 +519,10 @@ extern global_data Modes;
  * When debug is set to DEBUG_NOPREAMBLE, the first sample must be
  * at least greater than a given level for us to dump the signal.
  */
-#define DEBUG_NOPREAMBLE_LEVEL           25
-#define MODES_CONNECT_TIMEOUT          5000   /* msec timeout for an active connect */
+#define DEBUG_NOPREAMBLE_LEVEL       25
+#define MODES_CONNECT_TIMEOUT      5000   /* msec timeout for an active connect */
 
-#define MG_NET_POLL_TIME             (MODES_INTERACTIVE_REFRESH_TIME / 2)
+#define MG_NET_POLL_TIME           (MODES_INTERACTIVE_REFRESH_TIME / 2)
 
 #define MODES_CONTENT_TYPE_ICON   "image/x-icon"
 #define MODES_CONTENT_TYPE_JSON   "application/json"
@@ -605,6 +608,7 @@ char       *dirname (const char *fname);
 char       *slashify (char *fname);
 int        _gettimeofday (struct timeval *tv, void *timezone);
 double      get_usec_now (void);
+void        get_FILETIME_now (FILETIME *ft);
 void        test_assert (void);
 const char *win_strerror (DWORD err);
 char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
