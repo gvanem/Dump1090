@@ -123,9 +123,7 @@ to your browser to **http://localhost:8080**, use this command:
   and the *Windows Legacy Console*:
   **![console output](dump1090-win.png)**
 
-  or if started as `c:\dev\Dump1090> dump1090 --interactive --tui curses`, inside
-  [**Windows Terminal**](https://github.com/microsoft/terminal) and a suitable background
-  image: **![curses WinTerm](dump1090-wt-1.png)**
+  or if started as `c:\dev\Dump1090> dump1090 --interactive --tui curses`, inside [**Windows Terminal**](https://github.com/microsoft/terminal) and a suitable background image: **![curses WinTerm](dump1090-wt-1.png)**
 
 In this interactive mode there is a more compact output. Where the screen is refreshed
 up to 4 times per second displaying all the recently seen aircrafts with some additional
@@ -139,23 +137,45 @@ If a `DUMP1090_HOME_POS` environment variable is defined, the distance to the pl
 calculated. I.e. the `Dist` column above. E.g. a `set DUMP1090_HOMEPOS=60.3016821,5.3208769`
 for Bergen/Norway. Find your location on [**FreeMapTools**](https://www.freemaptools.com/elevation-finder.htm).
 
-Otherwise the `--location` option will try to get this position from the
-[**Windows Location API**](https://learn.microsoft.com/en-us/windows/win32/api/locationapi/nn-locationapi-ilocation).
+Otherwise the `--location` option will try to get this position from the [**Windows Location API**](https://learn.microsoft.com/en-us/windows/win32/api/locationapi/nn-locationapi-ilocation).
 
-The program supports another Web-root implementation (than the default `./web_root/gmap.html`) using the<br>
-`--web-page <HTML-file>` option. Running it like:
+The program supports another Web-root implementation (than the default `./web_root/gmap.html`) using the `--web-page <HTML-file>` option. Running it like:
   ```
   c:\dev\Dump1090> dump1090 --interactive --web-page c:\dev\Dump1090\web_root-Tar1090\index.html
   ```
 
-will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/)
-and data from [**Tar1090-DB**](https://github.com/wiedehopf/tar1090-db/):
+will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/) and data from [**Tar1090-DB**](https://github.com/wiedehopf/tar1090-db/):
 **![tar1090 output](dump1090-tar1090-web.png)**
 
-Building with a *packed Web-filesystem* is also possible. Then **all** web-pages are built-in to the `dump1090.exe`
-file.<br>
+Building with a *packed Web-filesystem* is also possible. Then **all** web-pages are built-in to the `dump1090.exe` file.<br>
 Ref. `USE_PACKED_WEB = 1` in [**Makefile.Windows**](https://github.com/gvanem/Dump1090/blob/main/Makefile.Windows#L22).
 
+
+## Using RTL1090 as RAW source
+
+And when using the excellent *[RTL1090](https://rtl1090.com/) V3 Scope* program by JetVision as the collector and generator of **RAW-IN** messages, and Dump1090 starting like:
+ ```
+ dump1090.exe --net-active --interactive --tui curses --metric --host-raw localhost:31001
+ ```
+
+ both programs in combination may look like this: ![rtl1090 output](rtl1090.jpg).
+
+ (the 2 lower screens above are the [Beta3](https://www.jetvision.de/manuals/rtl1090.beta3.zip) version).
+ <!-- Click here for a larger [screen-short](rtl1090.jpg). -->
+
+And in non-interactive mode, `dump1090.exe --net-active --metric --host-raw localhost:31001`
+shows it like:
+ ```
+*8d479e84580fd03d66d139c1cd17;
+CRC: c1cd17 (ok)
+DF 17: ADS-B message.
+  Capability     : 5 (Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is on airborne))
+  ICAO Address   : 479e84
+  Extended Squitter  Type: 11
+  Extended Squitter  Sub : 0
+  Extended Squitter  Name: Airborne Position (Baro Altitude)
+  ```
+   (similar for the simple `dump1090` example above).
 
 ## Using files as source of data
 
@@ -315,9 +335,8 @@ can detect a few more messages.
 
 The algorithm in aggressive mode is modified in the following ways:
 
-* Up to two demodulation errors are tolerated (adjacent entires in the magnitude
-  vector with the same eight). Normally only messages without errors are
-  checked.
+* Up to two demodulation errors are tolerated (adjacent entires in the magnitude vector with the
+  same eight). Normally only messages without errors are checked.
 * It tries to fix *DF17* messages trying every two bits combination.
 
 The use of aggressive mode is only advised in places where there is low traffic
