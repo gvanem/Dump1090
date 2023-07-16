@@ -98,13 +98,16 @@ static void        background_tasks (void);
 static void        modeS_exit (void);
 static void        signal_handler (int sig);
 
-static u_short        handler_port (intptr_t service);
-static const char    *handler_descr (intptr_t service);
-static mg_connection *handler_conn (intptr_t service);
-static void           connection_read (connection *conn, msg_handler handler, bool is_server);
-static void           connection_send (intptr_t service, const void *msg, size_t len);
-static void           connection_free (connection *this_conn, intptr_t service);
-static unsigned       connection_free_all (void);
+static char       *handler_host (intptr_t service);
+static void        handler_host_free (intptr_t service);
+static u_short     handler_port (intptr_t service);
+static char       *handler_descr (intptr_t service);
+static char       *handler_protocol (intptr_t service);
+static const char *handler_url (intptr_t service);
+static void        connection_read (connection *conn, msg_handler handler, bool is_server);
+static void        connection_send (intptr_t service, const void *msg, size_t len);
+static void        connection_free (connection *this_conn, intptr_t service);
+static unsigned    connection_free_all (void);
 
 #if defined(_DEBUG)
 /**
@@ -240,8 +243,9 @@ static bool nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
   return (true);
 }
 
+#ifdef NOT_USED_YET
 /**
- * Enable RTLSDR direct sampling mode (not used yet).
+ * Enable RTLSDR direct sampling mode.
  */
 static void verbose_direct_sampling (rtlsdr_dev_t *dev, int on)
 {
@@ -259,6 +263,7 @@ static void verbose_direct_sampling (rtlsdr_dev_t *dev, int on)
   else if (on == 2)
      LOG_STDOUT ("Enabled direct sampling mode, input 2/Q.\n");
 }
+#endif
 
 /**
  * Set RTLSDR PPM error-correction.
@@ -336,8 +341,7 @@ static bool check_py_gen_magnitude_lut (void)
   uint16_t *lut = c_gen_magnitude_lut();
   int       I, Q, equals;
 
-  assert (lut);
-
+  puts ("");
   for (I = equals = 0; I < 129; I++)
   {
     for (Q = 0; Q < 129; Q++)
@@ -356,13 +360,6 @@ static bool check_py_gen_magnitude_lut (void)
     return (false);
   }
   puts ("'py_gen_magnitude_lut[]' values all OK.");
-  return (true);
-}
-
-#else
-static bool check_py_gen_magnitude_lut (void)
-{
-  puts ("No 'py_gen_magnitude_lut[]'. Hence nothing to check.");
   return (true);
 }
 #endif
@@ -575,7 +572,10 @@ static bool modeS_init (void)
   if (Modes.tests)
   {
     airports_init();
+
+#if defined(USE_GEN_LUT)
     check_py_gen_magnitude_lut();
+#endif
 
 #if defined(_DEBUG) && 0
     if (Modes.tests >= 2)
@@ -830,6 +830,18 @@ static unsigned int __stdcall data_thread_fn (void *arg)
 {
   int rc;
 
+#if 0  /** \todo see below */
+  if (Modes.infile)
+  {
+    rc = infile_read_async (Modes.infile, rx_callback, (void*)&Modes.exit,
+                            MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
+
+    signal_handler (0);   /* break out of main_data_loop() */
+    DEBUG (DEBUG_GENERAL, "infile_read_async(): rc: %d / %s.\n",
+           rc, strerror(rc));
+  }
+  else
+#endif
   if (Modes.sdrplay.device)
   {
     rc = sdrplay_read_async (Modes.sdrplay.device, rx_callback, (void*)&Modes.exit,
@@ -2400,24 +2412,14 @@ good_preamble:
  */
 static void modeS_user_message (const modeS_message *mm)
 {
-  uint64_t num_clients;
+  uint64_t  now = MSEC_TIME();
+  aircraft *a;
 
   Modes.stat.messages_total++;
+  a = interactive_receive_data (mm, now);
 
-  /* Track aircrafts in interactive mode or if we have some HTTP / SBS clients.
-   */
-  num_clients = Modes.stat.cli_accepted [MODES_NET_SERVICE_HTTP] +
-                Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS_OUT];
-
-// Do this always
-//if (Modes.interactive || num_clients > 0)
-  {
-    uint64_t  now = MSEC_TIME();
-    aircraft *a = interactive_receive_data (mm, now);
-
-    if (a && Modes.stat.cli_accepted[MODES_NET_SERVICE_SBS_OUT] > 0)
-       modeS_send_SBS_output (mm, a);     /* Feed SBS output clients. */
-  }
+  if (a && Modes.stat.cli_accepted[MODES_NET_SERVICE_SBS_OUT] > 0)
+     modeS_send_SBS_output (mm, a);     /* Feed SBS output clients. */
 
   /* In non-interactive mode, display messages on standard output.
    * In silent-mode, do nothing just to consentrate on network traces.
@@ -2522,7 +2524,6 @@ static connection *connection_get_addr (const mg_addr *addr, intptr_t service, b
 static void connection_free (connection *this_conn, intptr_t service)
 {
   connection *conn;
-  uint32_t    conn_id = (uint32_t)-1;
   int         is_server = -1;
 
   if (!this_conn)
@@ -2544,15 +2545,14 @@ static void connection_free (connection *this_conn, intptr_t service)
       Modes.stat.srv_removed [service]++;
       is_server = 1;
     }
-    conn_id = conn->id;
     free (conn);
     break;
   }
 
-  DEBUG (DEBUG_NET2, "Freeing %s %u for service \"%s\".\n",
+  DEBUG (DEBUG_NET2, "Freeing %s at %s for service \"%s\".\n",
          is_server == 1 ? "server" :
          is_server == 0 ? "client" : "?",
-         conn_id, handler_descr(service));
+         handler_url(service), handler_descr(service));
 }
 
 /*
@@ -2573,6 +2573,7 @@ static unsigned connection_free_all (void)
       connection_free (conn, service);
       num++;
     }
+    handler_host_free (service);  /* free the host string set in 'set_host_port()' */
   }
   return (num);
 }
@@ -2656,28 +2657,53 @@ static const char *event_name (int ev)
                                  : "?");
 }
 
-static mg_connection *handler_conn (intptr_t service)
-{
-  ASSERT_SERVICE (service);
-  return (*modeS_net_services [service].conn);
-}
-
 static uint16_t *handler_num_connections (intptr_t service)
 {
   ASSERT_SERVICE (service);
   return (&modeS_net_services [service].num_connections);
 }
 
-static const char *handler_descr (intptr_t service)
+static char *handler_descr (intptr_t service)
 {
   ASSERT_SERVICE (service);
   return (modeS_net_services [service].descr);
+}
+
+static char *handler_host (intptr_t service)
+{
+  ASSERT_SERVICE (service);
+  return (modeS_net_services [service].host);
+}
+
+static void handler_host_free (intptr_t service)
+{
+  if (modeS_net_services [service].host_alloc)
+     FREE (modeS_net_services [service].host);
+  modeS_net_services [service].host_alloc = false;
 }
 
 static u_short handler_port (intptr_t service)
 {
   ASSERT_SERVICE (service);
   return (modeS_net_services [service].port);
+}
+
+static char *handler_protocol (intptr_t service)
+{
+  ASSERT_SERVICE (service);
+  return (modeS_net_services [service].protocol);
+}
+
+static const char *handler_url (intptr_t service)
+{
+  static char url [1000+6];
+  char   host_port [1000];
+
+  snprintf (host_port, sizeof(host_port),
+            modeS_net_services[service].is_ip6 ? "[%s]:%u" : "%s:%u",
+            modeS_net_services[service].host, modeS_net_services[service].port);
+  snprintf (url, sizeof(url), "%s://%s", handler_protocol(service), host_port);
+  return (url);
 }
 
 static char *handler_error (intptr_t service)
@@ -3015,13 +3041,9 @@ static void connection_timeout (void *fn_data)
 {
   INT_PTR service = (int)(INT_PTR) fn_data;
   char    err [200];
-  char    host_port [100];
 
-  snprintf (host_port, sizeof(host_port), modeS_net_services[service].is_ip6 ? "[%s]:%u" : "%s:%u",
-            modeS_net_services[service].host, modeS_net_services[service].port);
-
-  snprintf (err, sizeof(err), "Timeout in connection to service \"%s\" on host %s",
-            handler_descr(service), host_port);
+  snprintf (err, sizeof(err), "Timeout in connection to service \"%s\" for host %s",
+            handler_descr(service), handler_url(service));
   handler_store_error (service, err);
 
   signal_handler (0);  /* break out of main_data_loop()  */
@@ -3080,6 +3102,7 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
 
   if (ev == MG_EV_CONNECT)
   {
+    DEBUG (DEBUG_NET, "Stopping timer for host %s and service \"%s\".\n", remote, handler_descr(service));
     mg_timer_free (&Modes.mgr.timers, &modeS_net_services[service].timer);
     conn = calloc (sizeof(*conn), 1);
     if (!conn)
@@ -3205,8 +3228,9 @@ static void connection_handler (mg_connection *this_conn, int ev, void *ev_data,
 /**
  * Setup a connection for a service.
  * Active or passive (`listen == true`).
+ * If it's active, we could use udp.
  */
-static mg_connection *connection_setup (intptr_t service, bool listen, bool sending)
+static mg_connection *connection_setup (intptr_t service, bool listen, bool sending, bool allow_udp)
 {
   mg_connection *conn = NULL;
   char           url [50];
@@ -3222,7 +3246,6 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
   if (listen)
   {
     mg_listen_func passive = (service == MODES_NET_SERVICE_HTTP) ? mg_http_listen : mg_listen;
-
     snprintf (url, sizeof(url), "tcp://0.0.0.0:%u", modeS_net_services[service].port);
     conn = (*passive) (&Modes.mgr, url, connection_handler, (void*)service);
     modeS_net_services [service].active_send = sending;
@@ -3236,8 +3259,26 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
      */
     const char *fmt = (modeS_net_services[service].is_ip6 ? "tcp://[%s]:%u" : "tcp://%s:%u");
 
+    if (modeS_net_services[service].is_udp)
+    {
+      fmt = "udp://%s:%u";
+
+      if (!allow_udp || modeS_net_services[service].is_ip6)
+      {
+        snprintf (url, sizeof(url), fmt, modeS_net_services[service].host, modeS_net_services[service].port);
+        LOG_STDERR ("'%s' not allowed for service %s. Only TCP is supported for this service.\n",
+                    url, handler_descr(service));
+        return (NULL);
+      }
+    }
     snprintf (url, sizeof(url), fmt, modeS_net_services[service].host, modeS_net_services[service].port);
-    mg_timer_add (&Modes.mgr, MODES_CONNECT_TIMEOUT, 0, connection_timeout, (void*)service);
+
+    if (!modeS_net_services[service].is_udp)
+    {
+      mg_timer_init (&Modes.mgr.timers, &modeS_net_services[service].timer,
+                     MODES_CONNECT_TIMEOUT, MG_TIMER_ONCE, connection_timeout, (void*)service);
+   }
+
     modeS_net_services [service].active_send = sending;
 
     DEBUG (DEBUG_NET, "Connecting to %s for service \"%s\".\n", url, handler_descr(service));
@@ -3254,14 +3295,25 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
 /**
  * Setup an active connection for a service.
  */
-static bool connection_setup_active (intptr_t service, mg_connection **conn)
+static bool connection_setup_active (intptr_t service, mg_connection **conn, bool allow_udp)
 {
-  *conn = connection_setup (service, false, false);
+  /* Rename description and protocol
+   */
+  if (modeS_net_services[service].is_udp && service == MODES_NET_SERVICE_RAW_IN)
+  {
+    modeS_net_services [service].descr = "Raw UDP input";
+    modeS_net_services [service].protocol = "udp";
+  }
+  else
+    modeS_net_services [service].protocol = "tcp";
+
+  *conn = connection_setup (service, false, false, allow_udp);
   if (!*conn)
   {
     LOG_STDERR ("Fail to set-up active socket for %s.\n", handler_descr(service));
     return (false);
   }
+
   return (true);
 }
 
@@ -3270,7 +3322,7 @@ static bool connection_setup_active (intptr_t service, mg_connection **conn)
  */
 static bool connection_setup_listen (intptr_t service, mg_connection **conn, bool sending)
 {
-  *conn = connection_setup (service, true, sending);
+  *conn = connection_setup (service, true, sending, false);
   if (!*conn)
   {
     LOG_STDERR ("Fail to set-up listen socket for %s.\n", handler_descr(service));
@@ -3315,12 +3367,16 @@ static void show_packed_usage (void)
   unsigned i, count;
   const char *fname;
 
+  LOG_FILEONLY ("\nPacked-Web statistics:\n");
+
   for (i = 0; (fname = mg_unlist(i)) != NULL; i++)
   {
     count = mg_usage_count (i);
     if (count > 0)
        LOG_FILEONLY ("  %3u: %s\n", count, fname);
   }
+  if (count == 0)
+     LOG_FILEONLY ("  <None>\n");
 }
 
 static bool check_web_page (void)
@@ -3362,7 +3418,8 @@ static bool check_web_page (void)
 
 static void show_packed_usage (void)
 {
-  LOG_FILEONLY ("  <None>\n");
+  LOG_FILEONLY ("\nPacked-Web statistics:\n");
+  LOG_FILEONLY ("  <N/A>\n");
 }
 #endif  /* PACKED_WEB_ROOT */
 
@@ -3394,11 +3451,11 @@ static bool modeS_init_net (void)
   if (Modes.net_active)
   {
     if (modeS_net_services[MODES_NET_SERVICE_RAW_IN].host &&
-        !connection_setup_active (MODES_NET_SERVICE_RAW_IN, &Modes.raw_in))
+        !connection_setup_active(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in, true))
        return (false);
 
     if (modeS_net_services[MODES_NET_SERVICE_SBS_IN].host &&
-        !connection_setup_active (MODES_NET_SERVICE_SBS_IN, &Modes.sbs_in))
+        !connection_setup_active(MODES_NET_SERVICE_SBS_IN, &Modes.sbs_in, false))
        return (false);
 
     if (!Modes.raw_in && !Modes.sbs_in)
@@ -3418,7 +3475,7 @@ static bool modeS_init_net (void)
     if (!connection_setup_listen(MODES_NET_SERVICE_SBS_OUT, &Modes.sbs_out, true))
        return (false);
 
-    if (!connection_setup_listen(MODES_NET_SERVICE_HTTP, &Modes.http_out, true))
+    if (!connection_setup_listen(MODES_NET_SERVICE_HTTP, &Modes.http_out,true))
        return (false);
   }
   if (Modes.http_out && !check_web_page())
@@ -3562,42 +3619,49 @@ static int hex_digit_val (int c)
  *
  * on accepting a new client. Hence check for that too.
  */
+#define LOG_GOOD_RAW(fmt, ...)         TRACE ("RAW(%d): " fmt, loop_cnt, __VA_ARGS__)
+#define LOG_BOGUS_RAW(_msg, fmt, ...)  TRACE ("RAW(%d), Bogus msg %d: " fmt, loop_cnt, _msg, __VA_ARGS__); \
+                                       Modes.stat.unrecognized_raw++
+
 static bool decode_hex_message (mg_iobuf *msg, int loop_cnt)
 {
   modeS_message mm;
   uint8_t       bin_msg [MODES_LONG_MSG_BYTES];
   int           len, j;
-  uint8_t      *hex;
-  uint8_t      *end = memchr (msg->buf, '\n', msg->len);
+  uint8_t      *hex, *end;
 
+  if (msg->len == 0)  /* all was consumed */
+     return (false);
+
+  end = memchr (msg->buf, '\n', msg->len);
   if (!end)
   {
-    if (!Modes.interactive)
-       LOG_STDOUT ("RAW(%d): Bogus msg: '%.*s'...\n", loop_cnt, (int)msg->len, msg->buf);
-    Modes.stat.unrecognized_raw++;
     mg_iobuf_del (msg, 0, msg->len);
     return (false);
   }
 
   *end++ = '\0';
-  if (end[-2] == '\r')
-     end[-2] = '\0';
-
-  /* Remove spaces on the left and on the right.
-   */
   hex = msg->buf;
   len = end - msg->buf - 1;
 
+  if (msg->len >= 2 && end[-2] == '\r')
+  {
+    end[-2] = '\0';
+    len--;
+  }
+
+  /* Remove spaces on the left and on the right.
+   */
   if (!strcmp((const char*)hex, MODES_RAW_HEART_BEAT))
   {
-    DEBUG (DEBUG_NET, "Got heart-beat signal.\n");
+    LOG_GOOD_RAW ("Got heart-beat signal");
     mg_iobuf_del (msg, 0, msg->len);
     return (true);
   }
 
   while (len && isspace(hex[len-1]))
   {
-    hex[len-1] = '\0';
+    hex [len-1] = '\0';
     len--;
   }
   while (isspace(*hex))
@@ -3611,23 +3675,26 @@ static bool decode_hex_message (mg_iobuf *msg, int loop_cnt)
   if (len < 2)
   {
     Modes.stat.empty_raw++;
+    LOG_BOGUS_RAW (1, "'%.*s'", (int)msg->len, msg->buf);
     mg_iobuf_del (msg, 0, end - msg->buf);
     return (false);
   }
+
   if (hex[0] != '*' || !memchr(msg->buf, ';', len))
   {
-    Modes.stat.unrecognized_raw++;
+    LOG_BOGUS_RAW (2, "hex[0]: '%c', '%.*s'", hex[0], (int)msg->len, msg->buf);
     mg_iobuf_del (msg, 0, end - msg->buf);
     return (false);
   }
 
   /* Turn the message into binary.
    */
-  hex++;   /* Skip `*` and `;` */
+  hex++;     /* Skip `*` and `;` */
   len -= 2;
-  if (len > 2*MODES_LONG_MSG_BYTES)   /* Too long message... broken. */
+
+  if (len > 2*MODES_LONG_MSG_BYTES)   /* Too long message (> 28 bytes)... broken. */
   {
-    Modes.stat.unrecognized_raw++;
+    LOG_BOGUS_RAW (3, "len=%d, '%.*s'", len, len, hex);
     mg_iobuf_del (msg, 0, end - msg->buf);
     return (false);
   }
@@ -3639,14 +3706,16 @@ static bool decode_hex_message (mg_iobuf *msg, int loop_cnt)
 
     if (high == -1 || low == -1)
     {
-      Modes.stat.unrecognized_raw++;
+      LOG_BOGUS_RAW (4, "high='%c', low='%c'", hex[j], hex[j+1]);
       mg_iobuf_del (msg, 0, end - msg->buf);
       return (false);
     }
     bin_msg[j/2] = (high << 4) | low;
   }
+
   mg_iobuf_del (msg, 0, end - msg->buf);
   Modes.stat.good_raw++;
+
   decode_modeS_message (&mm, bin_msg);
   if (mm.CRC_ok)
      modeS_user_message (&mm);
@@ -3681,25 +3750,29 @@ static int modeS_recv_SBS_input (mg_iobuf *msg, modeS_message *mm)
  *
  * It accepts both '\n' and '\r\n' terminated records.
  */
+#define LOG_GOOD_SBS(fmt, ...)  TRACE ("SBS(%d): " fmt, loop_cnt, __VA_ARGS__)
+#define LOG_BOGUS_SBS(fmt, ...) TRACE ("SBS(%d): " fmt, loop_cnt, __VA_ARGS__); \
+                                Modes.stat.unrecognized_SBS++
+
 static bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
 {
   modeS_message mm;
-  uint8_t      *end = memchr (msg->buf, '\n', msg->len);
+  uint8_t      *end;
 
+  if (msg->len == 0)  /* all was consumed */
+     return (false);
+
+  end = memchr (msg->buf, '\n', msg->len);
   if (!end)
   {
-    if (!Modes.interactive)
-       LOG_STDOUT ("SBS(%d): Bogus msg: '%.*s'...\n", loop_cnt, (int)msg->len, msg->buf);
-    Modes.stat.unrecognized_SBS++;
+    LOG_BOGUS_SBS ("Bogus msg: '%.*s'", (int)msg->len, msg->buf);
     mg_iobuf_del (msg, 0, msg->len);
     return (false);
   }
-  *end++ = '\0';
-  if (end[-2] == '\r')
-     end[-2] = '\0';
 
-  if (!Modes.interactive)
-     LOG_STDOUT ("SBS(%d): '%s'\n", loop_cnt, msg->buf);
+  *end++ = '\0';
+  if (msg->len >= 2 && end[-2] == '\r')
+     end[-2] = '\0';
 
   if (!strncmp((char*)msg->buf, "MSG,", 4))
   {
@@ -3748,7 +3821,6 @@ static void connection_read (connection *conn, msg_handler handler, bool is_serv
 
   for (loops = 0; msg->len > 0; loops++)
   {
-    DEBUG (DEBUG_NET2, "%s msg(%d): '%.*s'.\n", is_server ? "server" : "client", loops, (int)msg->len, msg->buf);
     (*handler) (msg, loops);
   }
 }
@@ -3917,7 +3989,7 @@ static void background_tasks (void)
   aircraft_remove_stale (now);
 
   airports_API_remove_stale (now);
-  airports_API_show_stats (now);
+  airports_API_show_stats();
 
   /* Refresh screen and console-title when in interactive mode
    */
@@ -3961,7 +4033,10 @@ static void signal_handler (int sig)
   else if (sig == SIGBREAK)
      LOG_STDOUT ("Caught SIGBREAK, shutting down ...\n");
   else if (sig == SIGABRT)
-     LOG_STDOUT ("Caught SIGABRT, shutting down ...\n");
+  {
+    LOG_STDOUT ("Caught SIGABRT, shutting down ...\n");
+    airports_exit (false);
+  }
   else if (sig == 0)
      DEBUG (DEBUG_GENERAL, "Breaking 'main_data_loop()', shutting down ...\n");
 
@@ -3994,15 +4069,13 @@ static void show_network_stats (void)
 
   for (s = MODES_NET_SERVICE_FIRST; s <= MODES_NET_SERVICE_LAST; s++)
   {
-    LOG_STDOUT ("  %s (port %u):\n", handler_descr(s), handler_port(s));
+    if (s == MODES_NET_SERVICE_RAW_IN) /* printed in 'show_raw_RAW_IN_stats()' */
+       continue;
+
+    LOG_STDOUT ("  %s (%s):\n", handler_descr(s), handler_url(s));
 
     if (s == MODES_NET_SERVICE_HTTP)
     {
-      if (Modes.net_active)
-      {
-        LOG_STDOUT ("    Not used.\n");
-        continue;
-      }
       LOG_STDOUT ("    %8llu HTTP GET requests received.\n", Modes.stat.HTTP_get_requests);
       LOG_STDOUT ("    %8llu HTTP 400 replies sent.\n", Modes.stat.HTTP_400_responses);
       LOG_STDOUT ("    %8llu HTTP 404 replies sent.\n", Modes.stat.HTTP_404_responses);
@@ -4041,9 +4114,6 @@ static void show_network_stats (void)
     LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv[s]);
     LOG_STDOUT ("    %8u %s now.\n", *handler_num_connections(s), cli_srv);
   }
-
-  LOG_FILEONLY ("\nPacked-Web statistics:\n");
-  show_packed_usage();
 }
 
 static void show_raw_SBS_stats (void)
@@ -4051,7 +4121,6 @@ static void show_raw_SBS_stats (void)
   LOG_STDOUT ("  SBS-in:  %8llu good messages.\n", Modes.stat.good_SBS);
   LOG_STDOUT ("           %8llu unrecognized messages.\n", Modes.stat.unrecognized_SBS);
   LOG_STDOUT ("           %8llu empty messages.\n", Modes.stat.empty_SBS);
-  LOG_STDOUT ("  Unknown: %8llu empty messages.\n", Modes.stat.empty_unknown);
 }
 
 /*
@@ -4060,19 +4129,16 @@ static void show_raw_SBS_stats (void)
  */
 static void show_raw_RAW_IN_stats (void)
 {
-  int s = MODES_NET_PORT_RAW_IN;
+  int s = MODES_NET_SERVICE_RAW_IN;
 
   if (Modes.stat.bytes_recv[s] == 0)
-     LOG_STDOUT ("  Raw-in: nothing.\n");
+     LOG_STDOUT ("  Raw-in from %s: nothing.\n", handler_url(s));
   else
   {
-    const char *remote = modeS_net_services [s].host;
-    uint16_t    port   = modeS_net_services [s].port;
-
-    LOG_STDOUT ("  Raw-in:  %8llu good messages from %s:%u.\n", Modes.stat.good_raw, remote, port);
-    LOG_STDOUT ("           %8llu unrecognized messages.\n", Modes.stat.unrecognized_raw);
-    LOG_STDOUT ("           %8llu empty messages.\n", Modes.stat.empty_raw);
-    LOG_STDOUT ("  Unknown: %8llu empty messages.\n", Modes.stat.empty_unknown);
+    LOG_STDOUT ("  Raw-in from %s:\n", handler_url(s));
+    LOG_STDOUT ("  %8llu good messages.\n", Modes.stat.good_raw);
+    LOG_STDOUT ("  %8llu unrecognized messages.\n", Modes.stat.unrecognized_raw);
+    LOG_STDOUT ("  %8llu empty messages.\n", Modes.stat.empty_raw);
   }
 }
 
@@ -4123,12 +4189,16 @@ static void show_statistics (void)
      show_decoder_stats();
 
   if (Modes.net)
-     show_network_stats();
-
-  if (Modes.net_active)
   {
-    show_raw_SBS_stats();
-    show_raw_RAW_IN_stats();
+    show_network_stats();
+
+    if (Modes.net_active)
+    {
+      show_raw_SBS_stats();
+      show_raw_RAW_IN_stats();
+    }
+    if (Modes.stat.cli_accepted[MODES_NET_SERVICE_HTTP] > 0)
+       show_packed_usage();
   }
 
   if (Modes.airports_priv)
@@ -4178,7 +4248,7 @@ static void modeS_exit (void)
      _close (Modes.fd);
 
   aircraft_exit (true);
-  airports_exit();
+  airports_exit (true);
 
   if (Modes.interactive)
      interactive_exit();
@@ -4650,6 +4720,10 @@ int main (int argc, char **argv)
     net_opened = true;
   }
 
+  /**
+   * \todo Move processing of `Modes.infile` to the same thread
+   * for consistent handling of all sample-sources.
+   */
   if (Modes.infile)
   {
     if (read_from_data_file() == 0)
