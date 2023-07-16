@@ -16,6 +16,7 @@
 
 * Improve **SBS** (*Serving Base Station*) messages when we're it's client.
   Ref: http://woodair.net/sbs/article/barebones42_socket_data.htm
+  Ref: https://wiki.jetvision.de/wiki/Mode-S_Beast:Data_Output_Formats
 
 * **UAT** (*Universal Access Transceiver*) for 978 MHz data-link.
 
