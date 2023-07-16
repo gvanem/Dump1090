@@ -11,6 +11,7 @@
 
 /* Warning control:
  */
+#define BUILD_WINDOWS                   1
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
 #define _CRT_SECURE_NO_WARNINGS         1
 #define _CRT_SECURE_NO_DEPRECATE        1
@@ -20,38 +21,51 @@
   #pragma clang diagnostic ignored "-Wunused-value"
   #pragma clang diagnostic ignored "-Wunused-variable"
   #pragma clang diagnostic ignored "-Wunused-function"
-  #pragma clang diagnostic ignored "-Wignored-attributes"
-  #pragma clang diagnostic ignored "-Wignored-pragma-optimize"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
-  #pragma clang diagnostic ignored "-Wunused-but-set-variable"
-  #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 #elif defined(_MSC_VER)
-  #pragma warning (disable:4005 4244 4267)
+  /*
+   * wincontypes.h(103): warning C4005: 'MOUSE_MOVED': macro redefinition
+   * (compiling source file externals/Curses/amalgamation.c)
+   * externals\Curses\curses.h(190): note: see previous definition of 'MOUSE_MOVED'
+   */
+   #pragma warning (disable: 4005)
+
+  /*
+   * csv.c(60): warning C4244: '=':
+   *  conversion from 'int' to 'char', possible loss of data
+   */
+  #pragma warning (disable: 4244)
+
+  /*
+   * externals/mongoose.c(4482): warning C4267: 'function':
+   *  conversion from 'size_t' to 'int', possible loss of data
+   */
+  #pragma warning (disable: 4267)
 
   /*
    * misc.c(524): warning C4152: nonstandard extension,
    *  function/data pointer conversion in expression
    */
-  #pragma warning (disable:4152)
+  #pragma warning (disable: 4152)
 
   /*
    * externals/sqlite3.c(31972): 'GetVersionExA': was declared deprecated
    */
-  #pragma warning (disable:4996)
+//  #pragma warning (disable: 4996)
 
   #ifdef _WIN64
     /*
      * 'type cast': conversion from 'int' to 'void *' of greater size
      */
-    #pragma warning (disable:4312)
+    #pragma warning (disable: 4312)
   #endif
 
   /*
    * externals\miniz.h(6560): warning C4127: conditional expression is constant
    * externals\zip.c(224):    warning C4706: assignment within conditional expression
    */
-  #pragma warning (disable:4127 4706)
+  #pragma warning (disable: 4127 4706)
 #endif
 
 #define _STR2(x)  #x
@@ -128,7 +142,6 @@
  */
 #define stricmp(s1, s2)      _stricmp (s1, s2)
 #define strnicmp(s1, s2, sz) _strnicmp (s1, s2, sz)
-#define strdup(s)            _strdup (s)
 #define access(file, mode)   _access (file, mode)
 #define fileno(stream)       _fileno (stream)
 
@@ -138,5 +151,7 @@
   #undef  _malloca          /* Avoid MSVC-9 <malloc.h>/<crtdbg.h> name-clash */
   #define _CRTDBG_MAP_ALLOC
   #include <crtdbg.h>
+#else
+  #define strdup(s)  _strdup (s)
 #endif
 

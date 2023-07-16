@@ -237,8 +237,8 @@ aircraft *aircraft_find_or_create (uint32_t addr, uint64_t now)
  */
 int aircraft_numbers (void)
 {
-  aircraft *a = Modes.aircrafts;
-  int       num;
+  const aircraft *a = Modes.aircrafts;
+  int   num;
 
   for (num = 0; a; num++)
       a = a->next;
@@ -341,7 +341,6 @@ static void aircraft_test_1 (void)
   for (i = num_ok = 0; i < DIM(a_tests); i++, t++)
   {
     const aircraft_CSV *a_CSV, *a_SQL;
-    const char *call_sign = "?";
     const char *reg_num   = "?";
     const char *manufact  = "?";
 
@@ -350,8 +349,6 @@ static void aircraft_test_1 (void)
 
     if (a_CSV)
     {
-      if (a_CSV->call_sign[0])
-         call_sign = a_CSV->call_sign;
       if (a_CSV->manufact[0])
          manufact = a_CSV->manufact;
       if (a_CSV->reg_num[0])
@@ -362,8 +359,6 @@ static void aircraft_test_1 (void)
     }
     else if (a_SQL)
     {
-      if (a_SQL->call_sign[0])
-         call_sign = a_SQL->call_sign;
       if (a_SQL->manufact[0])
          manufact = a_SQL->manufact;
       if (a_SQL->reg_num[0])
@@ -1292,14 +1287,13 @@ static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec)
   char   buf [sizeof(*rec) + sizeof(DB_INSERT) + 100];
   char  *values, *err_msg = NULL;
   int    rc;
-  size_t len;
 
-  len = mg_snprintf (buf, sizeof(buf),
-                     DB_INSERT " ('%06x',%m,%m,%m)",
-                     rec->addr,
-                     mg_print_esc, 0, rec->reg_num,
-                     mg_print_esc, 0, rec->manufact,
-                     mg_print_esc, 0, rec->call_sign);
+  mg_snprintf (buf, sizeof(buf),
+               DB_INSERT " ('%06x',%m,%m,%m)",
+               rec->addr,
+               mg_print_esc, 0, rec->reg_num,
+               mg_print_esc, 0, rec->manufact,
+               mg_print_esc, 0, rec->call_sign);
 
   values = buf + sizeof(DB_INSERT) + 1;
 
