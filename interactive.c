@@ -537,7 +537,7 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   {
     const char *departure, *destination;
 
-    airports_API_get_flight_info (flight, &departure, &destination);
+    airports_API_get_flight_info (flight, a->addr, &departure, &destination);
 
     /* Both are known or both are NULL.
      * Can never be 'departure == NULL' and 'destination != NULL' or vice-versa.
@@ -553,23 +553,17 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   {
     (*api->set_colour) (COLOUR_GREEN);
     restore_colour = true;
-    LOG_FILEONLY ("plane '%06X' entering.\n", a->addr);
+    airports_API_flight_log_entering (a);
+  }
+  else if (a->show == A_SHOW_NORMAL)
+  {
+    airports_API_flight_log_resolved (a);
   }
   else if (a->show == A_SHOW_LAST_TIME)
   {
-    char alt_buf2 [10] = "-";
-
-    if (altitude >= 1)
-       _itoa (altitude, alt_buf2, 10);
-
     (*api->set_colour) (COLOUR_RED);
     restore_colour = true;
-
-    LOG_FILEONLY ("plane '%06X' leaving. Active for %.1lf sec. Altitude: %s m, Distance: %s/%s %s.\n",
-                  a->addr, (double)(now - a->seen_first) / 1000.0,
-                  alt_buf2,
-                  a->distance_buf[0]     ? a->distance_buf     : "-",
-                  a->EST_distance_buf[0] ? a->EST_distance_buf : "-", km_nmiles);
+    airports_API_flight_log_leaving (a);
   }
 
   ms_diff = (now - a->seen_last);
@@ -602,6 +596,7 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
 void interactive_show_data (uint64_t now)
 {
   static int old_count = -1;
+  static int clear_row = -1;
   int        row = 2, count = 0;
   aircraft  *a = Modes.aircrafts;
 
@@ -612,8 +607,11 @@ void interactive_show_data (uint64_t now)
    */
   if (Modes.debug + Modes.raw == 0)
   {
-    if (old_count == -1 || aircraft_numbers() < old_count)
+    if (old_count == -1 || aircraft_numbers() < old_count || clear_row >= 2)
+    {
       (*api->clr_scr)();
+      clear_row = -1;
+    }
     (*api->gotoxy) (0, 0);
   }
 
@@ -633,7 +631,10 @@ void interactive_show_data (uint64_t now)
     if (a->show == A_SHOW_FIRST_TIME)
        a->show = A_SHOW_NORMAL;
     else if (a->show == A_SHOW_LAST_TIME)
-       a->show = A_SHOW_NONE;      /* don't show again before deleting it */
+    {
+      a->show = A_SHOW_NONE;      /* don't show again before deleting it */
+   // clear_row = row;            /* may have to clear this row */
+    }
 
     a = a->next;
     count++;
