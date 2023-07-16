@@ -203,12 +203,15 @@ typedef struct mg_connection *(*mg_listen_func) (struct mg_mgr     *mgr,
 typedef struct net_service {
         mg_connection  **conn;             /**< A pointer to the returned Mongoose connection */
         char            *host;             /**< The host address if `Modes.net_active == true` */
-        const char      *descr;            /**< A textual description of this service */
+        char            *descr;            /**< A textual description of this service */
         uint16_t         port;             /**< The port number */
         uint16_t         num_connections;  /**< Number of clients/servers connected to this service */
         bool             active_send;      /**< We are the sending side. Never duplex. */
         bool             is_ip6;           /**< The above `host` address is an IPv6 address */
+        bool             is_udp;           /**< The above `host` address was prefixed with `udp://` */
+        char            *protocol;         /**< Equals "tcp" unless `is_udp == 1` */
         char            *last_err;         /**< Last error from a `MG_EV_ERROR` event */
+        bool             host_alloc;       /**< Above `host` was allocated by `strdup()` */
         mg_timer         timer;            /**< Timer for a `mg_connect()` */
       } net_service;
 
@@ -315,7 +318,6 @@ typedef struct statistics {
         uint64_t  unrecognized_raw;
         uint64_t  empty_SBS;
         uint64_t  empty_raw;
-        uint64_t  empty_unknown;
       } statistics;
 
 /**

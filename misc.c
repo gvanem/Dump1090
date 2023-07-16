@@ -568,7 +568,7 @@ char *_mg_straddr (struct mg_addr *a, char *buf, size_t len)
 }
 
 /**
- * Parse and split a `host[:port]` string into a host and port.
+ * Parse and split a `[udp://]host[:port]` string into a host and port.
  * Set default port if the `:port` is missing.
  */
 bool set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
@@ -576,7 +576,18 @@ bool set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
   mg_str  str;
   mg_addr addr;
   char    buf [100];
+  int     is_udp = 0;
   int     is_ip6 = -1;
+
+  if (!strnicmp("tcp://", host_port, 6))
+  {
+    host_port += 6;
+  }
+  else if (!strnicmp("udp://", host_port, 6))
+  {
+    is_udp = 1;
+    host_port += 6;
+  }
 
   str = mg_url_host (host_port);
   memset (&addr, '\0', sizeof(addr));
@@ -597,9 +608,11 @@ bool set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
     return (false);
   }
 
-  serv->host   = strdup (buf);
-  serv->port   = addr.port;
-  serv->is_ip6 = (is_ip6 == 1);
+  serv->host       = strdup (buf);
+  serv->host_alloc = true;
+  serv->port       = addr.port;
+  serv->is_udp     = (is_udp == 1);
+  serv->is_ip6     = (is_ip6 == 1);
   DEBUG (DEBUG_NET, "is_ip6: %d, host: %s, port: %u.\n", is_ip6, serv->host, serv->port);
   return (true);
 }
@@ -1135,7 +1148,7 @@ static void assert_cart (const cartesian_t *cpos, double heading, unsigned line)
     double y = cpos->c_y / 1E3;
     double z = (EARTH_RADIUS - cpos->c_z) / 1E3;
 
-    fprintf (stderr, "assertion at line %u: x=%.2f, y=%.2f, z=%.2f, heading=%.2f.\n",
+    fprintf (stderr, "assertion at 'misc.c(%u)': x=%.2f, y=%.2f, z=%.2f, heading=%.2f.\n",
              line, x, y, z, TWO_PI * heading / 360);
     abort();
   }
@@ -1207,6 +1220,7 @@ double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
 
 //assert (fabs(rc - old_rc) < 6000.0);  /* 6 km */
   old_rc = rc;
+  (void) old_rc;
   return (rc);
 }
 
