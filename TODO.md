@@ -54,3 +54,16 @@
     * Number of unique planes/IP-addresses, network-clients, CSV/SQL-lookups and cache hits,
     * Number of network clients, bytes transferred etc.
   * a tool-tip handler; show more flight-details when mouse is over a specific call-sign.
+
+* Add *config file*. Move some command-line options into `dump1090.cfg`. Like:
+  * `aircrafts = my-own-aircrafts.csv` (do not use the default `~/aircraft-database.csv` file).
+  * `aircrafts-sql = yes` (enable the SQL-version of the above instead).
+  * `metric = 1` (always show metric units).
+
+* *IP Access List* for controlling who is *not* allowed to connect to a service; use the new [*mg_check_ip_acl()*](https://mongoose.ws/documentation/#mg_check_ip_acl) function.E.g.:
+  * in `dump1090.cfg` add a `[raw_in]` section with:
+    * `deny = 113.30.148.*`  (a Spanish network).
+    * `deny = 91.224.92.0/24` (a Lithuanian network).
+
+
+
