@@ -1,7 +1,6 @@
 # Dump1090
 
 [![MSBuild](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml/badge.svg?branch=main)](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml)
-[![bug](http://www.watt-32.net/misc/bug.gif)](http://www.watt-32.net/misc/bug.gif)
 
 A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<br>
 It requires a RTL-SDR USB-stick and Osmocom's **[librtlsdr](https://github.com/osmocom/rtl-sdr)**.
@@ -153,7 +152,8 @@ Ref. `USE_PACKED_WEB = 1` in [**Makefile.Windows**](https://github.com/gvanem/Du
 
 ## Using RTL1090 as RAW source
 
-And when using the excellent *[RTL1090](https://rtl1090.com/) V3 Scope* program by JetVision as the collector and generator of **RAW-IN** messages, and Dump1090 starting like:
+And when using the excellent *[RTL1090](https://rtl1090.com/) V3 Scope* program by [**JetVision**](https://jetvision.de/) as
+the collector and generator of **RAW-IN** messages, and Dump1090 starting like:
  ```
  dump1090.exe --net-active --interactive --tui curses --metric --host-raw localhost:31001
  ```
@@ -161,7 +161,7 @@ And when using the excellent *[RTL1090](https://rtl1090.com/) V3 Scope* program 
  both programs in combination may look like this: ![rtl1090 output](rtl1090.jpg).
 
  (the 2 lower screens above are the [Beta3](https://www.jetvision.de/manuals/rtl1090.beta3.zip) version).
- <!-- Click here for a larger [screen-short](rtl1090.jpg). -->
+
 
 And in non-interactive mode, `dump1090.exe --net-active --metric --host-raw localhost:31001`
 shows it like:
