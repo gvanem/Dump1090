@@ -59,9 +59,15 @@ void modeS_log (const char *buf)
  */
 void modeS_logc (char c, void *param)
 {
-  if (param)
-       fputc (c, param);      /* to 'stderr' */
-  else fputc (c, Modes.log ? Modes.log : stdout);
+  /* Since everything gets written in text-mode, we do not
+   * need an extra '\r'. We want plain '\n' line-endings.
+   */
+  if (c != '\r')
+  {
+    if (param)
+         fputc (c, param);      /* to 'stderr' */
+    else fputc (c, Modes.log ? Modes.log : stdout);
+  }
 }
 
 /**
@@ -139,6 +145,36 @@ char *modeS_FILETIME_to_str (const FILETIME *ft, bool show_YMD)
   SYSTEMTIME st;
   FileTimeToSystemTime (ft, &st);
   return modeS_strftime (&st, show_YMD);
+}
+
+char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD)
+{
+  static TIME_ZONE_INFORMATION tz_info;
+  static LONG  timezone = 0, dst_adjust = 0;   /* minutes */
+  static bool  done = false;
+  ULONGLONG    ul = *(ULONGLONG*) ft;
+
+  if (!done)
+  {
+    FILETIME ft2;
+    DWORD    rc = GetTimeZoneInformation (&tz_info);
+
+    if (rc == TIME_ZONE_ID_UNKNOWN || rc == TIME_ZONE_ID_STANDARD || rc == TIME_ZONE_ID_DAYLIGHT)
+    {
+      timezone   = tz_info.Bias + tz_info.StandardBias;
+      dst_adjust = tz_info.StandardBias - tz_info.DaylightBias;
+    }
+    done = true;
+
+    get_FILETIME_now (&ft2);
+    DEBUG (DEBUG_GENERAL, "rc: %ld, timezone: %ld min, dst_adjust: %ld min, now: %s\n",
+           rc, timezone, dst_adjust, modeS_FILETIME_to_loc_str(&ft2, true));
+  }
+
+  /* From minutes to 100 nsec units
+   */
+  ul -= 600000000ULL * (ULONGLONG) (timezone - dst_adjust);
+  return modeS_FILETIME_to_str ((const FILETIME*)&ul, show_YMD);
 }
 
 /**
@@ -568,16 +604,16 @@ char *_mg_straddr (struct mg_addr *a, char *buf, size_t len)
 }
 
 /**
- * Parse and split a `[udp://]host[:port]` string into a host and port.
+ * Parse and split a `[udp://|tcp://]host[:port]` string into a host and port.
  * Set default port if the `:port` is missing.
  */
 bool set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
 {
-  mg_str  str;
-  mg_addr addr;
-  char    buf [100];
-  int     is_udp = 0;
-  int     is_ip6 = -1;
+  mg_str       str;
+  mg_addr      addr;
+  bool         is_udp = false;
+  int          is_ip6 = -1;
+  mg_host_name name;
 
   if (!strnicmp("tcp://", host_port, 6))
   {
@@ -585,7 +621,7 @@ bool set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
   }
   else if (!strnicmp("udp://", host_port, 6))
   {
-    is_udp = 1;
+    is_udp = true;
     host_port += 6;
   }
 
@@ -594,13 +630,13 @@ bool set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
   addr.port = mg_url_port (host_port);
   mg_aton (str, &addr);
   is_ip6 = addr.is_ip6;
-  snprintf (buf, sizeof(buf), "%.*s", (int)str.len, str.ptr);
+  snprintf (name, sizeof(name), "%.*s", (int)str.len, str.ptr);
 
   if (addr.port == 0)
      addr.port = def_port;
 
-  DEBUG (DEBUG_NET, "host_port: '%s', buf: '%s', addr.port: %u\n",
-         host_port, buf, addr.port);
+  DEBUG (DEBUG_NET, "host_port: '%s', name: '%s', addr.port: %u\n",
+         host_port, name, addr.port);
 
   if (is_ip6 == -1 && strstr(host_port, "::"))
   {
@@ -608,10 +644,9 @@ bool set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
     return (false);
   }
 
-  serv->host       = strdup (buf);
-  serv->host_alloc = true;
+  strcpy (serv->host, name);
   serv->port       = addr.port;
-  serv->is_udp     = (is_udp == 1);
+  serv->is_udp     = (is_udp == true);
   serv->is_ip6     = (is_ip6 == 1);
   DEBUG (DEBUG_NET, "is_ip6: %d, host: %s, port: %u.\n", is_ip6, serv->host, serv->port);
   return (true);
@@ -1266,6 +1301,8 @@ double great_circle_dist (pos_t pos1, pos_t pos2)
  * Set this aircraft's distance to our home position.
  *
  * The reference time-tick is the latest of `a->odd_CPR_time` and `a->even_CPR_time`.
+ *
+ * \todo move to aircraft.c
  */
 static void set_home_distance (aircraft *a)
 {
