@@ -3074,7 +3074,7 @@ static void mg_send_u32(struct mg_connection *c, uint32_t value) {
   mg_send(c, &value, sizeof(value));
 }
 
-static uint8_t compute_variable_length_size(size_t length) {
+static uint8_t varint_size(size_t length) {
   uint8_t bytes_needed = 0;
   do {
     bytes_needed++;
@@ -3083,8 +3083,8 @@ static uint8_t compute_variable_length_size(size_t length) {
   return bytes_needed;
 }
 
-static int encode_variable_length(uint8_t *buf, size_t value) {
-  int len = 0;
+static size_t encode_varint(uint8_t *buf, size_t value) {
+  size_t len = 0;
 
   do {
     uint8_t byte = (uint8_t) (value % 128);
@@ -3097,16 +3097,15 @@ static int encode_variable_length(uint8_t *buf, size_t value) {
 }
 
 static size_t decode_varint(const uint8_t *buf, size_t len, size_t *value) {
-  uint32_t multiplier = 1;
-  size_t offset;
+  size_t multiplier = 1, offset;
   *value = 0;
 
   for (offset = 0; offset < 4 && offset < len; offset++) {
     uint8_t encoded_byte = buf[offset];
-    *value += (encoded_byte & 0x7F) * multiplier;
+    *value += (encoded_byte & 0x7f) * multiplier;
     multiplier *= 128;
 
-    if (!(encoded_byte & 0x80)) return offset + 1;
+    if ((encoded_byte & 0x80) == 0) return offset + 1;
   }
 
   return 0;
@@ -3138,7 +3137,7 @@ static size_t get_properties_length(struct mg_mqtt_prop *props, size_t count) {
         size += (uint32_t) (props[i].val.len + sizeof(uint16_t));
         break;
       case MQTT_PROP_TYPE_VARIABLE_INT:
-        size += compute_variable_length_size((uint32_t) props[i].iv);
+        size += varint_size((uint32_t) props[i].iv);
         break;
       case MQTT_PROP_TYPE_INT:
         size += (uint32_t) sizeof(uint32_t);
@@ -3161,7 +3160,7 @@ static size_t get_properties_length(struct mg_mqtt_prop *props, size_t count) {
 // size of the variable length of the content
 static size_t get_props_size(struct mg_mqtt_prop *props, size_t count) {
   size_t size = get_properties_length(props, count);
-  size += compute_variable_length_size(size);
+  size += varint_size(size);
   return size;
 }
 
@@ -3170,10 +3169,10 @@ static void mg_send_mqtt_properties(struct mg_connection *c,
   size_t total_size = get_properties_length(props, nprops);
   uint8_t buf_v[4] = {0, 0, 0, 0};
   uint8_t buf[4] = {0, 0, 0, 0};
-  int i, len = encode_variable_length(buf, total_size);
+  size_t i, len = encode_varint(buf, total_size);
 
   mg_send(c, buf, (size_t) len);
-  for (i = 0; i < (int) nprops; i++) {
+  for (i = 0; i < nprops; i++) {
     mg_send(c, &props[i].id, sizeof(props[i].id));
     switch (mqtt_prop_type_by_id(props[i].id)) {
       case MQTT_PROP_TYPE_STRING_PAIR:
@@ -3200,7 +3199,7 @@ static void mg_send_mqtt_properties(struct mg_connection *c,
         mg_send(c, props[i].val.ptr, props[i].val.len);
         break;
       case MQTT_PROP_TYPE_VARIABLE_INT:
-        len = encode_variable_length(buf_v, props[i].iv);
+        len = encode_varint(buf_v, props[i].iv);
         mg_send(c, buf_v, (size_t) len);
         break;
     }
@@ -3682,7 +3681,7 @@ struct mg_connection *mg_alloc_conn(struct mg_mgr *mgr) {
   return c;
 }
 
-void __declspec(noinline) mg_close_conn(struct mg_connection *c) {
+void mg_close_conn(struct mg_connection *c) {
   mg_resolve_cancel(c);  // Close any pending DNS query
   LIST_DELETE(struct mg_connection, &c->mgr->conns, c);
   if (c == c->mgr->dns4.c) c->mgr->dns4.c = NULL;
@@ -5033,7 +5032,7 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
     }
   }
 
-  MG_INFO(("poll n=%d ms=%d", (int) n, ms));
+  // MG_INFO(("poll n=%d ms=%d", (int) n, ms));
   if (poll(fds, n, ms) < 0) {
 #if MG_ARCH == MG_ARCH_WIN32
     if (n == 0) Sleep(ms);  // On Windows, poll fails if no sockets
@@ -6703,7 +6702,7 @@ struct mg_tcpip_driver mg_tcpip_driver_imxrt1020 = {
 #endif
 
 
-#if MG_ENABLE_TCPIP && MG_ENABLE_DRIVER_STM32
+#if MG_ENABLE_TCPIP && defined(MG_ENABLE_DRIVER_STM32) && MG_ENABLE_DRIVER_STM32
 struct stm32_eth {
   volatile uint32_t MACCR, MACFFR, MACHTHR, MACHTLR, MACMIIAR, MACMIIDR, MACFCR,
       MACVLANTR, RESERVED0[2], MACRWUFFR, MACPMTCSR, RESERVED1, MACDBGR, MACSR,
@@ -8145,8 +8144,9 @@ static void read_conn(struct mg_connection *c, struct pkt *pkt) {
       uint32_t rem_ip;
       memcpy(&rem_ip, c->rem.ip, sizeof(uint32_t));
       MG_DEBUG(("SEQ != ACK: %x %x %x", seq, s->ack, ack));
-      tx_tcp((struct mg_tcpip_if *) c->mgr->priv, s->mac, rem_ip, TH_ACK, c->loc.port,
-           c->rem.port, mg_htonl(s->seq), mg_htonl(s->ack), "", 0);
+      tx_tcp((struct mg_tcpip_if *) c->mgr->priv, s->mac, rem_ip, TH_ACK,
+             c->loc.port, c->rem.port, mg_htonl(s->seq), mg_htonl(s->ack), "",
+             0);
     }
   } else if (io->size - io->len < pkt->pay.len &&
              !mg_iobuf_resize(io, io->len + pkt->pay.len)) {
@@ -8261,7 +8261,7 @@ static void rx_ip(struct mg_tcpip_if *ifp, struct pkt *pkt) {
     MG_DEBUG(("UDP %M:%hu -> %M:%hu len %u", mg_print_ip4, &pkt->ip->src,
               mg_ntohs(pkt->udp->sport), mg_print_ip4, &pkt->ip->dst,
               mg_ntohs(pkt->udp->dport), (int) pkt->pay.len));
-    if (pkt->udp->dport == mg_htons(68)) {
+    if (ifp->enable_dhcp_client && pkt->udp->dport == mg_htons(68)) {
       pkt->dhcp = (struct dhcp *) (pkt->udp + 1);
       mkpay(pkt, pkt->dhcp + 1);
       rx_dhcp_client(ifp, pkt);
@@ -8372,7 +8372,7 @@ static void mg_tcpip_poll(struct mg_tcpip_if *ifp, uint64_t uptime_ms) {
     if (ifp->now >= ifp->lease_expire) {
       ifp->state = MG_TCPIP_STATE_UP, ifp->ip = 0;  // expired, release IP
       onstatechange(ifp);
-    } else if (ifp->now + 30 * 60 * 1000 > ifp->lease_expire &&
+    } else if (ifp->now + 30UL * 60UL * 1000UL > ifp->lease_expire &&
                ((ifp->now / 1000) % 60) == 0) {
       // hack: 30 min before deadline, try to rebind (4.3.6) every min
       tx_dhcp_request_re(ifp, (uint8_t *) broadcast, ifp->ip, 0xffffffff);
