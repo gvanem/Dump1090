@@ -38,17 +38,16 @@ static void        net_conn_free (connection *conn, intptr_t service);
 static char       *net_store_error (intptr_t service, const char *err);
 static char       *net_error_details (mg_connection *c, const char *in_out, const void *ev_data);
 static char       *net_str_addr (const mg_addr *a, char *buf, size_t len);
-
 static uint16_t   *net_num_connections (intptr_t service);
 static uint64_t    net_mem_allocated (intptr_t service, int size);
 static const char *net_service_descr (intptr_t service);
 static char       *net_service_error (intptr_t service);
 static char       *net_service_url (intptr_t service);
 
-static bool  client_handler (const mg_connection *c, intptr_t service, int ev);
-static bool  client_is_unique (const mg_addr *addr);
-static bool  client_is_extern (const mg_addr *addr);
-static bool  client_deny (const mg_addr *addr, intptr_t service);
+static bool        client_handler (const mg_connection *c, intptr_t service, int ev);
+static bool        client_is_unique (const mg_addr *addr);
+static bool        client_is_extern (const mg_addr *addr);
+static bool        client_deny (const mg_addr *addr, intptr_t service);
 
 /**
  * \def ASSERT_SERVICE(s)
@@ -1155,7 +1154,7 @@ static bool client_is_extern (const mg_addr *addr)
  */
 static bool client_deny (const mg_addr *addr, intptr_t service)
 {
-#if 1
+#if 0
   // test: deny all '1-126.*' networks
   if (!addr->is_ip6 && addr->ip[0] >= 1 && addr->ip[0] <= 126)
         return (true);
@@ -1428,11 +1427,8 @@ void net_show_stats (void)
     LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv[s]);
   }
 
-  if (Modes.net_active)
-  {
-    show_raw_SBS_IN_stats();
-    show_raw_RAW_IN_stats();
-  }
+  show_raw_SBS_IN_stats();
+  show_raw_RAW_IN_stats();
 
   if (Modes.stat.cli_accepted[MODES_NET_SERVICE_HTTP] > 0)
      net_show_packed_usage();
