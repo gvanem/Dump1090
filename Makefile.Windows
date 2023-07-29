@@ -30,7 +30,7 @@ USE_CURSES ?= 1
 # Use a Windows version of 'epoll()' from
 # https://github.com/piscisaureus/wepoll
 #
-USE_EPOLL ?= 1
+USE_EPOLL ?= 0
 
 #
 # Enable bundling *all* web_root pages inside dump1090.exe.
