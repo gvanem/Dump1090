@@ -150,6 +150,7 @@
     <ClCompile Include="interactive.c" />
     <ClCompile Include="location.c" />
     <ClCompile Include="misc.c" />
+    <ClCompile Include="net_io.c" />
     <ClCompile Include="sdrplay.c" />
     <ClCompile Include="externals\mongoose.c" />
     <ClCompile Include="externals\Curses\amalgamation.c" />
@@ -170,6 +171,7 @@
     <ClInclude Include="interactive.h" />
     <ClInclude Include="location.h" />
     <ClInclude Include="misc.h" />
+    <ClInclude Include="net_io.h" />
     <ClInclude Include="sdrplay.h" />
     <ClInclude Include="dump1090_config.h" />
     <ClInclude Include="externals\mongoose.h" />

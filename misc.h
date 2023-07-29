@@ -7,6 +7,7 @@
 #define _MISC_H
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <winsock2.h>
 #include <windows.h>
@@ -28,20 +29,6 @@
 #define FREE(p)            (p ? (void) (free((void*)p), p = NULL) : (void)0)
 
 /**
- * \def INDEX_HTML
- * Our default main server page relative to `Modes.where_am_I`.
- */
-#define INDEX_HTML     "web_root/index.html"
-
-/**
- * Default network port numbers:
- */
-#define MODES_NET_PORT_RAW_IN   30001
-#define MODES_NET_PORT_RAW_OUT  30002
-#define MODES_NET_PORT_SBS      30003
-#define MODES_NET_PORT_HTTP      8080
-
-/**
  * Network services indices; `global_data::connections [N]`:
  */
 #define MODES_NET_SERVICE_RAW_OUT   0
@@ -53,26 +40,6 @@
 
 #define MODES_NET_SERVICE_FIRST     0
 #define MODES_NET_SERVICE_LAST      MODES_NET_SERVICE_HTTP
-
-/**
- * \def ASSERT_SERVICE(s)
- * Assert the service `s` is in legal range.
- */
-#define ASSERT_SERVICE(s)  assert (s >= MODES_NET_SERVICE_FIRST); \
-                           assert (s <= MODES_NET_SERVICE_LAST)
-
-/**
- * \def SERVICE_FOR_EACH()
- * Handy (?) macro to iterate over all our services. Use as e.g:
- *  ```
- *   SERVICE_FOR_EACH()
- *   {
- *     printf ("  %s (port %u):\n", handler_descr(service), handler_port(service));
- *     ...
- *   }
- *  ```
- */
-#define SERVICE_FOR_EACH()  for (int service = MODES_NET_SERVICE_FIRST; service <= MODES_NET_SERVICE_LAST; service++)
 
 /**
  * \def SAFE_COND_SIGNAL(cond, mutex)
@@ -113,6 +80,7 @@
 #define DEBUG_JS         0x0200
 #define DEBUG_NET        0x0400
 #define DEBUG_NET2       0x0800
+#define DEBUG_ADSB_LOL   0x1000
 
 /**
  * \def DEBUG(bit, fmt, ...)
@@ -135,17 +103,6 @@
 #define TRACE(fmt, ...) DEBUG (DEBUG_GENERAL, fmt ".\n", __VA_ARGS__)
 
 /**
- * \def HEX_DUMP(data, len)
- * Do a hex-dump of network data if option `--debug M` was used.
- */
-#define HEX_DUMP(data, len)                  \
-        do {                                 \
-          if (Modes.debug & DEBUG_MONGOOSE2) \
-             mg_hexdump (data, len);         \
-        } while (0)
-
-
-/**
  * \def LOG_STDOUT(fmt, ...)
  *  Print to both `stdout` and optionally to `Modes.log`.
  *
@@ -160,58 +117,54 @@
 #define LOG_FILEONLY(fmt, ...)  do {                                           \
                                  if (Modes.log)                                \
                                     modeS_flogf (Modes.log, fmt, __VA_ARGS__); \
-                               } while (0);
+                               } while (0)
 
-typedef struct mg_http_message     mg_http_message;
-typedef struct mg_connection       mg_connection;
-typedef struct mg_mgr              mg_mgr;
-typedef struct mg_addr             mg_addr;
-typedef struct mg_str              mg_str;
-typedef struct mg_timer            mg_timer;
-typedef struct mg_iobuf            mg_iobuf;
-typedef struct mg_ws_message       mg_ws_message;
-typedef struct mg_http_serve_opts  mg_http_serve_opts;
-typedef char                       mg_file_path [MG_PATH_MAX];
-typedef bool (*msg_handler) (mg_iobuf *msg, int loop_cnt);
+typedef struct mg_http_message    mg_http_message;
+typedef struct mg_connection      mg_connection;
+typedef struct mg_mgr             mg_mgr;
+typedef struct mg_addr            mg_addr;
+typedef struct mg_str             mg_str;
+typedef struct mg_timer           mg_timer;
+typedef struct mg_iobuf           mg_iobuf;
+typedef struct mg_ws_message      mg_ws_message;
+typedef struct mg_http_serve_opts mg_http_serve_opts;
+typedef char                      mg_file_path [MG_PATH_MAX];
+typedef char                      mg_host_name [200];
+typedef char                      mg_http_uri [256];
 
 /**
- * Structure used to describe a networking client.
- * And also a server when `--net-connect` is used.
+ * Structure used to describe a network connection,
+ * client or server.
  */
 typedef struct connection {
-        mg_connection     *conn;              /**< Remember which connection this client/server is in */
-        intptr_t           service;           /**< This client's service membership */
-        uint32_t           id;                /**< A copy of `conn->id` */
-        mg_addr            addr;              /**< A copy of `conn->peer` */
-        bool               redirect_sent;     /**< Sent a "301 Moved" to HTTP client */
-        bool               keep_alive;        /**< Client request contains "Connection: keep-alive" */
-        bool               encoding_gzip;     /**< Gzip compressed client data (not yet) */
-        struct connection *next;
+        mg_connection     *c;                 /**< remember which connection this client/server is in */
+        intptr_t           service;           /**< this client's service membership */
+        mg_addr            rem;               /**< copy of `mg_connection::rem` */
+        mg_host_name       rem_buf;           /**< address-string of `mg_connection::rem` */
+        ULONG              id;                /**< copy of `mg_connection::id` */
+        bool               keep_alive;        /**< glient request contains "Connection: keep-alive" */
+        bool               encoding_gzip;     /**< gzip compressed client data (not yet) */
+        struct connection *next;              /**< next connection in this list for this service */
       } connection;
-
-/**
- * A function-pointer for either `mg_listen()` or `mg_http_listen()`.
- */
-typedef struct mg_connection *(*mg_listen_func) (struct mg_mgr     *mgr,
-                                                 const char        *url,
-                                                 mg_event_handler_t fn,
-                                                 void              *fn_data);
 
 /**
  * A structure defining a passive or active network service.
  */
 typedef struct net_service {
-        mg_connection  **conn;             /**< A pointer to the returned Mongoose connection */
-        char            *host;             /**< The host address if `Modes.net_active == true` */
-        char            *descr;            /**< A textual description of this service */
+        mg_connection  **c;                /**< A pointer to the returned Mongoose connection(s) */
+        char             descr [100];      /**< A textual description of this service */
+        char             protocol [4];     /**< Equals "tcp" unless `is_udp == 1` */
         uint16_t         port;             /**< The port number */
+        mg_host_name     host;             /**< The host name/address if `Modes.net_active == true` */
         uint16_t         num_connections;  /**< Number of clients/servers connected to this service */
-        bool             active_send;      /**< We are the sending side. Never duplex. */
+        uint64_t         mem_allocated;    /**< Number of bytes allocated total for this service */
+        bool             active_send;      /**< We are the sending side. Never duplex */
         bool             is_ip6;           /**< The above `host` address is an IPv6 address */
         bool             is_udp;           /**< The above `host` address was prefixed with `udp://` */
-        char            *protocol;         /**< Equals "tcp" unless `is_udp == 1` */
+        char            *url;              /**< The allocated url for `mg_listen()` or `mg_connect()` */
         char            *last_err;         /**< Last error from a `MG_EV_ERROR` event */
-        bool             host_alloc;       /**< Above `host` was allocated by `strdup()` */
+        char           **deny_list4;       /**< List of IPv4 address/networks to deny on `MG_EV_ACCEPT` */
+        char           **deny_list6;       /**< List of IPv4 address/networks to deny on `MG_EV_ACCEPT` */
         mg_timer         timer;            /**< Timer for a `mg_connect()` */
       } net_service;
 
@@ -224,7 +177,7 @@ typedef enum metric_unit_t {
 
 /**
  * Spherical position: <br>
- * Latitude (East-West) and Longitude (North-South) coordinates. <br>
+ * Latitude (North-South) and Longitude (East-West) coordinates. <br>
  *
  * A position on a Geoid. (ignoring altitude).
  */
@@ -310,7 +263,7 @@ typedef struct statistics {
         uint64_t  HTTP_404_responses;
         uint64_t  HTTP_500_responses;
 
-        /* Network statistics for receiving raw and SBS messages:
+        /* Network statistics for receiving RAW and SBS messages:
          */
         uint64_t  good_SBS;
         uint64_t  good_raw;
@@ -498,7 +451,7 @@ extern global_data Modes;
           struct mag_buf *next;      /**< linked list forward link */
         } mag_buf;
 
-  extern void demodulate2400 (struct mag_buf *mag);
+  void demodulate2400 (struct mag_buf *mag);
 #endif
 
 #define MODES_DEFAULT_RATE         2000000
@@ -522,14 +475,13 @@ extern global_data Modes;
  * at least greater than a given level for us to dump the signal.
  */
 #define DEBUG_NOPREAMBLE_LEVEL       25
-#define MODES_CONNECT_TIMEOUT      5000   /* msec timeout for an active connect */
 
-#define MG_NET_POLL_TIME           (MODES_INTERACTIVE_REFRESH_TIME / 2)
-
-#define MODES_CONTENT_TYPE_ICON   "image/x-icon"
-#define MODES_CONTENT_TYPE_JSON   "application/json"
-#define MODES_CONTENT_TYPE_PNG    "image/png"
-#define MODES_RAW_HEART_BEAT      "*0000;\n*0000;\n*0000;\n*0000;\n*0000;\n"
+/**
+ * Timeout for a screen refresh in interactive mode and
+ * timeout for removing a stale aircraft.
+ */
+#define MODES_INTERACTIVE_REFRESH_TIME  250
+#define MODES_INTERACTIVE_TTL         60000
 
 /**
  * The structure we use to store information about a decoded message.
@@ -584,6 +536,17 @@ typedef struct modeS_message {
       } modeS_message;
 
 /*
+ * Generic table for loading DLLs and functions from them.
+ */
+struct dyn_struct {
+       const bool  optional;
+       HINSTANCE   mod_handle;
+       const char *mod_name;
+       const char *func_name;
+       void      **func_addr;
+     };
+
+/*
  * Defined in MSVC's <sal.h>.
  */
 #ifndef _Printf_format_string_
@@ -600,21 +563,30 @@ void        modeS_log (const char *buf);
 void        modeS_logc (char c, void *param);
 void        modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
 void        modeS_set_log (void);
+void        modeS_err_set (bool on);
+char       *modeS_err_get (void);
 char       *modeS_SYSTEMTIME_to_str (const SYSTEMTIME *st, bool show_YMD);
 char       *modeS_FILETIME_to_str (const FILETIME *ft, bool show_YMD);
+char       *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD);
+void        modeS_signal_handler (int sig);
+bool        decode_RAW_message (mg_iobuf *msg, int loop_cnt);  /* in 'dump1090.c' */
+bool        decode_SBS_message (mg_iobuf *msg, int loop_cnt);  /* in 'dump1090.c' */
 uint32_t    ato_hertz (const char *Hertz);
 bool        str_startswith (const char *s1, const char *s2);
 bool        str_endswith (const char *s1, const char *s2);
+int         hex_digit_val (int c);
 char       *basename (const char *fname);
 char       *dirname (const char *fname);
 char       *slashify (char *fname);
 int        _gettimeofday (struct timeval *tv, void *timezone);
+int         get_timespec_UTC (struct timespec *ts);
 double      get_usec_now (void);
 void        get_FILETIME_now (FILETIME *ft);
 void        test_assert (void);
+void        crtdbug_init (void);
+void        crtdbug_exit (void);
 const char *win_strerror (DWORD err);
-char       *_mg_straddr (struct mg_addr *a, char *buf, size_t len);
-bool        set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+const char *get_rtlsdr_error (void);
 uint32_t    random_range (uint32_t min, uint32_t max);
 int32_t     random_range2 (int32_t min, int32_t max);
 int         touch_file (const char *file);
@@ -622,6 +594,8 @@ int         touch_dir (const char *dir, bool recurse);
 FILE       *fopen_excl (const char *file, const char *mode);
 uint32_t    download_to_file (const char *url, const char *file);
 char       *download_to_buf  (const char *url);
+int         load_dynamic_table (struct dyn_struct *tab, int tab_size);
+int         unload_dynamic_table (struct dyn_struct *tab, int tab_size);
 void        show_version_info (bool verbose);
 void        spherical_to_cartesian (const pos_t *pos, cartesian_t *cart);
 void        cartesian_to_spherical (const cartesian_t *cart, pos_t *pos, double heading);
@@ -629,21 +603,7 @@ double      cartesian_distance (const cartesian_t *a, const cartesian_t *b);
 double      great_circle_dist (pos_t pos1, pos_t pos2);
 double      closest_to (double val, double val1, double val2);
 void        decode_CPR (struct aircraft *a);
-char       *mz_version (void);  /* in 'externals/zip.c' */
-
-/*
- * Generic table for loading DLLs and functions from them.
- */
-struct dyn_struct {
-       const bool  optional;
-       HINSTANCE   mod_handle;
-       const char *mod_name;
-       const char *func_name;
-       void      **func_addr;
-     };
-
-extern int load_dynamic_table (struct dyn_struct *tab, int tab_size);
-extern int unload_dynamic_table (struct dyn_struct *tab, int tab_size);
+char       *mz_version (void);                 /* in 'externals/zip.c' */
 
 /**
  * \def MSEC_TIME()

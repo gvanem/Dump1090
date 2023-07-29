@@ -20,6 +20,7 @@
 
 #include "aircraft.h"
 #include "sqlite3.h"
+#include "trace.h"
 #include "misc.h"
 
 #define TSIZE (int)(sizeof("HH:MM:SS.MMM: ") - 1)
@@ -54,6 +55,26 @@ void modeS_log (const char *buf)
 }
 
 /**
+ * A small log-buffer to catch errors from 'externals/mongoose.c'.
+ * e.g. a `bind()` error is impossible to catch in the network event-handler.
+ * Use this to look for "bind: 10048" == WSAEADDRINUSE etc.
+ */
+static char _err_buf [200];
+static int  _err_idx = 0;
+
+void modeS_err_set (bool on)
+{
+  if (on)
+       _err_idx = 0;
+  else _err_idx = -1;
+}
+
+char *modeS_err_get (void)
+{
+  return (_err_buf);
+}
+
+/**
  * Print a character `c` to `Modes.log` or `stdout`.
  * Used only if `(Modes.debug & DEBUG_MONGOOSE)" is enabled by `--debug m`.
  */
@@ -67,6 +88,12 @@ void modeS_logc (char c, void *param)
     if (param)
          fputc (c, param);      /* to 'stderr' */
     else fputc (c, Modes.log ? Modes.log : stdout);
+
+    if (_err_idx >= 0 && _err_idx < (int)sizeof(_err_buf)-2)
+    {
+      _err_buf [_err_idx++] = c;
+      _err_buf [_err_idx] = '\0';
+    }
   }
 }
 
@@ -216,6 +243,20 @@ uint32_t ato_hertz (const char *Hertz)
   if (end == tmp || *end != '\0')
      return (0);
   return (uint32_t) (multiplier * ret);
+}
+
+/**
+ * Turn an hex digit into its 4 bit decimal value.
+ * Returns -1 if the digit is not in the 0-F range.
+ */
+int hex_digit_val (int c)
+{
+  c = tolower (c);
+  if (c >= '0' && c <= '9')
+     return (c - '0');
+  if (c >= 'a' && c <= 'f')
+     return (c - 'a' + 10);
+  return (-1);
 }
 
 /**
@@ -498,6 +539,11 @@ int _gettimeofday (struct timeval *tv, void *timezone)
   return (0);
 }
 
+int get_timespec_UTC (struct timespec *ts)
+{
+  return timespec_get (ts, TIME_UTC);
+}
+
 /**
  * Returns a `FILETIME *ft`.
  *
@@ -562,6 +608,44 @@ void test_assert (void)
   assert (0);
 }
 
+#if defined(_DEBUG)
+/**
+ * Check for memory-leaks in `_DEBUG` mode.
+ */
+static _CrtMemState start_state;
+
+void crtdbug_exit (void)
+{
+  _CrtMemState end_state, diff_state;
+
+  _CrtMemCheckpoint (&end_state);
+  if (!_CrtMemDifference(&diff_state, &start_state, &end_state))
+     LOG_STDERR ("No mem-leaks detected.\n");
+  else
+  {
+    _CrtCheckMemory();
+    _CrtSetDbgFlag (0);
+    _CrtDumpMemoryLeaks();
+  }
+}
+
+void crtdbug_init (void)
+{
+  _HFILE file  = _CRTDBG_FILE_STDERR;
+  int    mode  = _CRTDBG_MODE_FILE;
+  int    flags = _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF | _CRTDBG_DELAY_FREE_MEM_DF;
+
+  _CrtSetReportFile (_CRT_ASSERT, file);
+  _CrtSetReportMode (_CRT_ASSERT, mode);
+  _CrtSetReportFile (_CRT_ERROR, file);
+  _CrtSetReportMode (_CRT_ERROR, mode);
+  _CrtSetReportFile (_CRT_WARN, file);
+  _CrtSetReportMode (_CRT_WARN, mode);
+  _CrtSetDbgFlag (flags | _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG));
+  _CrtMemCheckpoint (&start_state);
+}
+#endif  /* _DEBUG */
+
 /**
  * Return err-number and string for 'err'.
  */
@@ -595,61 +679,23 @@ const char *win_strerror (DWORD err)
 }
 
 /**
- * Since 'mg_straddr()' was removed in latest version
+ * Return a string describing an error-code from RTLSDR.
+ *
+ * `rtlsdr_last_error()` always returns a positive value for WinUSB errors.
+ *
+ * While RTLSDR errors returned from all `rtlsdr_x()` functions are negative.
+ * And rather sparse:
+ *   \li -1 if device handle is invalid
+ *   \li -2 if EEPROM size is exceeded (depends on rtlsdr_x() function)
+ *   \li -3 if no EEPROM was found     (depends on rtlsdr_x() function)
  */
-char *_mg_straddr (struct mg_addr *a, char *buf, size_t len)
+const char *get_rtlsdr_error (void)
 {
-  mg_snprintf (buf, len, "%M", mg_print_ip_port, a);
-  return (buf);
-}
+  uint32_t err = rtlsdr_last_error();
 
-/**
- * Parse and split a `[udp://|tcp://]host[:port]` string into a host and port.
- * Set default port if the `:port` is missing.
- */
-bool set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
-{
-  mg_str       str;
-  mg_addr      addr;
-  bool         is_udp = false;
-  int          is_ip6 = -1;
-  mg_host_name name;
-
-  if (!strnicmp("tcp://", host_port, 6))
-  {
-    host_port += 6;
-  }
-  else if (!strnicmp("udp://", host_port, 6))
-  {
-    is_udp = true;
-    host_port += 6;
-  }
-
-  str = mg_url_host (host_port);
-  memset (&addr, '\0', sizeof(addr));
-  addr.port = mg_url_port (host_port);
-  mg_aton (str, &addr);
-  is_ip6 = addr.is_ip6;
-  snprintf (name, sizeof(name), "%.*s", (int)str.len, str.ptr);
-
-  if (addr.port == 0)
-     addr.port = def_port;
-
-  DEBUG (DEBUG_NET, "host_port: '%s', name: '%s', addr.port: %u\n",
-         host_port, name, addr.port);
-
-  if (is_ip6 == -1 && strstr(host_port, "::"))
-  {
-    printf ("Illegal address: '%s'. Try '[::ffff:a.b.c.d]:port' instead.\n", host_port);
-    return (false);
-  }
-
-  strcpy (serv->host, name);
-  serv->port       = addr.port;
-  serv->is_udp     = (is_udp == true);
-  serv->is_ip6     = (is_ip6 == 1);
-  DEBUG (DEBUG_NET, "is_ip6: %d, host: %s, port: %u.\n", is_ip6, serv->host, serv->port);
-  return (true);
+  if (err == 0)
+     return ("No error");
+  return trace_strerror (err);
 }
 
 /**
@@ -678,6 +724,8 @@ int32_t random_range2 (int32_t min, int32_t max)
 
 /**
  * Print some details about the Sqlite3 package.
+ *
+ * \todo Fix this for `-DUSE_WIN_SQLITE`.
  */
 static void sql_info (void)
 {
@@ -953,6 +1001,8 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
               INTERNET_FLAG_NO_CACHE_WRITE |
               INTERNET_FLAG_NO_UI;
 
+//url_flags |= INTERNET_FLAG_EXISTING_CONNECT;
+
   if (!strncmp(url, "https://", 8))
      url_flags |= INTERNET_FLAG_SECURE;
 
@@ -1014,11 +1064,7 @@ static bool download_exit (download_ctx *ctx, bool rc)
 }
 
 /**
- * Download a file from url using the Windows *WinInet API*.
- *
- * \param[in] url   the URL to retrieve from.
- * \param[in] file  the file to write to.
- * \retval    The number of bytes written to `file`.
+ * The callback for downloading to a file.
  */
 static bool download_to_file_cb (download_ctx *ctx)
 {
@@ -1037,6 +1083,9 @@ static bool download_to_file_cb (download_ctx *ctx)
   return (true);
 }
 
+/**
+ * The callback for downloading to a malloc()'ed buffer.
+ */
 static bool download_to_buf_cb (download_ctx *ctx)
 {
   if (ctx->bytes_read_total + ctx->bytes_read >= ctx->dl_buf_sz)
@@ -1054,6 +1103,7 @@ static bool download_to_buf_cb (download_ctx *ctx)
 
   ctx->dl_buf_pos += ctx->bytes_read;
   assert (ctx->dl_buf_pos < ctx->dl_buf_sz);
+  ctx->dl_buf [ctx->dl_buf_pos] = '\0';    /* 0 terminate */
 
   DEBUG (DEBUG_NET, "bytes_read_total: %lu, dl_buf_pos: %zu\n",
          ctx->bytes_read_total, ctx->dl_buf_pos);
@@ -1083,7 +1133,7 @@ static bool download_common (download_ctx *ctx,
   else
   {
     ctx->dl_buf_sz = BUF_INCREMENT;
-    ctx->dl_buf    = calloc (ctx->dl_buf_sz, 1);
+    ctx->dl_buf    = malloc (ctx->dl_buf_sz);
     if (!ctx->dl_buf)
     {
       DEBUG (DEBUG_NET, "Failed to allocate %d kByte!.\n", BUF_INCREMENT/1024);
@@ -1344,7 +1394,18 @@ static int CPR_mod_func (int a, int b)
  */
 static int CPR_NL_func (double lat)
 {
-  if (lat < 0) lat = -lat;   /* Table is symmetric about the equator. */
+  if (lat < 0)
+     lat = -lat;   /* Table is symmetric about the equator. */
+
+  if (lat > 60.0)
+     goto L60;
+
+  if (lat > 44.2)
+     goto L42;
+
+  if (lat > 30.0)
+     goto L30;
+
   if (lat < 10.47047130) return (59);
   if (lat < 14.82817437) return (58);
   if (lat < 18.18626357) return (57);
@@ -1353,6 +1414,8 @@ static int CPR_NL_func (double lat)
   if (lat < 25.82924707) return (54);
   if (lat < 27.93898710) return (53);
   if (lat < 29.91135686) return (52);
+
+L30:
   if (lat < 31.77209708) return (51);
   if (lat < 33.53993436) return (50);
   if (lat < 35.22899598) return (49);
@@ -1362,6 +1425,8 @@ static int CPR_NL_func (double lat)
   if (lat < 41.38651832) return (45);
   if (lat < 42.80914012) return (44);
   if (lat < 44.19454951) return (43);
+
+L42:
   if (lat < 45.54626723) return (42);
   if (lat < 46.86733252) return (41);
   if (lat < 48.16039128) return (40);
@@ -1375,6 +1440,8 @@ static int CPR_NL_func (double lat)
   if (lat < 57.72747354) return (32);
   if (lat < 58.84763776) return (31);
   if (lat < 59.95459277) return (30);
+
+L60:
   if (lat < 61.04917774) return (29);
   if (lat < 62.13216659) return (28);
   if (lat < 63.20427479) return (27);
@@ -1417,7 +1484,7 @@ static int CPR_N_func (double lat, int is_odd)
 
 static double CPR_Dlong_func (double lat, int is_odd)
 {
-  return 360.0 / CPR_N_func (lat, is_odd);
+  return (360.0 / CPR_N_func (lat, is_odd));
 }
 
 /**
@@ -1434,8 +1501,8 @@ static double CPR_Dlong_func (double lat, int is_odd)
  */
 void decode_CPR (struct aircraft *a)
 {
-  const double AirDlat0 = 360.0 / 60;
-  const double AirDlat1 = 360.0 / 59;
+  const double air_dlat0 = 360.0 / 60;
+  const double air_dlat1 = 360.0 / 59;
   double lat0 = a->even_CPR_lat;
   double lat1 = a->odd_CPR_lat;
   double lon0 = a->even_CPR_lon;
@@ -1444,8 +1511,8 @@ void decode_CPR (struct aircraft *a)
   /* Compute the Latitude Index "j"
    */
   int    j = (int) floor (((59*lat0 - 60*lat1) / 131072) + 0.5);
-  double rlat0 = AirDlat0 * (CPR_mod_func(j, 60) + lat0 / 131072);
-  double rlat1 = AirDlat1 * (CPR_mod_func(j, 59) + lat1 / 131072);
+  double rlat0 = air_dlat0 * (CPR_mod_func(j, 60) + lat0 / 131072);
+  double rlat1 = air_dlat1 * (CPR_mod_func(j, 59) + lat1 / 131072);
 
   if (rlat0 >= 270)
      rlat0 -= 360;
@@ -1460,27 +1527,33 @@ void decode_CPR (struct aircraft *a)
 
   /* Compute ni and the longitude index m
    */
-  if (a->even_CPR_time > a->odd_CPR_time)
-  {
-    /* Use even packet */
-    int ni = CPR_N_func (rlat0, 0);
-    int m = (int) floor ((((lon0 * (CPR_NL_func(rlat0)-1)) -
-                         (lon1 * CPR_NL_func(rlat0))) / 131072) + 0.5);
-    a->position.lon = CPR_Dlong_func (rlat0, 0) * (CPR_mod_func(m, ni) + lon0/131072);
-    a->position.lat = rlat0;
-  }
-  else
+  if (a->odd_CPR_time > a->even_CPR_time)
   {
     /* Use odd packet */
     int ni = CPR_N_func (rlat1, 1);
-    int m  = (int) floor ((((lon0 * (CPR_NL_func(rlat1)-1)) -
+    int m  = (int) floor ((((lon0 * (CPR_NL_func(rlat1) - 1)) -
                           (lon1 * CPR_NL_func(rlat1))) / 131072.0) + 0.5);
-    a->position.lon = CPR_Dlong_func (rlat1, 1) * (CPR_mod_func (m, ni) + lon1/131072);
+    a->position.lon = CPR_Dlong_func (rlat1, 1) * (CPR_mod_func (m, ni) + lon1 / 131072);
     a->position.lat = rlat1;
   }
+  else
+  {
+    /* Use even packet */
+    int ni = CPR_N_func (rlat0, 0);
+    int m = (int) floor ((((lon0 * (CPR_NL_func(rlat0) - 1)) -
+                         (lon1 * CPR_NL_func(rlat0))) / 131072) + 0.5);
+    a->position.lon = CPR_Dlong_func (rlat0, 0) * (CPR_mod_func(m, ni) + lon0 / 131072);
+    a->position.lat = rlat0;
+  }
 
+#if 0
   if (a->position.lon > 180)
      a->position.lon -= 360;
+#else
+  /* Renormalize to -180 .. +180
+   */
+  a->position.lon -= floor ((a->position.lon + 180) / 360) * 360;
+#endif
 
   set_home_distance (a);
 }
