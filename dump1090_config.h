@@ -26,33 +26,33 @@
 #elif defined(_MSC_VER)
   /*
    * wincontypes.h(103): warning C4005: 'MOUSE_MOVED': macro redefinition
-   * (compiling source file externals/Curses/amalgamation.c)
-   * externals\Curses\curses.h(190): note: see previous definition of 'MOUSE_MOVED'
+   *   externals\Curses\curses.h(190): note: see previous definition of 'MOUSE_MOVED'
    */
    #pragma warning (disable: 4005)
 
   /*
+   * misc.c(524): warning C4152: nonstandard extension,
+   *   function/data pointer conversion in expression
+   */
+  #pragma warning (disable: 4152)
+
+  /*
    * csv.c(60): warning C4244: '=':
-   *  conversion from 'int' to 'char', possible loss of data
+   *   conversion from 'int' to 'char', possible loss of data
    */
   #pragma warning (disable: 4244)
 
   /*
    * externals/mongoose.c(4482): warning C4267: 'function':
-   *  conversion from 'size_t' to 'int', possible loss of data
+   *   conversion from 'size_t' to 'int', possible loss of data
    */
   #pragma warning (disable: 4267)
 
   /*
-   * misc.c(524): warning C4152: nonstandard extension,
-   *  function/data pointer conversion in expression
+   * externals\miniz.h(6560): warning C4127: conditional expression is constant
+   * externals\zip.c(224):    warning C4706: assignment within conditional expression
    */
-  #pragma warning (disable: 4152)
-
-  /*
-   * externals/sqlite3.c(31972): 'GetVersionExA': was declared deprecated
-   */
-//  #pragma warning (disable: 4996)
+  #pragma warning (disable: 4127 4706)
 
   #ifdef _WIN64
     /*
@@ -60,12 +60,6 @@
      */
     #pragma warning (disable: 4312)
   #endif
-
-  /*
-   * externals\miniz.h(6560): warning C4127: conditional expression is constant
-   * externals\zip.c(224):    warning C4706: assignment within conditional expression
-   */
-  #pragma warning (disable: 4127 4706)
 #endif
 
 #define _STR2(x)  #x
@@ -113,26 +107,6 @@
 #define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 0
 #endif
 
-/**
- * Enable "Visual Leak Detector"?
- */
-#if defined(USE_VLD)
-  #define VLD_FORCE_ENABLE
-  #include <vld.h>
-#endif
-
-#if !defined(USE_WIN_SQLITE)
-  /*
-   * Options for `externals/sqlite3.c`:
-   */
-  #define SQLITE_API
-  #define SQLITE_DQS           3   /* Double-quoted string literals are allowed */
-  #define SQLITE_THREADSAFE    0
-  #define SQLITE_WIN32_MALLOC  1
-  #define SQLITE_NO_SYNC       1
-  #define SQLITE_OMIT_AUTOINIT 1
-#endif
-
 #include <stdio.h>
 #include <string.h>
 #include <io.h>
@@ -155,3 +129,44 @@
   #define strdup(s)  _strdup (s)
 #endif
 
+/**
+ * Enable "Windows epoll()"?
+ */
+#if defined(MG_ENABLE_EPOLL)
+  #undef  _WIN32_WINNT
+  #define _WIN32_WINNT 0x0602
+
+  #include <wepoll.h>
+
+  #define close(fd) epoll_close (fd)
+
+  #if defined(__clang__)
+    #pragma clang diagnostic ignored "-Wint-to-void-pointer-cast"
+    #pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
+  #else
+    /*
+     *  warning C4311: 'type cast': pointer truncation from 'HANDLE' to 'int'
+     */
+    #pragma warning (disable: 4311)
+  #endif
+#endif
+
+/**
+ * Enable "Visual Leak Detector"?
+ */
+#if defined(USE_VLD)
+  #define VLD_FORCE_ENABLE
+  #include <vld.h>
+#endif
+
+#if !defined(USE_WIN_SQLITE)
+  /*
+   * Options for `externals/sqlite3.c`:
+   */
+  #define SQLITE_API
+  #define SQLITE_DQS           3   /* Double-quoted string literals are allowed */
+  #define SQLITE_THREADSAFE    0
+  #define SQLITE_WIN32_MALLOC  1
+  #define SQLITE_NO_SYNC       1
+  #define SQLITE_OMIT_AUTOINIT 1
+#endif
