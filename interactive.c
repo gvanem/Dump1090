@@ -100,12 +100,16 @@ static API_funcs wincon_api = {
        .print_header = wincon_print_header,
      };
 
+/* Show the "DEP DST" columns if we have a good `Modes.airport_db` file.
+ */
 static bool show_dep_dst = false;
 
-#define HEADER_BAR_DEP_DST  "-------------------------------------------------------------------------------------------------------------"
+/* Use this header and `snprintf()` format for "DEP DST" columns when `show_dep_dst == true`.
+ */
 #define HEADER_DEP_DST      "ICAO   Callsign  Reg-num  Cntry  DEP DST   Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
+#define HEADER_BAR_DEP_DST  "-------------------------------------------------------------------------------------------------------------"
 #define LINE_FMT_DEP_DST    "%06X %-9.9s %-8s %-6s %-3s %-3s   %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
-//                                ^     ^    ^    ^    ^      ^
+//                                ^      ^    ^    ^    ^      ^
 //                                |      |    |    |    |      |__ Altitude
 //                                |      |    |    |    |__ DST  (IATA destination)
 //                                |      |    |    |__ DEP       (IATA departure)
@@ -114,8 +118,10 @@ static bool show_dep_dst = false;
 //                                |__ Callsign
 //
 
-#define HEADER_BAR_NORMAL   "-------------------------------------------------------------------------------------------------------"
+/* Otherwise use these:
+ */
 #define HEADER_NORMAL       "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
+#define HEADER_BAR_NORMAL   "-------------------------------------------------------------------------------------------------------"
 #define LINE_FMT_NORMAL     "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
 //                                ^      ^    ^    ^
 //                                |      |    |    |__ Altitude
@@ -150,20 +156,15 @@ bool interactive_init (void)
      api = &wincon_api;
 
   if (airports_init() > 0)
-  {
-    /* if 'g_data.ap_stats.CSV_numbers > 0', we can show the "DEP DST" columns
-     */
-    show_dep_dst = true;
-  }
+     show_dep_dst = true;
 
   return ((*api->init)() == 0);
 }
 
 void interactive_exit (void)
 {
-  assert (api != NULL);
-
-  (*api->exit)();
+  if (api)
+    (*api->exit)();
   api = NULL;
 }
 
@@ -178,20 +179,29 @@ void interactive_clreol (void)
  *
  * Assuming a constant good last heading and speed, calculate the
  * new position from that using the elapsed time.
+ *
+ * \todo move to aircraft.c
  */
 static void set_est_home_distance (aircraft *a, uint64_t now)
 {
   double      heading, distance, gc_distance, cart_distance;
   double      delta_X, delta_Y;
   cartesian_t cpos = { 0.0, 0.0, 0.0 };
+  uint32_t    speed = round ((double)a->speed * 1.852);  /* Km/h */
 
-  if (!Modes.home_pos_ok || a->speed == 0 || !a->heading_is_valid)
+  if (!Modes.home_pos_ok || speed == 0 || !a->heading_is_valid)
      return;
 
   if (!VALID_POS(a->EST_position) || a->EST_seen_last < a->seen_last)
      return;
 
   ASSERT_POS (a->EST_position);
+
+  /* If some issue with speed changing too fast,
+   * use the last good speed.
+   */
+  if (a->speed_last && abs((int)speed - (int)a->speed_last) > 20)
+     speed = a->speed_last;
 
   spherical_to_cartesian (&a->EST_position, &cpos);
 
@@ -205,7 +215,7 @@ static void set_est_home_distance (aircraft *a, uint64_t now)
 
   /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
    */
-  distance = 0.001852 * (double)a->speed * (now - a->EST_seen_last);
+  distance = 0.001852 * (double)speed * (now - a->EST_seen_last);
   a->EST_seen_last = now;
 
   delta_X = distance * sin (heading);
@@ -301,8 +311,8 @@ void interactive_title_stats (void)
   }
 #endif
 
-  snprintf (buf, sizeof(buf), "Dev: %s. CRC: %llu / %llu / %llu. Gain: %s%s",
-            Modes.selected_dev, good_CRC, Modes.stat.fixed, bad_CRC, gain, overload);
+  snprintf (buf, sizeof(buf), "Dev: %s. CRC: %llu / %llu. Gain: %s%s",
+            Modes.selected_dev, good_CRC, bad_CRC, gain, overload);
 
   last_good_CRC = good_CRC;
   last_bad_CRC  = bad_CRC;
@@ -467,15 +477,14 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   char  dst_buf [5]       = " - ";
   char  line_buf [120];
   bool  restore_colour    = false;
-  const char *reg_num     = "";
-  const char *call_sign   = "";
-  const char *flight      = "";
+  const char *reg_num     = "  -";
+  const char *call_sign   = "  -";
   const char *km_nmiles   = NULL;
   const char *cc_short;
   double      sig_avg = 0;
   int64_t     ms_diff;
 
-  /* Convert units to metric if --metric was specified.
+  /* Convert units to metric if option `--metric` was used.
    */
   if (Modes.metric)
   {
@@ -526,26 +535,29 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
        reg_num = a->CSV->reg_num;
   }
 
-  if (!a->flight[0] && call_sign[0])
-       flight = call_sign;
-  else flight = a->flight;
+  if (a->flight[0])
+     call_sign = a->flight;
 
   /* Post a ADSB-LOL API request for the flight-info.
    * Or return already cached flight-info.
    */
-  if (flight[0])
+  if (call_sign[0] != ' ')
   {
     const char *departure, *destination;
 
-    airports_API_get_flight_info (flight, a->addr, &departure, &destination);
+    airports_API_get_flight_info (call_sign, a->addr, &departure, &destination);
 
     /* Both are known or both are NULL.
-     * Can never be 'departure == NULL' and 'destination != NULL' or vice-versa.
      */
     if (departure && destination)
     {
       strncpy (dep_buf, departure, sizeof(dep_buf)-1);
       strncpy (dst_buf, destination, sizeof(dst_buf)-1);
+    }
+    else
+    {
+      strcpy (dep_buf, " ? ");
+      strcpy (dst_buf, " ? ");
     }
   }
 
@@ -576,11 +588,11 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
 
   if (show_dep_dst)
        snprintf (line_buf, sizeof(line_buf), LINE_FMT_DEP_DST,
-                 a->addr, flight, reg_num, cc_short, dep_buf, dst_buf, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
+                 a->addr, call_sign, reg_num, cc_short, dep_buf, dst_buf, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
                  distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
 
   else snprintf (line_buf, sizeof(line_buf), LINE_FMT_NORMAL,
-                 a->addr, flight, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
+                 a->addr, call_sign, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
                  distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
 
   (*api->print_line) (row, 0, line_buf);
@@ -596,22 +608,21 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
 void interactive_show_data (uint64_t now)
 {
   static int old_count = -1;
-  static int clear_row = -1;
   int        row = 2, count = 0;
   aircraft  *a = Modes.aircrafts;
+  bool       no_clear = (Modes.debug & ~DEBUG_ADSB_LOL);
+
+  no_clear |= (Modes.raw > 0);
 
   /*
    * If `--debug X` and `--raw` mode is not active, clear the screen to remove old info.
    * But only if current number of aircrafts is less than last time. This is to
    * avoid an annoying blinking of the console.
    */
-  if (Modes.debug + Modes.raw == 0)
+  if (!no_clear)
   {
-    if (old_count == -1 || aircraft_numbers() < old_count || clear_row >= 2)
-    {
-      (*api->clr_scr)();
-      clear_row = -1;
-    }
+    if (old_count == -1 || aircraft_numbers() < old_count)
+       (*api->clr_scr)();
     (*api->gotoxy) (0, 0);
   }
 
@@ -631,10 +642,7 @@ void interactive_show_data (uint64_t now)
     if (a->show == A_SHOW_FIRST_TIME)
        a->show = A_SHOW_NORMAL;
     else if (a->show == A_SHOW_LAST_TIME)
-    {
-      a->show = A_SHOW_NONE;      /* don't show again before deleting it */
-   // clear_row = row;            /* may have to clear this row */
-    }
+       a->show = A_SHOW_NONE;      /* don't show again before deleting it */
 
     a = a->next;
     count++;
@@ -723,8 +731,9 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
     {
       if (mm->ME_subtype == 1 || mm->ME_subtype == 2)
       {
-        a->speed   = mm->velocity;
-        a->heading = mm->heading;
+        a->speed_last = a->speed * 1.852;   /* Km/h */
+        a->speed      = mm->velocity;
+        a->heading    = mm->heading;
         a->heading_is_valid = mm->heading_is_valid;
       }
     }
@@ -759,11 +768,13 @@ static int wincon_init (void)
   Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
   api = &wincon_api;
 
-  colour_map [COLOUR_DEFAULT].attrib = console_info.wAttributes;              /* default colour */
-  colour_map [COLOUR_WHITE  ].attrib = (console_info.wAttributes & ~7) | 15;  /* bright white */
-  colour_map [COLOUR_GREEN  ].attrib = (console_info.wAttributes & ~7) | 10;  /* bright green */
-  colour_map [COLOUR_RED    ].attrib = (console_info.wAttributes & ~7) | 12;  /* bright red */
-  colour_map [COLOUR_YELLOW ].attrib = (console_info.wAttributes & ~7) | 14;  /* bright yellow */
+  WORD bg = console_info.wAttributes & ~7;
+
+  colour_map [COLOUR_DEFAULT].attrib = console_info.wAttributes;  /* default colour */
+  colour_map [COLOUR_WHITE  ].attrib = (bg | 15);                 /* bright white */
+  colour_map [COLOUR_GREEN  ].attrib = (bg | 10);                 /* bright green */
+  colour_map [COLOUR_RED    ].attrib = (bg | 12);                 /* bright red */
+  colour_map [COLOUR_YELLOW ].attrib = (bg | 14);                 /* bright yellow */
   return (0);
 }
 
@@ -959,6 +970,7 @@ static int curses_init (void)
 static void curses_exit (void)
 {
   delwin (stats_win);
+  delwin (flight_win);
   endwin();
   delscreen (SP);  /* PDCurses does not free this memory */
 }

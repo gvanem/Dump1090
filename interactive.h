@@ -10,9 +10,6 @@
 #include <stdint.h>
 #include "aircraft.h"
 
-#define MODES_INTERACTIVE_REFRESH_TIME  250   /* Milliseconds */
-#define MODES_INTERACTIVE_TTL         60000   /* TTL (msec) before being removed */
-
 #define TUI_WINCON 1
 #define TUI_CURSES 2
 
