@@ -310,9 +310,8 @@ ifeq ($(USE_CURSES),1)
 endif
 
 ifeq ($(USE_EPOLL),1)
-  vpath %.c externals/wepoll
-  CFLAGS += -DMG_ENABLE_EPOLL=1 -I./externals/wepoll
-  SOURCES += externals/wepoll/wepoll.c
+  CFLAGS += -DMG_ENABLE_EPOLL=1
+  SOURCES += externals/wepoll.c
 endif
 
 ifeq ($(USE_READSB_DEMOD),1)
