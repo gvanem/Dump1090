@@ -261,7 +261,7 @@ static int CSV_add_entry (const aircraft_CSV *rec)
 
   if (!copy)
   {
-    copy = dest = malloc (ONE_MEGABYTE);  /* initial buffer */
+    copy   = dest = malloc (ONE_MEGABYTE);  /* initial buffer */
     hi_end = copy + (ONE_MEGABYTE / sizeof(*rec));
   }
   else if (dest == hi_end - 1)
@@ -1072,6 +1072,16 @@ bool aircraft_is_military (uint32_t addr, const char **country)
            *country = r->cc_short;
         return (true);
       }
+  return (false);
+}
+
+/**
+ * \todo Figure out if an ICAO-address belongs to a helicopter
+ */
+bool aircraft_is_helicopter (uint32_t addr, const char **code)
+{
+  MODES_NOTUSED (addr);
+  MODES_NOTUSED (code);
   return (false);
 }
 

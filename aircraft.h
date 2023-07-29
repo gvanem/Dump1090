@@ -61,9 +61,10 @@ typedef struct aircraft_CSV {
  */
 typedef struct aircraft {
         uint32_t  addr;                   /**< ICAO address */
-        char      flight [9];             /**< Flight number */
+        char      flight [9];             /**< Flight number. \todo rename to call_sign */
         int       altitude;               /**< Altitude */
         uint32_t  speed;                  /**< Velocity computed from EW and NS components. In Knots */
+        uint32_t  speed_last;             /**< speed when used in `set_est_home_distance()` last time. In Km/h */
         int       heading;                /**< Horizontal angle of flight */
         bool      heading_is_valid;       /**< It has a valid heading */
         uint64_t  seen_first;             /**< Tick-time (in milli-sec) at which the first packet was received */
@@ -105,6 +106,7 @@ uint32_t    aircraft_get_addr (uint8_t a0, uint8_t a1, uint8_t a2);
 const char *aircraft_get_details (const uint8_t *_a);
 const char *aircraft_get_country (uint32_t addr, bool get_short);
 bool        aircraft_is_military (uint32_t addr, const char **country);
+bool        aircraft_is_helicopter (uint32_t addr, const char **code);
 char       *aircraft_make_json (bool extended_client);
 void        aircraft_remove_stale (uint64_t now);
 void        aircraft_tests (void);
