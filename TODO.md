@@ -25,8 +25,9 @@
    * `--web-page some.dll;1` for the 1st resource.
    * `--web-page some.dll;2` for the 2nd resource etc.
 
-* Support *SQLite3* for storing the `aircraftDatabase.csv`.          :heavy_check_mark: *Done*
-  Add a build-time option to use `WinSqlite3.dll` as part of Win-10. :heavy_check_mark: *Done*
+* *SQLite3* features:
+   * store `aircraftDatabase.csv` into `aircraftDatabase.csv.sqlite`.   :heavy_check_mark: *Done*
+   * add a build-time option to use `WinSqlite3.dll` as part of Win-10. :heavy_check_mark: *Done*
 
 * Switch from `getopt_long()` to `yopt_init()` + `yopt_next()`.
   Ref: https://g.blicky.net/ylib.git/plain/yopt.h
