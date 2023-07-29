@@ -25,6 +25,14 @@ USE_CRT_DEBUG ?= 0
 USE_CURSES ?= 1
 
 #
+# Option for 'externals/mongoose.c':
+#
+# Use a Windows version of 'epoll()' from
+# https://github.com/piscisaureus/wepoll
+#
+USE_EPOLL ?= 1
+
+#
 # Enable bundling *all* web_root pages inside dump1090.exe.
 # Also if 'USE_MINIFY = 1', compress all .css, .js and .html files first.
 #
@@ -80,6 +88,11 @@ USE_MP_COMPILE ?= 1
 #
 USE_VLD  ?= 0
 VLD_ROOT ?= f:/MinGW32/src/misc/VisualLeakDetector/src
+
+#
+# Use Windows' SQLite instead of 'externals/sqlite3.c'?
+#
+USE_WIN_SQLITE ?= 0
 
 #
 # For my private build; use the tracing Winsock library?
@@ -270,9 +283,9 @@ SOURCES = aircraft.c           \
           dump1090.c           \
           interactive.c        \
           misc.c               \
+          net_io.c             \
           location.c           \
           externals/mongoose.c \
-          externals/sqlite3.c  \
           externals/zip.c
 
 #
@@ -294,6 +307,12 @@ ifeq ($(USE_CURSES),1)
   CFLAGS  += -DUSE_CURSES -I./externals/Curses
   SOURCES += externals/Curses/amalgamation.c
   EX_LIBS += user32.lib
+endif
+
+ifeq ($(USE_EPOLL),1)
+  vpath %.c externals/wepoll
+  CFLAGS += -DMG_ENABLE_EPOLL=1 -I./externals/wepoll
+  SOURCES += externals/wepoll/wepoll.c
 endif
 
 ifeq ($(USE_READSB_DEMOD),1)
@@ -321,6 +340,12 @@ endif
 ifeq ($(USE_GEN_LUT),1)
   CFLAGS    += -DUSE_GEN_LUT
   GENERATED += $(OBJ_DIR)/py_gen_magnitude_lut.h
+endif
+
+ifeq ($(USE_WIN_SQLITE),1)
+  CFLAGS += -DUSE_WIN_SQLITE
+else
+  SOURCES += externals/sqlite3.c
 endif
 
 OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
@@ -485,10 +510,12 @@ OTHER_JUNK = vc1*.pdb link.tmp link.args \
 
 clean: docs_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
-	rm -fr $(OBJ_DIR)
+	rm -f $(OBJ_DIR)/*.obj $(OBJ_DIR)/dump1090.*
+	- @rmdir $(OBJ_DIR) 2>/dev/null
 
 vclean realclean: clean
 	rm -f $(TARGETS) $(GENERATED) dump1090.chm .depend.Windows
+	rm -fr $(OBJ_DIR)
 
 #
 # GNU-make macros:
