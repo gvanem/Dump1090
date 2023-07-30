@@ -1525,10 +1525,10 @@ void net_poll (void)
    */
   mg_mgr_poll (&Modes.mgr, MODES_INTERACTIVE_REFRESH_TIME / 2);   /* == 125 msec */
 
-  if ((++net_stat_count % 80) == 0)  /* every 10 sec */
+  if ((++net_stat_count % 100) == 0)  /* approx. every 30 sec */
   {
     if (Modes.debug & DEBUG_NET)
-       LOG_FILEONLY ("%6llu: mem_alloc: %llu\n", MSEC_TIME()/1000, net_mem_allocated(MODES_NET_SERVICE_HTTP, 0));
+       LOG_FILEONLY ("mem_alloc: %llu\n", modeS_net_services [MODES_NET_SERVICE_HTTP].mem_allocated);
 
     if (Modes.log)
        fflush (Modes.log);
