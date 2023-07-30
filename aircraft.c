@@ -37,12 +37,12 @@ static bool sql_create (void);
 static bool sql_open (void);
 static bool sql_begin (void);
 static bool sql_end (void);
-static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec);
+static bool sql_add_entry (uint32_t num, const aircraft_info *rec);
 static void sql_log (void *cb_arg, int err, const char *str);
 
 static aircraft *aircraft_find (uint32_t addr);
-static const     aircraft_CSV *CSV_lookup_entry (uint32_t addr);
-static const     aircraft_CSV *sql_lookup_entry (uint32_t addr);
+static const     aircraft_info *CSV_lookup_entry (uint32_t addr);
+static const     aircraft_info *SQL_lookup_entry (uint32_t addr);
 
 #if defined(USE_WIN_SQLITE)
   /**
@@ -123,10 +123,10 @@ static const     aircraft_CSV *sql_lookup_entry (uint32_t addr);
  * Lookup an aircraft in the CSV `Modes.aircraft_list_CSV` or
  * do a SQLite lookup.
  */
-static const aircraft_CSV *aircraft_lookup (uint32_t addr, bool *from_sql)
+static const aircraft_info *aircraft_lookup (uint32_t addr, bool *from_sql)
 {
-  const aircraft     *a;
-  const aircraft_CSV *_a;
+  const aircraft      *a;
+  const aircraft_info *_a;
 
   if (from_sql)
      *from_sql = false;
@@ -138,7 +138,7 @@ static const aircraft_CSV *aircraft_lookup (uint32_t addr, bool *from_sql)
     a = aircraft_find (addr);
     if (a)
          _a = a->SQL;
-    else _a = sql_lookup_entry (addr);   /* do the `SELECT * FROM` */
+    else _a = SQL_lookup_entry (addr);   /* do the `SELECT * FROM` */
   }
   if (from_sql && _a)
      *from_sql = true;
@@ -156,9 +156,9 @@ static const aircraft_CSV *aircraft_lookup (uint32_t addr, bool *from_sql)
  */
 static aircraft *aircraft_create (uint32_t addr, uint64_t now)
 {
-  aircraft           *a = calloc (sizeof(*a), 1);
-  const aircraft_CSV *_a;
-  bool                from_sql;
+  aircraft            *a = calloc (sizeof(*a), 1);
+  const aircraft_info *_a;
+  bool                 from_sql;
 
   if (!a)
      return (NULL);
@@ -248,11 +248,11 @@ int aircraft_numbers (void)
 /**
  * Add an aircraft record to `Modes.aircraft_list_CSV`.
  */
-static int CSV_add_entry (const aircraft_CSV *rec)
+static int CSV_add_entry (const aircraft_info *rec)
 {
-  static aircraft_CSV *copy = NULL;
-  static aircraft_CSV *dest = NULL;
-  static aircraft_CSV *hi_end;
+  static aircraft_info *copy = NULL;
+  static aircraft_info *dest = NULL;
+  static aircraft_info *hi_end;
 
   /* Not a valid ICAO address. Parse error?
    */
@@ -289,8 +289,8 @@ static int CSV_add_entry (const aircraft_CSV *rec)
  */
 static int CSV_compare_on_addr (const void *_a, const void *_b)
 {
-  const aircraft_CSV *a = (const aircraft_CSV*) _a;
-  const aircraft_CSV *b = (const aircraft_CSV*) _b;
+  const aircraft_info *a = (const aircraft_info*) _a;
+  const aircraft_info *b = (const aircraft_info*) _b;
 
   if (a->addr < b->addr)
      return (-1);
@@ -302,9 +302,9 @@ static int CSV_compare_on_addr (const void *_a, const void *_b)
 /**
  * Do a binary search for an aircraft in `Modes.aircraft_list_CSV`.
  */
-static const aircraft_CSV *CSV_lookup_entry (uint32_t addr)
+static const aircraft_info *CSV_lookup_entry (uint32_t addr)
 {
-  aircraft_CSV key = { addr, "" };
+  aircraft_info key = { addr, "" };
 
   if (!Modes.aircraft_list_CSV)
      return (NULL);
@@ -322,14 +322,14 @@ static void aircraft_test_1 (void)
 {
   const char  *country;
   unsigned     i, num_ok;
-  static const aircraft_CSV a_tests [] = {
+  static const aircraft_info a_tests [] = {
                { 0xAA3496, "N757FQ",  "Cessna" },
                { 0xAB34DE, "N821DA",  "Beech"  },
                { 0x800737, "VT-ANQ",  "Boeing" },
                { 0xA713D5, "N555UW",  "Piper"  },
                { 0x3532C1, "T.23-01", "AIRBUS" },  /* callsign: AIRMIL, Spain */
              };
-  const aircraft_CSV *t = a_tests + 0;
+  const aircraft_info *t = a_tests + 0;
   char  sql_file [MAX_PATH] = "";
 
   if (Modes.have_sql_file)
@@ -340,12 +340,12 @@ static void aircraft_test_1 (void)
 
   for (i = num_ok = 0; i < DIM(a_tests); i++, t++)
   {
-    const aircraft_CSV *a_CSV, *a_SQL;
+    const aircraft_info *a_CSV, *a_SQL;
     const char *reg_num   = "?";
     const char *manufact  = "?";
 
     a_CSV = CSV_lookup_entry (t->addr);
-    a_SQL = sql_lookup_entry (t->addr);
+    a_SQL = SQL_lookup_entry (t->addr);
 
     if (a_CSV)
     {
@@ -384,7 +384,7 @@ static void aircraft_test_1 (void)
 
   for (i = 0; i < 5; i++)
   {
-    const aircraft_CSV *a_CSV, *a_SQL;
+    const aircraft_info *a_CSV, *a_SQL;
     unsigned rec_num = random_range (0, Modes.aircraft_num_CSV-1);
     uint32_t addr;
     double   usec;
@@ -404,7 +404,7 @@ static void aircraft_test_1 (void)
     if (Modes.use_sql_db)
     {
       usec  = get_usec_now();
-      a_SQL = sql_lookup_entry (addr);
+      a_SQL = SQL_lookup_entry (addr);
       usec  = get_usec_now() - usec;
 
       LOG_STDOUT ("  SQL rec:                         reg-num: %-8s manufact: %-20.20s callsign: %-10s %6.0f usec\n",
@@ -615,7 +615,7 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
  */
 static int CSV_callback (struct CSV_context *ctx, const char *value)
 {
-  static aircraft_CSV rec = { 0, "" };
+  static aircraft_info rec = { 0, "" };
   int    rc = 1;
 
   if (ctx->field_num == 0)        /* "icao24" field */
@@ -717,7 +717,7 @@ bool aircraft_CSV_load (void)
   }
 
   /* If `Modes.tests > 0`, open and parse the .CSV-file to compare speed
-   * of 'Modes.aircraft_list_CSV' lookup vs. `sql_lookup_entry()` lookup.
+   * of 'Modes.aircraft_list_CSV' lookup vs. `SQL_lookup_entry()` lookup.
    */
   if (!sql_opened || sql_created || Modes.tests)
   {
@@ -748,7 +748,7 @@ bool aircraft_CSV_load (void)
 
   if (sql_created && Modes.aircraft_num_CSV > 0)
   {
-    const aircraft_CSV *a = Modes.aircraft_list_CSV + 0;
+    const aircraft_info *a = Modes.aircraft_list_CSV + 0;
     uint32_t i;
 
     LOG_STDOUT ("Creating SQL-database... ");
@@ -1116,11 +1116,11 @@ const char *aircraft_get_military (uint32_t addr)
  */
 const char *aircraft_get_details (const uint8_t *_a)
 {
-  static char         buf [100];
-  const aircraft_CSV *a;
-  char               *p = buf;
-  size_t              sz, left = sizeof(buf);
-  uint32_t            addr = aircraft_get_addr (_a[0], _a[1], _a[2]);
+  static char          buf [100];
+  const aircraft_info *a;
+  char                *p = buf;
+  size_t               sz, left = sizeof(buf);
+  uint32_t             addr = aircraft_get_addr (_a[0], _a[1], _a[2]);
 
   sz = snprintf (p, left, "%06X", addr);
   p    += sz;
@@ -1139,7 +1139,7 @@ const char *aircraft_get_details (const uint8_t *_a)
  */
 static int SQL_CALLBACK sql_callback (void *cb_arg, int argc, char **argv, char **col_name)
 {
-  aircraft_CSV *a = (aircraft_CSV*) cb_arg;
+  aircraft_info *a = (aircraft_info*) cb_arg;
 
   if (argc == 4 && mg_unhexn(argv[0], 6) == a->addr)
   {
@@ -1151,14 +1151,14 @@ static int SQL_CALLBACK sql_callback (void *cb_arg, int argc, char **argv, char 
   return (0);
 }
 
-static const aircraft_CSV *sql_lookup_entry (uint32_t addr)
+static const aircraft_info *SQL_lookup_entry (uint32_t addr)
 {
-  static aircraft_CSV  a;
-  const  aircraft_CSV *ret = NULL;
-  char                 query [100];
-  char                *err_msg = NULL;
-  uint32_t             addr2;
-  int                  rc;
+  static aircraft_info  a;
+  const  aircraft_info *ret = NULL;
+  char                  query [100];
+  char                 *err_msg = NULL;
+  uint32_t              addr2;
+  int                   rc;
 
   if (!Modes.sql_db)
      return (NULL);
@@ -1227,7 +1227,7 @@ static bool sql_create (void)
 
 #if USE_VARCHAR   /* Not faster lookups with this */
   char  buf [400];
-  const aircraft_CSV a = { 0 };
+  const aircraft_info a = { 0 };
 
   snprintf (buf, sizeof(buf),
             "CREATE TABLE aircrafts (icao24,"
@@ -1292,7 +1292,7 @@ static bool sql_end (void)
  * Another "feature" of Sqlite is that upper-case hex values are turned into lower-case
  * when 'SELECT * FROM' is done!
  */
-static bool sql_add_entry (uint32_t num, const aircraft_CSV *rec)
+static bool sql_add_entry (uint32_t num, const aircraft_info *rec)
 {
   char   buf [sizeof(*rec) + sizeof(DB_INSERT) + 100];
   char  *values, *err_msg = NULL;
@@ -1511,6 +1511,66 @@ void aircraft_remove_stale (uint64_t now)
       free (a);
     }
   }
+}
+
+/**
+ * Set this aircraft's estimated distance to our home position.
+ *
+ * Assuming a constant good last heading and speed, calculate the
+ * new position from that using the elapsed time.
+ */
+void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
+{
+  double      heading, distance, gc_distance, cart_distance;
+  double      delta_X, delta_Y;
+  cartesian_t cpos = { 0.0, 0.0, 0.0 };
+  uint32_t    speed = round ((double)a->speed * 1.852);  /* Km/h */
+
+  if (!Modes.home_pos_ok || speed == 0 || !a->heading_is_valid)
+     return;
+
+  if (!VALID_POS(a->EST_position) || a->EST_seen_last < a->seen_last)
+     return;
+
+  ASSERT_POS (a->EST_position);
+
+  /* If some issue with speed changing too fast,
+   * use the last good speed.
+   */
+  if (a->speed_last && abs((int)speed - (int)a->speed_last) > 20)
+     speed = a->speed_last;
+
+  spherical_to_cartesian (&a->EST_position, &cpos);
+
+  /* Ensure heading is in range '[-Phi .. +Phi]'
+   */
+  if (a->heading >= 180)
+       heading = a->heading - 360;
+  else heading = a->heading;
+
+  heading = (TWO_PI * heading) / 360;  /* In radians */
+
+  /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
+   */
+  distance = 0.001852 * (double)speed * (now - a->EST_seen_last);
+  a->EST_seen_last = now;
+
+  delta_X = distance * sin (heading);
+  delta_Y = distance * cos (heading);
+  cpos.c_x += delta_X;
+  cpos.c_y += delta_Y;
+
+  cartesian_to_spherical (&cpos, &a->EST_position, heading);
+  ASSERT_POS (a->EST_position);
+
+  gc_distance     = great_circle_dist (a->EST_position, Modes.home_pos);
+  cart_distance   = cartesian_distance (&cpos, &Modes.home_pos_cart);
+  a->EST_distance = closest_to (a->EST_distance, gc_distance, cart_distance);
+
+#if 0
+  LOG_FILEONLY ("addr %04X: heading: %+7.1lf, delta_X: %+8.3lf, delta_Y: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
+                a->addr, 360.0*heading/TWO_PI, delta_X, delta_Y, gc_distance/1000, cart_distance/1000);
+#endif
 }
 
 /**

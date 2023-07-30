@@ -175,68 +175,6 @@ void interactive_clreol (void)
 }
 
 /**
- * Set this aircraft's estimated distance to our home position.
- *
- * Assuming a constant good last heading and speed, calculate the
- * new position from that using the elapsed time.
- *
- * \todo move to aircraft.c
- */
-static void set_est_home_distance (aircraft *a, uint64_t now)
-{
-  double      heading, distance, gc_distance, cart_distance;
-  double      delta_X, delta_Y;
-  cartesian_t cpos = { 0.0, 0.0, 0.0 };
-  uint32_t    speed = round ((double)a->speed * 1.852);  /* Km/h */
-
-  if (!Modes.home_pos_ok || speed == 0 || !a->heading_is_valid)
-     return;
-
-  if (!VALID_POS(a->EST_position) || a->EST_seen_last < a->seen_last)
-     return;
-
-  ASSERT_POS (a->EST_position);
-
-  /* If some issue with speed changing too fast,
-   * use the last good speed.
-   */
-  if (a->speed_last && abs((int)speed - (int)a->speed_last) > 20)
-     speed = a->speed_last;
-
-  spherical_to_cartesian (&a->EST_position, &cpos);
-
-  /* Ensure heading is in range '[-Phi .. +Phi]'
-   */
-  if (a->heading >= 180)
-       heading = a->heading - 360;
-  else heading = a->heading;
-
-  heading = (TWO_PI * heading) / 360;  /* In radians */
-
-  /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
-   */
-  distance = 0.001852 * (double)speed * (now - a->EST_seen_last);
-  a->EST_seen_last = now;
-
-  delta_X = distance * sin (heading);
-  delta_Y = distance * cos (heading);
-  cpos.c_x += delta_X;
-  cpos.c_y += delta_Y;
-
-  cartesian_to_spherical (&cpos, &a->EST_position, heading);
-  ASSERT_POS (a->EST_position);
-
-  gc_distance     = great_circle_dist (a->EST_position, Modes.home_pos);
-  cart_distance   = cartesian_distance (&cpos, &Modes.home_pos_cart);
-  a->EST_distance = closest_to (a->EST_distance, gc_distance, cart_distance);
-
-#if 0
-  LOG_FILEONLY ("addr %04X: heading: %+7.1lf, delta_X: %+8.3lf, delta_Y: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
-                a->addr, 360.0*heading/TWO_PI, delta_X, delta_Y, gc_distance/1000, cart_distance/1000);
-#endif
-}
-
-/**
  * Return a string showing this aircraft's distance to our home position.
  *
  * If `Modes.metric == true`, return it in kilo-meters. <br>
@@ -632,7 +570,7 @@ void interactive_show_data (uint64_t now)
   {
     if (a->show != A_SHOW_NONE)
     {
-      set_est_home_distance (a, now);
+      aircraft_set_est_home_distance (a, now);
       interactive_show_aircraft (a, row, now);
       row++;
     }

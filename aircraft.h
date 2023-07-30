@@ -45,15 +45,15 @@ typedef enum a_show_t {
       } a_show_t;
 
 /**
- * \typedef aircraft_CSV  // \todo rename to 'aircraft_info'
+ * \typedef aircraft_info
  * Describes an aircraft from a .CSV/.SQL-file.
  */
-typedef struct aircraft_CSV {
+typedef struct aircraft_info {
         uint32_t addr;
         char     reg_num [10];
         char     manufact [30];
         char     call_sign [20];
-      } aircraft_CSV;
+      } aircraft_info;
 
 /**
  * \typedef aircraft
@@ -64,7 +64,7 @@ typedef struct aircraft {
         char      flight [9];             /**< Flight number. \todo rename to call_sign */
         int       altitude;               /**< Altitude */
         uint32_t  speed;                  /**< Velocity computed from EW and NS components. In Knots */
-        uint32_t  speed_last;             /**< speed when used in `set_est_home_distance()` last time. In Km/h */
+        uint32_t  speed_last;             /**< speed when used in `aircraft_set_est_home_distance()` last time. In Km/h */
         int       heading;                /**< Horizontal angle of flight */
         bool      heading_is_valid;       /**< It has a valid heading */
         uint64_t  seen_first;             /**< Tick-time (in milli-sec) at which the first packet was received */
@@ -92,9 +92,9 @@ typedef struct aircraft {
         pos_t     position;               /**< Coordinates obtained from decoded CPR data */
         pos_t     EST_position;           /**< Estimated position based on last `speed` and `heading` */
 
-        aircraft_CSV       *SQL;          /**< A pointer to a SQL record (or NULL) */
-        const aircraft_CSV *CSV;          /**< A pointer to a CSV record in `Modes.aircraft_list_CSV` (or NULL) */
-        struct aircraft    *next;         /**< Next aircraft in our linked list */
+        aircraft_info       *SQL;         /**< A pointer to a SQL record (or NULL) */
+        const aircraft_info *CSV;         /**< A pointer to a CSV record in `Modes.aircraft_list_CSV` (or NULL) */
+        struct aircraft     *next;        /**< Next aircraft in our linked list */
       } aircraft;
 
 
@@ -107,6 +107,7 @@ const char *aircraft_get_details (const uint8_t *_a);
 const char *aircraft_get_country (uint32_t addr, bool get_short);
 bool        aircraft_is_military (uint32_t addr, const char **country);
 bool        aircraft_is_helicopter (uint32_t addr, const char **code);
+void        aircraft_set_est_home_distance (aircraft *a, uint64_t now);
 char       *aircraft_make_json (bool extended_client);
 void        aircraft_remove_stale (uint64_t now);
 void        aircraft_tests (void);

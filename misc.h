@@ -320,7 +320,7 @@ typedef struct sdrplay_conf {
  * Details in "aircraft.h", "airports".h" and "externals/sqlite3.c"
  */
 struct aircraft;
-struct aircraft_CSV;   // \todo rename to 'aircraft_info'
+struct aircraft_info;
 struct airports_priv;
 struct sqlite3;
 
@@ -382,56 +382,56 @@ typedef struct global_data {
 
         /** Configuration
          */
-        const char  *infile;                    /**< Input IQ samples from file with option `--infile file`. */
-        const char  *logfile;                   /**< Write debug/info to file with option `--logfile file`. */
-        FILE        *log;                       /**< Opened it for exclusive write access. */
-        uint64_t     loops;                     /**< Read input file in a loop. */
-        uint32_t     debug;                     /**< `DEBUG()` mode bits. */
-        int          raw;                       /**< Raw output format. */
-        int          net;                       /**< Enable networking. */
-        int          net_only;                  /**< Enable just networking. */
-        int          net_active;                /**< With `Modes.net`, call `connect()` (not `listen()`). */
-        int          silent;                    /**< Silent mode for network testing. */
-        int          interactive;               /**< Interactive mode */
-        uint16_t     interactive_rows;          /**< Interactive mode: max number of rows. */
-        uint32_t     interactive_ttl;           /**< Interactive mode: TTL before deletion. */
-        int          win_location;              /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
-        int          only_addr;                 /**< Print only ICAO addresses. */
-        int          metric;                    /**< Use metric units. */
-        int          aggressive;                /**< Aggressive detection algorithm. */
-        int          keep_alive;                /**< Send "Connection: keep-alive" if HTTP client sends it. */
-        mg_file_path web_page;                  /**< The base-name of the web-page to server for HTTP clients. */
-        mg_file_path web_root;                  /**< And it's directory. */
-        int          touch_web_root;            /**< Touch all files in `web_root` first. */
-        mg_file_path aircraft_db;               /**< The `aircraft-database.csv` file. */
-        mg_file_path aircraft_sql;              /**< The `aircraft-database.csv.sqlite` file. */
-        bool         have_sql_file;             /**< The `aircraft-database.csv.sqlite` file exists. */
-        char        *aircraft_db_update;        /**< Option `--aircrafts-update<=url>` was used. */
-        int          use_sql_db;                /**< Option `--aircrafts-sql` was used. */
-        int          strip_level;               /**< For '--strip X' mode. */
-        pos_t        home_pos;                  /**< Coordinates of home position. */
-        cartesian_t  home_pos_cart;             /**< Coordinates of home position (cartesian). */
-        bool         home_pos_ok;               /**< We have a good home position. */
-        const char  *wininet_last_error;        /**< Last error from WinInet API. */
-        int          tests;                     /**< Perform some tests. */
-        int          tests_arg;                 /**< With optional tests-count. */
-        int          tui_interface;             /**< Selected `--tui` interface. */
+        const char  *infile;                     /**< Input IQ samples from file with option `--infile file`. */
+        const char  *logfile;                    /**< Write debug/info to file with option `--logfile file`. */
+        FILE        *log;                        /**< Opened it for exclusive write access. */
+        uint64_t     loops;                      /**< Read input file in a loop. */
+        uint32_t     debug;                      /**< `DEBUG()` mode bits. */
+        int          raw;                        /**< Raw output format. */
+        int          net;                        /**< Enable networking. */
+        int          net_only;                   /**< Enable just networking. */
+        int          net_active;                 /**< With `Modes.net`, call `connect()` (not `listen()`). */
+        int          silent;                     /**< Silent mode for network testing. */
+        int          interactive;                /**< Interactive mode */
+        uint16_t     interactive_rows;           /**< Interactive mode: max number of rows. */
+        uint32_t     interactive_ttl;            /**< Interactive mode: TTL before deletion. */
+        int          win_location;               /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
+        int          only_addr;                  /**< Print only ICAO addresses. */
+        int          metric;                     /**< Use metric units. */
+        int          aggressive;                 /**< Aggressive detection algorithm. */
+        int          keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
+        mg_file_path web_page;                   /**< The base-name of the web-page to server for HTTP clients. */
+        mg_file_path web_root;                   /**< And it's directory. */
+        int          touch_web_root;             /**< Touch all files in `web_root` first. */
+        mg_file_path aircraft_db;                /**< The `aircraft-database.csv` file. */
+        mg_file_path aircraft_sql;               /**< The `aircraft-database.csv.sqlite` file. */
+        bool         have_sql_file;              /**< The `aircraft-database.csv.sqlite` file exists. */
+        char        *aircraft_db_update;         /**< Option `--aircrafts-update<=url>` was used. */
+        int          use_sql_db;                 /**< Option `--aircrafts-sql` was used. */
+        int          strip_level;                /**< For '--strip X' mode. */
+        pos_t        home_pos;                   /**< Coordinates of home position. */
+        cartesian_t  home_pos_cart;              /**< Coordinates of home position (cartesian). */
+        bool         home_pos_ok;                /**< We have a good home position. */
+        const char  *wininet_last_error;         /**< Last error from WinInet API. */
+        int          tests;                      /**< Perform some tests. */
+        int          tests_arg;                  /**< With optional tests-count. */
+        int          tui_interface;              /**< Selected `--tui` interface. */
 
         /** For handling a `Modes.aircraft_db` file:
          */
-        CSV_context          csv_ctx;           /**< Structure for the CSV parser. */
-        struct aircraft_CSV *aircraft_list_CSV; /**< List of aircrafts sorted on address. From CSV-file only. */
-        uint32_t             aircraft_num_CSV;  /**< The length of the list. */
-        struct sqlite3      *sql_db;            /**< For the `Modes.aircraft_sql` file. */
+        CSV_context           csv_ctx;           /**< Structure for the CSV parser. */
+        struct aircraft_info *aircraft_list_CSV; /**< List of aircrafts sorted on address. From CSV-file only. */
+        uint32_t              aircraft_num_CSV;  /**< The length of the list. */
+        struct sqlite3        *sql_db;           /**< For the `Modes.aircraft_sql` file. */
 
         /** For handling a airport-data from .CSV files.
          */
-        mg_file_path    airport_db;             /**< The `airports-code.csv` file generated by `tools/gen_airport_codes_csv.py`. */
-        mg_file_path    airport_freq_db;        /**< The `airports-frequencies.csv` file. Not generated yet. */
-        mg_file_path    airport_cache;          /**< The `%%TEMP%%\\dump1090\\airport-api-cache.csv`. */
-        int             airport_db_update;      /**< Option `--airports-update` was used. */
+        mg_file_path    airport_db;              /**< The `airports-code.csv` file generated by `tools/gen_airport_codes_csv.py`. */
+        mg_file_path    airport_freq_db;         /**< The `airports-frequencies.csv` file. Not generated yet. */
+        mg_file_path    airport_cache;           /**< The `%%TEMP%%\\dump1090\\airport-api-cache.csv`. */
+        int             airport_db_update;       /**< Option `--airports-update` was used. */
 
-        struct airports_priv *airports_priv;    /**< Private data for `airports.c`. */
+        struct airports_priv *airports_priv;     /**< Private data for `airports.c`. */
 
       } global_data;
 
