@@ -29,7 +29,7 @@
    * store `airport-codes.csv` into `airport-codes.csv.sqlite`.
    * store `aircraft-database.csv` into `aircraft-database.csv.sqlite`. :heavy_check_mark: *Done*
    * add a build-time option to use `WinSqlite3.dll` as part of Win-10. :heavy_check_mark: *Done*
-   * update the above `*.csv` files into `*.csv.sqlite` automatically.
+   * update the above `*.csv` files into `*.csv.sqlite` automatically or by an `--update` option.
 
 * Switch from `getopt_long()` to `yopt_init()` + `yopt_next()`.
   Ref: https://g.blicky.net/ylib.git/plain/yopt.h
@@ -48,23 +48,23 @@
    using simple C-embedding.
 
 * *Airports API*:
-  * expire cached records after a configurable time.
-  * regenerate `.\airport-codes.csv` automatically after certain number of days using
+  * expire cached records after a configurable time (not 10 min as iut is now).
+  * regenerate `airport-codes.csv` automatically after certain number of days using
     `tools/gen_airport_codes_csv.py`.
 
-* *Curses interface* (`--interactive` mode): add:
+* *Curses interface* (`--interactive` mode), add:
   * a statistics *sub-window* with accumulated statistics:
     * Number of unique planes/IP-addresses, network-clients, CSV/SQL-lookups and cache hits,
     * Number of network clients, bytes transferred etc.
   * a tool-tip handler; show more flight-details when mouse is over a specific call-sign.
 
 * Add *config file*. Move some command-line options into `dump1090.cfg`. Like:
-  * `aircrafts = my-own-aircrafts.csv` (do not use the default `~/aircraft-database.csv` file).
+  * `aircrafts = my-own-aircrafts.csv` (do not use the default `aircraft-database.csv` file).
   * `aircrafts-sql = yes` (enable the SQL-version of the above instead).
   * `metric = 1` (always show metric units).
 
-* *IP Access List* for controlling who is *not* allowed to connect to a service; use the new [*mg_check_ip_acl()*](https://mongoose.ws/documentation/#mg_check_ip_acl) function.E.g.:
-  * in `dump1090.cfg` add a `[raw_in]` section with:
+* *IP Access List* for controlling who is allowed to connect to a service; use the new [*mg_check_ip_acl()*](https://mongoose.ws/documentation/#mg_check_ip_acl) function.
+  * E.g. in `dump1090.cfg` add a `[raw_in]` section with:
     * `deny = 113.30.148.*`  (a Spanish network).
     * `deny = 91.224.92.0/24` (a Lithuanian network).
 
