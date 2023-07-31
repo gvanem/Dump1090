@@ -50,9 +50,10 @@ typedef enum a_show_t {
  */
 typedef struct aircraft_info {
         uint32_t addr;
-        char     reg_num [10];
+        char     reg_num  [10];
         char     manufact [30];
-        char     call_sign [20];
+        char     type     [10];
+        char     call_sign[20];
       } aircraft_info;
 
 /**
@@ -67,6 +68,7 @@ typedef struct aircraft {
         uint32_t  speed_last;             /**< speed when used in `aircraft_set_est_home_distance()` last time. In Km/h */
         int       heading;                /**< Horizontal angle of flight */
         bool      heading_is_valid;       /**< It has a valid heading */
+        bool      is_helicopter;          /**< It is a helicopter */
         uint64_t  seen_first;             /**< Tick-time (in milli-sec) at which the first packet was received */
         uint64_t  seen_last;              /**< Tick-time (in milli-sec) at which the last packet was received */
         uint64_t  EST_seen_last;          /**< Tick-time (in milli-sec) at which the last estimated position was done */

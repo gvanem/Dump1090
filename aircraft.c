@@ -19,12 +19,13 @@
  * \def DB_COLUMNS
  * The Sqlite columns we define.
  */
-#define DB_COLUMNS "icao24,reg,manufacturer,callsign"
-//                  |      |   |            |
-//                  |      |   |            |____ == field 10: "operatorcallsign"
-//                  |      |   |_________________ == field 3:  "manufacturername"
-//                  |      |_____________________ == field 1:  "registration"
-//                  |____________________________ == field 0:  "icao24"
+#define DB_COLUMNS "icao24,reg,manufacturer,type,callsign"
+//                  |      |   |            |     |
+//                  |      |   |            |     |__ == field 10: "operatorcallsign"
+//                  |      |   |            |________ == field 8:  "icaoaircrafttype"
+//                  |      |   |_____________________ == field 3:  "manufacturername"
+//                  |      |_________________________ == field 1:  "registration"
+//                  |________________________________ == field 0:  "icao24"
 
 /**
  * \def DB_INSERT
@@ -43,6 +44,7 @@ static void sql_log (void *cb_arg, int err, const char *str);
 static aircraft *aircraft_find (uint32_t addr);
 static const     aircraft_info *CSV_lookup_entry (uint32_t addr);
 static const     aircraft_info *SQL_lookup_entry (uint32_t addr);
+static bool      is_helicopter_type (const char *type);
 
 #if defined(USE_WIN_SQLITE)
   /**
@@ -168,6 +170,8 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
   a->seen_last  = now;
   a->show       = A_SHOW_FIRST_TIME;
   _a = aircraft_lookup (addr, &from_sql);
+  if (_a)
+     a->is_helicopter = is_helicopter_type (_a->type);
 
   /* We really can't tell if it's unique since we keep no global list of that yet
    */
@@ -323,14 +327,17 @@ static void aircraft_test_1 (void)
   const char  *country;
   unsigned     i, num_ok;
   static const aircraft_info a_tests [] = {
-               { 0xAA3496, "N757FQ",  "Cessna" },
-               { 0xAB34DE, "N821DA",  "Beech"  },
-               { 0x800737, "VT-ANQ",  "Boeing" },
-               { 0xA713D5, "N555UW",  "Piper"  },
-               { 0x3532C1, "T.23-01", "AIRBUS" },  /* callsign: AIRMIL, Spain */
+               { 0xAA3496, "N757FQ",  "Cessna", "" },
+               { 0xAB34DE, "N821DA",  "Beech",  "" },
+               { 0x800737, "VT-ANQ",  "Boeing", "" },
+               { 0xA713D5, "N555UW",  "Piper",  "" },
+               { 0x3532C1, "T.23-01", "AIRBUS", "" },  /* callsign: AIRMIL, Spain */
+               { 0x00A78C, "ZS-OYT",  "Bell", "H1P" }  /* test for a Helicopter */
              };
   const aircraft_info *t = a_tests + 0;
   char  sql_file [MAX_PATH] = "";
+  bool        heli_found = false;
+  const char *heli_type  = "?";
 
   if (Modes.have_sql_file)
      snprintf (sql_file, sizeof(sql_file), " and \"%s\"", basename(Modes.aircraft_sql));
@@ -343,6 +350,8 @@ static void aircraft_test_1 (void)
     const aircraft_info *a_CSV, *a_SQL;
     const char *reg_num   = "?";
     const char *manufact  = "?";
+    const char *type      = "?";
+    const char *type2     = NULL;
 
     a_CSV = CSV_lookup_entry (t->addr);
     a_SQL = SQL_lookup_entry (t->addr);
@@ -351,6 +360,8 @@ static void aircraft_test_1 (void)
     {
       if (a_CSV->manufact[0])
          manufact = a_CSV->manufact;
+      if (a_CSV->type[0])
+         type = a_CSV->type;
       if (a_CSV->reg_num[0])
       {
         reg_num = a_CSV->reg_num;
@@ -361,6 +372,8 @@ static void aircraft_test_1 (void)
     {
       if (a_SQL->manufact[0])
          manufact = a_SQL->manufact;
+      if (a_SQL->type[0])
+         type = a_SQL->type;
       if (a_SQL->reg_num[0])
       {
         reg_num = a_SQL->reg_num;
@@ -368,19 +381,41 @@ static void aircraft_test_1 (void)
       }
     }
 
+    if (t->type[0] && aircraft_is_helicopter(t->addr, &type2))
+    {
+      heli_found = true;
+      heli_type  = type2;
+    }
+
     country = aircraft_get_country (t->addr, false);
-    LOG_STDOUT ("  addr: 0x%06X, reg-num: %-8s manufact: %-20s country: %-30s %s\n",
-                t->addr, reg_num, manufact, country ? country : "?",
+    LOG_STDOUT ("  addr: 0x%06X, reg-num: %-8s manufact: %-20s type: %-4s country: %-30s %s\n",
+                t->addr, reg_num, manufact, type, country ? country : "?",
                 aircraft_is_military(t->addr, NULL) ? "Military" : "");
   }
-  LOG_STDOUT ("%3u OKAY\n", num_ok);
+  LOG_STDOUT ("%3u OKAY. heli_found: %d -> %s\n", num_ok, heli_found, heli_type);
   LOG_STDOUT ("%3u FAIL\n", i - num_ok);
+}
 
-  if (!Modes.aircraft_list_CSV)
-     return;
+/**
+ * As above, but if `Modes.use_sql_db == true` compare the lookup speed
+ * of Sqlite3 compared to our `bsearch()` lookup.
+ */
+static void aircraft_test_2 (void)
+{
+  unsigned i;
+  char     sql_file [MAX_PATH] = "";
+
+  if (Modes.have_sql_file)
+     snprintf (sql_file, sizeof(sql_file), " and \"%s\"", basename(Modes.aircraft_sql));
 
   LOG_STDOUT ("\n%s(): Checking 5 random records in \"%s\"%s:\n",
               __FUNCTION__, basename(Modes.aircraft_db), sql_file);
+
+  if (!Modes.aircraft_list_CSV)
+  {
+    LOG_STDOUT ("  cannot do this with an empty 'aircraft_list_CSV'\n");
+    return;
+  }
 
   for (i = 0; i < 5; i++)
   {
@@ -394,11 +429,12 @@ static void aircraft_test_1 (void)
     a_CSV = CSV_lookup_entry (addr);
     usec  = get_usec_now() - usec;
 
-    LOG_STDOUT ("  CSV rec: %6u: addr: 0x%06X, reg-num: %-8s manufact: %-20.20s callsign: %-10s %6.0f usec\n",
+    LOG_STDOUT ("  CSV: %6u: addr: 0x%06X, reg-num: %-8s manufact: %-20.20s callsign: %-10.10s type: %-4s %6.0f usec\n",
                 rec_num, addr,
                 a_CSV->reg_num[0]   ? a_CSV->reg_num   : "-",
                 a_CSV->manufact[0]  ? a_CSV->manufact  : "-",
                 a_CSV->call_sign[0] ? a_CSV->call_sign : "-",
+                a_CSV->type[0]      ? a_CSV->type      : "-",
                 usec);
 
     if (Modes.use_sql_db)
@@ -407,10 +443,12 @@ static void aircraft_test_1 (void)
       a_SQL = SQL_lookup_entry (addr);
       usec  = get_usec_now() - usec;
 
-      LOG_STDOUT ("  SQL rec:                         reg-num: %-8s manufact: %-20.20s callsign: %-10s %6.0f usec\n",
+      LOG_STDOUT ("  SQL:         addr: 0x%06X, reg-num: %-8s manufact: %-20.20s callsign: %-10.10s type: %-4s %6.0f usec\n",
+                  addr,
                   (a_SQL && a_SQL->reg_num[0])   ? a_SQL->reg_num   : "-",
                   (a_SQL && a_SQL->manufact[0])  ? a_SQL->manufact  : "-",
                   (a_SQL && a_SQL->call_sign[0]) ? a_SQL->call_sign : "-",
+                  (a_SQL && a_SQL->type[0])      ? a_SQL->type      : "-",
                   usec);
     }
   }
@@ -418,42 +456,55 @@ static void aircraft_test_1 (void)
 
 /**
  * Generate a single json .TXT-file (binary mode) and run
- * `jq.exe < filename > NUL` to verify it.
+ * `jq.exe < %TEMP%\dump1090\filename > NUL` to verify it.
  */
 static void aircraft_dump_json (char *data, const char *filename)
 {
-  FILE  *f;
-  char   jq_cmd [100];
-  size_t sz = data ? strlen(data) : 0;
-  int    rc;
+  FILE   *f;
+  size_t  sz = data ? strlen(data) : 0;
+  int     rc;
+  char    jq_cmd [20 + sizeof(mg_file_path)];
+  mg_file_path tmp_file;
 
-  printf ("\nDumping %d aircrafts (%zu bytes) to '%s'\n", aircraft_numbers(), sz, filename);
+  snprintf (tmp_file, sizeof(tmp_file), "%s\\%s", Modes.tmp_dir, filename);
+  printf ("  Dumping %d aircrafts (%zu bytes) to '%s'\n", aircraft_numbers(), sz, tmp_file);
+
   if (!data)
-     return;
+  {
+    printf ("  No 'data'! errno: %d/%s\n\n", errno, strerror(errno));
+    return;
+  }
 
-  f = fopen (filename, "wb+");
+  f = fopen (tmp_file, "wb+");
+  if (!f)
+  {
+    printf ("  Creating %s failed; errno: %d/%s\n\n", tmp_file, errno, strerror(errno));
+    return;
+  }
+
   fwrite (data, 1, strlen(data), f);
   free (data);
   fclose (f);
-  snprintf (jq_cmd, sizeof(jq_cmd), "jq.exe < %s > NUL", filename);
+  snprintf (jq_cmd, sizeof(jq_cmd), "jq.exe < %s > NUL", tmp_file);
   errno = 0;
   rc = system (jq_cmd);
   if (rc == 0)
-       printf ("File %s OK.\n\n", filename);
+       printf ("  File %s OK.\n\n", tmp_file);
   else if (rc < 0)
-       printf ("File %s failed; errno: %d/%s\n\n", filename, errno, strerror(rc));
-  else printf ("Command '%s' failed; rc: %d.\n\n", jq_cmd, rc);
+       printf ("  File %s failed; errno: %d/%s\n\n", tmp_file, errno, strerror(rc));
+  else printf ("  Command '%s' failed; rc: %d.\n\n", jq_cmd, rc);
 }
 
 /**
  * Generate some json-files to test the `aircraft_make_json()`
  * function with a large number of aircrafts. The data-content does not matter.
  */
-static void aircraft_test_2 (void)
+static void aircraft_test_3 (void)
 {
   int i, num;
 
-  puts ("");
+  LOG_STDOUT ("\n%s(): Generate and check JSON-data:\n", __FUNCTION__);
+
   if (!Modes.home_pos_ok)
   {
     Modes.home_pos.lat = 51.5285578;  /* London */
@@ -497,6 +548,7 @@ void aircraft_tests (void)
 {
   aircraft_test_1();
   aircraft_test_2();
+  aircraft_test_3();
 }
 
 /**
@@ -603,7 +655,7 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
  * \param[in]  ctx   the CSV context structure.
  * \param[in]  value the value for this CSV field in record `ctx->rec_num`.
  *
- * Match the fields 0, 1, 3 and 10 for a record like this:
+ * Match the fields 0, 1, 3, 8 and 10 for a record like this:
  * ```
  * "icao24","registration","manufacturericao","manufacturername","model","typecode","serialnumber","linenumber",
  * "icaoaircrafttype","operator","operatorcallsign","operatoricao","operatoriata","owner","testreg","registered",
@@ -629,6 +681,10 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
   else if (ctx->field_num == 3)   /* "manufacturername" field */
   {
     strncpy (rec.manufact, value, sizeof(rec.manufact)-1);
+  }
+  else if (ctx->field_num == 8)  /* "icaoaircrafttype" field */
+  {
+    strncpy (rec.type, value, sizeof(rec.type)-1);
   }
   else if (ctx->field_num == 10)  /* "operatorcallsign" field */
   {
@@ -700,7 +756,8 @@ bool aircraft_CSV_load (void)
         /**
          * \todo If `st_sql.st_mtime + slack_seconds < csv_st.st_mtime`, call `sql_create()`?
          */
-        TRACE ("'%s' is %d days older than the CSV-file", Modes.aircraft_sql, diff_days);
+        TRACE ("'%s' is %d days %s than the CSV-file",
+               Modes.aircraft_sql, abs(diff_days), diff_days < 0 ? "newer" : "older");
         usec = get_usec_now();
         sql_opened = sql_open();
         sql_load_t = get_usec_now() - usec;
@@ -1076,12 +1133,41 @@ bool aircraft_is_military (uint32_t addr, const char **country)
 }
 
 /**
- * \todo Figure out if an ICAO-address belongs to a helicopter
+ * The types of a helicopter (incomplete).
  */
-bool aircraft_is_helicopter (uint32_t addr, const char **code)
+static const char *helli_types[] = { "H1P", "H2P", "H1T", "H2T" };
+
+static bool is_helicopter_type (const char *type)
 {
-  MODES_NOTUSED (addr);
-  MODES_NOTUSED (code);
+  const char *t = helli_types [0];
+  uint16_t        i;
+
+  if (type[0] != 'H')   /* must start with a 'H' */
+     return (false);
+
+  for (i = 0; i < DIM(helli_types); i++, t++)
+      if (!stricmp(type, t))
+         return (true);
+  return (false);
+}
+
+/**
+ * Figure out if an ICAO-address belongs to a helicopter.
+ */
+bool aircraft_is_helicopter (uint32_t addr, const char **type_ptr)
+{
+  const aircraft_info *a;
+
+  if (type_ptr)
+     *type_ptr = NULL;
+
+  a = CSV_lookup_entry (addr);
+  if (a && is_helicopter_type(a->type))
+  {
+    if (type_ptr)
+       *type_ptr = a->type;
+    return (true);
+  }
   return (false);
 }
 
@@ -1141,11 +1227,12 @@ static int SQL_CALLBACK sql_callback (void *cb_arg, int argc, char **argv, char 
 {
   aircraft_info *a = (aircraft_info*) cb_arg;
 
-  if (argc == 4 && mg_unhexn(argv[0], 6) == a->addr)
+  if (argc == 5 && mg_unhexn(argv[0], 6) == a->addr)
   {
-    strncpy (a->reg_num, argv[1], sizeof(a->reg_num)-1);
-    strncpy (a->manufact, argv[2], sizeof(a->manufact)-1);
-    strncpy (a->call_sign, argv[3], sizeof(a->call_sign)-1);
+    strncpy (a->reg_num,   argv[1], sizeof(a->reg_num)-1);
+    strncpy (a->manufact,  argv[2], sizeof(a->manufact)-1);
+    strncpy (a->type,      argv[3], sizeof(a->type)-1);
+    strncpy (a->call_sign, argv[4], sizeof(a->call_sign)-1);
   }
   (void) col_name;
   return (0);
@@ -1213,7 +1300,7 @@ static bool sql_init (const char *what, int flags)
 }
 
 /**
- * Create the `Modes.aircraft_sql` database with 4 columns.
+ * Create the `Modes.aircraft_sql` database with 5 columns.
  *
  * And make the CSV callback add the records into the `Modes.aircraft_sql` file.
  */
@@ -1231,8 +1318,8 @@ static bool sql_create (void)
 
   snprintf (buf, sizeof(buf),
             "CREATE TABLE aircrafts (icao24,"
-            " reg VARCHAR(%zu), manufacturer VARCHAR(%zu), callsign VARCHAR(%zu));",
-            sizeof(a.reg_num)-1, sizeof(a.manufact)-1, sizeof(a.call_sign)-1);
+            " reg VARCHAR(%zu), manufacturer VARCHAR(%zu), type VARCHAR(%zu), callsign VARCHAR(%zu));",
+            sizeof(a.reg_num)-1, sizeof(a.manufact)-1, sizeof(a.type)-1, sizeof(a.call_sign)-1);
 
   rc = sqlite3_exec (Modes.sql_db, buf, NULL, NULL, &err_msg);
 
@@ -1299,10 +1386,11 @@ static bool sql_add_entry (uint32_t num, const aircraft_info *rec)
   int    rc;
 
   mg_snprintf (buf, sizeof(buf),
-               DB_INSERT " ('%06x',%m,%m,%m)",
+               DB_INSERT " ('%06x',%m,%m,%m,%m)",
                rec->addr,
                mg_print_esc, 0, rec->reg_num,
                mg_print_esc, 0, rec->manufact,
+               mg_print_esc, 0, rec->type,
                mg_print_esc, 0, rec->call_sign);
 
   values = buf + sizeof(DB_INSERT) + 1;
@@ -1471,8 +1559,6 @@ char *aircraft_make_json (bool extended_client)
     *p++ = '}';
   }
   *p = '\0';
-
-  DEBUG (DEBUG_GENERAL2, "Returning %zu bytes JSON data for %u aircrafts.\n", p - buf + 1, aircrafts);
 
   if (Modes.log && (Modes.debug & DEBUG_GENERAL))
      fprintf (Modes.log, "\nJSON dump of file-number %u for %u aircrafts, extended_client: %d:\n%s\n\n",
