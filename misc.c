@@ -55,9 +55,10 @@ void modeS_log (const char *buf)
 }
 
 /**
- * A small log-buffer to catch errors from 'externals/mongoose.c'.
+ * A small log-buffer to catch errors from `externals/mongoose.c`.
+ *
  * e.g. a `bind()` error is impossible to catch in the network event-handler.
- * Use this to look for "bind: 10048" == WSAEADDRINUSE etc.
+ * Use this to look for "bind: 10048" == `WSAEADDRINUSE` etc.
  */
 static char _err_buf [200];
 static int  _err_idx = 0;
@@ -76,7 +77,7 @@ char *modeS_err_get (void)
 
 /**
  * Print a character `c` to `Modes.log` or `stdout`.
- * Used only if `(Modes.debug & DEBUG_MONGOOSE)" is enabled by `--debug m`.
+ * Used only if `(Modes.debug & DEBUG_MONGOOSE)` is enabled by `--debug m`.
  */
 void modeS_logc (char c, void *param)
 {

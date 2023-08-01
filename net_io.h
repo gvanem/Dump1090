@@ -42,9 +42,14 @@
 
 extern net_service modeS_net_services [MODES_NET_SERVICES_NUM];
 
+/**
+ * \typedef net_msg_handler
+ * The function-type for handling "RAW TCP Input" and "SBS TCP Input" messages.
+ */
 typedef bool (*net_msg_handler) (mg_iobuf *msg, int loop_cnt);
 
 /**
+ * \typedef mg_listen_func
  * A function-pointer for either `mg_listen()` or `mg_http_listen()`.
  */
 typedef struct mg_connection *(*mg_listen_func) (struct mg_mgr     *mgr,
@@ -52,11 +57,10 @@ typedef struct mg_connection *(*mg_listen_func) (struct mg_mgr     *mgr,
                                                  mg_event_handler_t fn,
                                                  void              *fn_data);
 
-bool     net_init (void);
-bool     net_exit (void);
-void     net_poll (void);
-void     net_show_stats (void);
-
+bool        net_init (void);
+bool        net_exit (void);
+void        net_poll (void);
+void        net_show_stats (void);
 uint16_t    net_handler_port (intptr_t service);
 const char *net_handler_protocol (intptr_t service);
 bool        net_handler_sending (intptr_t service);

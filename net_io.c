@@ -247,7 +247,7 @@ void net_connection_send (intptr_t service, const void *msg, size_t len)
     found++;
   }
   if (found > 0)
-     DEBUG (DEBUG_NET, "Sent %zd bytes to %d clients in service \"%s\".\n",
+     DEBUG (DEBUG_NET2, "Sent %zd bytes to %d clients in service \"%s\".\n",
             len, found, net_service_descr(service));
 }
 
@@ -318,7 +318,7 @@ static void send_favicon (mg_connection *c,
                           size_t         data_len,
                           const char    *content_type)
 {
-  DEBUG (DEBUG_NET, "Sending favicon (%s, %zu bytes, conn-id: %lu).\n",
+  DEBUG (DEBUG_NET2, "Sending favicon (%s, %zu bytes, conn-id: %lu).\n",
          content_type, data_len, c->id);
 
   mg_printf (c, "HTTP/1.1 200 OK\r\n"
@@ -356,7 +356,7 @@ static char *receiver_to_json (void)
 /**
  * The event handler for all HTTP traffic.
  */
-static int net_handler_http (mg_connection *c, mg_http_message *hm, char *request_uri, size_t request_uri_sz)
+static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri request_uri)
 {
   mg_str      *header;
   connection  *cli;
@@ -368,7 +368,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, char *reques
 
   /* Make a copy of the URI for the caller
    */
-  len = min (request_uri_sz-1, hm->uri.len);
+  len = min (sizeof(mg_http_uri) - 1, hm->uri.len);
   uri = strncpy (request_uri, hm->uri.ptr, len);
   request_uri [len] = '\0';
 
@@ -378,9 +378,9 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, char *reques
   if (first_nl > hm->head.ptr - 1)
      len = first_nl - hm->head.ptr;
 
-  DEBUG (DEBUG_NET, "\n"
+  DEBUG (DEBUG_NET2, "\n"
          "  MG_EV_HTTP_MSG: (conn-id: %lu)\n"
-         "    head:    '%.*s' ...\n"     // 1st line in request
+         "    head:    '%.*s' ...\n"     /* 1st line in request */
          "    uri:     '%s'\n"
          "    method:  '%.*s'\n",
          c->id, (int)len, hm->head.ptr, uri, (int)hm->method.len, hm->method.ptr);
@@ -415,7 +415,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, char *reques
   header = mg_http_get_header (hm, "Accept-Encoding");
   if (header && !mg_vcasecmp(header, "gzip"))
   {
-    DEBUG (DEBUG_NET, "Accept-Encoding: '%.*s'\n", (int)header->len, header->ptr);
+    DEBUG (DEBUG_NET2, "Accept-Encoding: '%.*s'\n", (int)header->len, header->ptr);
     cli->encoding_gzip = true;  /**\todo Add gzip compression */
   }
 
@@ -427,7 +427,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, char *reques
                   "Location: %s\r\n"
                   "Content-Length: 0\r\n\r\n", Modes.web_page);
 
-    DEBUG (DEBUG_NET, "301 redirect to: '%s/%s'\n", Modes.web_root, Modes.web_page);
+    DEBUG (DEBUG_NET2, "301 redirect to: '%s/%s'\n", Modes.web_root, Modes.web_page);
     return (301);
   }
 
@@ -445,7 +445,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, char *reques
   {
     char *data = receiver_to_json();
 
-    DEBUG (DEBUG_NET, "Feeding conn-id %lu with receiver-data:\n%.100s\n", c->id, data);
+    DEBUG (DEBUG_NET2, "Feeding conn-id %lu with receiver-data:\n%.100s\n", c->id, data);
 
     mg_http_reply (c, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
     free (data);
@@ -510,8 +510,6 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, char *reques
       opts.extra_headers = set_headers (cli, content_type);
 
       snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
-      DEBUG (DEBUG_NET, "file: '%s'.\n", file);
-      fflush (stdout);
 
 #if defined(PACKED_WEB_ROOT)
       opts.fs = &mg_fs_packed;
@@ -522,7 +520,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, char *reques
 #endif
 
       DEBUG (DEBUG_NET, "Serving %sfile: '%s', found: %d.\n", packed, file, found);
-      DEBUG (DEBUG_NET, "extra-headers: '%s'.\n", opts.extra_headers);
+      DEBUG (DEBUG_NET2, "extra-headers: '%s'.\n", opts.extra_headers);
 
       mg_http_serve_file (c, hm, file, &opts);
 
@@ -870,7 +868,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
   {
     mg_http_message *hm = ev_data;
     mg_ws_message   *ws = ev_data;
-    char             request_uri [256];
+    mg_http_uri      request_uri;
     int              status;
 
     if (ev == MG_EV_WS_OPEN || ev == MG_EV_WS_MSG || ev == MG_EV_WS_CTL)
@@ -879,7 +877,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
     }
     else if (ev == MG_EV_HTTP_MSG)
     {
-      status = net_handler_http (c, hm, request_uri, sizeof(request_uri));
+      status = net_handler_http (c, hm, request_uri);
 
       DEBUG (DEBUG_NET, "HTTP %d for '%.*s' (conn-id: %lu)\n",
              status, (int)hm->uri.len, hm->uri.ptr, c->id);
@@ -890,7 +888,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
       HEX_DUMP (hm->message.ptr, hm->message.len);
     }
     else
-      DEBUG (DEBUG_NET2, "Ignoring HTTP event '%s' (conn-id: %lu)\n",
+      DEBUG (DEBUG_NET, "Ignoring HTTP event '%s' (conn-id: %lu)\n",
              event_name(ev), c->id);
   }
 }
