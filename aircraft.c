@@ -127,24 +127,24 @@ static bool      is_helicopter_type (const char *type);
  */
 static const aircraft_info *aircraft_lookup (uint32_t addr, bool *from_sql)
 {
-  const aircraft      *a;
-  const aircraft_info *_a;
+  const aircraft_info *ai;
 
   if (from_sql)
      *from_sql = false;
 
   if (Modes.aircraft_list_CSV)
-     _a = CSV_lookup_entry (addr);
+     ai = CSV_lookup_entry (addr);
   else
   {
-    a = aircraft_find (addr);
+    const aircraft *a = aircraft_find (addr);
+
     if (a)
-         _a = a->SQL;
-    else _a = SQL_lookup_entry (addr);   /* do the `SELECT * FROM` */
+         ai = a->SQL;
+    else ai = SQL_lookup_entry (addr);   /* do the `SELECT * FROM` */
   }
-  if (from_sql && _a)
+  if (from_sql && ai)
      *from_sql = true;
-  return (_a);
+  return (ai);
 }
 
 /**
@@ -159,7 +159,7 @@ static const aircraft_info *aircraft_lookup (uint32_t addr, bool *from_sql)
 static aircraft *aircraft_create (uint32_t addr, uint64_t now)
 {
   aircraft            *a = calloc (sizeof(*a), 1);
-  const aircraft_info *_a;
+  const aircraft_info *ai;
   bool                 from_sql;
 
   if (!a)
@@ -169,13 +169,16 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
   a->seen_first = now;
   a->seen_last  = now;
   a->show       = A_SHOW_FIRST_TIME;
-  _a = aircraft_lookup (addr, &from_sql);
-  if (_a)
-     a->is_helicopter = is_helicopter_type (_a->type);
+
+  ai = aircraft_lookup (addr, &from_sql);
+  if (ai)
+     a->is_helicopter = is_helicopter_type (ai->type);
 
   /* We really can't tell if it's unique since we keep no global list of that yet
    */
   Modes.stat.unique_aircrafts++;
+  if (a->is_helicopter)
+     Modes.stat.unique_helicopters++;
 
   if (from_sql)
   {
@@ -186,7 +189,7 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
     if (a->SQL)
     {
       Modes.stat.unique_aircrafts_SQL++;
-      memcpy (a->SQL, _a, sizeof(*a->SQL));
+      memcpy (a->SQL, ai, sizeof(*a->SQL));
     }
   }
   else
@@ -196,7 +199,7 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
     /* This points into the `Modes.aircraft_list_CSV` array.
      * No need to `free()`.
      */
-    a->CSV = _a;
+    a->CSV = ai;
   }
   return (a);
 }
@@ -1135,18 +1138,16 @@ bool aircraft_is_military (uint32_t addr, const char **country)
 /**
  * The types of a helicopter (incomplete).
  */
-static const char *helli_types[] = { "H1P", "H2P", "H1T", "H2T" };
-
 static bool is_helicopter_type (const char *type)
 {
-  const char *t = helli_types [0];
-  uint16_t        i;
+  const char *helli_types[] = { "H1P", "H2P", "H1T", "H2T" };
+  uint16_t    i;
 
   if (type[0] != 'H')   /* must start with a 'H' */
      return (false);
 
-  for (i = 0; i < DIM(helli_types); i++, t++)
-      if (!stricmp(type, t))
+  for (i = 0; i < DIM(helli_types); i++)
+      if (!stricmp(type, helli_types[i]))
          return (true);
   return (false);
 }
