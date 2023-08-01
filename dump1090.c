@@ -351,13 +351,12 @@ static void modeS_init_config (void)
  */
 static void modeS_init_log (void)
 {
-  char   args [1000] = "";
-  char   buf [sizeof(args) + sizeof(mg_file_path) + 10];
-  char  *p = args;
+  char   args [2000] = "";
+  char  *ptr = args;
   size_t line_len, left = sizeof(args);
-  int    i;
+  int    i, n;
 
-  /* Open the log-file exlusive for us
+  /* Open the log-file exclusively for us.
    */
   Modes.log = fopen_excl (Modes.logfile, "at");
   if (!Modes.log)
@@ -369,28 +368,28 @@ static void modeS_init_log (void)
      */
     #define FILLER "             "
 
+    n = snprintf (ptr, left, "Starting: %s", Modes.who_am_I);
+    ptr  += n;
+    left -= n;
     line_len = strlen (FILLER) + strlen ("Starting: ");
 
     for (i = 1; i < __argc && left > 2; i++)
     {
-      int n;
-
-      if (i >= 2 && line_len + strlen (__argv[i]) > 120)
+      if (i >= 2 && line_len + strlen(__argv[i]) > 120)
       {
-        n = snprintf (p, left, "\n%s", FILLER);
-        p    += n;
+        n = snprintf (ptr, left, "\n%s", FILLER);
+        ptr  += n;
         left -= n;
         line_len = 0;
       }
-
-      n = snprintf (p, left, " %s", __argv[i]);
+      n = snprintf (ptr, left, " %s", __argv[i]);
       line_len += n + 1;
-      p    += n;
+      ptr  += n;
       left -= n;
     }
     fputs ("\n---------------------------------------------------------------------------------\n", Modes.log);
-    snprintf (buf, sizeof(buf), "Starting: %s%s\n\n", Modes.who_am_I, args);
-    modeS_log (buf);
+    modeS_log (args);
+    fputs ("\n\n", Modes.log);
   }
 }
 
