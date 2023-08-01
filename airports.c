@@ -992,10 +992,11 @@ static bool airports_init_API (void)
     }
 
     flight_stats_now (&fs);
-    TRACE ("Parsed %u/%u records from: \"%s\"", fs.cached, g_data.ap_stats.API_added_CSV, Modes.airport_cache);
+    TRACE ("Parsed %u/%u/%u records from: \"%s\"",
+           fs.cached, fs.expired, g_data.ap_stats.API_added_CSV, Modes.airport_cache);
 
     if (Modes.tests)
-       assert (fs.cached == g_data.ap_stats.API_added_CSV);
+       assert (fs.cached + fs.expired == g_data.ap_stats.API_added_CSV);
   }
   return (true);
 }
@@ -1681,6 +1682,15 @@ bool airports_API_get_flight_info (const char  *call_sign,
 
   *departure = *destination = NULL;
 
+  /* No point getting the route-info for a helicopter.
+   * There will never be any route-response for such a request.
+   */
+  if (aircraft_is_helicopter(addr, NULL))
+  {
+    API_TRACE ("addr: %06X is a helicoper", addr);
+    return (false);
+  }
+
   if (*call_sign == '\0')
   {
     API_TRACE ("Empty 'call_sign'!");
@@ -1733,12 +1743,16 @@ bool airports_API_get_flight_info (const char  *call_sign,
  */
 void airports_API_flight_log_entering (const aircraft *a)
 {
-  LOG_FILEONLY ("plane %06X entering.\n", a->addr);
+  LOG_FILEONLY ("%s %06X entering\n", a->is_helicopter ? "helicopter" : "plane", a->addr);
 }
 
 void airports_API_flight_log_resolved (const aircraft *a)
 {
-  flight_info *f = flight_info_find_by_callsign (a->flight);
+  flight_info *f;
+
+  assert (a->is_helicopter == false);
+
+  f = flight_info_find_by_callsign (a->flight);
 
   if (f && !f->no_log && (f->type == AIRPORT_API_LIVE || f->type == AIRPORT_API_CACHED))
   {
@@ -1788,13 +1802,14 @@ void airports_API_flight_log_leaving (const aircraft *a)
   flight_info *f = flight_info_find_by_addr (a->addr);
   const char  *km_nmiles = "Nm";
   const char  *m_feet    = "ft";
+  const char  *call_sign = "?";
   uint64_t     now = MSEC_TIME();
   int          altitude = a->altitude;
   double       alt_div = 1.0;
   char         alt_buf [10] = "-";
 
   if (f)
-    f->no_log = true;     /* log this only once */
+     f->no_log = true;     /* log this only once */
 
   if (Modes.metric)
   {
@@ -1808,8 +1823,14 @@ void airports_API_flight_log_leaving (const aircraft *a)
     _itoa (altitude, alt_buf, 10);
   }
 
-  LOG_FILEONLY ("plane %06X leaving. call-sign: %s, %sactive for %.1lf s, alt: %s %s, dist: %s/%s %s.\n",
-                a->addr, f ? f->call_sign : "?",
+  if (a->is_helicopter)
+     call_sign = a->flight;
+  else if (f)
+     call_sign = f->call_sign;
+
+  LOG_FILEONLY ("%s %06X leaving. call-sign: %s, %sactive for %.1lf s, alt: %s %s, dist: %s/%s %s.\n",
+                a->is_helicopter ? "helicopter" : "plane",
+                a->addr, call_sign,
                 aircraft_is_military (a->addr, NULL) ? "military, " : "",
                 (double)(now - a->seen_first) / 1000.0,
                 alt_buf, m_feet,

@@ -476,10 +476,10 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   if (a->flight[0])
      call_sign = a->flight;
 
-  /* Post a ADSB-LOL API request for the flight-info.
+  /* If it's not a helicopter, post a ADSB-LOL API request for the flight-info.
    * Or return already cached flight-info.
    */
-  if (call_sign[0] != ' ')
+  if (!a->is_helicopter && call_sign[0] != ' ')
   {
     const char *departure, *destination;
 
@@ -507,7 +507,8 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   }
   else if (a->show == A_SHOW_NORMAL)
   {
-    airports_API_flight_log_resolved (a);
+    if (!a->is_helicopter)
+       airports_API_flight_log_resolved (a);
   }
   else if (a->show == A_SHOW_LAST_TIME)
   {
@@ -892,11 +893,11 @@ static int curses_init (void)
   clear();
   refresh();
 
+#if 0   // \todo
   stats_win = subwin (stdscr, 4, COLS, 0, 0);
   wattron (stats_win, A_REVERSE);
   LOG_FILEONLY ("stats_win: %p, SP->lines: %u, SP->cols: %u\n", stats_win, SP->lines, SP->cols);
 
-#if 1 // \todo
   flight_win = subwin (stdscr, 4, COLS, 0, 0);
   wattron (flight_win, A_REVERSE);
   LOG_FILEONLY ("flight_win: %p, SP->lines: %u, SP->cols: %u\n", flight_win, SP->lines, SP->cols);
@@ -907,8 +908,12 @@ static int curses_init (void)
 
 static void curses_exit (void)
 {
-  delwin (stats_win);
-  delwin (flight_win);
+  if (stats_win)
+     delwin (stats_win);
+
+  if (flight_win)
+     delwin (flight_win);
+
   endwin();
   delscreen (SP);  /* PDCurses does not free this memory */
 }

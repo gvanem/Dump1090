@@ -243,6 +243,7 @@ typedef struct statistics {
         uint64_t        unique_aircrafts;
         uint64_t        unique_aircrafts_CSV;
         uint64_t        unique_aircrafts_SQL;
+        uint64_t        unique_helicopters;
 
         /* Network statistics:
          */
