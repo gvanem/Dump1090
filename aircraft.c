@@ -533,7 +533,7 @@ static void aircraft_test_3 (void)
     a->altitude = random_range (0, 10000);
     a->heading  = random_range2 (-180, 180);
     a->messages = 1;
-    strcpy (a->flight, "test");
+    strcpy (a->call_sign, "test");
   }
   Modes.stat.messages_total = num;
 
@@ -1445,7 +1445,7 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
   sz = mg_snprintf (p, left,
                     "{\"hex\": \"%06X\", \"flight\": \"%s\", \"lat\": %f, \"lon\": %f, \"altitude\": %d, \"track\": %d, \"speed\": %d",
                      a->addr,
-                     a->flight,
+                     a->call_sign,
                      a->position.lat,
                      a->position.lon,
                      altitude,

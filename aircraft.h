@@ -62,7 +62,7 @@ typedef struct aircraft_info {
  */
 typedef struct aircraft {
         uint32_t  addr;                   /**< ICAO address */
-        char      flight [9];             /**< Flight number. \todo rename to call_sign */
+        char      call_sign [9];          /**< call-sign / flight number */
         int       altitude;               /**< Altitude */
         uint32_t  speed;                  /**< Velocity computed from EW and NS components. In Knots */
         uint32_t  speed_last;             /**< speed when used in `aircraft_set_est_home_distance()` last time. In Km/h */
