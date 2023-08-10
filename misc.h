@@ -202,7 +202,9 @@ typedef struct cartesian_t {
  * Simple check for a valid geo-position
  */
 #define SMALL_VAL        0.0001
-#define VALID_POS(pos)   (fabs(pos.lon) >= SMALL_VAL && fabs(pos.lat) >= SMALL_VAL)
+#define VALID_POS(pos)   (fabs(pos.lon) >= SMALL_VAL && fabs(pos.lon) < 180.0 && \
+                          fabs(pos.lat) >= SMALL_VAL && fabs(pos.lat) < 90.0)
+
 #define EARTH_RADIUS     6371000.0    /* meters. Assuming a sphere. Approx. 40.000.000 / TWO_PI meters */
 #define ASSERT_POS(pos)  do {                                         \
                            assert (pos.lon >= -180 && pos.lon < 180); \
@@ -576,6 +578,7 @@ uint32_t    ato_hertz (const char *Hertz);
 bool        str_startswith (const char *s1, const char *s2);
 bool        str_endswith (const char *s1, const char *s2);
 int         hex_digit_val (int c);
+const char *unescape_hex (const char *value);
 char       *basename (const char *fname);
 char       *dirname (const char *fname);
 char       *slashify (char *fname);
