@@ -1,5 +1,5 @@
 /**\file    sdrplay.h
- * \ingroup Main
+ * \ingroup Samplers
  */
 #ifndef SDRPLAY_LOADER_H
 #define SDRPLAY_LOADER_H

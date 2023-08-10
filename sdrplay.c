@@ -1,6 +1,6 @@
 /**
  * \file    sdrplay.c
- * \ingroup Main
+ * \ingroup Samplers
  * \brief   The interface for SDRplay devices.
  *
  * Load all needed functions from "sdrplay_api.dll" dynamically.
