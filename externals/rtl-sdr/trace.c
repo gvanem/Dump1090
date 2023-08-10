@@ -125,7 +125,7 @@ void trace_winusb (const char *file, unsigned line, const char *func, DWORD win_
      return;
 
   if (level >= 1 && win_err != ERROR_SUCCESS)
-     trace_printf (file, line, "!%s() failed with %s.\n", func, trace_strerror(win_err));
+     trace_printf (file, line, "!%s() failed with %s\n", func, trace_strerror(win_err));
 
   else if ((level >= 2 || show_winusb) && win_err == ERROR_SUCCESS)
      trace_printf (file, line, "|%s(), OK.\n", func);
