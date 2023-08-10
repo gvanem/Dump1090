@@ -31,7 +31,7 @@ global_data Modes;
 /**
  * \addtogroup Main      Main decoder
  * \addtogroup Misc      Support functions
- * \addtogroup Mongoose  Web server
+ * \addtogroup Samplers  SDR input functions
  *
  * \mainpage Dump1090
  *
@@ -555,7 +555,7 @@ static bool modeS_init_RTLSDR (void)
   device_count = rtlsdr_get_device_count();
   if (device_count <= 0)
   {
-    LOG_STDERR ("No supported RTLSDR devices found. Error: %s.\n", get_rtlsdr_error());
+    LOG_STDERR ("No supported RTLSDR devices found. Error: %s\n", get_rtlsdr_error());
     return (false);
   }
 
@@ -594,8 +594,8 @@ static bool modeS_init_RTLSDR (void)
     const char *err = get_rtlsdr_error();
 
     if (Modes.rtlsdr.name)
-         LOG_STDERR ("Error opening the RTLSDR device %s: %s.\n", Modes.rtlsdr.name, err);
-    else LOG_STDERR ("Error opening the RTLSDR device %d: %s.\n", Modes.rtlsdr.index, err);
+         LOG_STDERR ("Error opening the RTLSDR device %s: %s\n", Modes.rtlsdr.name, err);
+    else LOG_STDERR ("Error opening the RTLSDR device %d: %s\n", Modes.rtlsdr.index, err);
     return (false);
   }
 
@@ -797,7 +797,7 @@ static unsigned int __stdcall data_thread_fn (void *arg)
     rc = rtlsdr_read_async (Modes.rtlsdr.device, rx_callback, (void*)&Modes.exit,
                             MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
 
-    DEBUG (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s.\n",
+    DEBUG (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s\n",
            rc, get_rtlsdr_error());
 
     modeS_signal_handler (0);    /* break out of main_data_loop() */
@@ -2764,12 +2764,6 @@ bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
   return (true);
 }
 
-#if defined(USE_CURSES)
-  #define TUI_HELP  "wincon|curses      Select 'Windows-Console' or 'PCurses' interface at run-time.\n"
-#else
-  #define TUI_HELP  "wincon             'Windows-Console' is the default TUI.\n"
-#endif
-
 /**
  * Show the program usage
  */
@@ -2807,7 +2801,7 @@ static void show_help (const char *fmt, ...)
             "    --metric                 Use metric units (meters, km/h, ...).\n"
             "    --silent                 Silent mode for testing network I/O (together with `--debug n').\n"
             "    --test<=arg>             Perform some test of internal functions.\n"
-            "    --tui " TUI_HELP
+            "    --tui wincon|curses      Select 'Windows-Console' or 'PCurses' interface.\n"
             "     -V, -VV                 Show version info. `-VV' for details.\n"
             "     -h, --help              Show this help.\n\n",
             Modes.who_am_I, Modes.airport_db, Modes.aircraft_db, AIRCRAFT_DATABASE_URL, MODES_INTERACTIVE_TTL/1000);
@@ -3204,11 +3198,6 @@ static void select_tui (const char *arg)
   else if (!stricmp(arg, "curses"))
        Modes.tui_interface = TUI_CURSES;
   else show_help ("Unknown `--tui %s' mode.\n", arg);
-
-#if !defined(USE_CURSES)
-  if (Modes.tui_interface == TUI_CURSES)
-     show_help ("I was not built with '-DUSE_CURSES'. Use `--tui wincon' or nothing.\n");
-#endif
 }
 
 static void set_debug_bits (const char *flags)

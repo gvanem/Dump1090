@@ -1,6 +1,6 @@
 /**\file    misc.c
  * \ingroup Misc
- *
+ * \brief   Various support functions.
  */
 #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0602)
   #undef  _WIN32_WINNT
@@ -13,10 +13,8 @@
 #include <windows.h>
 #include <wininet.h>
 
-#if defined(USE_CURSES)
-  #undef MOUSE_MOVED
-  #include <curses.h>
-#endif
+#undef MOUSE_MOVED
+#include <curses.h>
 
 #include "aircraft.h"
 #include "sqlite3.h"
@@ -258,6 +256,54 @@ int hex_digit_val (int c)
   if (c >= 'a' && c <= 'f')
      return (c - 'a' + 10);
   return (-1);
+}
+
+/*
+ * Check for `[\x80 ... \x9f]` escaped values.
+ *
+ * Based on `mg_json_unescape()`.
+ */
+static bool unescape (const char *from, size_t from_len, char *to, size_t to_len)
+{
+  size_t i, j;
+
+  for (i = 0, j = 0; i < from_len && j < to_len; i++, j++)
+  {
+    if (from[i] == '\\' && from[i + 1] == 'x' && i + 3 < from_len)
+    {
+      int b2 = tolower (from[i+2]);
+      int b3 = tolower (from[i+3]);
+
+      if (b2 < '8' || b2 > '9' || b3 < '0' || b3 > 'f') /* Give up */
+         return (false);
+
+      ((BYTE*)to) [j] = (BYTE) mg_unhexn (from + i + 2, 2);
+      i += 3;
+    }
+    else
+    {
+      to [j] = from [i];
+    }
+  }
+
+  if (j >= to_len)
+     return (false);
+
+  if (to_len > 0)
+     to [j] = '\0';
+  return (true);
+}
+
+/**
+ * Decode any `\x80 ... \x9f` sequence in `value`.
+ */
+const char *unescape_hex (const char *value)
+{
+  static char buf [100];
+
+  if (!unescape(value, strlen(value), buf, sizeof(buf)))
+     return (value);
+  return (buf);
 }
 
 /**
@@ -695,7 +741,7 @@ const char *get_rtlsdr_error (void)
   uint32_t err = rtlsdr_last_error();
 
   if (err == 0)
-     return ("No error");
+     return ("No error.");
   return trace_strerror (err);
 }
 
@@ -789,17 +835,17 @@ static const char *build_features (void)
   #if defined(USE_ASAN)
     "ASAN",
   #endif
-  #if defined(USE_UBSAN)
-    "UBSAN",
-  #endif
-  #if defined(USE_CURSES)
-    "PDCurses",
-  #endif
   #if defined(PACKED_WEB_ROOT)
     "Packed-Web",
   #endif
   #if defined(USE_RTLSDR_EMUL)
     "RTLSDR-emul",
+  #endif
+  #if defined(MG_ENABLE_EPOLL)
+    "wepoll",
+  #endif
+  #if defined(USE_READSB_DEMOD)
+    "readsb-demod",
   #endif
     NULL
   };
@@ -834,9 +880,7 @@ void show_version_info (bool verbose)
     ver = rtlsdr_get_version();
     printf ("RTL-SDR version: %d.%d.%d.%d from %s.\n",
           ver >> 24, (ver >> 16) & 0xFF, (ver >> 8) & 0xFF, ver & 0xFF, rtlsdr_get_ver_id());
-#if defined(USE_CURSES)
     printf ("PDCurses: ver. %s, ", PDC_VERDOT);
-#endif
     printf ("Mongoose: ver. %s, Miniz ver. %s\n", MG_VERSION, mz_version());
 
     sql_info();

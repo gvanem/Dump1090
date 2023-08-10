@@ -98,12 +98,12 @@
 #define MINIZ_NO_ZLIB_APIS      1
 
 /**
- * clang-cl with `ASAN` / `UBSAN` may not like this in `externals/miniz.h`:
+ * clang-cl with `ASAN` may not like this in `externals/miniz.h`:
  * ```
  * #define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 1
  * ```
  */
-#if defined(USE_ASAN) || defined(USE_UBSAN)
+#if defined(USE_ASAN)
 #define MINIZ_USE_UNALIGNED_LOADS_AND_STORES 0
 #endif
 

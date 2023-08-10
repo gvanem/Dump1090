@@ -14,12 +14,8 @@
 #include "sdrplay.h"
 #include "misc.h"
 
-#if defined(USE_CURSES)
-  #undef MOUSE_MOVED
-  #include <curses.h>
-#else
-  #define chtype WORD
-#endif
+#undef MOUSE_MOVED
+#include <curses.h>
 
 typedef enum colours {
         COLOUR_DEFAULT = 0,
@@ -27,6 +23,7 @@ typedef enum colours {
         COLOUR_GREEN,
         COLOUR_RED,
         COLOUR_YELLOW,
+        COLOUR_REVERSE,
         COLOUR_MAX,
       } colours;
 
@@ -62,31 +59,29 @@ static HANDLE                      console_hnd = INVALID_HANDLE_VALUE;
 static DWORD                       console_mode = 0;
 static colour_mapping              colour_map [COLOUR_MAX];
 
-#if defined(USE_CURSES)
-  static int  curses_init (void);
-  static void curses_exit (void);
-  static void curses_set_colour (enum colours colour);
-  static void curses_print_header (void);
-  static int  curses_refresh (int y, int x);
+static int  curses_init (void);
+static void curses_exit (void);
+static void curses_set_colour (enum colours colour);
+static void curses_print_header (void);
+static int  curses_refresh (int y, int x);
 
-  /* Or use CreatePseudoConsole() instead?
-   * https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session
-   */
-  static WINDOW *stats_win  = NULL;
-  static WINDOW *flight_win = NULL;
+/* Or use CreatePseudoConsole() instead?
+ * https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session
+ */
+static WINDOW *stats_win  = NULL;
+static WINDOW *flight_win = NULL;
 
-  static API_funcs curses_api = {
-         .init         = curses_init,
-         .exit         = curses_exit,
-         .set_colour   = curses_set_colour,
-         .clr_scr      = clear,
-         .clr_eol      = clrtoeol,
-         .gotoxy       = move,
-         .refresh      = curses_refresh,
-         .print_line   = mvaddstr,
-         .print_header = curses_print_header
-        };
-#endif
+static API_funcs curses_api = {
+       .init         = curses_init,
+       .exit         = curses_exit,
+       .set_colour   = curses_set_colour,
+       .clr_scr      = clear,
+       .clr_eol      = clrtoeol,
+       .gotoxy       = move,
+       .refresh      = curses_refresh,
+       .print_line   = mvaddstr,
+       .print_header = curses_print_header
+      };
 
 static API_funcs wincon_api = {
        .init         = wincon_init,
@@ -106,28 +101,28 @@ static bool show_dep_dst = false;
 
 /* Use this header and `snprintf()` format for "DEP DST" columns when `show_dep_dst == true`.
  */
-#define HEADER_DEP_DST      "ICAO   Callsign  Reg-num  Cntry  DEP DST   Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
-#define HEADER_BAR_DEP_DST  "-------------------------------------------------------------------------------------------------------------"
-#define LINE_FMT_DEP_DST    "%06X %-9.9s %-8s %-6s %-3s %-3s   %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
-//                                ^      ^    ^    ^    ^      ^
-//                                |      |    |    |    |      |__ Altitude
-//                                |      |    |    |    |__ DST  (IATA destination)
-//                                |      |    |    |__ DEP       (IATA departure)
-//                                |      |    |__ Cntry
-//                                |      |__ Reg-Num
-//                                |__ Callsign
+#define HEADER_DEP_DST       "ICAO   Callsign  Reg-num  Cntry  DEP DST   Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
+#define HEADER_BAR_DEP_DST   "-------------------------------------------------------------------------------------------------------------"
+#define LINE_FMT_DEP_DST     "%06X %-9.9s %-8s %-6s %-3s %-3s   %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
+//                                 ^      ^    ^    ^    ^      ^
+//                                 |      |    |    |    |      |__ Altitude
+//                                 |      |    |    |    |__ DST  (IATA destination)
+//                                 |      |    |    |__ DEP       (IATA departure)
+//                                 |      |    |__ Cntry
+//                                 |      |__ Reg-Num
+//                                 |__ Callsign
 //
 
 /* Otherwise use these:
  */
-#define HEADER_NORMAL       "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
-#define HEADER_BAR_NORMAL   "-------------------------------------------------------------------------------------------------------"
-#define LINE_FMT_NORMAL     "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
-//                                ^      ^    ^    ^
-//                                |      |    |    |__ Altitude
-//                                |      |    |__ Cntry
-//                                |      |__ Reg-Num
-//                                |__ Callsign
+#define HEADER_NORMAL        "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
+#define HEADER_BAR_NORMAL    "-------------------------------------------------------------------------------------------------------"
+#define LINE_FMT_NORMAL      "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
+//                                 ^      ^    ^    ^
+//                                 |      |    |    |__ Altitude
+//                                 |      |    |__ Cntry
+//                                 |      |__ Reg-Num
+//                                 |__ Callsign
 //
 
 /*
@@ -148,12 +143,9 @@ bool interactive_init (void)
 
   assert (api == NULL);
 
-#ifdef USE_CURSES
   if (Modes.tui_interface == TUI_CURSES)
-     api = &curses_api;
-  else
-#endif
-     api = &wincon_api;
+       api = &curses_api;
+  else api = &wincon_api;
 
   if (airports_init() > 0)
      show_dep_dst = true;
@@ -260,14 +252,13 @@ void interactive_title_stats (void)
 
 /*
  * Also called from `background_tasks()` in the main thread.
- * But this function does nothing when `USE_CURSES` is not defined.
+ * This function does nothing when `Modes.tui_interface != TUI_CURSES`.
  */
 void interactive_other_stats (void)
 {
   if (Modes.tui_interface != TUI_CURSES)    /* this needs PDCurses; get out */
      return;
 
-#if defined(USE_CURSES)
   if (stats_win)
   {
     /**
@@ -288,7 +279,6 @@ void interactive_other_stats (void)
   {
     /** \todo */
   }
-#endif
 }
 
 static int gain_increase (int gain_idx)
@@ -473,8 +463,8 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
        reg_num = a->CSV->reg_num;
   }
 
-  if (a->flight[0])
-     call_sign = a->flight;
+  if (a->call_sign[0])
+     call_sign = a->call_sign;
 
   /* If it's not a helicopter, post a ADSB-LOL API request for the flight-info.
    * Or return already cached flight-info.
@@ -547,7 +537,7 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
 void interactive_show_data (uint64_t now)
 {
   static int old_count = -1;
-  int        row = 2, count = 0;
+  int        row = 1, count = 0;
   aircraft  *a = Modes.aircrafts;
   bool       no_clear = (Modes.debug & ~DEBUG_ADSB_LOL);
 
@@ -632,7 +622,7 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
   {
     if (mm->ME_type >= 1 && mm->ME_type <= 4)
     {
-      memcpy (a->flight, mm->flight, sizeof(a->flight));
+      memcpy (a->call_sign, mm->flight, sizeof(a->call_sign));
     }
     else if ((mm->ME_type >= 9  && mm->ME_type <= 18) || /* Airborne Position (Baro Altitude) */
              (mm->ME_type >= 20 && mm->ME_type <= 22))   /* Airborne Position (GNSS Height) */
@@ -714,6 +704,7 @@ static int wincon_init (void)
   colour_map [COLOUR_GREEN  ].attrib = (bg | 10);                 /* bright green */
   colour_map [COLOUR_RED    ].attrib = (bg | 12);                 /* bright red */
   colour_map [COLOUR_YELLOW ].attrib = (bg | 14);                 /* bright yellow */
+  colour_map [COLOUR_REVERSE].attrib = 9 + (7 << 4);              /* bright blue on white */
   return (0);
 }
 
@@ -793,12 +784,7 @@ static int wincon_refresh (int y, int x)
 
 static int wincon_print_line (int y, int x, const char *str)
 {
-#if 1
   puts (str);
-#else
-  WriteConsoleA (console_hnd, str, strlen(str), NULL, NULL);
-#endif
-
   (void) x; /* Cursor already set */
   (void) y;
   return (0);
@@ -817,25 +803,9 @@ static void wincon_print_header (void)
   *p++ = '\n';
   *p = '\0';
 
-  (*api->set_colour) (COLOUR_WHITE);
+  (*api->set_colour) (COLOUR_REVERSE);
   printf (fmt, spinner[spin_idx & 3]);
   (*api->set_colour) (0);
-
-#if 1
-  puts (show_dep_dst ? HEADER_BAR_DEP_DST : HEADER_BAR_NORMAL);
-
-#else
-  WORD  attr = console_info.wAttributes | COMMON_LVB_GRID_HORIZONTAL;
-  WORD  width = strlen (header) - 1;
-  DWORD written;
-  COORD coord = { .X = console_info.srWindow.Left,
-                  .Y = console_info.srWindow.Top + 2
-                };
-
-  attr |= 15;  /* bright white */
-  FillConsoleOutputAttribute (console_hnd, attr, width, coord, &written);
-  WriteConsoleA (console_hnd, header, strlen(header), NULL, NULL);
-#endif
 
   spin_idx++;
 }
@@ -843,7 +813,6 @@ static void wincon_print_header (void)
 /**
  * PDCurses API functions
  */
-#if defined(USE_CURSES)
 static int curses_init (void)
 {
   bool slk_ok = (slk_init(1) == OK);
@@ -887,6 +856,9 @@ static int curses_init (void)
   colour_map [COLOUR_YELLOW ].pair   = 4;
   colour_map [COLOUR_YELLOW ].attrib = A_NORMAL;
 
+  colour_map [COLOUR_REVERSE].pair   = 5;
+  colour_map [COLOUR_REVERSE].attrib = A_REVERSE | COLOR_BLUE;
+
   noecho();
   curs_set (0);
   mousemask (0, NULL);
@@ -920,7 +892,7 @@ static void curses_exit (void)
 
 static void curses_set_colour (enum colours colour)
 {
-  int pair, attrib;
+  int pair, attrib, attr;
 
   assert (colour >= 0);
   assert (colour < COLOUR_MAX);
@@ -929,7 +901,9 @@ static void curses_set_colour (enum colours colour)
   assert (pair < COLOR_PAIRS);
 
   attrib = colour_map [colour].attrib;
-  assert (attrib == A_NORMAL || attrib == A_BOLD);
+
+  attr = attrib & A_ATTRIBUTES;
+  assert (attr == A_NORMAL || attr == A_BOLD || attr == A_REVERSE);
   attrset (COLOR_PAIR(pair) | attrib);
 }
 
@@ -946,12 +920,8 @@ static void curses_print_header (void)
 {
   const char *header = (show_dep_dst ? HEADER_DEP_DST : HEADER_NORMAL);
 
-  (*api->set_colour) (COLOUR_WHITE);
+  (*api->set_colour) (COLOUR_REVERSE);
   mvprintw (0, 0, header, spinner[spin_idx & 3]);
-  spin_idx++;
-
   (*api->set_colour) (0);
-  mvhline (1, 0, ACS_HLINE, strlen(header)-1);
+  spin_idx++;
 }
-#endif  /* USE_CURSES */
-

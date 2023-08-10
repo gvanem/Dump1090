@@ -17,14 +17,6 @@ MAKEFLAGS += --warn-undefined-variables
 USE_CRT_DEBUG ?= 0
 
 #
-# TODO: make this default and the only TUI.
-#
-# Use a minified version of PD-Curses from
-# https://github.com/wmcbrine/PDCurses.git
-#
-USE_CURSES ?= 1
-
-#
 # Option for 'externals/mongoose.c':
 #
 # Use a Windows version of 'epoll()' from
@@ -67,12 +59,6 @@ USE_READSB_DEMOD ?= 0
 # But 'USE_CRT_DEBUG = 1' and 'CC = cl' works.
 #
 USE_ASAN ?= 0
-
-#
-# Use "Undefined Behavior Sanitizer (UBSan)"?
-# For 'clang-cl' only.
-#
-USE_UBSAN ?= 0
 
 #
 # Compile using 'cl -MP ...'. For MSVC only.
@@ -154,7 +140,8 @@ ifneq ($(CC),cl)
   endif
 endif
 
-vpath %.c externals \
+vpath %.c externals        \
+          externals/Curses \
           externals/rtl-sdr
 
 CFLAGS = -nologo -Zi -W4           \
@@ -162,6 +149,7 @@ CFLAGS = -nologo -Zi -W4           \
          -fp:precise               \
          -I.                       \
          -I./externals             \
+         -I./externals/Curses      \
          -I./externals/rtl-sdr     \
          -I./externals/SDRplay-API \
          -I./$(OBJ_DIR)
@@ -204,8 +192,6 @@ endif
 #
 # ASAN build settings:
 #
-# Could be used with 'USE_UBSAN = 1' too. See 'USE_UBSAN' section below.
-#
 # This works best:
 #   c:\> set ASAN_OPTIONS=print_stats=1:windows_hook_legacy_allocators=1:color=always:halt_on_error=0
 #
@@ -231,39 +217,15 @@ ifeq ($(USE_ASAN),1)
   endif
 endif
 
-#
-# UBSAN build settings.
-#
-# Ref: https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html
-#
-ifeq ($(USE_UBSAN),1)
-  ifeq ($(CC),cl)
-    $(warning 'cl' does not support 'USE_UBSAN=1'. Disabling.)
-    USE_UBSAN := 0
-  else
-    RCFLAGS += -DUSE_UBSAN
-    CFLAGS  += -DUSE_UBSAN -fsanitize=undefined
-
-    #
-    # The default for 'x86 / Release' is 'clang_rt.asan_dynamic_runtime_thunk-i386.lib'
-    # (and clang_rt.asan_dbg_dynamic_runtime_thunk-i386.lib for 'x86 / Debug')
-    #
-    # Let the linker select the ASAN libraries.
-    #
-    LDFLAGS += -inferasanlibs \
-               -libpath:$(CLANG_$(BITS))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
-  endif
-endif
-
-ifneq ($(USE_ASAN)-$(USE_UBSAN),0-0)
+ifeq ($(USE_ASAN),1)
   ifeq ($(CC),clang-cl)
-    $(info Detected 'CLANG_ROOT=$(CLANG_$(BITS))' for 'USE_ASAN=$(USE_ASAN)' and 'USE_UBSAN=$(USE_UBSAN)'.)
+    $(info Detected 'CLANG_ROOT=$(CLANG_$(BITS))' for 'USE_ASAN=$(USE_ASAN)'.)
   endif
 endif
 
 RCFLAGS += -DRC_BITS=$(BITS)
 
-EX_LIBS += advapi32.lib ole32.lib setupapi.lib winusb.lib
+EX_LIBS += advapi32.lib ole32.lib setupapi.lib user32.lib winusb.lib
 
 ifeq ($(USE_WSOCK_TRACE),1)
   EX_LIBS += wsock_trace-$(CPU).lib
@@ -286,13 +248,8 @@ SOURCES = aircraft.c           \
           net_io.c             \
           location.c           \
           externals/mongoose.c \
-          externals/zip.c
-
-#
-# Empty by default
-#
-GENERATED =
-MINIFY    =
+          externals/zip.c      \
+          externals/Curses/amalgamation.c
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
              librtlsdr.c                   \
@@ -302,12 +259,11 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_fc2580.c                \
              tuner_r82xx.c)
 
-ifeq ($(USE_CURSES),1)
-  vpath %.c externals/Curses
-  CFLAGS  += -DUSE_CURSES -I./externals/Curses
-  SOURCES += externals/Curses/amalgamation.c
-  EX_LIBS += user32.lib
-endif
+#
+# Empty by default
+#
+GENERATED =
+MINIFY    =
 
 ifeq ($(USE_EPOLL),1)
   CFLAGS += -DMG_ENABLE_EPOLL=1
@@ -504,8 +460,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
 
 OTHER_JUNK = vc1*.pdb link.tmp link.args \
              cpp-filter.py               \
-             check-for-unused-libs.py    \
-             json-{1,2,3,4}.txt
+             check-for-unused-libs.py
 
 clean: docs_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
@@ -564,6 +519,21 @@ define make_resp_file
   $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
 endef
 
+doxy_SOURCES = $(addprefix ../, $(SOURCES))
+doxy_HEADERS = ../aircraft.h                \
+               ../airports.h                \
+               ../csv.h                     \
+               ../dump1090_config.h         \
+               ../interactive.h             \
+               ../location.h                \
+               ../misc.h                    \
+               ../net_io.h                  \
+               ../sdrplay.h                 \
+               ../externals/Curses/curses.h \
+               ../externals/rtlsdr-emul.h   \
+               ../externals/miniz.h         \
+               ../externals/zip.h
+
 define dump1090_Doxyfile
   PROJECT_NAME          = "Dump1090"
   PROJECT_LOGO          = # to-do
@@ -572,14 +542,8 @@ define dump1090_Doxyfile
   FORCE_LOCAL_INCLUDES  = yes
   QUIET                 = yes
   PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1
-  INPUT                 = ../dump1090.c              \
-                          ../csv.c                   \
-                          ../csv.h                   \
-                          ../misc.h                  \
-                          ../sdrplay.c               \
-                          ../sdrplay.h               \
-                          ../externals/rtlsdr-emul.c \
-                          ../externals/rtlsdr-emul.h
+  INPUT                 = $(doxy_SOURCES) \
+                          $(doxy_HEADERS)
 
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = ..
