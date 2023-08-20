@@ -3192,7 +3192,7 @@ uint32_t rtlsdr_get_version (void)
           ((uint32_t)RTLSDR_MICRO << 8) | (uint32_t)RTLSDR_NANO;
 }
 
-static void __stdcall softagc_control_worker (void *arg)
+static void softagc_control_worker (void *arg)
 {
   rtlsdr_dev_t         *dev = (rtlsdr_dev_t*) arg;
   struct softagc_state *agc = &dev->softagc;
