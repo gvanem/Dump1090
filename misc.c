@@ -265,49 +265,56 @@ int hex_digit_val (int c)
  */
 static bool unescape (const char *from, size_t from_len, char *to, size_t to_len)
 {
-  size_t i, j;
+  static const char hex_chars[] = "0123456789abcdef";
+  size_t            from_idx, to_idx;
 
-  for (i = 0, j = 0; i < from_len && j < to_len; i++, j++)
+  for (from_idx = 0, to_idx = 0; from_idx < from_len && to_idx < to_len; from_idx++)
   {
-    if (from[i] == '\\' && from[i + 1] == 'x' && i + 3 < from_len)
+    if (from [from_idx] == '\\' && from [from_idx+1] == 'x' && from_idx + 3 < from_len)
     {
-      int b2 = tolower (from[i+2]);
-      int b3 = tolower (from[i+3]);
+      int b2 = tolower (from [from_idx+2]);
+      int b3 = tolower (from [from_idx+3]);
+      int val;
 
-      if (b2 < '8' || b2 > '9' || b3 < '0' || b3 > 'f') /* Give up */
+      if (b2 < '8' || b2 > '9' || b3 < '0' || b3 > 'f')   /* Give up */
          return (false);
 
-      ((BYTE*)to) [j] = (BYTE) mg_unhexn (from + i + 2, 2);
-      i += 3;
+      val = (b2 - '0') << 4;
+      if (b3 <= '9')
+           val += (b3 - '0');
+      else val += (b3 - 'a') + 10;
+
+      ((BYTE*)to) [to_idx++] = val;
+      from_idx += 3;
     }
     else
     {
-      to [j] = from [i];
+      to [to_idx++] = from [from_idx];
     }
   }
 
-  if (j >= to_len)
+  if (to_idx >= to_len)
      return (false);
 
   if (to_len > 0)
-     to [j] = '\0';
+     to [to_idx] = '\0';
   return (true);
 }
 
 /**
- * Decode any `\x80 ... \x9f` sequence in `value`.
+ * Decode any `\\x80 ... \\x9f` sequence in `value`.
  */
 const char *unescape_hex (const char *value)
 {
   static char buf [100];
 
-  if (!unescape(value, strlen(value), buf, sizeof(buf)))
-     return (value);
-  return (buf);
+  if (unescape(value, strlen(value), buf, sizeof(buf)))
+     return (buf);
+  return (value);
 }
 
 /**
- * Return TRUE if string `s1` starts with `s2`.
+ * Return true if string `s1` starts with `s2`.
  *
  * Ignore casing of both strings.
  * And drop leading blanks in `s1` first.
@@ -320,22 +327,22 @@ bool str_startswith (const char *s1, const char *s2)
   s2_len = strlen (s2);
 
   if (s2_len > s1_len)
-     return (FALSE);
+     return (false);
 
   if (!strnicmp (s1, s2, s2_len))
-     return (TRUE);
-  return (FALSE);
+     return (true);
+  return (false);
 }
 
 /**
- * Return TRUE if string `s1` ends with `s2`.
+ * Return true if string `s1` ends with `s2`.
  */
 bool str_endswith (const char *s1, const char *s2)
 {
   const char *s1_end, *s2_end;
 
   if (strlen(s2) > strlen(s1))
-     return (FALSE);
+     return (false);
 
   s1_end = strchr (s1, '\0') - 1;
   s2_end = strchr (s2, '\0') - 1;
