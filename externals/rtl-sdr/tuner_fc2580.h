@@ -17,7 +17,7 @@ int fc2580_set_freq(void *dev, unsigned int RfFreqHz);
 int fc2580_set_i2c_register(void *dev, unsigned i2c_register, unsigned data, unsigned mask);
 int fc2580_get_i2c_register(void *dev, unsigned char *data, int *len, int *strength);
 int fc2580_set_gain_mode(void *dev, int manual);
-int fc2580_set_gain(void *dev, int gain);
+int fc2580_set_gain_index(void *dev, unsigned int index);
 const int *fc2580_get_gains(int *len);
 
 #endif

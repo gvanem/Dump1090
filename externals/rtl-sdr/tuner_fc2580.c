@@ -410,7 +410,7 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 		goto err;
 
 	/* registers */
-	if(curr_band != (int)i)
+	if(curr_band != i)
 	{
 		curr_band = i;
 		for (i = 0; i < ARRAY_SIZE(fc2580_freq_regs); i++)
@@ -486,17 +486,9 @@ static const uint8_t fc2580_r73[] = {
 static const uint8_t fc2580_r74[] = {
     0,12,24,36, 48, 60, 72, 84, 96, 84, 96, 84, 96, 84, 96, 84, 96, 84, 96,108,120,132,144,156};
 
-#define GAIN_CNT	(sizeof(fc2580_gains) / sizeof(int))
-
-int fc2580_set_gain(void *dev, int gain)
+int fc2580_set_gain_index(void *dev, unsigned int i)
 {
-	unsigned int i;
-	int ret;
-
-	for (i = 0; i < GAIN_CNT; i++)
-		if ((fc2580_gains[i] >= gain) || (i+1 == GAIN_CNT))
-			break;
-	ret = fc2580_write(dev, 0x49, fc2580_r73[i]);
+	int ret = fc2580_write(dev, 0x49, fc2580_r73[i]);
 	ret |= fc2580_write(dev, 0x4a, fc2580_r74[i]);
 
 	return ret;

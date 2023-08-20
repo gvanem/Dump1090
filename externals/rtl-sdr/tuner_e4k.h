@@ -190,7 +190,7 @@ int e4k_if_gain_set(struct e4k_state *e4k, uint8_t stage, int8_t value);
 int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq);
 int e4k_set_bandwidth(struct e4k_state *e4k, int bw, uint32_t *applied_bw, int apply);
 int e4k_enable_manual_gain(struct e4k_state *e4k, uint8_t manual);
-int e4k_set_gain(struct e4k_state *e4k, int gain);
+int e4k_set_gain_index(struct e4k_state *e4k, unsigned int index);
 int e4k_set_i2c_register(struct e4k_state *e4k, unsigned i2c_register, unsigned data, unsigned mask);
 int e4k_get_i2c_register(struct e4k_state *e4k, uint8_t *data, int *len, int *strength);
 const int *e4k_get_gains(int *len);

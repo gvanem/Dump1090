@@ -895,21 +895,15 @@ static int r82xx_sysfreq_sel(struct r82xx_priv *priv,
 
 int r82xx_set_gain_mode(struct r82xx_priv *priv, int set_manual_gain)
 {
+	printf("manual_gain=%d\n", set_manual_gain);
 	return r82xx_write_reg_mask(priv, 0x0c, set_manual_gain ? 0x00 : 0x10, 0x10);
 }
 
 static const int r82xx_gains[] = {
 	0,34,68,102,137,171,207,240,278,312,346,382,416,453,488,527};
 
-#define GAIN_CNT	(sizeof(r82xx_gains) / sizeof(int))
-
-int r82xx_set_gain(struct r82xx_priv *priv, int gain)
+int r82xx_set_gain_index(struct r82xx_priv *priv, unsigned int i)
 {
-	unsigned int i;
-	/* set VGA gain */
-	for (i = 0; i < GAIN_CNT; i++)
-		if ((r82xx_gains[i] >= gain) || (i+1 == GAIN_CNT))
-			break;
 	return r82xx_write_reg_mask(priv, 0x0c, i, 0x0f);
 }
 
@@ -1076,6 +1070,7 @@ static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* dat
 		lna_gain = 0;
 
 	/* Sum_of_all_gains = if_gain + lna_gain + mixer_gain + absolute gain*/
+	//printf("if_gain=%d, lna_gain=%d, mixer_gain=%d, abs_gain=%d\n", if_gain, lna_gain, r82xx_mixer_gains[mixer_gain], priv->abs_gain);
 	return if_gain + lna_gain + r82xx_mixer_gains[mixer_gain] - priv->abs_gain;
 
 }

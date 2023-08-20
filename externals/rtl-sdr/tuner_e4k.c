@@ -663,16 +663,9 @@ static const uint8_t e4k_reg23[] = {0,  8,0x10,0x18,0x20,0x21,0x22,0x23,0x24,0x2
 /* all gain values are expressed in tenths of a dB */
 static const int     e4k_gains[] = {0, 29,  60,  89, 119, 147, 176, 206, 235, 264, 294, 323, 353, 382, 408, 436, 466, 495, 521, 548};
 
-#define GAIN_CNT	(sizeof(e4k_gains) / sizeof(int))
-
-int e4k_set_gain(struct e4k_state *e4k, int gain)
+int e4k_set_gain_index(struct e4k_state *e4k, unsigned int i)
 {
 	uint8_t data[3];
-	unsigned int i;
-
-	for (i = 0; i < GAIN_CNT; i++)
-		if ((e4k_gains[i] >= gain) || (i+1 == GAIN_CNT))
-			break;
 	data[0] = e4k_reg21[i];
 	data[1] = e4k_reg22[i];
 	data[2] = e4k_reg23[i];

@@ -525,11 +525,8 @@ static const uint8_t if_gains[]=
 {0x80,0x40,0x20,0x01,0x03,0x05,0x07,0x09,0x0b,0x0d,0x0f,0x11,0x13,0x15,0x17,0x19,0x1b,0x1d,0x1f};
 
 
-#define GAIN_CNT	(sizeof(fc001x_gains) / sizeof(int))
-
-static int fc001x_set_gain(void *dev, int gain)
+static int fc001x_set_gain_index(void *dev, unsigned int i)
 {
-	unsigned int i;
 	uint8_t gain_mode;
 
 	int ret = fc001x_readreg(dev, 0x0d, &gain_mode);
@@ -539,22 +536,19 @@ static int fc001x_set_gain(void *dev, int gain)
 		return 0; //don't set gain in AGC mode
 	if(tuner_type == RTLSDR_TUNER_FC0013)
 		ret = fc001x_writereg(dev, 0x12, 0); //set FC0013 mixer gain to 0
-	for (i = 0; i < GAIN_CNT; i++)
-		if ((fc001x_gains[i] >= gain) || (i+1 == GAIN_CNT))
-			break;
 	ret |= fc001x_writereg(dev, if_reg, if_gains[i]);
 	//print_registers(dev);
 	return ret;
 }
 
-int fc0012_set_gain(void *dev, int gain)
+int fc0012_set_gain_index(void *dev, unsigned int index)
 {
-	return fc001x_set_gain(dev, gain);
+	return fc001x_set_gain_index(dev, index);
 }
 
-int fc0013_set_gain(void *dev, int gain)
+int fc0013_set_gain_index(void *dev, unsigned int index)
 {
-	return fc001x_set_gain(dev, gain);
+	return fc001x_set_gain_index(dev, index);
 }
 
 int fc001x_set_bw(void *dev, int bw, uint32_t *applied_bw, int apply)

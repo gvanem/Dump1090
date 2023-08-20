@@ -10,13 +10,13 @@
 #define RTLSDR_MICRO 6
 #endif
 #ifndef RTLSDR_NANO
-#define RTLSDR_NANO  7
+#define RTLSDR_NANO  8
 #endif
 
 /* RTLSDR__RC is the release candidate suffix. Should normally be empty. */
 #ifndef RTLSDR_RC
 #define RTLSDR_RC ""
 
-#define RTL_VER_ID "github.com/old-dab/rtlsdr"
+#define RTL_VER_ID	"github.com/old-dab/rtlsdr"
 
 #endif

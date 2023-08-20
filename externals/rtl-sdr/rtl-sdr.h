@@ -62,6 +62,7 @@ RTLSDR_API int rtlsdr_open(rtlsdr_dev_t **dev, uint32_t index);
 
 /*!
  * Close device.
+ *
  * \param dev the device handle given by rtlsdr_open()
  * \return -1 if device handle was already close - or never opened
  */
@@ -292,6 +293,16 @@ RTLSDR_API int rtlsdr_get_tuner_gains(rtlsdr_dev_t *dev, int *gains);
 RTLSDR_API int rtlsdr_set_tuner_gain(rtlsdr_dev_t *dev, int gain);
 
 /*!
+ * Set the gain index for the device.
+ * Manual gain mode must be enabled for this to work.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param gain index
+ * \return 0 on success
+ */
+RTLSDR_API int rtlsdr_set_tuner_gain_index(rtlsdr_dev_t *dev, unsigned int index);
+
+/*!
  * Set (and retrieve) the bandwidth for the device.
  *
  * \param dev the device handle given by rtlsdr_open()
@@ -340,14 +351,13 @@ RTLSDR_API int rtlsdr_get_tuner_gain(rtlsdr_dev_t *dev);
 RTLSDR_API int rtlsdr_set_tuner_if_gain(rtlsdr_dev_t *dev, int stage, int gain);
 
 /*!
- * Set the gain mode (automatic/manual) for the device.
- * Manual gain mode must be enabled for the gain setter function to work.
+ * Set the tuner gain mode for the device.
  *
  * \param dev the device handle given by rtlsdr_open()
- * \param manual gain mode, 1 means manual gain mode shall be enabled.
+ * \param mode, 0 = hardware agc, 1 = manual gain mode, 2 = software agc.
  * \return 0 on success
  */
-RTLSDR_API int rtlsdr_set_tuner_gain_mode(rtlsdr_dev_t *dev, int manual);
+RTLSDR_API int rtlsdr_set_tuner_gain_mode(rtlsdr_dev_t *dev, int mode);
 
 /*!
  * Set the sample rate for the device, also selects the baseband filters
