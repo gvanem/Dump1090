@@ -63,17 +63,7 @@ USE_ASAN ?= 0
 #
 # Compile using 'cl -MP ...'. For MSVC only.
 #
-USE_MP_COMPILE ?= 1
-
-#
-# Enable "Visual Leak Detector".
-# Ref:
-#   https://github.com/KindDragon/vld/
-#
-# Can be used for Release mode too.
-#
-USE_VLD  ?= 0
-VLD_ROOT ?= f:/MinGW32/src/misc/VisualLeakDetector/src
+USE_MP_COMPILE ?= 0
 
 #
 # Use Windows' SQLite instead of 'externals/sqlite3.c'?
@@ -171,11 +161,6 @@ ifeq ($(CC),clang-cl)
   RCFLAGS += -D__clang__
 else
   RCFLAGS += -D_MSC_VER
-endif
-
-ifeq ($(USE_VLD),1)
-  CFLAGS  += -DUSE_VLD -I$(VLD_ROOT)/src
-  EX_LIBS += $(VLD_ROOT)/vld_$(CPU).lib
 endif
 
 #

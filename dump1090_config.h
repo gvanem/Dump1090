@@ -151,14 +151,6 @@
   #endif
 #endif
 
-/**
- * Enable "Visual Leak Detector"?
- */
-#if defined(USE_VLD)
-  #define VLD_FORCE_ENABLE
-  #include <vld.h>
-#endif
-
 #if !defined(USE_WIN_SQLITE)
   /*
    * Options for `externals/sqlite3.c`:
