@@ -2210,7 +2210,7 @@ SOCKET ws_get_base_socket(SOCKET socket) {
 }
 
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
-static HANDLE                     stdout_hnd;
+static HANDLE                     stdout_hnd = INVALID_HANDLE_VALUE;
 static CRITICAL_SECTION           cs;
 
 static int _epoll_trace_init (void)
@@ -2218,12 +2218,13 @@ static int _epoll_trace_init (void)
   char *env = getenv ("EPOLL_TRACE");
   int   rc = 0;
 
-  InitializeCriticalSection (&cs);
-  stdout_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
-  GetConsoleScreenBufferInfo (stdout_hnd, &console_info);
-
   if (env)
-     rc = atoi (env);
+  {
+    rc = atoi (env);
+    InitializeCriticalSection (&cs);
+    stdout_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
+    GetConsoleScreenBufferInfo (stdout_hnd, &console_info);
+  }
   return (rc);
 }
 
