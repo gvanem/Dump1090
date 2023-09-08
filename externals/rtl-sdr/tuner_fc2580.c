@@ -410,7 +410,7 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 		goto err;
 
 	/* registers */
-	if(curr_band != i)
+	if(curr_band != (int)i)
 	{
 		curr_band = i;
 		for (i = 0; i < ARRAY_SIZE(fc2580_freq_regs); i++)

@@ -17,6 +17,8 @@
 
 #define PDC_99 1
 
+#undef MOUSE_MOVED
+
 /* Other possible PDCurses defines:
  *   #define PDC_WIDE
  *   #define PDC_RGB
