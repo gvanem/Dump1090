@@ -7,7 +7,7 @@
 
 #define VER_MAJOR 0
 #define VER_MINOR 4
-#define VER_MICRO 0
+#define VER_MICRO 1
 
 /* Warning control:
  */
@@ -116,6 +116,8 @@
  */
 #define stricmp(s1, s2)      _stricmp (s1, s2)
 #define strnicmp(s1, s2, sz) _strnicmp (s1, s2, sz)
+#define strlwr(s)            _strlwr (s)
+#define strupr(s)            _strupr (s)
 #define access(file, mode)   _access (file, mode)
 #define fileno(stream)       _fileno (stream)
 
@@ -162,3 +164,12 @@
   #define SQLITE_NO_SYNC       1
   #define SQLITE_OMIT_AUTOINIT 1
 #endif
+
+/*
+ * For `net_io.c`:
+ */
+#if defined(USE_PACKED_DLL) || !defined(USE_PACKED_WEB)
+  #undef USE_PACKED_WEB
+  #undef PACKED_WEB_ROOT
+#endif
+
