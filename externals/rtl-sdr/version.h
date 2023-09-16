@@ -10,7 +10,7 @@
 #define RTLSDR_MICRO 6
 #endif
 #ifndef RTLSDR_NANO
-#define RTLSDR_NANO  8
+#define RTLSDR_NANO	9
 #endif
 
 /* RTLSDR__RC is the release candidate suffix. Should normally be empty. */

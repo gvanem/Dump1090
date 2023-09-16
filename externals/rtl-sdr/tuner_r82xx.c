@@ -38,6 +38,10 @@
 
 #define MHZ(x)		((x)*1000*1000)
 
+#define HF 1
+#define VHF 2
+#define UHF 3
+
 extern int16_t interpolate(int16_t freq, int size, const int16_t *freqs, const int16_t *gains);
 extern int rtlsdr_get_agc_val(void *dev, int *slave_demod);
 extern uint16_t rtlsdr_demod_read_reg(rtlsdr_dev_t *dev, uint16_t page, uint16_t addr, uint8_t len);
@@ -351,7 +355,7 @@ R25		[7] 	PWD_RFFILT		RF Filter power
 								11: min
 		[4] 	SW_AGC			Switch agc_pin
 								0:agc=agc_in
-								1:agc=agc_in2
+								1:agc=agc_in2 (R828D Pin 18)
 		[3:2]	ring_pw			RingPLL VCO power
 								00: off, 01: off, 10: min, 11: max
 		[1:0]	ring_div[2:1]	cal_freq = ring_vco / divisor
@@ -658,14 +662,6 @@ static int r82xx_set_mux(struct r82xx_priv *priv, uint32_t freq)
 			break;
 	}
 	range = &freq_ranges[i];
-
-	/* Open Drain */
-	if (priv->cfg->rafael_chip == CHIP_R828D)
-	{
-		rc = r82xx_write_reg_mask(priv, 0x17, (freq<75) ? 8 : 0, 0x08);
-		if (rc < 0)
-			return rc;
-	}
 
 	/* RF_MUX,Polymux */
 	rc = r82xx_write_reg_mask(priv, 0x1a, range->rf_mux_ploy, 0xc3);
@@ -1171,33 +1167,97 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 {
 	int rc = -1;
 	uint32_t lo_freq;
-	uint8_t air_cable1_in, low_gain;
+	uint8_t low_gain;
+	int is_rtlsdr_blog_v4;
+	uint32_t upconvert_freq;
+	uint8_t air_cable1_in;
+	uint8_t cable_2_in;
+	uint8_t cable_1_in;
+	uint8_t air_in;
+	uint8_t open_d;
+	uint8_t band;
 
-	priv->freq = freq / 1000000;
-	rc = r82xx_set_mux(priv, freq);
+
+	is_rtlsdr_blog_v4 = (priv->cfg->xtal > 24000000.0) && (priv->cfg->rafael_chip == CHIP_R828D);
+
+	/* if it's an RTL-SDR Blog V4, automatically upconvert by 28.8 MHz if we tune to HF
+	 * so that we don't need to manually set any upconvert offset in the SDR software */
+	upconvert_freq = is_rtlsdr_blog_v4 ? ((freq < MHZ(28.8)) ? (freq + MHZ(28.8)) : freq) : freq;
+
+	priv->freq = upconvert_freq / 1000000;
+	rc = r82xx_set_mux(priv, upconvert_freq);
 	if (rc < 0)
 		goto err;
 
-	/* switch between 'Cable1' and 'Air-In' inputs on sticks with
-	 * R828D tuner. We switch at 345 MHz, because that's where the
-	 * noise-floor has about the same level with identical LNA
-	 * settings. The original driver used 320 MHz. */
-	air_cable1_in = (freq >= MHZ(345)) ? 0x00 : 0x60;
-	low_gain = (freq >= MHZ(345)) ? 0x20 : 0x00;
+	if (is_rtlsdr_blog_v4)
+	{
+		/* determine if notch filters should be on or off notches are turned OFF
+		 * when tuned within the notch band and ON when tuned outside the notch band.
+		 */
+		open_d = (freq <= MHZ(2.2) || (freq >= MHZ(85) && freq <= MHZ(112)) || (freq >= MHZ(172) && freq <= MHZ(242))) ? 0x00 : 0x08;
+		rc = r82xx_write_reg_mask(priv, 0x17, open_d, 0x08);
+		if (rc < 0)
+			goto err;
 
-	if ((priv->cfg->rafael_chip == CHIP_R828D) &&
-		(air_cable1_in != priv->input)) {
-		priv->input = air_cable1_in;
+		/* select tuner band based on frequency and only switch if there is a band change
+		 *(to avoid excessive register writes when tuning rapidly)
+		 */
+		band = (freq <= MHZ(28.8)) ? HF : ((freq > MHZ(28.8) && freq < MHZ(250)) ? VHF : UHF);
+
+		/* switch between tuner inputs on the RTL-SDR Blog V4 */
+		if (band != priv->input) {
+			priv->input = band;
+
+			/* activate cable 2 (HF input) */
+			cable_2_in = (band == HF) ? 0x08 : 0x00;
+			rc = r82xx_write_reg_mask(priv, 0x06, cable_2_in, 0x08);
+			if (rc < 0)
+				goto err;
+
+			/* activate cable 1 (VHF input) */
+			cable_1_in = (band == VHF) ? 0x40 : 0x00;
+			rc = r82xx_write_reg_mask(priv, 0x05, cable_1_in, 0x40);
+			if (rc < 0)
+				goto err;
+
+			/* activate air_in (UHF input) */
+			air_in = (band == UHF) ? 0x00 : 0x20;
+			rc = r82xx_write_reg_mask(priv, 0x05, air_in, 0x20);
+			if (rc < 0)
+				goto err;
+
+		}
+	}
+	else if (priv->cfg->rafael_chip == CHIP_R828D) /* Standard R828D dongle*/
+	{
+		/* switch between 'Cable1' and 'Air-In' inputs on sticks with
+		 * R828D tuner. We switch at 345 MHz, because that's where the
+		 * noise-floor has about the same level with identical LNA
+		 * settings. The original driver used 320 MHz. */
+		air_cable1_in = (freq >= MHZ(345)) ? 0x00 : 0x60;
+		if(air_cable1_in != priv->input)
+		{
+			priv->input = air_cable1_in;
+			rc = r82xx_write_reg_mask(priv, 0x05, air_cable1_in, 0x60);
+			if (rc < 0)
+				goto err;
+		}
+
+		/* Open Drain */
+		rc = r82xx_write_reg_mask(priv, 0x17, (freq<75) ? 8 : 0, 0x08);
+		if (rc < 0)
+			return rc;
+
+		low_gain = (freq >= MHZ(345)) ? 0x20 : 0x00;
 		rc = r82xx_write_reg(priv, 0x01, low_gain);
-		rc |= r82xx_write_reg_mask(priv, 0x05, air_cable1_in, 0x60);
 		if (rc < 0)
 			goto err;
 	}
 
 	if(priv->sideband)
-		lo_freq = freq - priv->int_freq;
+		lo_freq = upconvert_freq - priv->int_freq;
 	else
-		lo_freq = freq + priv->int_freq;
+		lo_freq = upconvert_freq + priv->int_freq;
 	rc = r82xx_set_pll(priv, lo_freq);
 
 err:

@@ -125,6 +125,11 @@ RTLSDR_API int rtlsdr_get_xtal_freq(rtlsdr_dev_t *dev, uint32_t *rtl_freq,
 RTLSDR_API int rtlsdr_get_usb_strings(rtlsdr_dev_t *dev, char *manufact,
 				      char *product, char *serial);
 
+/*
+ * Returns true if the manufact_check and product_check strings match what is in the dongles EEPROM
+ */
+RTLSDR_API int rtlsdr_check_dongle_model (rtlsdr_dev_t *dev, const char *manufact, const char *product);
+
 /*!
  * Write the device EEPROM
  *

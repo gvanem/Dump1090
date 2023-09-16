@@ -138,7 +138,6 @@ enum softagc_mode {
 
 struct softagc_state {
   uintptr_t         command_thread;
-  CRITICAL_SECTION  mutex;
   volatile int      exit_command_thread;
   volatile int      command_newGain;
   volatile int      command_changeGain;
@@ -187,10 +186,12 @@ struct rtlsdr_dev {
   CRITICAL_SECTION  cs_mutex;
 
   /* status */
-  int rc_active;
-  int opening;
-  int verbose;
-  int agc_mode;
+  int  rc_active;
+  int  opening;
+  int  verbose;
+  int  agc_mode;
+  char manufact [256];
+  char product [256];
 
   /* transfer buffers */
   uint8_t    **xfer_buf;
@@ -2316,6 +2317,16 @@ int rtlsdr_get_index_by_serial (const char *serial)
   return (-3);
 }
 
+/*
+ * Returns true if the manufact_check and product_check strings match what is in the dongles EEPROM
+ */
+int rtlsdr_check_dongle_model (rtlsdr_dev_t *dev, const char *manufact, const char *product)
+{
+  if (!strcmp(dev->manufact, manufact) && !strcmp(dev->product, product))
+     return (1);
+  return (0);
+}
+
 int rtlsdr_open (rtlsdr_dev_t **out_dev, uint32_t index)
 {
   int           r = -1;
@@ -2359,6 +2370,9 @@ int rtlsdr_open (rtlsdr_dev_t **out_dev, uint32_t index)
   RTL_TRACE (1, "Calling rtlsdr_init_baseband().\n");
   rtlsdr_init_baseband (dev);
   dev->opening = 0;
+
+  /* Get device manufacturer and product id */
+  r = rtlsdr_get_usb_strings (dev, dev->manufact, dev->product, NULL);
 
   /* Probe tuners */
   rtlsdr_set_i2c_repeater (dev, 1);
@@ -2488,54 +2502,60 @@ found:
          break;
 
     case RTLSDR_TUNER_R828D:
-         dev->tun_xtal = R828D_XTAL_FREQ;
-
-         /* power off slave demod on GPIO0 to reset CXD2837ER */
-         rtlsdr_set_gpio_bit (dev, 0, 0);
-         rtlsdr_write_reg_mask (dev, SYSB, GPOE, 0x00, 0x01);
-         Sleep (50);
-
-         /* power on slave demod on GPIO0 */
-         rtlsdr_set_gpio_bit (dev, 0, 1);
-         rtlsdr_set_gpio_output (dev, 0);
-
-         /* check slave answers */
-         reg = check_tuner (dev, MN8847X_I2C_ADDR, MN8847X_CHECK_ADDR);
-         if (reg == MN88472_CHIP_ID)
+         /* If NOT an RTL-SDR Blog V4, set typical R828D 16 MHz freq. Otherwise, keep at 28.8 MHz. */
+         if (rtlsdr_check_dongle_model(dev, "RTLSDRBlog", "Blog V4"))
+            RTL_TRACE (1, "RTL-SDR Blog V4 Detected\n");
+         else
          {
-           RTL_TRACE (1, "Found Panasonic MN88472 demod\n");
-           dev->slave_demod = SLAVE_DEMOD_MN88472;
-           goto demod_found;
-         }
+           dev->tun_xtal = R828D_XTAL_FREQ;
 
-         if (reg == MN88473_CHIP_ID)
-         {
-           RTL_TRACE (1, "Found Panasonic MN88473 demod\n");
-           dev->slave_demod = SLAVE_DEMOD_MN88473;
-           goto demod_found;
-         }
+           /* power off slave demod on GPIO0 to reset CXD2837ER */
+           rtlsdr_set_gpio_bit (dev, 0, 0);
+           rtlsdr_write_reg_mask (dev, SYSB, GPOE, 0x00, 0x01);
+           Sleep (50);
 
-         reg = check_tuner (dev, CXD2837_I2C_ADDR, CXD2837_CHECK_ADDR);
-         if (reg == CXD2837ER_CHIP_ID)
-         {
-           RTL_TRACE (1, "Found Sony CXD2837ER demod\n");
-           dev->slave_demod = SLAVE_DEMOD_CXD2837ER;
-           goto demod_found;
-         }
+           /* power on slave demod on GPIO0 */
+           rtlsdr_set_gpio_bit (dev, 0, 1);
+           rtlsdr_set_gpio_output (dev, 0);
 
-         reg = check_tuner (dev, SI2168_I2C_ADDR, SI2168_CHECK_ADDR);
-         if (reg == SI2168_CHIP_ID)
-         {
-           RTL_TRACE (1, "Found Silicon Labs SI2168 demod\n");
-           dev->slave_demod = SLAVE_DEMOD_SI2168;
-         }
+           /* check slave answers */
+           reg = check_tuner (dev, MN8847X_I2C_ADDR, MN8847X_CHECK_ADDR);
+           if (reg == MN88472_CHIP_ID)
+           {
+             RTL_TRACE (1, "Found Panasonic MN88472 demod\n");
+             dev->slave_demod = SLAVE_DEMOD_MN88472;
+             goto demod_found;
+           }
+
+           if (reg == MN88473_CHIP_ID)
+           {
+             RTL_TRACE (1, "Found Panasonic MN88473 demod\n");
+             dev->slave_demod = SLAVE_DEMOD_MN88473;
+             goto demod_found;
+           }
+
+           reg = check_tuner (dev, CXD2837_I2C_ADDR, CXD2837_CHECK_ADDR);
+           if (reg == CXD2837ER_CHIP_ID)
+           {
+             RTL_TRACE (1, "Found Sony CXD2837ER demod\n");
+             dev->slave_demod = SLAVE_DEMOD_CXD2837ER;
+             goto demod_found;
+           }
+
+           reg = check_tuner (dev, SI2168_I2C_ADDR, SI2168_CHECK_ADDR);
+           if (reg == SI2168_CHIP_ID)
+           {
+             RTL_TRACE (1, "Found Silicon Labs SI2168 demod\n");
+             dev->slave_demod = SLAVE_DEMOD_SI2168;
+           }
 
 demod_found:
-         if (dev->slave_demod) /* switch off DVBT2 demod */
-         {
-           rtlsdr_write_reg (dev, SYSB, GPO, 0x88, 1);
-           rtlsdr_write_reg (dev, SYSB, GPOE, 0x9d, 1);
-           rtlsdr_write_reg (dev, SYSB, GPD, 0x02, 1);
+           if (dev->slave_demod) /* switch off DVBT2 demod */
+           {
+             rtlsdr_write_reg (dev, SYSB, GPO, 0x88, 1);
+             rtlsdr_write_reg (dev, SYSB, GPOE, 0x9d, 1);
+             rtlsdr_write_reg (dev, SYSB, GPD, 0x02, 1);
+           }
          }
          /* fall-through */
 
@@ -3216,16 +3236,14 @@ static void softagc_init (rtlsdr_dev_t *dev)
   /* prepare thread */
   dev->gain_count = rtlsdr_get_tuner_gains (dev, dev->gains);
   dev->gain = -1;
-  dev->gain_mode = 0; //hardware AGC
+  dev->gain_mode = 0; /* hardware AGC */
   dev->gain_index = 0;
   agc->exit_command_thread = 0;
   agc->command_newGain = 0;
   agc->command_changeGain = 0;
   agc->softAgcMode = SOFTAGC_OFF;
 
-  /* Create thread
-   */
-  InitializeCriticalSection (&dev->cs_mutex);
+  /* Create thread */
   agc->command_thread = _beginthread (softagc_control_worker, 0, dev);
 }
 
@@ -3235,9 +3253,11 @@ static void softagc_close (rtlsdr_dev_t *dev)
 
   agc->softAgcMode = SOFTAGC_OFF;
   agc->exit_command_thread = 1;
+  Sleep (50);
+
+  RTL_TRACE (1, "%s(): killing thread: %zu\n", __FUNCTION__, agc->command_thread);
   TerminateThread (&agc->command_thread, 0);
   CloseHandle ((HANDLE)agc->command_thread);
-  DeleteCriticalSection (&agc->mutex);
 }
 
 static void softagc (rtlsdr_dev_t *dev, uint8_t *buf, int len)
