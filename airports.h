@@ -32,7 +32,6 @@ bool     airports_update_CSV (const char *file);
 
 bool     airports_API_get_flight_info (const char *call_sign, uint32_t addr,
                                        const char **departure, const char **destination);
-
 void     airports_API_flight_log_entering (const aircraft *a);
 void     airports_API_flight_log_resolved (const aircraft *a);
 void     airports_API_flight_log_leaving (const aircraft *a);

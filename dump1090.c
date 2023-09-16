@@ -642,7 +642,7 @@ static bool modeS_init_RTLSDR (void)
     else LOG_STDOUT ("Bandwidth reported by device: <unknown>.\n");
 
     LOG_STDOUT ("Setting Bandwidth to: %.3f MHz.\n", Modes.band_width/1E6);
-    rc = rtlsdr_set_tuner_bandwidth(Modes.rtlsdr.device, Modes.band_width);
+    rc = rtlsdr_set_tuner_bandwidth (Modes.rtlsdr.device, Modes.band_width);
     if (rc != 0)
     {
       LOG_STDERR ("Error setting bandwidth: %d.\n", rc);

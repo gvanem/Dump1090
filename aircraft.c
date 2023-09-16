@@ -55,7 +55,7 @@ static bool      is_helicopter_type (const char *type);
   #define SQLITE_DLL_NAME  "WinSqlite3.dll"
   #define SQL_CALLBACK     __stdcall
 
-  #define DEF_FUNC(ret, f, args)  typedef ret (__stdcall *func_##f) args; \
+  #define DEF_FUNC(ret, f, args)  typedef ret (WINAPI *func_##f) args; \
                                   static func_##f p_##f = NULL
 
   typedef int (SQL_CALLBACK *_sqlite3_callback) (void *cb_arg, int argc, char **argv,
