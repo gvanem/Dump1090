@@ -550,6 +550,21 @@ struct dyn_struct {
      };
 
 /*
+ * For `$(OBJ_DIR)/packed_*.c` files:
+ */
+typedef struct packed_file {
+        const unsigned char *data;
+        size_t               size;
+        time_t               mtime;
+        const char          *name;
+      } packed_file;
+
+typedef struct packed_lookup {
+        const char *name;
+        size_t      index;
+      } packed_lookup;
+
+/*
  * Defined in MSVC's <sal.h>.
  */
 #ifndef _Printf_format_string_

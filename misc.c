@@ -20,6 +20,7 @@
 #include "sqlite3.h"
 #include "trace.h"
 #include "misc.h"
+#include "rtl-sdr/version.h"
 
 #define TSIZE (int)(sizeof("HH:MM:SS.MMM: ") - 1)
 
@@ -317,7 +318,6 @@ const char *unescape_hex (const char *value)
  * Return true if string `s1` starts with `s2`.
  *
  * Ignore casing of both strings.
- * And drop leading blanks in `s1` first.
  */
 bool str_startswith (const char *s1, const char *s2)
 {
@@ -523,7 +523,7 @@ extern dirent *readdir (DIR *d);
 
 /**
  * Touch all files in a directory to current time.
- * Works reqursively if `recurse == true`.
+ * Works on all sub-directories if `recurse == true`.
  */
 int touch_dir (const char *directory, bool recurse)
 {
@@ -781,23 +781,22 @@ int32_t random_range2 (int32_t min, int32_t max)
  *
  * \todo Fix this for `-DUSE_WIN_SQLITE`.
  */
-static void sql_info (void)
+static void print_sql_info (void)
 {
-  const char *opt, *opt_next;
+  const char *opt;
   int   i, sz = 0;
 
-  printf ("Compiled with Sqlite3 v%s (%s).\n"
-          "Build options: ", sqlite3_libversion(), sqlite3_sourceid());
-
+  printf ("Sqlite3 ver:  %s. Build options: ", sqlite3_libversion());
   for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
   {
-    opt_next = sqlite3_compileoption_get (i+1);
+    const char *opt_next = sqlite3_compileoption_get (i+1);
+
     sz += printf ("SQLITE_%s%s", opt, opt_next ? ", " : "\n");
     if (opt_next)
        sz += sizeof(", SQLITE_") + strlen (opt_next);
-    if (sz >= 120)
+    if (sz >= 140)
     {
-      fputs ("\n               ", stdout);
+      fputs ("\n              ", stdout);
       sz = 0;
     }
   }
@@ -842,7 +841,7 @@ static const char *build_features (void)
   #if defined(USE_ASAN)
     "ASAN",
   #endif
-  #if defined(PACKED_WEB_ROOT)
+  #if defined(USE_PACKED_WEB) || defined(USE_PACKED_DLL)
     "Packed-Web",
   #endif
   #if defined(USE_RTLSDR_EMUL)
@@ -876,7 +875,7 @@ static const char *build_features (void)
  */
 void show_version_info (bool verbose)
 {
-  printf ("dump1090 ver. %s (%s, %s). Built at %s.\n", PROG_VERSION, compiler_info(), build_features(), __DATE__);
+  printf ("dump1090 ver: %s (%s, %s). Built at %s.\n", PROG_VERSION, compiler_info(), build_features(), __DATE__);
   if (verbose)
   {
     uint32_t ver;
@@ -885,12 +884,12 @@ void show_version_info (bool verbose)
  // print_ldflags();
 
     ver = rtlsdr_get_version();
-    printf ("RTL-SDR version: %d.%d.%d.%d from %s.\n",
-          ver >> 24, (ver >> 16) & 0xFF, (ver >> 8) & 0xFF, ver & 0xFF, rtlsdr_get_ver_id());
-    printf ("PDCurses: ver. %s, ", PDC_VERDOT);
-    printf ("Mongoose: ver. %s, Miniz ver. %s\n", MG_VERSION, mz_version());
-
-    sql_info();
+    printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s.\n",
+            RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, RTL_VER_ID);
+    printf ("PDCurses ver: %s\n", PDC_VERDOT);
+    printf ("Mongoose ver: %s\n", MG_VERSION);
+    printf ("Miniz ver:    %s\n", mz_version());
+    print_sql_info();
   }
   exit (0);
 }
