@@ -12,10 +12,11 @@ try:
 except ImportError:
   have_minify = False
 
-opt        = None
-files_dict = dict()
-my_name    = os.path.basename (__file__)
-PY2        = (sys.version_info.major == 2)
+opt          = None
+files_dict   = dict()
+lookup_table = []
+my_name      = os.path.basename (__file__)
+PY2          = (sys.version_info.major == 2)
 
 total_in_bytes  = 0
 total_out_bytes = 0
@@ -23,46 +24,26 @@ num_already_minified = 0
 
 C_TOP = """//
 // Generated at %s by
-// %s %s.
+// %s %s
 // DO NOT EDIT!
 //
-#include <time.h>
-#include <ctype.h>
-#include <string.h>
-
-unsigned    mg_usage_count (size_t i);
-const char *mg_unlist (size_t i);
-const char *mg_unpack (const char *name, size_t *size, time_t *mtime);
-
+#include "misc.h"
 """
 
 C_ARRAY = """
-static struct packed_file {
-  const unsigned char *data;
-  size_t               size;
-  unsigned             count;
-  time_t               mtime;
-  const char          *name;
-} packed_files[] = {
-//  data, fsize, count, modified
+static packed_file packed_files[] = {
+//  data,  fsize,         modified
 """
 
-C_BOTTOM = """  { NULL, 0, 0, 0, NULL }
-};
-
-const char *mg_unlist (size_t i)
+C_BOTTOM = """
+const char *mg_unlist%s (size_t i)
 {
   return (packed_files[i].name);
 }
 
-unsigned mg_usage_count (size_t i)
+const char *mg_unpack%s (const char *name, size_t *size, time_t *mtime)
 {
-  return (packed_files[i].count);
-}
-
-const char *mg_unpack (const char *name, size_t *size, time_t *mtime)
-{
-  struct packed_file *p;
+  const packed_file *p;
 
   for (p = packed_files; p->name; p++)
   {
@@ -71,11 +52,27 @@ const char *mg_unpack (const char *name, size_t *size, time_t *mtime)
     if (size)
        *size = p->size - 1;
     if (mtime)
-    {
-      *mtime = p->mtime;
-      p->count++;   // count for Mongoose and calls to 'packed_stat()'
-    }
+       *mtime = p->mtime;
     return (const char*) p->data;
+  }
+  return (NULL);
+}
+
+const char *mg_unpack2%s (const char *name, size_t *size, time_t *mtime)
+{
+  packed_lookup key, *p;
+
+  key.name = name;
+  p = bsearch (&key, lookup_table, sizeof(lookup_table[0]), DIM(lookup_table),
+               (int (*)(const void*, const void*))strcmp);
+  if (p)
+  {
+    const packed_file *rc = packed_files + p->index;
+
+    if (size)
+       *size = rc->size - 1;
+    if (mtime)
+       *mtime = rc->mtime;
   }
   return (NULL);
 }
@@ -168,10 +165,28 @@ def write_packed_files_array (out):
 
       ftime_str = time.strftime ('%Y-%m-%d %H:%M:%S', time.localtime(ftime))
       comment   = " // %6d, %s" % (fsize, ftime_str)
-      line      = "  { file%d, sizeof(file%d), 0, %d,  %s\n    \"%s\"\n  },\n" % (i, i, ftime, comment, fname)
+      line      = "  { file%d, sizeof(file%d), %d,  %s\n    \"%s\"\n  },\n" % (i, i, ftime, comment, fname)
       out.write (line)
       bytes += fsize
   trace (1, "Total %s bytes data to '%s'" % (fmt_number(bytes), opt.outfile))
+  out.write ("  { NULL, 0, 0, NULL }\n};\n")
+
+#
+# Lookup table for mg_unpack2%s():
+#
+def write_lookup_table (out):
+  out.write ("""
+static packed_lookup lookup_table[] = {
+""")
+
+  for f in sorted(lookup_table):
+      index = files_dict[f]["index"]
+      if opt.strip:
+         file = f [len(opt.strip):]
+      else:
+         file = f
+      out.write ("     { \"%s\", %d },\n" % (file, index))
+  out.write ("   };\n")
 
 #
 # Taken from the Python manual and modified.
@@ -190,7 +205,7 @@ def walktree (top, callback):
          callback (fqfn, st)
 
 def add_file (file, st):
-  file  = file.replace ("\\", "/")
+  file = file.replace ("\\", "/")
   if fnmatch.fnmatch (file, opt.spec):
      files_dict [file] = { "mtime" : st.st_mtime,
                            "fsize" : st.st_size,
@@ -198,6 +213,7 @@ def add_file (file, st):
                          }
      if opt.strip:
         files_dict [file]["fname"] = file [len(opt.strip):]
+     lookup_table.append (file)
      trace (2, "Adding file '%s'" % files_dict[file]["fname"])
 
   else:
@@ -216,6 +232,7 @@ def show_help (error=None):
   -o, --outfile:      File to generate.
   -r, --recursive:    Walk the sub-directies recursively.
   -s, --strip X:      Strip 'X' from paths.
+  -S, --suffix Y:     Suffix 'Y' to public functions.
   -v, --verbose:      Increate verbose-mode. I.e. '-vv' sets level=2.
   <file-spec> files to include in '--outfile'.""" % my_name)
   sys.exit (0)
@@ -228,6 +245,7 @@ def parse_cmdline():
   parser.add_argument ("-o", "--outfile",     dest = "outfile", type = str)
   parser.add_argument ("-r", "--recursive",   dest = "recursive", action = "store_true")
   parser.add_argument ("-s", "--strip",       nargs = "?")
+  parser.add_argument ("-S", "--suffix",      dest = "suffix", default = "")
   parser.add_argument ("-v", "--verbose",     dest = "verbose", action = "count", default = 0)
   parser.add_argument ("spec", nargs = argparse.REMAINDER)
 
@@ -269,7 +287,7 @@ if len(files_dict) == 0:
 
 out = open (opt.outfile, "w+")
 
-out.write (C_TOP % (time.ctime(), sys.executable, __file__))
+out.write (C_TOP % (time.ctime(), sys.executable, " ".join(sys.argv)))
 
 minifiers = { }
 minifiers [".css"]  = generate_array_css
@@ -279,6 +297,7 @@ minifiers [".*"]    = generate_array
 
 for n, f in enumerate (files_dict):
     size = fmt_number (files_dict[f]["fsize"])
+    files_dict[f]["index"] = n
     already_minified = f.endswith (".min.css") or f.endswith (".min.js")
     num_already_minified += already_minified
     comment = ["", "(already_minified)" ]
@@ -300,8 +319,9 @@ for n, f in enumerate (files_dict):
 
 out.write (C_ARRAY)
 write_packed_files_array (out)
+write_lookup_table (out)
 
-out.write (C_BOTTOM)
+out.write (C_BOTTOM % (opt.suffix, opt.suffix, opt.suffix))
 out.close()
 
 if opt.minify:
