@@ -28,10 +28,11 @@ C_TOP = """//
 // DO NOT EDIT!
 //
 #include "misc.h"
+
 """
 
 C_ARRAY = """
-static packed_file packed_files[] = {
+static const packed_file packed_files[] = {
 //  data,  fsize,         modified
 """
 
@@ -58,23 +59,36 @@ const char *mg_unpack%s (const char *name, size_t *size, time_t *mtime)
   return (NULL);
 }
 
+static int compare_on_name (const void *_a, const void *_b)
+{
+  const packed_lookup *a = (const packed_lookup*) _a;
+  const packed_lookup *b = (const packed_lookup*) _b;
+
+  return stricmp (a->name, b->name);
+}
+
 const char *mg_unpack2%s (const char *name, size_t *size, time_t *mtime)
 {
-  packed_lookup key, *p;
+  const packed_file   *pf;
+  const packed_lookup *p;
+  packed_lookup        key;
 
   key.name = name;
-  p = bsearch (&key, lookup_table, sizeof(lookup_table[0]), DIM(lookup_table),
-               (int (*)(const void*, const void*))strcmp);
+  p = bsearch (&key, lookup_table, DIM(lookup_table), sizeof(lookup_table[0]), compare_on_name);
   if (p)
-  {
-    const packed_file *rc = packed_files + p->index;
+       pf = packed_files + p->index;
+  else pf = NULL;
 
-    if (size)
-       *size = rc->size - 1;
-    if (mtime)
-       *mtime = rc->mtime;
-  }
-  return (NULL);
+  if (size)
+     *size = (pf ? pf->size - 1 : 0);
+  if (mtime)
+     *mtime = (pf ? pf->mtime : 0);
+  return (pf ? (const char*)pf->data : NULL);
+}
+
+const char *mg_spec%s (void)
+{
+  return ("%s");
 }
 """
 
@@ -95,18 +109,13 @@ def dump_hex (in_file, out_file, data, data_len, len_in, num):
   files_dict [in_file]["fsize"] = data_len
   out_file.write ("//\n// Minified version generated from '%s' (%d%% saving) \n//\n" % (in_file, 100 - 100*data_len/len_in))
   out_file.write ("static const unsigned char file%d[] = {\n" % num)
-  comment = [ " // ", "" ] [opt.nocomments]
   for n in range(0, data_len):
       c = data[n]
       assert ord(c) <= 255
-      out_file.write (" 0x%02X," % ord(c))
-      if not opt.nocomments:
-         if c not in ['\r', '\n']:
-            comment += str(c)
+      out_file.write ("0x%02X," % ord(c))
       if (n + 1) % 16 == 0:
-         out_file.write ("%s\n" % comment)
-         comment = [ " // ", "" ] [opt.nocomments]
-  out_file.write (" 0x00\n};\n\n")
+         out_file.write ("\n")
+  out_file.write ("0x00\n};\n\n")
 
 def generate_array_css (in_file, out_file, num):
   with open (in_file, "r") as f:
@@ -148,12 +157,12 @@ def generate_array (in_file, out_file, num):
        len_out  = len_in
        for n in range(0, len_in):
            if PY2:
-              out.write (" 0x%02X," % ord(data_out[n]))
+              out.write ("0x%02X," % ord(data_out[n]))
            else:
-              out_file.write (" 0x%02X," % data_out[n])
+              out_file.write ("0x%02X," % data_out[n])
            if (n + 1) % 16 == 0:
               out_file.write ("\n")
-       out_file.write (" 0x00\n};\n\n")
+       out_file.write ("0x00\n};\n\n")
   return len_in, len_out
 
 def write_packed_files_array (out):
@@ -168,7 +177,7 @@ def write_packed_files_array (out):
       line      = "  { file%d, sizeof(file%d), %d,  %s\n    \"%s\"\n  },\n" % (i, i, ftime, comment, fname)
       out.write (line)
       bytes += fsize
-  trace (1, "Total %s bytes data to '%s'" % (fmt_number(bytes), opt.outfile))
+  trace (1, "Total %s bytes data written to '%s'" % (fmt_number(bytes), opt.outfile))
   out.write ("  { NULL, 0, 0, NULL }\n};\n")
 
 #
@@ -176,15 +185,12 @@ def write_packed_files_array (out):
 #
 def write_lookup_table (out):
   out.write ("""
-static packed_lookup lookup_table[] = {
+static const packed_lookup lookup_table[] = {
 """)
 
-  for f in sorted(lookup_table):
-      index = files_dict[f]["index"]
-      if opt.strip:
-         file = f [len(opt.strip):]
-      else:
-         file = f
+  for f in lookup_table:
+      index = f[1]
+      file  = f[0] [len(opt.strip):]
       out.write ("     { \"%s\", %d },\n" % (file, index))
   out.write ("   };\n")
 
@@ -204,18 +210,24 @@ def walktree (top, callback):
       elif stat.S_ISREG(st.st_mode):
          callback (fqfn, st)
 
+index = 0
+
 def add_file (file, st):
   file = file.replace ("\\", "/")
+  for i in opt.ignore:
+    if fnmatch.fnmatch (file, i):
+       trace (2, "Ignoring file '%s'" % file)
+       return
+
   if fnmatch.fnmatch (file, opt.spec):
      files_dict [file] = { "mtime" : st.st_mtime,
                            "fsize" : st.st_size,
-                           "fname" : file
+                           "fname" : file [len(opt.strip):]
                          }
-     if opt.strip:
-        files_dict [file]["fname"] = file [len(opt.strip):]
-     lookup_table.append (file)
+     global index
+     lookup_table.append ((file, index))
+     index += 1
      trace (2, "Adding file '%s'" % files_dict[file]["fname"])
-
   else:
      trace (1, "File '%s' does not match 'opt.spec'" % file)
 
@@ -228,11 +240,12 @@ def show_help (error=None):
   print ("""Usage: %s [options] <file-spec>
   -h, --help:         Show this help.
   -c, --case:         Be case-sensitive.
+  -i, --ignore X:     Ignore patterns matching 'X'.
   -m, --minify:       Compress the .js/.css/.html files first (not for Python2).
   -o, --outfile:      File to generate.
   -r, --recursive:    Walk the sub-directies recursively.
-  -s, --strip X:      Strip 'X' from paths.
-  -S, --suffix Y:     Suffix 'Y' to public functions.
+  -s, --strip Y:      Strip 'Y' from paths.
+  -S, --suffix Z:     Suffix 'Z' to public functions.
   -v, --verbose:      Increate verbose-mode. I.e. '-vv' sets level=2.
   <file-spec> files to include in '--outfile'.""" % my_name)
   sys.exit (0)
@@ -240,18 +253,18 @@ def show_help (error=None):
 def parse_cmdline():
   parser = argparse.ArgumentParser (add_help = False)
   parser.add_argument ("-h", "--help",        dest = "help", action = "store_true")
+  parser.add_argument ("-i", "--ignore",      action = "append", default = [])
   parser.add_argument ("-m", "--minify",      dest = "minify", action = "store_true")
-  parser.add_argument (      "--no-comments", dest = "nocomments", action = "store_true", default = False)
   parser.add_argument ("-o", "--outfile",     dest = "outfile", type = str)
   parser.add_argument ("-r", "--recursive",   dest = "recursive", action = "store_true")
-  parser.add_argument ("-s", "--strip",       nargs = "?")
+  parser.add_argument ("-s", "--strip",       dest = "strip", default = "")
   parser.add_argument ("-S", "--suffix",      dest = "suffix", default = "")
   parser.add_argument ("-v", "--verbose",     dest = "verbose", action = "count", default = 0)
   parser.add_argument ("spec", nargs = argparse.REMAINDER)
-
   return parser.parse_args()
 
 opt = parse_cmdline()
+
 if opt.help:
    show_help()
 
@@ -274,7 +287,7 @@ if opt.spec[-1] in [ "\\", "/" ]:
 if not os.path.dirname(opt.spec):  # A '*.xx' -> './*.xx'
    opt.spec = "./" + opt.spec
 
-dirname = os.path.dirname(opt.spec)
+dirname = os.path.dirname (opt.spec)
 if not os.path.exists(dirname):
    show_help ("Directory '%s' not found" % dirname)
 
@@ -297,7 +310,6 @@ minifiers [".*"]    = generate_array
 
 for n, f in enumerate (files_dict):
     size = fmt_number (files_dict[f]["fsize"])
-    files_dict[f]["index"] = n
     already_minified = f.endswith (".min.css") or f.endswith (".min.js")
     num_already_minified += already_minified
     comment = ["", "(already_minified)" ]
@@ -321,7 +333,7 @@ out.write (C_ARRAY)
 write_packed_files_array (out)
 write_lookup_table (out)
 
-out.write (C_BOTTOM % (opt.suffix, opt.suffix, opt.suffix))
+out.write (C_BOTTOM % (opt.suffix, opt.suffix, opt.suffix, opt.suffix, opt.spec))
 out.close()
 
 if opt.minify:
