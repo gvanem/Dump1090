@@ -23,6 +23,12 @@
   #pragma clang diagnostic ignored "-Wunused-function"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
 
+  #ifdef COMPILING_SQLITE3_SHELL
+    #pragma clang diagnostic ignored "-Wunused-parameter"
+    #pragma clang diagnostic ignored "-Wsign-compare"
+    #pragma clang diagnostic ignored "-Wformat-security"
+  #endif
+
 #elif defined(_MSC_VER)
   /*
    * wincontypes.h(103): warning C4005: 'MOUSE_MOVED': macro redefinition
@@ -59,6 +65,28 @@
      * 'type cast': conversion from 'int' to 'void *' of greater size
      */
     #pragma warning (disable: 4312)
+  #endif
+
+  #ifdef COMPILING_SQLITE3_SHELL
+    /*
+     * warning C4100: 'argv': unreferenced formal parameter
+     */
+    #pragma warning (disable: 4100)
+
+    /*
+     * warning C4456: declaration of 'i' hides previous local declaration
+     */
+    #pragma warning (disable: 4456)
+
+    /*
+     * warning C4457: declaration of 'zLine' hides function parameter
+     */
+    #pragma warning (disable: 4457)
+
+    /*
+     * warning C4459: declaration of 'db' hides global declaration
+     */
+    #pragma warning (disable: 4459)
   #endif
 #endif
 
@@ -153,23 +181,23 @@
   #endif
 #endif
 
-#if !defined(USE_WIN_SQLITE)
-  /*
-   * Options for `externals/sqlite3.c`:
-   */
-  #define SQLITE_API
-  #define SQLITE_DQS           3   /* Double-quoted string literals are allowed */
-  #define SQLITE_THREADSAFE    0
-  #define SQLITE_WIN32_MALLOC  1
-  #define SQLITE_NO_SYNC       1
-  #define SQLITE_OMIT_AUTOINIT 1
-#endif
+/*
+ * Options for `externals/sqlite3.c`:
+ */
+#define SQLITE_API
+#define SQLITE_DQS               3   /* Double-quoted string literals are allowed */
+#define SQLITE_THREADSAFE        0
+#define SQLITE_WIN32_MALLOC      1
+#define SQLITE_NO_SYNC           1
+#define SQLITE_OMIT_AUTOINIT     1
+#define SQLITE_DEFAULT_MEMSTATUS 0
 
 /*
- * For `net_io.c`:
+ * For `net_io.c` and the "Packed Web FileSystem":
  */
-#if defined(USE_PACKED_DLL) || !defined(USE_PACKED_WEB)
-  #undef USE_PACKED_WEB
-  #undef PACKED_WEB_ROOT
+#if defined(USE_PACKED_DLL)
+  #undef  MG_ENABLE_PACKED_FS
+  #define MG_ENABLE_PACKED_FS 1
 #endif
+
 

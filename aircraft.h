@@ -102,6 +102,7 @@ typedef struct aircraft {
 
 bool        aircraft_CSV_load (void);
 bool        aircraft_CSV_update (const char *db_file, const char *url);
+bool        aircraft_SQL_set_name (void);
 aircraft   *aircraft_find_or_create (uint32_t addr, uint64_t now);
 int         aircraft_numbers (void);
 uint32_t    aircraft_get_addr (uint8_t a0, uint8_t a1, uint8_t a2);
