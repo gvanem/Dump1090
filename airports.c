@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <locale.h>
+#include <mbstring.h>
 
 #include "misc.h"
 #include "interactive.h"
@@ -16,7 +17,7 @@
 
 #define API_SERVICE_URL    "https://api.adsb.lol/api/0/route/%s"
 #define API_SERVICE_503    "<html><head><title>503 Service Temporarily Unavailable"
-#define API_SERVICE_JSON  "\"_airport_codes_iata\": "     /* what to look for in response */
+#define API_SERVICE_JSON   "\"_airport_codes_iata\": "    /* what to look for in response */
 #define API_SLEEP_MS       100                            /* Sleep() granularity */
 #define API_MAX_AGE        (10 * 100ULL * 10000000ULL)    /* 10 min in 100 nsec units */
 #define API_CACHE_PERIOD   (5 * 60 * 1000)                /* Save the cache every 5 min */
@@ -349,12 +350,6 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
   }
   else if (ctx->field_num == 4)  /* "Location" (or City) field */
   {
-    /**\todo Add
-     * "GDN" -> "Gdansk"
-     * "AES" -> "Ålesund"
-     * "HOV" -> "Ørsta" etc.
-     * as exceptions
-     */
     strncpy (rec.location, unescape_hex(value), sizeof(rec.location)-1);
   }
   else if (ctx->field_num == 5)  /* "Longitude" field */
@@ -768,13 +763,6 @@ static bool API_thread_worker (flight_info *f)
     *
     * i.e. final destination == "RUH" (Riyadh).
     */
-#if 0
-    if (!strcmp(codes, "\"unknown\"") || (num != 2 && num != 3))
-    {
-      g_data.fs_stats.unknown++;
-      rc = false;   /* This request becomes a DEAD record */
-    }
-#else
     if (num != 2 && num != 3)
     {
       g_data.fs_stats.unknown++;
@@ -787,7 +775,6 @@ static bool API_thread_worker (flight_info *f)
       strcpy (f->destination, "?");
       rc = true;
     }
-#endif
     else
     {
       strcpy (f->departure, tmp.departure);
@@ -914,33 +901,34 @@ static void airports_cache_write (void)
  */
 void airports_background (uint64_t now)
 {
-  static uint64_t last_dump = 0;
-  static bool     do_dump = true;
-  int    num;
+  static uint64_t    last_dump = 0;
+  static bool        do_dump = true;
+  const flight_info *f;
+  FILE              *file;
+  int                num;
 
   airports_API_show_stats();
 
   if (!do_dump)  /* problem with cache-file? */
      return;
 
-  if (last_dump == 0 || (now - last_dump) > API_CACHE_PERIOD)
+  if ((now - last_dump) < API_CACHE_PERIOD)   /* 5 min not passed */
+     return;
+
+  last_dump = now;
+
+  if (!airports_cache_open(&file))
   {
-    const flight_info *f;
-    FILE *file;
-
-    last_dump = now;
-
-    if (!airports_cache_open(&file))
-    {
-      do_dump = false;
-      return;
-    }
-    for (num = 0, f = g_data.flight_info; f; f = f->next)
-        if (flight_info_write(file, f))
-           num++;
-    fclose (file);
-    LOG_FILEONLY ("dumped %d LIVE records to cache.\n", num);
+    do_dump = false;
+    return;
   }
+
+  for (num = 0, f = g_data.flight_info; f; f = f->next)
+      if (flight_info_write(file, f))
+         num++;
+  fclose (file);
+  LOG_FILEONLY ("dumped %d LIVE records to cache.\n", num);
+
 }
 
 /**
@@ -1043,7 +1031,6 @@ uint32_t airports_init (void)
   if (Modes.tests)
   {
     SetConsoleOutputCP (CP_UTF8);
-    setvbuf (stdout, NULL, _IONBF, 0);
 
     airport_CSV_test_1 (test_lvl);
     airport_CSV_test_2();
@@ -1107,7 +1094,7 @@ void airports_exit (bool free_airports)
     airports_exit_CSV();
     airports_exit_freq_CSV();
   }
-  /* Otherwise atleast try to save the cache.
+  /* Otherwise at least try to save the cache.
    */
   airports_cache_write();
   Modes.airports_priv = NULL;
@@ -1144,6 +1131,22 @@ static const char *find_airport_location_by_ICAO (const char *ICAO)
 }
 
 /**
+ * Find the airport location by either IATA or ICAO name.
+ *
+ * Since the ADSB-LOL API sometimes returns and ICAO name for a
+ * departure / destination airport, check for IATA first, then
+ * if no match, lookup the location based on it's ICAO name.
+ */
+static const char *find_airport_location (const char *IATA_or_ICAO)
+{
+  const char *location = find_airport_location_by_IATA (IATA_or_ICAO);
+
+  if (!location)
+     location = find_airport_location_by_ICAO (IATA_or_ICAO);
+  return (location);
+}
+
+/**
  * Dumping of airport data:
  *  \li print a starting header.
  *  \li print the actual record for an `airport*`
@@ -1153,8 +1156,8 @@ static void airport_print_header (unsigned line, bool use_usec)
   usec_fmt = use_usec ? "%.2f" : "%.2f%%";
 
   printf ("line: %u:\n"
-          "  Record  ICAO       IATA       cont location               full_name                                              lat       lon  %s\n"
-          "  ----------------------------------------------------------------------------------------------------------------------------------------\n",
+          "  Record  ICAO       IATA       cont location               full_name                                                lat       lon  %s\n"
+          "  ------------------------------------------------------------------------------------------------------------------------------------------\n",
           line, use_usec ? "usec" : "hit-rate");
 }
 
@@ -1167,24 +1170,29 @@ static void airport_print_rec (const airport *a, const char *ICAO, size_t idx, d
   const char  *continent        = a ? a->continent : "?";
   const char  *location         = a ? a->location  : "?";
   const pos_t *pos              = a ? &a->pos      : &pos0;
-  wchar_t      full_name_w [50] = L"?";
-  wchar_t      location_w  [30] = L"?";
-  DWORD        flags = MB_ERR_INVALID_CHARS;
 
-  if (UTF8_decode)
-  {
-    MultiByteToWideChar (CP_UTF8, flags, full_name, -1, full_name_w, DIM(full_name_w));
-    MultiByteToWideChar (CP_UTF8, flags, location, -1, location_w, DIM(location_w));
-  }
+  printf ("  %5zu   '%-8.8s' '%-8.8s' %2.2s   ", idx, ICAO, IATA, continent);
 
   if (val >= 0.0)
      snprintf (val_buf, sizeof(val_buf), usec_fmt, val);
 
-  printf ("  %5zu   '%-8.8s' '%-8.8s' %2.2s   ", idx, ICAO, IATA, continent);
-
   if (UTF8_decode)
-       printf ("'%-20.20S' '%-45.45S'", location_w, full_name_w);
-  else printf ("'%-20.20s' '%-45.45s'", location, full_name);
+  {
+    wchar_t full_name_w [50] = L"?";
+    wchar_t location_w  [30] = L"?";
+    size_t  width;
+
+    MultiByteToWideChar (CP_UTF8, 0, full_name, -1, full_name_w, DIM(full_name_w));
+    MultiByteToWideChar (CP_UTF8, 0, location, -1, location_w, DIM(location_w));
+
+    width = 20 + (strlen (location) - wcslen (location_w)) / 2;
+    printf ("'%-*.20ws' ", (int)width, location_w);
+
+    width = 47 + (strlen (full_name) - wcslen (full_name_w)) / 2;
+    printf ("'%-*.47ws'", (int)width, full_name_w);
+  }
+  else
+    printf ("'%-20.20s' '%-47.47s'", location, full_name);
 
   printf ("  %9.3f %9.3f  %s\n", pos->lat, pos->lon, val_buf);
 }
@@ -1217,18 +1225,14 @@ static void airport_CSV_test_1 (int test_lvl)
                    NULL                              \
                  }
 
-#if defined(__clang__)
-  #pragma clang diagnostic push    "-Winvalid-source-encoding"
-  #pragma clang diagnostic ignored "-Winvalid-source-encoding"
-#endif
-
 static const airport airport_tests [] = {
-       ADD_AIRPORT ("ENBR", "BGO", "EU", "Bergen",       "Bergen Airport Flesland",                5.218140120, 60.293399810000),
-       ADD_AIRPORT ("ENGM", "OSL", "EU", "Oslo",         "Oslo Gardermoen Airport",               11.100399971, 60.193901062012),
-       ADD_AIRPORT ("KJFK", "JFK", "NA", "New York",     "John F Kennedy International Airport", -73.778000000, 40.639801000000),
-       ADD_AIRPORT ("OTHH", "DOH", "AS", "Doha",         "Hamad International Airport",           51.608050000, 25.273056000000),
-       ADD_AIRPORT ("XXXX", "XXX", "XX", "----",          "---",                                  0.0, 0.0),                      /* test for low hit_rate */
-       ADD_AIRPORT ("AF10", "URZ", "AS", "OrÅ«zgÄ\x81n", "OrÅ«zgÄ\x81n Airport",                  66.630897520, 32.902999877900)  /* Uruzgan / Afghanistan */
+       ADD_AIRPORT ("ENBR",    "BGO", "EU", "Bergen",               "Bergen Airport Flesland",                5.218140120, 60.2933998100),
+       ADD_AIRPORT ("DE-0036", "?",   "EU", "Grafenw\xC3\xB6hr",    "Grafenw\xC3\xB6hr Medevac Helipad",     11.916111111, 49.7080555556),
+       ADD_AIRPORT ("ENGM",    "OSL", "EU", "Oslo",                 "Oslo Gardermoen Airport",               11.100399971, 60.193901062012),
+       ADD_AIRPORT ("KJFK",    "JFK", "NA", "New York",             "John F Kennedy International Airport", -73.778000000, 40.6398010000),
+       ADD_AIRPORT ("OTHH",    "DOH", "AS", "Doha",                 "Hamad International Airport",           51.608050000, 25.2730560000),
+       ADD_AIRPORT ("XXXX",    "XXX", "XX", "----",                 "---",                                    0.0,         0.0),           /* test for low hit_rate */
+       ADD_AIRPORT ("AF10",    "URZ", "AS", "Or\xC5\xABg\xC4\x81n", "Or\xC5\xABg\xC4\x81n Airport",          66.630897520, 32.9029998779)  /* Uruzgan / Afghanistan */
      };
 
 static void airport_CSV_test_2 (void)
@@ -1242,7 +1246,6 @@ static void airport_CSV_test_2 (void)
   for (i = num_ok = 0; i < DIM(airport_tests); i++, t++)
   {
     const airport *a = CSV_lookup_ICAO (t->ICAO);
-    const char    *unhex = unescape_hex (t->location);
 
     if (a && !memcmp(a->location, t->location, sizeof(t->location)))
        num_ok++;
@@ -1251,30 +1254,10 @@ static void airport_CSV_test_2 (void)
        num_ok++;
 
     airport_print_rec (a, t->ICAO, i, hit_rate, true);
-
-    if (!strcmp(t->ICAO, "AF10xx"))       /* test UTF-8 unhexing */
-    {
-      wchar_t location_w  [30] = L"?";
-      DWORD   flags = MB_ERR_INVALID_CHARS;
-
-      puts ("hex-dump of 'AF10' location:");
-      mg_hexdump (t->location, strlen(t->location));
-
-      puts ("hex-dump of 'AF10' unescape_hex(t->location):");
-      mg_hexdump (unhex, strlen(unhex));
-
-      puts ("hex-dump of 'AF10' location_w:");
-      mg_hexdump (location_w,
-                  MultiByteToWideChar(CP_UTF8, flags, unhex, -1, location_w, DIM(location_w)));
-    }
   }
   printf ("  %3zu OKAY\n", num_ok);
   printf ("  %3zu FAIL\n\n", i - num_ok);
 }
-
-#if defined(__clang__)
-  #pragma clang diagnostic pop "-Winvalid-source-encoding"
-#endif
 
 static void airport_CSV_test_3 (void)
 {
@@ -1295,7 +1278,7 @@ static void airport_CSV_test_3 (void)
     const char    *ICAO    = g_data.airport_CSV [rec_num].ICAO;
     const airport *a       = CSV_lookup_ICAO (ICAO);
 
-    airport_print_rec (a, ICAO, rec_num, get_usec_now() - now, false);
+    airport_print_rec (a, ICAO, rec_num, get_usec_now() - now, true);
   }
   puts ("");
 }
@@ -1337,13 +1320,26 @@ static void airport_CSV_test_4 (void)
 static void location_print_rec (unsigned idx, const char *ICAO, const char *IATA, const char *cont,
                                 const char *location, const char *full_name)
 {
-  printf ("  %5u    '%-8s'  '%-3s'   %2s    '%-20.20s'  %s\n",
+  wchar_t full_name_w [50] = L"?";
+  wchar_t location_w  [30] = L"?";
+  size_t  width;
+
+  if (!location)
+      location = "?";
+  if (!full_name)
+      full_name = "?";
+
+  printf ("  %5u    '%-8s'  '%-3s'   %2s    ",
           idx,
           ICAO[0]   ? ICAO : "?",
           IATA[0]   ? IATA : "?",
-          cont[0]   ? cont : "?",
-          location  ? location  : "?",
-          full_name ? full_name : "?");
+          cont[0]   ? cont : "?");
+
+  MultiByteToWideChar (CP_UTF8, 0, full_name, -1, full_name_w, DIM(full_name_w));
+  MultiByteToWideChar (CP_UTF8, 0, location, -1, location_w, DIM(location_w));
+
+  width = 20 + (strlen (location) - wcslen (location_w)) / 2;
+  printf ("'%-*.20ws'  %ws\n", (int)width, location_w, full_name_w);
 }
 
 /**
@@ -1622,7 +1618,7 @@ static flight_info *flight_info_find_by_addr (uint32_t addr)
 }
 
 /**
- * Write the a `g_data.flight_info` element to file-cache.
+ * Write a `g_data.flight_info` element to file-cache.
  */
 static bool flight_info_write (FILE *file, const flight_info *f)
 {
@@ -1725,7 +1721,7 @@ bool airports_API_get_flight_info (const char  *call_sign,
   *departure = *destination = NULL;
 
   /* No point getting the route-info for a helicopter.
-   * There will never be any route-response for such a request.
+   * There will never be any response for such a request.
    */
   if (aircraft_is_helicopter(addr, NULL))
   {
@@ -1761,7 +1757,6 @@ bool airports_API_get_flight_info (const char  *call_sign,
     API_TRACE ("call_sign: '%s', type: %s, '%s' -> '%s'", call_sign, type, f->departure, f->destination);
     *departure   = f->departure;
     *destination = f->destination;
-
     return (true);
   }
 
@@ -1770,12 +1765,12 @@ bool airports_API_get_flight_info (const char  *call_sign,
 }
 
 /*
- * The 3 functions below are called from `interactive_show_aircraft()` and
- * `--interactive` mode only.
+ * The 3 functions below are called from `interactive_show_aircraft()`
+ * and `--interactive` mode only.
  *
  * Log a plane entering and after some time (when we have the call-sign),
- * log the resolved flight-info from the 'ADSB-LOL API' for this plane's call-sign
- * and ICAO-address. Like:
+ * log the resolved flight-info from the 'ADSB-LOL API' for this plane's
+ * call-sign and ICAO-address. Like:
  *   ```
  *   20:08:34.123: plane 48AE23 entering.
  *   20:08:36.456: plane 48AE23, call-sign: SK295, "WAW -> JFK" (Warsaw -> New York, resp-time: 120.34 ms)
@@ -1798,8 +1793,8 @@ void airports_API_flight_log_resolved (const aircraft *a)
 
   if (f && !f->no_log && (f->type == AIRPORT_API_LIVE || f->type == AIRPORT_API_CACHED))
   {
-    const char *dep_location = find_airport_location_by_IATA (f->departure);
-    const char *dst_location = find_airport_location_by_IATA (f->destination);
+    const char *dep_location = find_airport_location (f->departure);
+    const char *dst_location = find_airport_location (f->destination);
     wchar_t     dep_location_w [30] = L"?";
     wchar_t     dst_location_w [30] = L"?";
     char        comment [100];
