@@ -1,8 +1,10 @@
 *.map
 *.pdb
+web-pages.*
 link.args
 link.tmp
 objects
+run*.bat
 t
 ASAN-report.txt
 MLAT-ADS-B-Reference-Guide.pdf
@@ -14,6 +16,7 @@ NOTES
 Debug/
 Release/
 .vs/
+tmp/
 Dump1090.vcxproj.filters
 Dump1090.vcxproj.user
 aircraftDatabase.csv
@@ -23,6 +26,6 @@ favicon.ico
 favicon.png
 testfiles/modes1.bin.png
 cpp-filter.py
-check-for-unused-libraries.py
+check-for-unused-libs.py
 *.i
 waterfall/
