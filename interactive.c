@@ -101,13 +101,13 @@ static bool show_dep_dst = false;
 
 /* Use this header and `snprintf()` format for "DEP DST" columns when `show_dep_dst == true`.
  */
-#define HEADER_DEP_DST       "ICAO   Callsign  Reg-num  Cntry  DEP DST   Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
-#define HEADER_BAR_DEP_DST   "-------------------------------------------------------------------------------------------------------------"
-#define LINE_FMT_DEP_DST     "%06X %-9.9s %-8s %-6s %-3s %-3s   %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
+#define HEADER_DEP_DST       "ICAO   Callsign  Reg-num  Cntry  DEP  DST  Altitude   Speed   Lat      Long     Hdg    Dist   RSSI   Msg   Seen %c"
+#define HEADER_BAR_DEP_DST   "---------------------------------------------------------------------------------------------------------------"
+#define LINE_FMT_DEP_DST     "%06X %-9.9s %-8s %-6s %-4s %-4s   %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u   %2llu s "
 //                                 ^      ^    ^    ^    ^      ^
 //                                 |      |    |    |    |      |__ Altitude
-//                                 |      |    |    |    |__ DST  (IATA destination)
-//                                 |      |    |    |__ DEP       (IATA departure)
+//                                 |      |    |    |    |__ DST (destination)
+//                                 |      |    |    |_______ DEP (departure)
 //                                 |      |    |__ Cntry
 //                                 |      |__ Reg-Num
 //                                 |__ Callsign
@@ -117,7 +117,7 @@ static bool show_dep_dst = false;
  */
 #define HEADER_NORMAL        "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
 #define HEADER_BAR_NORMAL    "-------------------------------------------------------------------------------------------------------"
-#define LINE_FMT_NORMAL      "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu sec "
+#define LINE_FMT_NORMAL      "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu s "
 //                                 ^      ^    ^    ^
 //                                 |      |    |    |__ Altitude
 //                                 |      |    |__ Cntry
@@ -594,7 +594,7 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
   if (!mm->CRC_ok)
      return (NULL);
 
-  /* Loookup our aircraft or create a new one.
+  /* Lookup our aircraft or create a new one.
    */
   addr = aircraft_get_addr (mm->AA[0], mm->AA[1], mm->AA[2]);
   a = aircraft_find_or_create (addr, now);
@@ -610,7 +610,7 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
   if (mm->msg_type == 5 || mm->msg_type == 21)
   {
     if (mm->identity)
-         a->identity = mm->identity;   /* Set thee Squawk code. */
+         a->identity = mm->identity;   /* Set the Squawk code. */
     else a->identity = 0;
   }
 
@@ -695,7 +695,6 @@ static int wincon_init (void)
   SetConsoleMode (console_hnd, new_mode);
 
   Modes.interactive_rows = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
-  api = &wincon_api;
 
   WORD bg = console_info.wAttributes & ~7;
 

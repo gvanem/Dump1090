@@ -250,7 +250,7 @@ static const aircraft_info *CSV_lookup_entry (uint32_t addr)
 /**
  * Do a simple test on the `Modes.aircraft_list_CSV`.
  *
- * Also, if `have_sql_file == true` compare the lookup speed
+ * Also, if `have_sql_file == true`, compare the lookup speed
  * of Sqlite3 compared to our `bsearch()` lookup.
  */
 static void aircraft_test_1 (void)
@@ -328,7 +328,7 @@ static void aircraft_test_1 (void)
 }
 
 /**
- * As above, but if `Modes.use_sql_file == true` compare the lookup speed
+ * As above, but if `have_sql_file == true`, compare the lookup speed
  * of Sqlite3 compared to our `bsearch()` lookup.
  */
 static void aircraft_test_2 (void)

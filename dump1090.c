@@ -417,20 +417,13 @@ static bool modeS_init (void)
      modeS_init_log();
 
   modeS_set_log();
+  aircraft_SQL_set_name();
 
-  if (strcmp(Modes.aircraft_db, "NUL"))
+  if (strcmp(Modes.aircraft_db, "NUL") && Modes.aircraft_db_update)
   {
-    if (Modes.use_sql_db)
-    {
-      snprintf (Modes.aircraft_sql, sizeof(Modes.aircraft_sql), "%s.sqlite", Modes.aircraft_db);
-      Modes.have_sql_file = (access(Modes.aircraft_sql, 0) == 0);
-    }
-    if (Modes.aircraft_db_update)
-    {
-      aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_update);
-      aircraft_CSV_load();
-      return (false);
-    }
+    aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_update);
+    aircraft_CSV_load();
+    return (false);
   }
 
 #if 0
@@ -2095,7 +2088,7 @@ static void apply_phase_correction (uint16_t *m)
  * Use a rewrite of the 'demodulate2400()' function from
  * https://github.com/wiedehopf/readsb.git
  */
-static void detect_modeS (uint16_t *m, uint32_t mlen)
+static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
 {
   struct mag_buf mag;
 
@@ -2784,13 +2777,11 @@ static void show_help (const char *fmt, ...)
             "  General options:\n"
             "    --airports <file>        The CSV file for the airports database\n"
             "                             (default: `%s').\n"
-            "    --aircrafts <file>       The CSV file for the aircrafts database\n"
+            "    --aircrafts <file>       The CSV file for the aircrafts database. A `<file>.sqlite' is used if it exists.\n"
             "                             (default: `%s').\n"
             "    --aircrafts-update<=url> Redownload the above .csv-file if older than 10 days,\n"
             "                             recreate the `<file>.sqlite' and exit the program.\n"
             "                             (default URL: `%s').\n"
-            "    --aircrafts-sql          Create a `<file>.sqlite' from the above .CSV-file if it does not exist.\n"
-            "                             Or use the `<file>.sqlite' if it exist.\n"
             "    --debug <flags>          Debug mode; see below for details.\n"
             "    --infile <filename>      Read data from file (use `-' for stdin).\n"
             "    --interactive            Interactive mode with a smimple TUI.\n"
@@ -2801,7 +2792,7 @@ static void show_help (const char *fmt, ...)
             "    --metric                 Use metric units (meters, km/h, ...).\n"
             "    --silent                 Silent mode for testing network I/O (together with `--debug n').\n"
             "    --test<=arg>             Perform some test of internal functions.\n"
-            "    --tui wincon|curses      Select 'Windows-Console' or 'PCurses' interface.\n"
+            "    --tui <wincon|curses>    Select 'Windows-Console' or 'PCurses' interface.\n"
             "     -V, -VV                 Show version info. `-VV' for details.\n"
             "     -h, --help              Show this help.\n\n",
             Modes.who_am_I, Modes.airport_db, Modes.aircraft_db, AIRCRAFT_DATABASE_URL, MODES_INTERACTIVE_TTL/1000);
@@ -2826,8 +2817,9 @@ static void show_help (const char *fmt, ...)
             "    --no-keep-alive          Ignore `Connection: keep-alive' from HTTP clients.\n"
             "    --host-raw <addr:port>   Remote host/port for RAW input with `--net-active'.\n"
             "    --host-sbs <addr:port>   Remote host/port for SBS input with `--net-active'.\n"
+            "    --touch                  Touch all files in Web-page first.\n"
             "    --web-page <file>        The Web-page to serve for HTTP clients\n"
-            "                             (default: `%s/%s').\n\n",
+            "                             (default: `%s\\%s').\n\n",
             net_handler_port (MODES_NET_SERVICE_HTTP),
             net_handler_port (MODES_NET_SERVICE_RAW_IN),
             net_handler_port (MODES_NET_SERVICE_RAW_OUT),
@@ -3271,7 +3263,6 @@ static struct option long_options[] = {
   { "airports",         required_argument,  NULL,                     'a' },
   { "aircrafts",        required_argument,  NULL,                     'b' },
   { "aircrafts-update", optional_argument,  NULL,                     'u' },
-  { "aircrafts-sql",    no_argument,        &Modes.use_sql_db,         1  },
   { "bandwidth",        required_argument,  NULL,                     'B' },
   { "bias",             no_argument,        &Modes.bias_tee,           1  },
   { "calibrate",        no_argument,        &Modes.rtlsdr.calibrate,   1  },
@@ -3307,9 +3298,7 @@ static struct option long_options[] = {
   { "strip",            required_argument,  NULL,                     'S' },
   { "web-page",         required_argument,  NULL,                     'w' },
   { "test",             optional_argument,  NULL,                     'T' },
-#if MG_ENABLE_FILE
-  { "touch",            no_argument,        &Modes.touch_web_root,     1  },
-#endif
+  { "touch",            no_argument,        &Modes.web_root_touch,     1  },
   { "tui",              required_argument,  NULL,                     'A' },
   { NULL,               no_argument,        NULL,                      0  }
 };
