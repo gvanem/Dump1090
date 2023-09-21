@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include <sys/utime.h>
+#include <inttypes.h>
 #include <winsock2.h>
 #include <windows.h>
 #include <wininet.h>
@@ -355,6 +356,18 @@ bool str_endswith (const char *s1, const char *s2)
     s2_end--;
   }
   return (s2_end == s2 - 1);
+}
+
+/**
+ * Trim leading blanks (space/tab) from a string.
+ */
+char *str_ltrim (char *s)
+{
+  assert (s != NULL);
+
+  while (s[0] && s[1] && isspace ((int)s[0]))
+       s++;
+  return (s);
 }
 
 /**
@@ -714,6 +727,8 @@ const char *win_strerror (DWORD err)
 
   if (err == ERROR_SUCCESS)
      strcpy (err_buf, "No error");
+  else if (err == ERROR_BAD_EXE_FORMAT)
+     strcpy (err_buf, "Bad EXE format");
   else if (!FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, NULL, err,
                            LANG_NEUTRAL, err_buf, sizeof(err_buf)-1, NULL))
      strcpy (err_buf, "Unknown error");
@@ -777,9 +792,52 @@ int32_t random_range2 (int32_t min, int32_t max)
 }
 
 /**
- * Print some details about the Sqlite3 package.
+ * Return nicely formatted string `"xx,xxx,xxx"`
+ * with thousand separators (left adjusted).
  *
- * \todo Fix this for `-DUSE_WIN_SQLITE`.
+ * Use 8 buffers in round-robin.
+ */
+const char *qword_str (uint64_t val)
+{
+  static char buf [8][30];
+  static int  idx = 0;
+  char   tmp[30];
+  char  *rc = buf [idx++];
+
+  if (val < 1000ULL)
+  {
+    sprintf (rc, "%lu", (u_long)val);
+  }
+  else if (val < 1000000ULL)       /* < 1E6 */
+  {
+    sprintf (rc, "%lu,%03lu", (u_long)(val/1000UL), (u_long)(val % 1000UL));
+  }
+  else if (val < 1000000000ULL)    /* < 1E9 */
+  {
+    sprintf (tmp, "%9" PRIu64, val);
+    sprintf (rc, "%.3s,%.3s,%.3s", tmp, tmp+3, tmp+6);
+  }
+  else if (val < 1000000000000ULL) /* < 1E12 */
+  {
+    sprintf (tmp, "%12" PRIu64, val);
+    sprintf (rc, "%.3s,%.3s,%.3s,%.3s", tmp, tmp+3, tmp+6, tmp+9);
+  }
+  else                                      /* >= 1E12 */
+  {
+    sprintf (tmp, "%15" PRIu64, val);
+    sprintf (rc, "%.3s,%.3s,%.3s,%.3s,%.3s", tmp, tmp+3, tmp+6, tmp+9, tmp+12);
+  }
+  idx &= 7;
+  return str_ltrim (rc);
+}
+
+const char *dword_str (DWORD val)
+{
+  return qword_str ((uint64_t)val);
+}
+
+/**
+ * Print some details about the Sqlite3 package.
  */
 static void print_sql_info (void)
 {
@@ -800,6 +858,17 @@ static void print_sql_info (void)
       sz = 0;
     }
   }
+}
+
+static void print_packed_web_info (void)
+{
+#if defined(USE_PACKED_DLL)
+  /**
+   * \todo
+   * Iterate over resources in `web-page.dll` and print
+   * all `mg_packed_spec_x()` descriptions.
+   */
+#endif
 }
 
 /**
@@ -841,7 +910,7 @@ static const char *build_features (void)
   #if defined(USE_ASAN)
     "ASAN",
   #endif
-  #if defined(USE_PACKED_WEB) || defined(USE_PACKED_DLL)
+  #if defined(USE_PACKED_DLL)
     "Packed-Web",
   #endif
   #if defined(USE_RTLSDR_EMUL)
@@ -878,17 +947,15 @@ void show_version_info (bool verbose)
   printf ("dump1090 ver: %s (%s, %s). Built at %s.\n", PROG_VERSION, compiler_info(), build_features(), __DATE__);
   if (verbose)
   {
-    uint32_t ver;
-
  // print_cflags();
  // print_ldflags();
 
-    ver = rtlsdr_get_version();
     printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s.\n",
             RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, RTL_VER_ID);
     printf ("PDCurses ver: %s\n", PDC_VERDOT);
     printf ("Mongoose ver: %s\n", MG_VERSION);
     printf ("Miniz ver:    %s\n", mz_version());
+    print_packed_web_info();
     print_sql_info();
   }
   exit (0);
