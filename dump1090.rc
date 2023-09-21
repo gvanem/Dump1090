@@ -3,28 +3,6 @@
 
 APPICON ICON "dump1090.ico"
 
-#define RC_VERSION   VER_MAJOR, VER_MINOR, VER_MICRO, 0
-
-#if defined(__clang__)
-  #define RC_BUILDER  "clang-cl"
-#else
-  #define RC_BUILDER  "MSVC"
-#endif
-
-#ifdef _DEBUG
-  #define RC_DBG_REL    " debug"
-  #define RC_FILEFLAGS  1
-#else
-  #define RC_DBG_REL    " release"
-  #define RC_FILEFLAGS  0
-#endif
-
-/**
- * 'RC_BITS' is defined Makefile.Windows to '32' or '64'.
- * \todo Add more feature strings like `RC_USE_ASAN`, `RC_USE_UBSAN` etc.
- */
-#define RC_VER_STRING  PROG_VERSION  " (" RC_BUILDER ", " _STR(RC_BITS) "-bits," RC_DBG_REL ")"
-
 VS_VERSION_INFO VERSIONINFO
   FILEVERSION     RC_VERSION
   PRODUCTVERSION  RC_VERSION
