@@ -38,13 +38,6 @@ USE_PACKED_DLL ?= 1
 USE_UPX ?= 0
 
 #
-# Use Python to geneate a 'py_gen_magnude_lut[]' (I/Q Lookup Table)
-# table into '$(OBJ_DIR)/py_gen_magnitude_lut.h'. This is to save
-# some time in generating 'Modes.magnitude_lut' at runtime.
-#
-USE_GEN_LUT ?= 1
-
-#
 # For SDRplay support, load the "rtlsdr-emul-$(CPU).DLL" at runtime instead.
 # Ref:
 #   https://github.com/JvanKatwijk/rtlsdr-emulator-sdrplay.git
@@ -64,7 +57,7 @@ USE_READSB_DEMOD ?= 0
 # Does not work with 'USE_CRT_DEBUG = 1' and 'CC = clang-cl'.
 # But 'USE_CRT_DEBUG = 1' and 'CC = cl' works.
 #
-USE_ASAN ?= 1
+USE_ASAN ?= 0
 
 #
 # Compile using 'cl -MP ...'. For MSVC only.
@@ -87,7 +80,6 @@ USE_ASTYLE ?= 1
 # Python is needed for:
 #   *) .c-file preprocessing.
 #   *) generation of '$(OBJ_DIR)/web-pages-[1-4].c'.
-#   *) generation of '$(OBJ_DIR)/py_gen_magnitude_lut.h'
 #   *) and in the 'link_EXE()' macro.
 #
 PYTHON ?= py -3
@@ -288,11 +280,6 @@ ifeq ($(USE_PACKED_DLL),1)
   GENERATED += $(WEB_SRC)
 endif
 
-ifeq ($(USE_GEN_LUT),1)
-  CFLAGS    += -DUSE_GEN_LUT
-  GENERATED += $(OBJ_DIR)/py_gen_magnitude_lut.h
-endif
-
 OBJECTS = $(call c_to_obj, $(SOURCES))
 WEB_OBJ = $(call c_to_obj, $(WEB_SRC))
 
@@ -417,10 +404,6 @@ run_packed_test: packed_test.exe
 	packed_test.exe -2 | lynx -dump -stdin > packed_test-2.dump
 	diff -u3 packed_test-1.dump packed_test-2.dump
 	@echo
-
-$(OBJ_DIR)/py_gen_magnitude_lut.h: tools/gen_magnitude_lut.py
-	$(call generate, $@, //)
-	$(PYTHON) $< >> $@
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.
@@ -764,7 +747,6 @@ DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.obj: @'
 #
 # Fixed dependencies:
 #
-$(OBJ_DIR)/dump1090.obj: $(OBJ_DIR)/py_gen_magnitude_lut.h
 $(OBJ_DIR)/dump1090.obj \
 $(OBJ_DIR)/misc.obj:    dump1090_config.h
 

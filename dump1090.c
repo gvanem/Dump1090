@@ -261,37 +261,6 @@ static uint16_t *c_gen_magnitude_lut (void)
   return (lut);
 }
 
-#if defined(USE_GEN_LUT)
-#include "py_gen_magnitude_lut.h"
-
-static bool check_py_gen_magnitude_lut (void)
-{
-  uint16_t *lut = c_gen_magnitude_lut();
-  int       I, Q, equals;
-
-  puts ("");
-  for (I = equals = 0; I < 129; I++)
-  {
-    for (Q = 0; Q < 129; Q++)
-    {
-      int idx = I*129+Q;
-
-      if (lut[idx] == py_gen_magnitude_lut[idx])
-           equals++;
-      else printf ("%8u != %-8u.\n", py_gen_magnitude_lut[idx], lut[idx]);
-    }
-  }
-  free (lut);
-  if (equals != DIM(py_gen_magnitude_lut))
-  {
-    printf ("There were %zu errors in 'py_gen_magnitude_lut[]'.\n", DIM(py_gen_magnitude_lut) - equals);
-    return (false);
-  }
-  puts ("'py_gen_magnitude_lut[]' values all OK.");
-  return (true);
-}
-#endif
-
 /**
  * Initialize the temporary directory
  */
@@ -492,12 +461,7 @@ static bool modeS_init (void)
   }
 
   memset (Modes.data, 127, Modes.data_len);
-
-#if defined(USE_GEN_LUT)
-  Modes.magnitude_lut = py_gen_magnitude_lut;
-#else
   Modes.magnitude_lut = c_gen_magnitude_lut();
-#endif
 
   if (!aircraft_CSV_load())
      return (false);
@@ -505,10 +469,6 @@ static bool modeS_init (void)
   if (Modes.tests)
   {
     airports_init();
-
-#if defined(USE_GEN_LUT)
-    check_py_gen_magnitude_lut();
-#endif
 
 #if defined(_DEBUG) && 0
     if (Modes.tests >= 2)
@@ -3081,9 +3041,7 @@ static void modeS_exit (void)
   aircraft_exit (true);
   airports_exit (true);
 
-#if !defined(USE_GEN_LUT)
   free (Modes.magnitude_lut);
-#endif
   free (Modes.magnitude);
   free (Modes.data);
   free (Modes.ICAO_cache);
