@@ -12,11 +12,10 @@ try:
 except ImportError:
   have_minify = False
 
-opt          = None
-files_dict   = dict()
-lookup_table = []
-my_name      = os.path.basename (__file__)
-PY2          = (sys.version_info.major == 2)
+opt        = None
+files_dict = dict()
+my_name    = os.path.basename (__file__)
+PY2        = (sys.version_info.major == 2)
 
 total_in_bytes  = 0
 total_out_bytes = 0
@@ -57,33 +56,6 @@ const char *mg_unpack%s (const char *name, size_t *size, time_t *mtime)
     return (const char*) p->data;
   }
   return (NULL);
-}
-
-static int compare_on_name (const void *_a, const void *_b)
-{
-  const packed_lookup *a = (const packed_lookup*) _a;
-  const packed_lookup *b = (const packed_lookup*) _b;
-
-  return stricmp (a->name, b->name);
-}
-
-const char *mg_unpack2%s (const char *name, size_t *size, time_t *mtime)
-{
-  const packed_file   *pf;
-  const packed_lookup *p;
-  packed_lookup        key;
-
-  key.name = name;
-  p = bsearch (&key, lookup_table, DIM(lookup_table), sizeof(lookup_table[0]), compare_on_name);
-  if (p)
-       pf = packed_files + p->index;
-  else pf = NULL;
-
-  if (size)
-     *size = (pf ? pf->size - 1 : 0);
-  if (mtime)
-     *mtime = (pf ? pf->mtime : 0);
-  return (pf ? (const char*)pf->data : NULL);
 }
 
 const char *mg_spec%s (void)
@@ -150,18 +122,18 @@ def generate_array_js (in_file, out_file, num):
 def generate_array (in_file, out_file, num):
   with open (in_file, "rb") as f:
        out_file.write ("//\n// Generated from '%s'\n//\n" % in_file)
-       out_file.write ("static const unsigned char file%d[] = {\n" % num)
+       out_file.write ("static const unsigned char file%d[] = {" % num)
        data_in  = f.read (-1)
        data_out = data_in
        len_in   = len(data_in)
        len_out  = len_in
        for n in range(0, len_in):
+           if n % 16 == 0:
+              out_file.write ("\n  ")
            if PY2:
               out.write ("0x%02X," % ord(data_out[n]))
            else:
               out_file.write ("0x%02X," % data_out[n])
-           if (n + 1) % 16 == 0:
-              out_file.write ("\n")
        out_file.write ("0x00\n};\n\n")
   return len_in, len_out
 
@@ -181,20 +153,6 @@ def write_packed_files_array (out):
   out.write ("  { NULL, 0, 0, NULL }\n};\n")
 
 #
-# Lookup table for mg_unpack2%s():
-#
-def write_lookup_table (out):
-  out.write ("""
-static const packed_lookup lookup_table[] = {
-""")
-
-  for f in lookup_table:
-      index = f[1]
-      file  = f[0] [len(opt.strip):]
-      out.write ("     { \"%s\", %d },\n" % (file, index))
-  out.write ("   };\n")
-
-#
 # Taken from the Python manual and modified.
 # Better than 'glob.glob (".\\**", recursive=True')
 #
@@ -210,8 +168,6 @@ def walktree (top, callback):
       elif stat.S_ISREG(st.st_mode):
          callback (fqfn, st)
 
-index = 0
-
 def add_file (file, st):
   file = file.replace ("\\", "/")
   for i in opt.ignore:
@@ -224,9 +180,6 @@ def add_file (file, st):
                            "fsize" : st.st_size,
                            "fname" : file [len(opt.strip):]
                          }
-     global index
-     lookup_table.append ((file, index))
-     index += 1
      trace (2, "Adding file '%s'" % files_dict[file]["fname"])
   else:
      trace (1, "File '%s' does not match 'opt.spec'" % file)
@@ -331,9 +284,8 @@ for n, f in enumerate (files_dict):
 
 out.write (C_ARRAY)
 write_packed_files_array (out)
-write_lookup_table (out)
 
-out.write (C_BOTTOM % (opt.suffix, opt.suffix, opt.suffix, opt.suffix, opt.spec))
+out.write (C_BOTTOM % (opt.suffix, opt.suffix, opt.suffix, opt.spec))
 out.close()
 
 if opt.minify:
