@@ -26,11 +26,28 @@ net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
           { &Modes.http_out, "HTTP server",    "tcp", MODES_NET_PORT_HTTP }     // MODES_NET_SERVICE_HTTP
         };
 
-#if defined(PACKED_WEB_ROOT)
-  extern const char *mg_unpack (const char *name, size_t *size, time_t *mtime);
-  extern const char *mg_unlist (size_t i);
-  extern unsigned    mg_usage_count (size_t i);
-#endif
+/**
+ * Handling a "Packed Web FileSystem".
+ */
+static bool use_packed_dll = false;
+static bool use_bsearch    = false;
+
+static packed_file *lookup_table = NULL;
+static size_t       lookup_table_sz;
+static uint32_t     num_lookups, num_misses;
+
+const char *mg_unpack (const char *path, size_t *size, time_t *mtime);
+
+/**
+ * Define the func-ptr to the `mg_unpack()` + `mg_unlist()` functions loaded
+ * dynamically from the `--web-page some.dll;N` option.
+ */
+#define DEF_FUNC(ret, f, args)  typedef ret (*func_##f) args; \
+                                static func_##f p_##f = NULL
+
+DEF_FUNC (const char *, mg_unpack, (const char *name, size_t *size, time_t *mtime));
+DEF_FUNC (const char *, mg_unlist, (size_t i));
+DEF_FUNC (const char *, mg_spec,   (void));
 
 static void        net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data);
 static void        net_timeout (void *fn_data);
@@ -45,8 +62,6 @@ static char       *net_service_error (intptr_t service);
 static char       *net_service_url (intptr_t service);
 
 static bool        client_handler (const mg_connection *c, intptr_t service, int ev);
-static bool        client_is_unique (const mg_addr *addr);
-static bool        client_is_extern (const mg_addr *addr);
 static bool        client_deny (const mg_addr *addr, intptr_t service);
 
 /**
@@ -255,7 +270,7 @@ void net_connection_send (intptr_t service, const void *msg, size_t len)
  * Returns a `connection *` based on the remote `addr` and `service`.
  * This can be either client or server.
  */
-connection *connection_get (mg_connection *c, intptr_t service, int ev, bool is_server)
+connection *connection_get (mg_connection *c, intptr_t service, bool is_server)
 {
   connection *conn;
 
@@ -265,15 +280,6 @@ connection *connection_get (mg_connection *c, intptr_t service, int ev, bool is_
   {
     if (conn->service == service && !memcmp(&conn->rem, &c->rem, sizeof(mg_addr)))
        return (conn);
-  }
-
-  if (ev != MG_EV_CLOSE)
-  {
-    mg_host_name addr_buf;
-
-    LOG_FILEONLY ("No conn-id for remote %s (event: %s, conn-id: %lu, closing: %d, service: \"%s\")\n",
-                  net_str_addr(&c->rem, addr_buf, sizeof(addr_buf)),
-                  event_name(ev), c->id, c->is_closing, net_service_descr(service));
   }
 
   is_server ? Modes.stat.srv_unknown [service]++ :   /* Should never happen */
@@ -398,7 +404,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
     return (400);
   }
 
-  cli = connection_get (c, MODES_NET_SERVICE_HTTP, MG_EV_HTTP_MSG, false);
+  cli = connection_get (c, MODES_NET_SERVICE_HTTP, false);
   if (!cli)
      return (505);
 
@@ -509,15 +515,20 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
       opts.page404       = NULL;
       opts.extra_headers = set_headers (cli, content_type);
 
-      snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
-
-#if defined(PACKED_WEB_ROOT)
-      opts.fs = &mg_fs_packed;
-      packed  = " packed";
-      found = (mg_unpack(file, NULL, NULL) != NULL);
-#else
-      found = (access(file, 0) == 0);
+#if defined(USE_PACKED_DLL)
+      if (use_packed_dll)
+      {
+        snprintf (file, sizeof(file), "%s", uri+1);
+        opts.fs = &mg_fs_packed;
+        packed  = "packed ";
+        found = (mg_unpack (file, NULL, NULL) != NULL);
+      }
+      else  /* option '--web-page foo/index.html' used even if 'web-page.dll' is built */
 #endif
+      {
+        snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
+        found = (access(file, 0) == 0);
+      }
 
       DEBUG (DEBUG_NET, "Serving %sfile: '%s', found: %d.\n", packed, file, found);
       DEBUG (DEBUG_NET2, "extra-headers: '%s'.\n", opts.extra_headers);
@@ -705,7 +716,7 @@ static void connection_failed_active (mg_connection *c, intptr_t service, const 
  */
 static void connection_failed_accepted (mg_connection *c, intptr_t service, const void *ev_data)
 {
-  connection *conn = connection_get (c, service, MG_EV_ERROR, true);
+  connection *conn = connection_get (c, service, true);
   const char *err;
 
   err = net_error_details (c, "Connection in ", ev_data);
@@ -827,15 +838,15 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
 
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
-      conn = connection_get (c, service, MG_EV_READ, false);
+      conn = connection_get (c, service, false);
       net_connection_recv (conn, decode_RAW_message, false);
 
-      conn = connection_get (c, service, MG_EV_READ, true);
+      conn = connection_get (c, service, true);
       net_connection_recv (conn, decode_RAW_message, true);
     }
     else if (service == MODES_NET_SERVICE_SBS_IN)
     {
-      conn = connection_get (c, service, MG_EV_READ, true);
+      conn = connection_get (c, service, true);
       net_connection_recv (conn, decode_SBS_message, true);
     }
     return;
@@ -854,10 +865,10 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
   {
     client_handler (c, service, MG_EV_CLOSE);
 
-    conn = connection_get (c, service, ev, false);
+    conn = connection_get (c, service, false);
     net_conn_free (conn, service);
 
-    conn = connection_get (c, service, ev, true);
+    conn = connection_get (c, service, true);
     net_conn_free (conn, service);
 
     -- (*net_num_connections (service));
@@ -1090,6 +1101,27 @@ static void net_flushall (void)
          num_active, num_passive, num_unknown, total_rx, total_tx);
 }
 
+/**
+ * \todo Fix this.
+ * Assume yes for now.
+ */
+static bool client_is_unique (const mg_addr *addr)
+{
+  (void) addr;
+  return (true);
+}
+
+static bool client_is_extern (const mg_addr *addr)
+{
+  uint32_t ip4;
+
+  if (addr->is_ip6)
+     return (false);            /**\todo fix this */
+
+  ip4 = *(const uint32_t*) &addr->ip;
+  return (ip4 != 0x0100007F);    /* ip4 !== 127.0.0.1 */
+}
+
 static bool client_handler (const mg_connection *c, intptr_t service, int ev)
 {
   const mg_addr *addr = &c->rem;
@@ -1122,27 +1154,6 @@ static bool client_handler (const mg_connection *c, intptr_t service, int ev)
                   net_str_addr(addr, addr_buf, sizeof(addr_buf)), c->id, net_service_descr(service));
   }
   return (rc);
-}
-
-/**
- * \todo Fix this.
- * Assume yes for now.
- */
-static bool client_is_unique (const mg_addr *addr)
-{
-  (void) addr;
-  return (true);
-}
-
-static bool client_is_extern (const mg_addr *addr)
-{
-  uint32_t ip4;
-
-  if (addr->is_ip6)
-     return (false);            /**\todo fix this */
-
-  ip4 = *(const uint32_t*) &addr->ip;
-  return (ip4 != 0x0100007F);    /* ip4 !== 127.0.0.1 */
 }
 
 /**
@@ -1222,67 +1233,231 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   return (true);
 }
 
-#if defined(PACKED_WEB_ROOT)
-/**
- * Functions for a "Packed Web Filesystem".
+/*
+ * Functions for loading `web-pages.dll;[1-9]`.
  *
- * \todo
- * Support multiple "Packed Web Filesystem" in a resource .DLL
- * with option:
- *   \li `--web-page some.dll;1` for the 1st resource.
- *   \li `--web-page some.dll;2` for the 2nd resource etc.
+ * If program called with `--web-page web-pages.dll;1` for the 1st resource,
+ * load all `mg_*_1()` functions dynamically. Similar for `--web-page web-pages.dll;2`.
  *
- * Functions in the generated '$(OBJ_DIR)/packed_webfs.c' file.
+ * But if program called with `--web-page foo/index.html` (when compiled with `-DUSE_PACKED_DLL`),
+ * simply skip the loading of the .DLL and check the regular Web-page `foo/index.html`.
  */
-static size_t num_packed = 0;
-static bool   has_index_html = false;
+#if defined(USE_PACKED_DLL)
+  #define ADD_FUNC(func) { false, NULL, "", #func, (void**)&p_##func }
+                        /* ^__ no functions are optional */
 
-static void count_packed_fs (void)
-{
-  const char *fname;
-  size_t      i;
+  static struct dyn_struct web_page_funcs [] = {
+                           ADD_FUNC (mg_unpack),
+                           ADD_FUNC (mg_unlist),
+                           ADD_FUNC (mg_spec)
+                         };
 
-  for (i = 0; (fname = mg_unlist(i)) != NULL; i++)
+  static bool load_web_dll (char *web_dll)
   {
-    if (!strcmp(basename(fname), "index.html"))
-       has_index_html = true;
+    char  *res_ptr;
+    size_t num;
+    int    missing, resource = -1;
+    bool   rc;
+    struct stat st;
+
+    res_ptr = strchr (web_dll, ';');
+    if (!res_ptr || !isdigit(res_ptr[1]))
+    {
+      LOG_STDERR ("The web-page \"%s\" has no resource number!\n", Modes.web_page);
+      return (false);
+    }
+
+    *res_ptr++ = '\0';
+    resource = (*res_ptr - '0');
+
+    if (!str_endswith(web_dll, ".dll"))
+    {
+      LOG_STDERR ("The web-page \"%s\" is not a .DLL!\n", Modes.web_page);
+      return (false);
+    }
+    if (stat(web_dll, &st) != 0)
+    {
+      LOG_STDERR ("The web-page \"%s\" does not exist.\n", web_dll);
+      return (false);
+    }
+
+    LOG_STDOUT ("Trying --web-page \"%s\" and resource %d.\n", web_dll, resource);
+    for (num = 0; num < DIM(web_page_funcs); num++)
+    {
+      web_page_funcs [num].mod_name  = web_dll;
+      web_page_funcs [num].func_name = mg_mprintf ("%s_%d", web_page_funcs[num].func_name, resource);
+      if (!web_page_funcs[num].func_name)
+      {
+        LOG_STDERR ("Memory alloc for the web-page \"%s\" failed!.\n", web_dll);
+        return (false);
+      }
+    }
+
+    rc = true;
+    missing = (num - load_dynamic_table(web_page_funcs, num));
+
+    if (!web_page_funcs[0].mod_handle || web_page_funcs[0].mod_handle == INVALID_HANDLE_VALUE)
+    {
+      LOG_STDERR ("The web-page \"%s\" failed to load; %s.\n", web_dll, win_strerror(GetLastError()));
+      rc = false;
+    }
+    else if (missing)
+    {
+      LOG_STDERR ("The web-page \"%s\" is missing %d functions.\n", web_dll, missing);
+      rc = false;
+    }
+    return (rc);
   }
-  num_packed = i;
-}
 
-void net_show_packed_usage (void)
-{
-  unsigned i, count;
-  const char *fname;
-
-  LOG_FILEONLY ("\nPacked-Web statistics:\n");
-
-  for (i = 0; (fname = mg_unlist(i)) != NULL; i++)
+  /*
+   * Free the memory allocated above. And unload the .DLL.
+   */
+  static void unload_web_dll (void)
   {
-    count = mg_usage_count (i);
-    if (count > 0)
-       LOG_FILEONLY ("  %3u: %s\n", count, fname);
-  }
-  if (i == 0)
-     LOG_FILEONLY ("  <None>\n");
-}
+    size_t i;
 
-static bool check_web_page (void)
-{
-  if (num_packed == 0)
-  {
-    LOG_STDERR ("The Packed Filesystem has no files!\n");
-    return (false);
+    for (i = 0; i < DIM(web_page_funcs); i++)
+        free ((char*)web_page_funcs [i].func_name);
+    unload_dynamic_table (web_page_funcs, DIM(web_page_funcs));
   }
-  if (!has_index_html)
+
+  static void touch_web_dll (void)
   {
-    LOG_STDERR ("The Packed Filesystem has no 'index.html' file!\n");
-    return (false);
+    /** todo */
   }
-  return (true);
-}
+
+  static int compare_on_name (const void *_a, const void *_b)
+  {
+    const packed_file *a = (const packed_file*) _a;
+    const packed_file *b = (const packed_file*) _b;
+    int   rc = strcmp (a->name, b->name);
+
+    num_lookups++;
+    if (rc)
+       num_misses++;
+    return (rc);
+  }
+
+  static size_t count_packed_fs (bool *have_index_html)
+  {
+    const char *fname;
+    size_t      num;
+
+    *have_index_html = false;
+    DEBUG (DEBUG_NET, "%s():\n", __FUNCTION__);
+
+    for (num = 0; (fname = (*p_mg_unlist) (num)) != NULL; num++)
+    {
+      size_t fsize;
+
+      (*p_mg_unpack) (fname, &fsize, NULL);
+      DEBUG (DEBUG_NET, "  %-50s -> %7zu bytes\n", fname, fsize);
+      if (*have_index_html == false && !strcmp(basename(fname), "index.html"))
+         *have_index_html = true;
+    }
+
+    if (*have_index_html)
+       strcpy (Modes.web_page, "index.html");
+    return (num);
+  }
+
+  static bool check_packed_web_page (void)
+  {
+    bool   have_index_html;
+    size_t num;
+
+    if (!use_packed_dll)
+       return (true);
+
+    num = count_packed_fs (&have_index_html);
+    if (num == 0)
+    {
+      LOG_STDERR ("The \"%s\" has no files!\n", Modes.web_page);
+      return (false);
+    }
+
+    if (!have_index_html)
+    {
+      LOG_STDERR ("The \"%s\" has no \"index.html\" file!\n", Modes.web_page);
+      return (false);
+    }
+
+    /* Create a sorted list for a bsearch() lookup in 'mg_unpack()' below
+     */
+    if (use_bsearch)
+    {
+      const char *fname;
+
+      lookup_table    = malloc (sizeof(*lookup_table) * num);
+      lookup_table_sz = num;
+      if (!lookup_table)
+      {
+        use_bsearch = false;
+        return (true);
+      }
+      for (num = 0; (fname = (*p_mg_unlist)(num)) != NULL; num++)
+      {
+        lookup_table[num].name = fname;
+        lookup_table[num].data = (const unsigned char*) (*p_mg_unpack) (fname, &lookup_table[num].size, &lookup_table[num].mtime);
+      }
+      qsort (lookup_table, num, sizeof(*lookup_table), compare_on_name);
+    }
+    return (true);
+  }
+
+  /*
+   * Returns the `spec` used to generate the "Packed Web" files.
+   */
+  const char *mg_spec (void)
+  {
+    return (*p_mg_spec)();
+  }
+
+  /*
+   * This is called from 'externals/mongoose.c' when using a packed File-system.
+   * I.e. when `opts.fs = &mg_fs_packed;` above.
+   */
+  const char *mg_unpack (const char *fname, size_t *fsize, time_t *ftime)
+  {
+    const packed_file *p;
+    packed_file        key;
+
+    if (!use_bsearch)
+       return (*p_mg_unpack) (fname, fsize, ftime);
+
+    key.name = fname;
+    p = bsearch (&key, lookup_table, lookup_table_sz, sizeof(*lookup_table), compare_on_name);
+
+    if (fsize)
+       *fsize = (p ? p->size - 1 : 0);
+    if (ftime)
+       *ftime = (p ? p->mtime : 0);
+
+    if (ftime == NULL &&     /* When called from 'packed_open()' */
+        !str_endswith(fname, ".gz"))
+    {
+      LOG_FILEONLY ("found: %d, lookups: %u/%u, fname: '%s'\n", p ? 1 : 0, num_lookups, num_misses, fname);
+      num_lookups = num_misses = 0;
+    }
+    return (p ? (const char*)p->data : NULL);
+  }
+
+  const char *mg_unlist (size_t i)
+  {
+    return (*p_mg_unlist) (i);
+  }
 
 #else
+  static bool check_packed_web_page (void)
+  {
+    use_packed_dll = false;
+    return (true);
+  }
+#endif  /* USE_PACKED_DLL */
+
+/*
+ * Check a regular Web-page
+ */
 static bool check_web_page (void)
 {
   mg_file_path full_name;
@@ -1303,13 +1478,6 @@ static bool check_web_page (void)
   }
   return (true);
 }
-
-void net_show_packed_usage (void)
-{
-  LOG_FILEONLY ("\nPacked-Web statistics:\n");
-  LOG_FILEONLY ("  <N/A>\n");
-}
-#endif  /* PACKED_WEB_ROOT */
 
 static int net_show_server_errors (void)
 {
@@ -1428,9 +1596,6 @@ void net_show_stats (void)
   show_raw_SBS_IN_stats();
   show_raw_RAW_IN_stats();
 
-  if (Modes.stat.cli_accepted[MODES_NET_SERVICE_HTTP] > 0)
-     net_show_packed_usage();
-
   net_show_server_errors();
 }
 
@@ -1442,20 +1607,33 @@ void net_show_stats (void)
  */
 bool net_init (void)
 {
-#if defined(PACKED_WEB_ROOT)
-  Modes.touch_web_root = false;
-  LOG_STDOUT ("Ignoring the '--web-page %s/%s' option since we use a built-in 'Packed Filesystem'.\n",
-              Modes.web_root, Modes.web_page);
+  mg_file_path web_dll;
 
-  strncpy (Modes.web_root, PACKED_WEB_ROOT, sizeof(Modes.web_root));
-  strcpy (Modes.web_page, "index.html");
-  count_packed_fs();
+  strncpy (web_dll, Modes.web_page, sizeof(web_dll));
+  strlwr (web_dll);
+  if (strstr(web_dll, ".dll;"))
+     use_packed_dll = true;
+
+  if (use_packed_dll)
+  {
+#if defined(USE_PACKED_DLL)
+    if (!load_web_dll(web_dll))
+       return (false);
+#else
+    LOG_STDERR ("Using a .DLL when built without 'USE_PACKED_DLL' is not possible.\n");
+    return (false);
 #endif
+  }
 
+  if (Modes.web_root_touch)
+  {
+#if defined(USE_PACKED_DLL)
+    touch_web_dll();
+#endif
 #if MG_ENABLE_FILE
-  if (Modes.touch_web_root)
-     touch_dir (Modes.web_root, true);
+    touch_dir (Modes.web_root, true);
 #endif
+  }
 
   mg_mgr_init (&Modes.mgr);
 
@@ -1498,7 +1676,8 @@ bool net_init (void)
     if (!connection_setup_listen(MODES_NET_SERVICE_HTTP, &Modes.http_out, true))
        return (false);
   }
-  if (Modes.http_out && !check_web_page())
+
+  if (Modes.http_out && !check_packed_web_page() && !check_web_page())
      return (false);
   return (true);
 }
@@ -1506,6 +1685,11 @@ bool net_init (void)
 bool net_exit (void)
 {
   uint32_t num = net_conn_free_all();
+
+#ifdef USE_PACKED_DLL
+  unload_web_dll();
+  free (lookup_table);
+#endif
 
   net_flushall();
   mg_mgr_free (&Modes.mgr);

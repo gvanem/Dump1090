@@ -6,6 +6,7 @@
 # Ref: https://github.com/gvanem/Dump1090.git
 #
 TODAY      = $(shell date +%d-%B-%Y)
+YEAR       = $(shell date +%Y)
 THIS_FILE  = Makefile.Windows
 MAKEFLAGS += --warn-undefined-variables
 
@@ -25,12 +26,16 @@ USE_CRT_DEBUG ?= 0
 USE_EPOLL ?= 0
 
 #
-# Enable bundling *all* web_root pages inside dump1090.exe.
-# Also if 'USE_MINIFY = 1', compress all .css, .js and .html files first.
+# Enable bundling *all* web_root pages inside 'web-pages.dll' as
+# multiple resources.
 #
-USE_PACKED_WEB  ?= 0
-USE_MINIFY      ?= 0
-PACKED_WEB_ROOT ?= web_root-Tar1090
+USE_PACKED_DLL ?= 1
+
+#
+# Pack 'web-pages.dll' using UPX.EXE? Needs an up-to-date version.
+# E.g: https://github.com/upx/upx/releases/download/v4.1.0/upx-4.1.0-win64.zip
+#
+USE_UPX ?= 0
 
 #
 # Use Python to geneate a 'py_gen_magnude_lut[]' (I/Q Lookup Table)
@@ -48,6 +53,7 @@ USE_RTLSDR_EMUL ?= 0
 
 #
 # Enable the 2.4 MS/s decoder from 'readsb'?
+# Not possible at the moment.
 #
 USE_READSB_DEMOD ?= 0
 
@@ -58,17 +64,12 @@ USE_READSB_DEMOD ?= 0
 # Does not work with 'USE_CRT_DEBUG = 1' and 'CC = clang-cl'.
 # But 'USE_CRT_DEBUG = 1' and 'CC = cl' works.
 #
-USE_ASAN ?= 0
+USE_ASAN ?= 1
 
 #
 # Compile using 'cl -MP ...'. For MSVC only.
 #
 USE_MP_COMPILE ?= 0
-
-#
-# Use Windows' SQLite instead of 'externals/sqlite3.c'?
-#
-USE_WIN_SQLITE ?= 0
 
 #
 # For my private build; use the tracing Winsock library?
@@ -85,7 +86,7 @@ USE_ASTYLE ?= 1
 #
 # Python is needed for:
 #   *) .c-file preprocessing.
-#   *) generation of '$(OBJ_DIR)/packed_webfs.c'.
+#   *) generation of '$(OBJ_DIR)/web-pages-[1-4].c'.
 #   *) generation of '$(OBJ_DIR)/py_gen_magnitude_lut.h'
 #   *) and in the 'link_EXE()' macro.
 #
@@ -122,7 +123,10 @@ export CPLUS_INCLUDE_PATH=
 
 OBJ_DIR = objects
 
-EX_LIBS =
+c_to_obj = $(addprefix $(OBJ_DIR)/, $(notdir $(1:.c=.obj)))
+
+OS_LIBS   = advapi32.lib ole32.lib setupapi.lib user32.lib winusb.lib
+ASAN_LIBS =
 
 ifneq ($(CC),cl)
   ifneq ($(CC),clang-cl)
@@ -133,6 +137,8 @@ endif
 vpath %.c externals        \
           externals/Curses \
           externals/rtl-sdr
+
+vpath %.rc $(OBJ_DIR)
 
 CFLAGS = -nologo -Zi -W4           \
          -FI./dump1090_config.h    \
@@ -193,11 +199,11 @@ ifeq ($(USE_ASAN),1)
                -libpath:$(CLANG_$(BITS))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
 
     ifeq ($(CPU),x86)
-      EX_LIBS += clang_rt.asan_dynamic-i386.lib \
-                 clang_rt.asan_dynamic_runtime_thunk-i386.lib
+      ASAN_LIBS = clang_rt.asan_dynamic-i386.lib \
+                  clang_rt.asan_dynamic_runtime_thunk-i386.lib
     else
-      EX_LIBS += clang_rt.asan_dynamic-x86_64.lib \
-                 clang_rt.asan_dynamic_runtime_thunk-x86_64.lib
+      ASAN_LIBS = clang_rt.asan_dynamic-x86_64.lib \
+                  clang_rt.asan_dynamic_runtime_thunk-x86_64.lib
     endif
   endif
 endif
@@ -210,13 +216,11 @@ endif
 
 RCFLAGS += -DRC_BITS=$(BITS)
 
-EX_LIBS += advapi32.lib ole32.lib setupapi.lib user32.lib winusb.lib
-
 ifeq ($(USE_WSOCK_TRACE),1)
-  EX_LIBS += wsock_trace-$(CPU).lib
+  OS_LIBS += wsock_trace-$(CPU).lib
   LDFLAGS += -nodefaultlib:ws2_32.lib
 else
-  EX_LIBS += ws2_32.lib
+  OS_LIBS += ws2_32.lib
 endif
 
 #
@@ -233,6 +237,7 @@ SOURCES = aircraft.c           \
           net_io.c             \
           location.c           \
           externals/mongoose.c \
+          externals/sqlite3.c  \
           externals/zip.c      \
           externals/Curses/amalgamation.c
 
@@ -248,7 +253,17 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
 # Empty by default
 #
 GENERATED =
-MINIFY    =
+
+#
+# For 'web-pages.dll':
+#
+WEB_SRC ?= $(OBJ_DIR)/web-page-1.c \
+           $(OBJ_DIR)/web-page-2.c \
+           $(OBJ_DIR)/web-page-3.c \
+           $(OBJ_DIR)/web-page-4.c \
+           $(OBJ_DIR)/web-page-5.c
+
+WEB_SUFFIX ?= 1 2 3 4 5
 
 ifeq ($(USE_EPOLL),1)
   CFLAGS += -DMG_ENABLE_EPOLL=1
@@ -267,14 +282,10 @@ else
   SOURCES += sdrplay.c
 endif
 
-ifeq ($(USE_PACKED_WEB),1)
-  CFLAGS    += -DMG_ENABLE_PACKED_FS=1 -DPACKED_WEB_ROOT=\"$(PACKED_WEB_ROOT)\"
-  GENERATED += $(OBJ_DIR)/packed_webfs.c
-  SOURCES   += $(OBJ_DIR)/packed_webfs.c
-
-  ifeq ($(USE_MINIFY),1)
-    MINIFY += --minify --no-comments
-  endif
+ifeq ($(USE_PACKED_DLL),1)
+  TARGETS   += web-pages.dll
+  CFLAGS    += -DUSE_PACKED_DLL
+  GENERATED += $(WEB_SRC)
 endif
 
 ifeq ($(USE_GEN_LUT),1)
@@ -282,21 +293,16 @@ ifeq ($(USE_GEN_LUT),1)
   GENERATED += $(OBJ_DIR)/py_gen_magnitude_lut.h
 endif
 
-ifeq ($(USE_WIN_SQLITE),1)
-  CFLAGS += -DUSE_WIN_SQLITE
-else
-  SOURCES += externals/sqlite3.c
-endif
-
-OBJECTS = $(addprefix $(OBJ_DIR)/, $(notdir $(SOURCES:.c=.obj)))
+OBJECTS = $(call c_to_obj, $(SOURCES))
+WEB_OBJ = $(call c_to_obj, $(WEB_SRC))
 
 #
 # Select currect MSVC / clang-cl compiler w/o the 'vcvarsall.bat' non-sense.
 #
 # E.g.:
-#  'VCToolkitInstallDir=c:\dev\VC_2019\VC\Tools\MSVC\%VC_VER%' is the root of the MSVC tools.
-#  'WindowsSdkDir=c:\ProgramFiles-x86\Windows-Kits' -- the root of the 'WindowsKits' API.
-#  'WindowsSdkVer=10.0.19041.0'                     -- the 'WindowsKits' version.
+#  'VCToolkitInstallDir=c:\dev\VC_2019\VC\Tools\MSVC\14.38.32919' -- the root of the MSVC tools.
+#  'WindowsSdkDir=c:\ProgramFiles-x86\Windows-Kits'               -- the root of the 'WindowsKits' API.
+#  'WindowsSdkVer=10.0.19041.0'                                   -- the 'WindowsKits' version.
 #
 TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
 
@@ -334,11 +340,27 @@ $(OBJ_DIR) doxy-docs:
 	- mkdir $@
 
 dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res | check-for-unused-libs.py
-	$(call link_EXE, $@, $^ $(EX_LIBS))
+	$(call link_EXE, $@, $^ $(OS_LIBS) $(ASAN_LIBS))
 
-$(OBJ_DIR)/dump1090.res: dump1090.rc
-	rc $(RCFLAGS) -fo $@ $<
-	@echo
+sqlite3.exe: $(OBJ_DIR)/sqlite3-shell.obj $(OBJ_DIR)/sqlite3.obj | check-for-unused-libs.py
+	$(call link_EXE, $@, $^ -nodefaultlib:uuid.lib oldnames.lib)
+
+$(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c
+	$(call C_compile, $@, -DCOMPILING_SQLITE3_SHELL $<)
+
+web-pages.dll: $(WEB_OBJ) $(OBJ_DIR)/web-pages.res
+	$(call link_web_DLL, $@, $^ $(ASAN_LIBS), $(WEB_SUFFIX))
+ifeq ($(USE_UPX),1)
+	$(call red_msg, Compressing $@ will take some time...)
+	upx -v $@
+endif
+
+$(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
+	$(call generate, $@, //)
+	$(file >> $@,$(web_pages_RC))
+
+$(OBJ_DIR)/%.res: %.rc
+	$(call create_res_file, $@, $<)
 
 ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
   $(OBJECTS): $(SOURCES)
@@ -346,30 +368,37 @@ ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
 	$(call C_compile, $(OBJ_DIR)\\, -MP $(SOURCES))
 
 else
-  $(OBJ_DIR)/packed_webfs.obj: $(OBJ_DIR)/packed_webfs.c
-	$(call red_msg, Compiling $< will take some time...)
-	$(call C_compile, $@, $<)
-
   $(OBJ_DIR)/%.obj: %.c
 	$(call C_compile, $@, $<)
 endif
 
-$(OBJ_DIR)/packed_webfs.c: tools/gen_packed_fs.py
-	$(call green_msg, Generating $@ will take some time...)
-	$(file > $@,$(call Warning,//))
-	$(PYTHON) tools/gen_packed_fs.py $(MINIFY) --outfile $@ --verbose --recursive $(PACKED_WEB_ROOT)/
+$(OBJ_DIR)/web-page-1.c: tools/gen_packed_fs.py
+	$(call generate_web_page, $@, web_root, 1,)
+
+$(OBJ_DIR)/web-page-2.c: tools/gen_packed_fs.py
+	$(call generate_web_page, $@, web_root-FlightAware, 2,)
+
+$(OBJ_DIR)/web-page-3.c: tools/gen_packed_fs.py
+	$(call generate_web_page, $@, web_root-OpenLayers3, 3, --ignore "web_root-OpenLayers3/3d/*" --ignore "web_root-OpenLayers3/sql/*")
+
+$(OBJ_DIR)/web-page-4.c: tools/gen_packed_fs.py
+	$(call generate_web_page, $@, web_root-OpenLayers3/3d, 4,)
+
+$(OBJ_DIR)/web-page-5.c: tools/gen_packed_fs.py
+	$(call generate_web_page, $@, web_root-Tar1090, 5,)
 
 .PHONY: packed_test
 packed_test: $(OBJ_DIR)/packed_webfs_1.c $(OBJ_DIR)/packed_webfs_2.c
 	ls -lS $(OBJ_DIR)/packed_webfs_*.c
 
+$(OBJ_DIR)/web-page-%.obj: $(OBJ_DIR)/web-page-%.c
+	$(call C_compile_web_page, $@, $<)
+
 $(OBJ_DIR)/packed_webfs_1.c: tools/gen_packed_fs.py FORCE
-	$(call green_msg, Generating $@)
-	$(PYTHON) tools/gen_packed_fs.py --outfile $@ --verbose web_root-OpenLayers3/
+	$(call gen_packed_fs, $@, -rv --strip web_root-OpenLayers3/ --ignore "web_root-OpenLayers3/3d/*" --ignore "web_root-OpenLayers3/sql/*" web_root-OpenLayers3/)
 
 $(OBJ_DIR)/packed_webfs_2.c: tools/gen_packed_fs.py FORCE
-	$(call green_msg, Generating $@)
-	$(PYTHON) tools/gen_packed_fs.py --outfile $@ --verbose --minify web_root-OpenLayers3/
+	$(call gen_packed_fs, $@, --verbose --minify --ignore "web_root-OpenLayers3/3d/*" --ignore "web_root-OpenLayers3/sql/*" web_root-OpenLayers3/)
 
 #
 # Compare the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
@@ -392,7 +421,6 @@ run_packed_test: packed_test.exe
 $(OBJ_DIR)/py_gen_magnitude_lut.h: tools/gen_magnitude_lut.py
 	$(call generate, $@, //)
 	$(PYTHON) $< >> $@
-
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.
@@ -441,7 +469,8 @@ check-for-unused-libs.py: $(THIS_FILE)
 TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
                       $(TARGETS:.exe=.pdb) \
                       $(TARGETS:.exe=.exp) \
-                      $(TARGETS:.exe=.lib))
+                      $(TARGETS:.exe=.lib) \
+                      web-pages.{dll,map,pdb})
 
 OTHER_JUNK = vc1*.pdb link.tmp link.args \
              cpp-filter.py               \
@@ -449,11 +478,11 @@ OTHER_JUNK = vc1*.pdb link.tmp link.args \
 
 clean: docs_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
-	rm -f $(OBJ_DIR)/*.obj $(OBJ_DIR)/dump1090.*
+	rm -f $(OBJ_DIR)/*.obj $(OBJ_DIR)/*.res
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
 vclean realclean: clean
-	rm -f $(TARGETS) $(GENERATED) dump1090.chm .depend.Windows
+	rm -f $(TARGETS) dump1090.chm sqlite3.{exe,map,pdb} .depend.Windows
 	rm -fr $(OBJ_DIR)
 
 #
@@ -472,13 +501,44 @@ define C_compile
   @echo
 endef
 
+define C_compile_web_page
+  $(call red_msg, Compiling $(1) will take some time...)
+  $(_CC) -c $(CFLAGS) -Fo./$(strip $(1) $(2))
+  @echo
+endef
+
+define create_res_file
+  rc $(RCFLAGS) -fo $(strip $(1) $(2))
+  @echo
+endef
+
+define create_resp_file
+  $(file > $(1))
+  $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
+endef
+
 define link_EXE
   $(call green_msg, Linking $(1))
-  $(call make_resp_file, link.args, $(LDFLAGS) $(2))
+  $(call create_resp_file, link.args, $(LDFLAGS) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.exe=.map)
   @rm -f $(1:.exe=.exp)
   @$(PYTHON) check-for-unused-libs.py link.tmp
+endef
+
+define func_exports
+  $(foreach e, $(1), -export:mg_unpack_$(e))
+  $(foreach e, $(1), -export:mg_unlist_$(e))
+  $(foreach e, $(1), -export:mg_spec_$(e))
+endef
+
+define link_web_DLL
+  $(call green_msg, Linking $(1))
+  $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2))
+  link -out:$(strip $(1)) @link.args > link.tmp
+  @cat link.tmp >> $(1:.dll=.map)
+  @rm -f $(1:.dll=.exp) $(1:.dll=.lib)
+  @echo
 endef
 
 define Warning
@@ -494,14 +554,40 @@ define generate
   $(file > $(1),$(call Warning,$(strip $(2))))
 endef
 
+define gen_packed_fs
+  $(call green_msg, Generating $(1))
+  $(PYTHON) tools/gen_packed_fs.py --outfile $(strip $(1) $(2))
+  @echo
+endef
+
+define generate_web_page
+  $(call gen_packed_fs, $(1), --verbose --recursive --suffix=_$(strip $(3)) $(4) --strip $(2)/ $(2)/)
+endef
+
 #
-# Response file macro:
-#   arg1, $(1): The name of the response file
-#   arg2, $(2): it's contents (one word per line)
+# clang-cl: /d1PP  Retain macro definitions in /E mode
 #
-define make_resp_file
-  $(file > $(1))
-  $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
+ifeq ($(CC),clang-cl)
+  d1PP = -d1PP
+else
+  d1PP =
+endif
+
+ifeq ($(USE_ASTYLE),1)
+  C_FORMATER = | astyle
+else
+  C_FORMATER =
+endif
+
+define C_preprocess
+  $(call green_msg, Preprocessing $(2))
+  $(file  > $(1),/* The result of preprocessing '$(strip $(2))' (USE_ASTYLE=$(USE_ASTYLE)):)
+  $(file >> $(1), *  $(CC) -E)
+  $(foreach f, $(CFLAGS) $(d1PP), $(file >> $(1), *  $(f)))
+  $(file >> $(1), *---------------------------------------------------------)
+  $(file >> $(1), * Try to compile this output.)
+  $(file >> $(1), */)
+  $(_CC) -E $(CFLAGS) $(d1PP) $(2) | $(PYTHON) cpp-filter.py $(C_FORMATER) >> $(1)
 endef
 
 doxy_SOURCES = $(addprefix ../, $(SOURCES))
@@ -549,30 +635,40 @@ define dump1090_Doxyfile
   CHM_FILE              = dump1090.chm
 endef
 
-#
-# clang-cl: /d1PP  Retain macro definitions in /E mode
-#
-ifeq ($(CC),clang-cl)
-  d1PP = -d1PP
-else
-  d1PP =
-endif
+define web_pages_RC
+  #include <winver.h>
+  #include "dump1090_config.h"
 
-ifeq ($(USE_ASTYLE),1)
-  C_FORMATER = | astyle
-else
-  C_FORMATER =
-endif
+  VS_VERSION_INFO VERSIONINFO
+    FILEVERSION     RC_VERSION
+    PRODUCTVERSION  RC_VERSION
+    FILEFLAGSMASK   0x3fL
+    FILEOS          VOS__WINDOWS32
+    FILETYPE        VFT_DLL
+    FILESUBTYPE     0x0L
+    FILEFLAGS       0
 
-define C_preprocess
-  $(call green_msg, Preprocessing $(2))
-  $(file  > $(1),/* The result of preprocessing '$(strip $(2))' (USE_ASTYLE=$(USE_ASTYLE)):)
-  $(file >> $(1), *  $(CC) -E)
-  $(foreach f, $(CFLAGS) $(d1PP), $(file >> $(1), *  $(f)))
-  $(file >> $(1), *---------------------------------------------------------)
-  $(file >> $(1), * Try to compile this output.)
-  $(file >> $(1), */)
-  $(_CC) -E $(CFLAGS) $(d1PP) $(2) | $(PYTHON) cpp-filter.py $(C_FORMATER) >> $(1)
+  BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+      BLOCK "040904b0"
+      BEGIN
+        VALUE "CompanyName",      "https://github.com/gvanem/Dump1090"
+        VALUE "FileDescription",  "Dump1090 bundled web-pages."
+        VALUE "FileVersion",      RC_VER_STRING
+        VALUE "InternalName",     "Dump1090 web-pages"
+        VALUE "LegalCopyright",   "Copyright (c) 2022-$(YEAR) Gisle Vanem"
+        VALUE "LegalTrademarks",  "MIT License "
+        VALUE "OriginalFilename", "web-pages.dll"
+        VALUE "ProductName",      "Dump1090"
+        VALUE "ProductVersion",   RC_VER_STRING
+      END
+    END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+  END
 endef
 
 define cpp_filter_py
@@ -591,7 +687,8 @@ define cpp_filter_py
     #
     # MSVC or clang-cl 'line' directive
     #
-    if line.lstrip().startswith("#line") or line.lstrip().startswith("# "):
+    l = line.lstrip()
+    if l.startswith("#line") or l.startswith("# "):
        line = line.replace ("\\\\", "/")
 
     print (line)
@@ -599,7 +696,7 @@ define cpp_filter_py
     #
     # Print a newline after a functions or structs
     #
-    if line == "}" or line == "};":
+    if l == "}" or l == "};":
        print ("")
 
   print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
@@ -668,6 +765,8 @@ DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.obj: @'
 # Fixed dependencies:
 #
 $(OBJ_DIR)/dump1090.obj: $(OBJ_DIR)/py_gen_magnitude_lut.h
+$(OBJ_DIR)/dump1090.obj \
+$(OBJ_DIR)/misc.obj:    dump1090_config.h
 
 CURSES_SRC = $(addprefix externals/Curses/, \
                addch.c                      \
