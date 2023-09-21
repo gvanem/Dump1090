@@ -22,13 +22,13 @@
 
 * Pack several web-roots into an .DLL. Thus allowing to select a
   web-root at runtime. Use option:
-   * `--web-page some.dll;1` for the 1st resource.
-   * `--web-page some.dll;2` for the 2nd resource etc.
+   * `--web-page some.dll;1` for the 1st resource. :heavy_check_mark: *Done*
+   * `--web-page some.dll;2` for the 2nd resource etc. :red: *Done*
 
 * *SQLite3* features:
    * store `airport-codes.csv` into `airport-codes.csv.sqlite`.
    * store `aircraft-database.csv` into `aircraft-database.csv.sqlite`. :heavy_check_mark: *Done*
-   * add a build-time option to use `WinSqlite3.dll` as part of Win-10. :heavy_check_mark: *Done*
+   * add a build-time option to use `WinSqlite3.dll` as part of Win-10. :heavy_check_mark: *Removed*
    * update the above `*.csv` files into `*.csv.sqlite` automatically or by an `--update` option.
 
 * Switch from `getopt_long()` to `yopt_init()` + `yopt_next()`.
