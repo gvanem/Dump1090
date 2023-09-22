@@ -92,7 +92,6 @@ static void check_sizes (unlist_func unlist_1, unlist_func unlist_2,
 }
 
 /*
- * \todo
  * Check that both lists returns the same files with the time-stamps.
  */
 static void check_listing (unlist_func unlist_1, unlist_func unlist_2,
@@ -129,7 +128,7 @@ static int compare_on_name (const void *_a, const void *_b)
 static void create_lookup_table (unlist_func unlist, unpack_func unpack)
 {
   const char *fname;
-  size_t       num;
+  size_t      num;
 
   lookup_table = malloc (sizeof(*lookup_table) * lookup_table_sz);
   for (num = 0; (fname = (*unlist)(num)) != NULL; num++)
@@ -140,54 +139,60 @@ static void create_lookup_table (unlist_func unlist, unpack_func unpack)
   qsort (lookup_table, num, sizeof(*lookup_table), compare_on_name);
 }
 
+/*
+ * Test the speed of a normal 'unpack()'.
+ */
 static double normal_test (const char *fname, unpack_func unpack)
 {
-  double elapsed, now = get_usec_now();
-  const char *data;
+  double      now = get_usec_now();
+  const char *data = (*unpack) (fname, NULL, NULL);
 
-  data = (*unpack) (fname, NULL, NULL);
   assert (data);
-  elapsed = get_usec_now() - now;
-  return (elapsed);
+  return (get_usec_now() - now);
 }
 
+/*
+ * Test the speed of a 'bsearch()' lookup.
+ */
 static double bsearch_test (const char *fname)
 {
   packed_file key;
-  double      elapsed, now = get_usec_now();
+  double      now = get_usec_now();
   const char *data;
 
   key.name = fname;
   data = bsearch (&key, lookup_table, lookup_table_sz, sizeof(*lookup_table), compare_on_name);
   assert (data);
-  elapsed = get_usec_now() - now;
-  return (elapsed);
+  return (get_usec_now() - now);
 }
 
 /*
- * Check the lookup speed of an ordinary 'unpack()' vs. a 'bsearch()' based lookup.
+ * Check the lookup speed of an normal 'unpack()' vs. a 'bsearch()' based lookup.
  */
 static void check_speed (unlist_func unlist_1, unlist_func unlist_2,
                          unpack_func unpack_1, unpack_func unpack_2)
 {
-  size_t loop, idx;
   const char *fname_1, *fname_2;
-  double      time_normal = 0.0;
+  double      time_normal  = 0.0;
   double      time_bsearch = 0.0;
+  size_t      loops, idx;
 
   create_lookup_table (unlist_1, unpack_1);
 
-  for (loop = 0; loop < 1000; loop++)
+  for (loops = 0; loops < 1000; loops++)
   {
-    idx = random_range (0, lookup_table_sz-1);
+    idx = random_range (0, lookup_table_sz - 1);
     fname_1 = (*unlist_1) (idx);
     fname_2 = (*unlist_2) (idx);
+    assert (fname_1);
+    assert (fname_2);
+    assert (strcmp(fname_1, fname_2) == 0);
+
     time_bsearch += bsearch_test (fname_1);
     time_normal  += normal_test (fname_2, unpack_2);
   }
-
-  fprintf (stderr, "bsearch: %.2f usec per lookup.\n", time_bsearch/loop);
-  fprintf (stderr, "normal:  %.2f usec per lookup.\n", time_normal/loop);
+  fprintf (stderr, "bsearch: %3.2f usec/lookup, %7llu lookups/sec.\n", time_bsearch / loops, (uint64_t) (loops * 1E6 / time_bsearch));
+  fprintf (stderr, "normal:  %3.2f usec/lookup, %7llu lookups/sec.\n", time_normal / loops,  (uint64_t) (loops * 1E6 / time_normal));
   free (lookup_table);
 }
 
