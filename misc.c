@@ -913,9 +913,6 @@ static const char *build_features (void)
   #if defined(USE_PACKED_DLL)
     "Packed-Web",
   #endif
-  #if defined(USE_RTLSDR_EMUL)
-    "RTLSDR-emul",
-  #endif
   #if defined(MG_ENABLE_EPOLL)
     "wepoll",
   #endif

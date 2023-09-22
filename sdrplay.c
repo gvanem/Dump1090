@@ -5,10 +5,6 @@
  *
  * Load all needed functions from "sdrplay_api.dll" dynamically.
  */
-#if defined(USE_RTLSDR_EMUL)
-#error "Do not compile this file when 'USE_RTLSDR_EMUL' is defined."
-#endif
-
 #include "sdrplay.h"
 #include "misc.h"
 

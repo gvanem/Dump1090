@@ -13,6 +13,7 @@ run.bat
 PlanePlotter
 doxy-docs
 NOTES
+backup/
 Debug/
 Release/
 .vs/

@@ -38,13 +38,6 @@ USE_PACKED_DLL ?= 1
 USE_UPX ?= 0
 
 #
-# For SDRplay support, load the "rtlsdr-emul-$(CPU).DLL" at runtime instead.
-# Ref:
-#   https://github.com/JvanKatwijk/rtlsdr-emulator-sdrplay.git
-#
-USE_RTLSDR_EMUL ?= 0
-
-#
 # Enable the 2.4 MS/s decoder from 'readsb'?
 # Not possible at the moment.
 #
@@ -229,6 +222,7 @@ SOURCES = aircraft.c           \
           misc.c               \
           net_io.c             \
           location.c           \
+          sdrplay.c            \
           externals/mongoose.c \
           externals/sqlite3.c  \
           externals/zip.c      \
@@ -266,13 +260,6 @@ endif
 ifeq ($(USE_READSB_DEMOD),1)
   CFLAGS  += -DUSE_READSB_DEMOD
   SOURCES += externals/demod_2400.c
-endif
-
-ifeq ($(USE_RTLSDR_EMUL),1)
-  CFLAGS  += -DUSE_RTLSDR_EMUL
-  SOURCES += externals/rtlsdr-emul.c
-else
-  SOURCES += sdrplay.c
 endif
 
 ifeq ($(USE_PACKED_DLL),1)
@@ -385,7 +372,7 @@ $(OBJ_DIR)/packed_webfs_2.c: tools/gen_packed_fs.py
 	$(call generate_web_page, $@, web_root-OpenLayers3, 2, --ignore "web_root-OpenLayers3/3d/*" --ignore "web_root-OpenLayers3/sql/*" --minify)
 
 #
-# Compare the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
+# Test the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
 #
 $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c
 	$(call C_compile_web_page, $@, $<)
@@ -567,7 +554,6 @@ doxy_HEADERS = ../aircraft.h                \
                ../net_io.h                  \
                ../sdrplay.h                 \
                ../externals/Curses/curses.h \
-               ../externals/rtlsdr-emul.h   \
                ../externals/miniz.h         \
                ../externals/zip.h
 

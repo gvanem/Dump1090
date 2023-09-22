@@ -2937,10 +2937,8 @@ void modeS_signal_handler (int sig)
   }
   else if (Modes.sdrplay.device)
   {
-#if !defined(USE_RTLSDR_EMUL)
     rc = sdrplay_cancel_async (Modes.sdrplay.device);
     DEBUG (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
-#endif
   }
 }
 
@@ -3069,10 +3067,6 @@ static void modeS_exit (void)
     fclose (Modes.log);
     Modes.log = NULL;
   }
-
-#if defined(USE_RTLSDR_EMUL)
-  RTLSDR_emul_unload_DLL();
-#endif
 
 #if defined(_DEBUG)
   crtdbug_exit();
@@ -3465,16 +3459,6 @@ int main (int argc, char **argv)
   {
     if (Modes.sdrplay.name)
     {
-#ifdef USE_RTLSDR_EMUL
-      Modes.emul_loaded = RTLSDR_emul_load_DLL();
-      if (!Modes.emul_loaded)
-      {
-        LOG_STDERR ("Cannot use device `%s` without `%s` loaded.\nError: %s\n",
-                    Modes.sdrplay.name, emul.dll_name, trace_strerror(emul.last_rc));
-        goto quit;
-      }
-#endif
-
       rc = sdrplay_init (Modes.sdrplay.name, Modes.sdrplay.index, &Modes.sdrplay.device);
       DEBUG (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
       if (rc)
