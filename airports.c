@@ -1861,9 +1861,9 @@ void airports_API_flight_log_leaving (const aircraft *a)
     _itoa (altitude, alt_buf, 10);
   }
 
-  if (a->is_helicopter)
+  if (a->is_helicopter && a->call_sign[0])
      call_sign = a->call_sign;
-  else if (f)
+  else if (f && f->call_sign[0])
      call_sign = f->call_sign;
 
   LOG_FILEONLY ("%s %06X leaving. call-sign: %s, %sactive for %.1lf s, alt: %s %s, dist: %s/%s %s.\n",
