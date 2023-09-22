@@ -126,9 +126,10 @@ ifneq ($(CC),cl)
   endif
 endif
 
-vpath %.c externals        \
-          externals/Curses \
-          externals/rtl-sdr
+vpath %.c externals         \
+          externals/Curses  \
+          externals/rtl-sdr \
+          tools
 
 vpath %.rc $(OBJ_DIR)
 
@@ -374,36 +375,23 @@ $(OBJ_DIR)/web-page-4.c: tools/gen_packed_fs.py
 $(OBJ_DIR)/web-page-5.c: tools/gen_packed_fs.py
 	$(call generate_web_page, $@, web_root-Tar1090, 5,)
 
-.PHONY: packed_test
-packed_test: $(OBJ_DIR)/packed_webfs_1.c $(OBJ_DIR)/packed_webfs_2.c
-	ls -lS $(OBJ_DIR)/packed_webfs_*.c
-
 $(OBJ_DIR)/web-page-%.obj: $(OBJ_DIR)/web-page-%.c
 	$(call C_compile_web_page, $@, $<)
 
-$(OBJ_DIR)/packed_webfs_1.c: tools/gen_packed_fs.py FORCE
-	$(call gen_packed_fs, $@, -rv --strip web_root-OpenLayers3/ --ignore "web_root-OpenLayers3/3d/*" --ignore "web_root-OpenLayers3/sql/*" web_root-OpenLayers3/)
+$(OBJ_DIR)/packed_webfs_1.c: tools/gen_packed_fs.py
+	$(call generate_web_page, $@, web_root-OpenLayers3, 1, --ignore "web_root-OpenLayers3/3d/*" --ignore "web_root-OpenLayers3/sql/*")
 
-$(OBJ_DIR)/packed_webfs_2.c: tools/gen_packed_fs.py FORCE
-	$(call gen_packed_fs, $@, --verbose --minify --ignore "web_root-OpenLayers3/3d/*" --ignore "web_root-OpenLayers3/sql/*" web_root-OpenLayers3/)
+$(OBJ_DIR)/packed_webfs_2.c: tools/gen_packed_fs.py
+	$(call generate_web_page, $@, web_root-OpenLayers3, 2, --ignore "web_root-OpenLayers3/3d/*" --ignore "web_root-OpenLayers3/sql/*" --minify)
 
 #
 # Compare the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
 #
 $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c
-	$(call C_compile, $@, -Dmg_pack=mg_pack_$* -Dmg_unpack=mg_unpack_$* -Dmg_unlist=mg_unlist_$* -Dmg_pack_case=mg_pack_case_$* $<)
+	$(call C_compile_web_page, $@, $<)
 
-$(OBJ_DIR)/packed_webfs_main.obj: tools/packed_webfs_main.c
-	$(call C_compile, $@, $<)
-
-packed_test.exe: $(OBJ_DIR)/packed_webfs_main.obj $(OBJ_DIR)/packed_webfs_1.obj $(OBJ_DIR)/packed_webfs_2.obj
-	$(call link_EXE, $@, $^)
-
-run_packed_test: packed_test.exe
-	packed_test.exe -1 | lynx -dump -stdin > packed_test-1.dump
-	packed_test.exe -2 | lynx -dump -stdin > packed_test-2.dump
-	diff -u3 packed_test-1.dump packed_test-2.dump
-	@echo
+packed_test.exe: $(OBJ_DIR)/packed_webfs_main.obj $(OBJ_DIR)/packed_webfs_1.obj $(OBJ_DIR)/packed_webfs_2.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj
+	$(call link_EXE, $@, -nodefaultlib:uuid.lib $^)
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.
@@ -537,14 +525,9 @@ define generate
   $(file > $(1),$(call Warning,$(strip $(2))))
 endef
 
-define gen_packed_fs
-  $(call green_msg, Generating $(1))
-  $(PYTHON) tools/gen_packed_fs.py --outfile $(strip $(1) $(2))
-  @echo
-endef
-
 define generate_web_page
-  $(call gen_packed_fs, $(1), --verbose --recursive --suffix=_$(strip $(3)) $(4) --strip $(2)/ $(2)/)
+  $(call green_msg, Generating $(1))
+  $(PYTHON) tools/gen_packed_fs.py --outfile $(strip $(1) --verbose --recursive --suffix=_$(strip $(3)) $(4) --strip $(2)/ $(2)/)
 endef
 
 #
