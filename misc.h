@@ -618,7 +618,7 @@ double      cartesian_distance (const cartesian_t *a, const cartesian_t *b);
 double      great_circle_dist (pos_t pos1, pos_t pos2);
 double      closest_to (double val, double val1, double val2);
 void        decode_CPR (struct aircraft *a);
-char       *mz_version (void);                 /* in 'externals/zip.c' */
+const char *mz_version (void);                 /* in 'externals/zip.c' */
 
 #if 0
   /*
