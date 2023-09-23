@@ -95,35 +95,31 @@ static API_funcs wincon_api = {
        .print_header = wincon_print_header,
      };
 
-/* Show the "DEP DST" columns if we have a good `Modes.airport_db` file.
+/* Show the "DEP  DST" columns if we have a good `Modes.airport_db` file.
  */
 static bool show_dep_dst = false;
 
-/* Use this header and `snprintf()` format for "DEP DST" columns when `show_dep_dst == true`.
+/* Use this header and `snprintf()` format for both `show_dep_dst == false` and `show_dep_dst == true`.
  */
-#define HEADER_DEP_DST       "ICAO   Callsign  Reg-num  Cntry  DEP  DST  Altitude   Speed   Lat      Long     Hdg    Dist   RSSI   Msg   Seen %c"
-#define HEADER_BAR_DEP_DST   "---------------------------------------------------------------------------------------------------------------"
-#define LINE_FMT_DEP_DST     "%06X %-9.9s %-8s %-6s %-4s %-4s   %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u   %2llu s "
-//                                 ^      ^    ^    ^    ^      ^
-//                                 |      |    |    |    |      |__ Altitude
-//                                 |      |    |    |    |__ DST (destination)
-//                                 |      |    |    |_______ DEP (departure)
-//                                 |      |    |__ Cntry
-//                                 |      |__ Reg-Num
-//                                 |__ Callsign
-//
+#define HEADER    "ICAO   Callsign  Reg-num  Cntry  %sAltitude  Speed   Lat      Long    Hdg   Dist  Msg  Seen %c"
+//                                                  |__ == "DEP  DST  " -- if 'show_dep_dst == true'
 
-/* Otherwise use these:
- */
-#define HEADER_NORMAL        "ICAO   Callsign  Reg-num  Cntry  Altitude  Speed   Lat      Long    Hdg    Dist   RSSI   Msg  Seen %c"
-#define HEADER_BAR_NORMAL    "-------------------------------------------------------------------------------------------------------"
-#define LINE_FMT_NORMAL      "%06X %-9.9s %-8s %-6s %-5s     %-5s %-7s %-8s %5s   %5.5s  %5s %5u  %2llu s "
-//                                 ^      ^    ^    ^
-//                                 |      |    |    |__ Altitude
-//                                 |      |    |__ Cntry
-//                                 |      |__ Reg-Num
-//                                 |__ Callsign
-//
+#define LINE_FMT  "%06X %-9.9s %-8s %-5.5s  %s%-5s   %-5s %-7s %-8s %4.4s  %5.5s %4u %3llu s "
+//                 |    |      |    |       | |      |    |    |    |      |     |   |__ ms_diff / 1000
+//                 |    |      |    |       | |      |    |    |    |      |     |__ a->messages
+//                 |    |      |    |       | |      |    |    |    |      |__ distance_buf
+//                 |    |      |    |       | |      |    |    |    |__ hdg_buf
+//                 |    |      |    |       | |      |    |    |__ lon_buf
+//                 |    |      |    |       | |      |    |__ lat_buf
+//                 |    |      |    |       | |      |__ speed_buf
+//                 |    |      |    |       | |__ alt_buf
+//                 |    |      |    |       |__ dep_dst_buf
+//                 |    |      |    |___ cc_short
+//                 |    |      |____ reg_num
+//                 |    |__ call_sign
+//                 |__ a->addr
+
+#define DEP_DST_COLUMNS "DEP  DEST  "
 
 /*
  * List of API function for the TUI (text user interface).
@@ -138,8 +134,6 @@ static API_funcs *api = NULL;
 bool interactive_init (void)
 {
   aircraft a;
-
-  assert ((DIM(a.sig_levels) & -(int)DIM(a.sig_levels)) == DIM(a.sig_levels));
 
   assert (api == NULL);
 
@@ -179,7 +173,9 @@ static void get_home_distance (aircraft *a, const char **km_nmiles)
   if (km_nmiles)
      *km_nmiles = Modes.metric ? "km" : "Nm";
 
-  if (a->distance > SMALL_VAL)
+  if (a->distance > BIG_VAL)
+       snprintf (a->distance_buf, sizeof(a->distance_buf), "%.0lf", a->distance / divisor);
+  else if (a->distance > SMALL_VAL)
        snprintf (a->distance_buf, sizeof(a->distance_buf), "%.1lf", a->distance / divisor);
   else a->distance_buf[0] = '\0';
 }
@@ -194,7 +190,9 @@ static void get_est_home_distance (aircraft *a, const char **km_nmiles)
   if (km_nmiles)
      *km_nmiles = Modes.metric ? "km" : "Nm";
 
-  if (a->EST_distance > SMALL_VAL)
+  if (a->EST_distance > BIG_VAL)
+       snprintf (a->EST_distance_buf, sizeof(a->EST_distance_buf), "%.0lf", a->EST_distance / divisor);
+  else if (a->EST_distance > SMALL_VAL)
        snprintf (a->EST_distance_buf, sizeof(a->EST_distance_buf), "%.1lf", a->EST_distance / divisor);
   else a->EST_distance_buf[0] = '\0';
 }
@@ -398,18 +396,17 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   char  lat_buf [10]      = "   - ";
   char  lon_buf [10]      = "    - ";
   char  speed_buf [8]     = " - ";
-  char  heading_buf [8]   = " - ";
+  char  hdg_buf [8]       = " - ";
   char  distance_buf [10] = " - ";
-  char  RSSI_buf [7]      = " - ";
-  char  dep_buf [5]       = " - ";
-  char  dst_buf [5]       = " - ";
+  char  dep_buf [5]       = " -";
+  char  dst_buf [5]       = " -";
+  char  dep_dst_buf [20]  = "  ";
   char  line_buf [120];
   bool  restore_colour    = false;
   const char *reg_num     = "  -";
   const char *call_sign   = "  -";
   const char *km_nmiles   = NULL;
   const char *cc_short;
-  double      sig_avg = 0;
   int64_t     ms_diff;
 
   /* Convert units to metric if option `--metric` was used.
@@ -419,15 +416,6 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
     altitude = (int) round ((double)altitude / 3.2828);
     speed    = (int) round ((double)speed * 1.852);
   }
-
-  /* Get the average RSSI from last 4 messages.
-   */
-  for (uint8_t i = 0; i < DIM(a->sig_levels); i++)
-      sig_avg += a->sig_levels[i];
-  sig_avg /= DIM(a->sig_levels);
-
-  if (sig_avg > 1E-5)
-     snprintf (RSSI_buf, sizeof(RSSI_buf), "% +4.1lf", 10 * log10(sig_avg));
 
   if (altitude)
      snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
@@ -442,7 +430,7 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
      snprintf (speed_buf, sizeof(speed_buf), "%4d", speed);
 
   if (a->heading_is_valid)
-     snprintf (heading_buf, sizeof(heading_buf), "%3d", a->heading);
+     snprintf (hdg_buf, sizeof(hdg_buf), "%3d", a->heading);
 
   if (Modes.home_pos_ok)
   {
@@ -484,8 +472,8 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
     }
     else
     {
-      strcpy (dep_buf, " ? ");
-      strcpy (dst_buf, " ? ");
+      strcpy (dep_buf, " ?");
+      strcpy (dst_buf, " ?");
     }
   }
 
@@ -516,13 +504,11 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
      cc_short = "--";
 
   if (show_dep_dst)
-       snprintf (line_buf, sizeof(line_buf), LINE_FMT_DEP_DST,
-                 a->addr, call_sign, reg_num, cc_short, dep_buf, dst_buf, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
-                 distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
+     snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%-4.4s %-4.4s     ", dep_buf, dst_buf);
 
-  else snprintf (line_buf, sizeof(line_buf), LINE_FMT_NORMAL,
-                 a->addr, call_sign, reg_num, cc_short, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
-                 distance_buf, RSSI_buf, a->messages, ms_diff / 1000);
+  snprintf (line_buf, sizeof(line_buf), LINE_FMT,
+            a->addr, call_sign, reg_num, cc_short, dep_dst_buf, alt_buf, speed_buf, lat_buf, lon_buf, hdg_buf,
+            distance_buf, a->messages, ms_diff / 1000);
 
   (*api->print_line) (row, 0, line_buf);
 
@@ -794,16 +780,8 @@ static char spinner[] = "|/-\\";
 
 static void wincon_print_header (void)
 {
-  const char *header = (show_dep_dst ? HEADER_DEP_DST : HEADER_NORMAL);
-  char       *p, fmt [sizeof(HEADER_DEP_DST)+3];
-
-  strcpy (fmt, header);
-  p = strchr (fmt, '\0');
-  *p++ = '\n';
-  *p = '\0';
-
   (*api->set_colour) (COLOUR_REVERSE);
-  printf (fmt, spinner[spin_idx & 3]);
+  printf (HEADER "\n", show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
   (*api->set_colour) (0);
 
   spin_idx++;
@@ -917,10 +895,8 @@ static int curses_refresh (int y, int x)
 
 static void curses_print_header (void)
 {
-  const char *header = (show_dep_dst ? HEADER_DEP_DST : HEADER_NORMAL);
-
   (*api->set_colour) (COLOUR_REVERSE);
-  mvprintw (0, 0, header, spinner[spin_idx & 3]);
+  mvprintw (0, 0, HEADER, show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
   (*api->set_colour) (0);
   spin_idx++;
 }

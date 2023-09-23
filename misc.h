@@ -198,11 +198,13 @@ typedef struct cartesian_t {
 
 /**
  * \def SMALL_VAL
+ * \def BIG_VAL
  * \def VALID_POS()
  *
  * Simple check for a valid geo-position
  */
 #define SMALL_VAL        0.0001
+#define BIG_VAL          9999999.0
 #define VALID_POS(pos)   (fabs(pos.lon) >= SMALL_VAL && fabs(pos.lon) < 180.0 && \
                           fabs(pos.lat) >= SMALL_VAL && fabs(pos.lat) < 90.0)
 
