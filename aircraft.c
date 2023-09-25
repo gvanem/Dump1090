@@ -1355,6 +1355,28 @@ static bool sql_add_entry (uint32_t num, const aircraft_info *rec)
   return (true);
 }
 
+#if 0
+static inline double get_signal (const aircraft *a)
+{
+  double sum = 0.0;
+  int    i;
+  bool   full_scale = (a->sig_idx >= (int)DIM(a->sig_levels));
+  bool   half_scale = (a->sig_idx >= (int)DIM(a->sig_levels) / 2);
+
+  if (full_scale)
+  {
+    for (i = 0; i < (int)DIM(a->sig_levels); i++)
+        sum += a->sig_levels [i];
+  }
+  else if (half_scale)
+  {
+    for (i = 0; i < a->sig_idx; i++)
+        sum += a->sig_levels [i];
+  }
+  return (10 * log10 (sum / 8 + 1.125E-5));
+}
+#endif
+
 /**
  * Fill the JSON buffer `p` for one aircraft.
  */
@@ -1395,6 +1417,11 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
                       a->messages, 2, 1 /* tv_now.tv_sec - a->seen_first/1000 */);
     p    += sz;
     left -= (int)sz;
+#if 0
+    sz = mg_snprintf (p, left, ", \"rssi\": %.1lf", get_signal(a));
+    p    += sz;
+    left -= (int)sz;
+#endif
   }
 
   assert (left > 3);
@@ -1426,6 +1453,8 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
  *   "aircraft": [{"hex":"47807D", "flight":"", "lat":60.280609, "lon":5.223715, "altitude":875, "track":199, "speed":96}]
  * }
  * ```
+ *
+ * \ref https://github.com/wiedehopf/readsb/blob/dev/README-json.md
  */
 char *aircraft_make_json (bool extended_client)
 {
