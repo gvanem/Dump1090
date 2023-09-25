@@ -36,8 +36,6 @@ static packed_file *lookup_table = NULL;
 static size_t       lookup_table_sz;
 static uint32_t     num_lookups, num_misses;
 
-const char *mg_unpack (const char *path, size_t *size, time_t *mtime);
-
 /**
  * Define the func-ptr to the `mg_unpack()` + `mg_unlist()` functions loaded
  * dynamically from the `--web-page some.dll;N` option.
@@ -48,6 +46,26 @@ const char *mg_unpack (const char *path, size_t *size, time_t *mtime);
 DEF_FUNC (const char *, mg_unpack, (const char *name, size_t *size, time_t *mtime));
 DEF_FUNC (const char *, mg_unlist, (size_t i));
 DEF_FUNC (const char *, mg_spec,   (void));
+
+/**
+ * For handling a list of unique network clients.
+ * A list of address, service and time first seen.
+ */
+#define UNIQUE_IP_INCR 200
+
+typedef struct unique_IP {
+        mg_addr   addr;     /**< The IPv4/6 address */
+        intptr_t  service;  /**< The service client seen in */
+        FILETIME  seen;     /**< time when this address was created */
+      } unique_IP;
+
+typedef struct unique_IPS {
+        unique_IP *ips;     /**< the list of unique IP addresses */
+        size_t     idx;     /**< index for the last entry in `*ips` array */
+        size_t     size;    /**< size of the `*ips` array */
+      } unique_IPS;
+
+static unique_IPS g_unique_ips;
 
 static void        net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data);
 static void        net_timeout (void *fn_data);
@@ -60,9 +78,9 @@ static uint64_t    net_mem_allocated (intptr_t service, int size);
 static const char *net_service_descr (intptr_t service);
 static char       *net_service_error (intptr_t service);
 static char       *net_service_url (intptr_t service);
-
 static bool        client_handler (const mg_connection *c, intptr_t service, int ev);
 static bool        client_deny (const mg_addr *addr, intptr_t service);
+const char        *mg_unpack (const char *path, size_t *size, time_t *mtime);
 
 /**
  * \def ASSERT_SERVICE(s)
@@ -153,7 +171,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
               modeS_net_services[service].protocol,
               modeS_net_services[service].port);
 
-    modeS_net_services[service].url = strdup (url);
+    modeS_net_services [service].url = strdup (url);
 
     if (service == MODES_NET_SERVICE_HTTP)
          c = mg_http_listen (&Modes.mgr, url, net_handler, (void*)service);
@@ -312,7 +330,7 @@ static const char *set_headers (const connection *cli, const char *content_type)
 }
 
 /*
- * Generated arrays from
+ * Generated arrays from:
  *   xxd -i favicon.png
  *   xxd -i favicon.ico
  */
@@ -521,9 +539,9 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
         snprintf (file, sizeof(file), "%s", uri+1);
         opts.fs = &mg_fs_packed;
         packed  = "packed ";
-        found = (mg_unpack (file, NULL, NULL) != NULL);
+        found = (mg_unpack(file, NULL, NULL) != NULL);
       }
-      else  /* option '--web-page foo/index.html' used even if 'web-page.dll' is built */
+      else  /* option '--web-page foo/index.html' used even if 'web-page.dll' was built */
 #endif
       {
         snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
@@ -1102,13 +1120,67 @@ static void net_flushall (void)
 }
 
 /**
- * \todo Fix this.
- * Assume yes for now.
+ * Check if the client `*addr` is unique.
  */
-static bool client_is_unique (const mg_addr *addr)
+static bool client_is_unique (const mg_addr *addr, intptr_t service)
 {
-  (void) addr;
+  unique_IP *ip;
+  size_t     i = 0;
+
+  for (ip = g_unique_ips.ips; i < g_unique_ips.idx; i++, ip++)
+      if (!memcmp(&ip->addr.ip, &addr->ip, sizeof(ip->addr.ip)))
+         return (false);
+
+  if (g_unique_ips.idx >= g_unique_ips.size)
+  {
+    ip = realloc (g_unique_ips.ips, g_unique_ips.size + UNIQUE_IP_INCR);
+    if (!ip)
+       return (true);    /* just assume it's unique */
+    g_unique_ips.ips = ip;
+    g_unique_ips.size += UNIQUE_IP_INCR;
+  }
+
+  /* Assign a new unique slot for this `*addr`
+   */
+  ip = g_unique_ips.ips + g_unique_ips.idx;
+  ip->addr    = *addr;
+  ip->service = service;
+  get_FILETIME_now (&ip->seen);
+  g_unique_ips.idx++;
+  (void) service;
   return (true);
+}
+
+/*
+ * Print number of unique IP-addresses and their addresses.
+ */
+static void print_unique_ips (int service)
+{
+  const unique_IP *ip;
+  char             buf [1000];
+  char            *ptr = buf;
+  size_t           left = sizeof(buf);
+  size_t           num, i, len = mg_snprintf (ptr, left, "    %8llu unique client(s): ",
+                                              Modes.stat.unique_clients[service]);
+  ptr  += len;
+  left -= len;
+
+  if (!g_unique_ips.ips)
+  {
+    LOG_STDOUT ("%s None!?\n", buf);
+    return;
+  }
+  for (i = num = 0, ip = g_unique_ips.ips; i < g_unique_ips.idx; i++, ip++)
+  {
+    if (ip->service != service)
+       continue;
+    len = mg_snprintf (ptr, left, "%M, ", mg_print_ip, ip->addr);
+    ptr  += len;
+    left -= len;
+    num++;
+  }
+  len = ptr - buf;
+  LOG_STDOUT ("%.*s\n", num > 0 ? (int)(len-2) : (int)len, buf);
 }
 
 static bool client_is_extern (const mg_addr *addr)
@@ -1116,7 +1188,7 @@ static bool client_is_extern (const mg_addr *addr)
   uint32_t ip4;
 
   if (addr->is_ip6)
-     return (false);            /**\todo fix this */
+     return (false);             /**\todo fix this */
 
   ip4 = *(const uint32_t*) &addr->ip;
   return (ip4 != 0x0100007F);    /* ip4 !== 127.0.0.1 */
@@ -1126,39 +1198,39 @@ static bool client_handler (const mg_connection *c, intptr_t service, int ev)
 {
   const mg_addr *addr = &c->rem;
   mg_host_name   addr_buf;
-  bool           rc = true;
+  bool           deny = false;
 
   assert (ev == MG_EV_ACCEPT || ev == MG_EV_CLOSE);
 
   if (ev == MG_EV_ACCEPT)
   {
-    if (client_is_unique(addr))     /* Have we seen this IP-address before? */
+    if (client_is_unique(addr, service))   /* Have we seen this IP-address before? */
        Modes.stat.unique_clients [service]++;
 
-    if (client_is_extern(addr))     /* Not from 127.0.0.1 */
+    if (client_is_extern(addr))            /* Not from 127.0.0.1 */
     {
       if (client_deny(addr, service))
-         rc = false;
+         deny = true;
 
       if (Modes.debug & DEBUG_NET)
-         Beep (rc ? 800 : 1200, 20);
+         Beep (deny ? 1200 : 800, 20);
 
       LOG_FILEONLY ("Opening connection: %s %s (conn-id: %lu, service: \"%s\").\n",
                     net_str_addr(addr, addr_buf, sizeof(addr_buf)),
-                    rc ? "accepted" : "denied", c->id, net_service_descr(service));
+                    deny ? "denied" : "accepted", c->id, net_service_descr(service));
     }
   }
-  else if (client_is_extern(addr))      /* Not from 127.0.0.1 */
+  else if (client_is_extern(addr))
   {
     LOG_FILEONLY ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
                   net_str_addr(addr, addr_buf, sizeof(addr_buf)), c->id, net_service_descr(service));
   }
-  return (rc);
+  return (!deny);
 }
 
 /**
  * \todo
- * Loop over `ModeS_net_services [service].deny_list4/6` to find a match
+ * Loop over `modeS_net_services [service].deny_list4/6` to find a match
  * using `mg_check_ip_acl()`.
  */
 static bool client_deny (const mg_addr *addr, intptr_t service)
@@ -1166,7 +1238,7 @@ static bool client_deny (const mg_addr *addr, intptr_t service)
 #if 0
   // test: deny all '1-126.*' networks
   if (!addr->is_ip6 && addr->ip[0] >= 1 && addr->ip[0] <= 126)
-        return (true);
+     return (true);
 #else
   (void) addr;
 #endif
@@ -1239,8 +1311,8 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
  * If program called with `--web-page web-pages.dll;1` for the 1st resource,
  * load all `mg_*_1()` functions dynamically. Similar for `--web-page web-pages.dll;2`.
  *
- * But if program called with `--web-page foo/index.html` (when compiled with `-DUSE_PACKED_DLL`),
- * simply skip the loading of the .DLL and check the regular Web-page `foo/index.html`.
+ * But if program was called with `--web-page foo/index.html`, simply skip the loading
+ * of the .DLL and check the regular Web-page `foo/index.html`.
  */
 #if defined(USE_PACKED_DLL)
   #define ADD_FUNC(func) { false, NULL, "", #func, (void**)&p_##func }
@@ -1281,7 +1353,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
       return (false);
     }
 
-    LOG_STDOUT ("Trying --web-page \"%s\" and resource %d.\n", web_dll, resource);
+    LOG_STDOUT ("Trying '--web-page \"%s\"' and resource %d.\n", web_dll, resource);
     for (num = 0; num < DIM(web_page_funcs); num++)
     {
       web_page_funcs [num].mod_name  = web_dll;
@@ -1563,6 +1635,9 @@ void net_show_stats (void)
       continue;
     }
 
+    LOG_STDOUT ("    %8llu bytes sent.\n", Modes.stat.bytes_sent[s]);
+    LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv[s]);
+
     if (s == MODES_NET_SERVICE_HTTP)
     {
       LOG_STDOUT ("    %8llu HTTP GET requests received.\n", Modes.stat.HTTP_get_requests);
@@ -1587,10 +1662,7 @@ void net_show_stats (void)
       LOG_STDOUT ("    %8llu client connections unknown.\n", Modes.stat.cli_unknown[s]);
       LOG_STDOUT ("    %8u client(s) now.\n", *net_num_connections(s));
     }
-
-    LOG_STDOUT ("    %8llu unique clients.\n", Modes.stat.unique_clients[s]);
-    LOG_STDOUT ("    %8llu bytes sent.\n", Modes.stat.bytes_sent[s]);
-    LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv[s]);
+    print_unique_ips (s);
   }
 
   show_raw_SBS_IN_stats();
@@ -1600,21 +1672,33 @@ void net_show_stats (void)
 }
 
 /**
- * Initialize the Mongoose network manager and:
- *  \li start the 2 active network services (RAW_IN + SBS_IN).
- *  \li or start the 4 listening (passive) network services.
- *  \li if HTTP-server is enabled, check the precence of the Web-page.
+ * Initialize all network stuff:
+ *  \li Allocate the list for unique IPs.
+ *  \li Load and check the `web-pages.dll`.
+ *  \li Initialize the Mongoose network manager.
+ *  \li Start the 2 active network services (RAW_IN + SBS_IN).
+ *  \li Or start the 4 listening (passive) network services.
+ *  \li If HTTP-server is enabled, check the precence of the Web-page.
  */
 bool net_init (void)
 {
   mg_file_path web_dll;
+
+  g_unique_ips.idx  = 0;
+  g_unique_ips.size = UNIQUE_IP_INCR;
+  g_unique_ips.ips = calloc (sizeof(*g_unique_ips.ips), g_unique_ips.size);
+  if (!g_unique_ips.ips)
+  {
+    LOG_STDERR ("Memory alloc for 'g_unique_ips.ips' failed!.\n");
+    return (false);
+  }
 
   strncpy (web_dll, Modes.web_page, sizeof(web_dll));
   strlwr (web_dll);
   if (strstr(web_dll, ".dll;"))
      use_packed_dll = true;
 
-  if (use_packed_dll)
+  if (use_packed_dll && !Modes.net_active)
   {
 #if defined(USE_PACKED_DLL)
     if (!load_web_dll(web_dll))
@@ -1685,6 +1769,8 @@ bool net_init (void)
 bool net_exit (void)
 {
   uint32_t num = net_conn_free_all();
+
+  free (g_unique_ips.ips);
 
 #ifdef USE_PACKED_DLL
   unload_web_dll();
