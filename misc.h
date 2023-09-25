@@ -164,8 +164,8 @@ typedef struct net_service {
         bool             is_udp;           /**< The above `host` address was prefixed with `udp://` */
         char            *url;              /**< The allocated url for `mg_listen()` or `mg_connect()` */
         char            *last_err;         /**< Last error from a `MG_EV_ERROR` event */
-        char           **deny_list4;       /**< List of IPv4 address/networks to deny on `MG_EV_ACCEPT` */
-        char           **deny_list6;       /**< List of IPv4 address/networks to deny on `MG_EV_ACCEPT` */
+        char            *deny_list4;       /**< List of IPv4 address/networks to deny on `MG_EV_ACCEPT` */
+        char            *deny_list6;       /**< List of IPv4 address/networks to deny on `MG_EV_ACCEPT` */
         mg_timer         timer;            /**< Timer for a `mg_connect()` */
       } net_service;
 

@@ -115,10 +115,11 @@
 /** Support various features in `externals/mongoose.c`:
  */
 #define MG_ENABLE_ASSERT        1  /* Enable `assert()` calls */
-#define MG_ENABLE_IPV6          0  /* IPv6 */
+#define MG_ENABLE_IPV6          0  /* No IPv6 code */
+#define MG_ENABLE_MD5           0  /* No need for MD5 code */
 #define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
-#define MG_ENABLE_POLL          1  /* Prefer `WSAPoll()` over `select()`? */
-#define MG_ENABLE_DIRLIST       0  /* Enable listing of directories for HTTP */
+#define MG_ENABLE_POLL          1  /* Prefer `WSAPoll()` over `select()` (unless `MG_ENABLE_EPOLL` is defined) */
+#define MG_ENABLE_DIRLIST       0  /* No need for directory listings in HTTP */
 #define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
 
 /** Drop some stuff not needed in `externals/zip.c`:

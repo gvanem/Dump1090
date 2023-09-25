@@ -1339,7 +1339,7 @@ static void location_print_rec (unsigned idx, const char *ICAO, const char *IATA
   MultiByteToWideChar (CP_UTF8, 0, location, -1, location_w, DIM(location_w));
 
   width = 20 + (strlen (location) - wcslen (location_w)) / 2;
-  printf ("'%-*.20ws'  %ws\n", (int)width, location_w, full_name_w);
+  printf ("'%-*.20S'  %S\n", (int)width, location_w, full_name_w);
 }
 
 /**

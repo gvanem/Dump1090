@@ -913,7 +913,7 @@ static const char *build_features (void)
   #if defined(USE_PACKED_DLL)
     "Packed-Web",
   #endif
-  #if defined(MG_ENABLE_EPOLL)
+  #if defined(MG_ENABLE_EPOLL) && (MG_ENABLE_EPOLL == 1)
     "wepoll",
   #endif
   #if defined(USE_READSB_DEMOD)

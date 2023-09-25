@@ -1408,15 +1408,15 @@ static void decode_ES_surface_position (struct modeS_message *mm, bool check_imf
 
   mm->airground = AG_GROUND; // definitely.
   mm->cpr_valid = 1;
-  mm->cpr_type = CPR_SURFACE;
+  mm->cpr_type  = CPR_SURFACE;
 
   // 6-12: Movement
-  unsigned movement = getbits(me, 6, 12);
+  unsigned movement = getbits (me, 6, 12);
   if (movement > 0 && movement < 125)
   {
-    mm->gs_valid = 1;
+    mm->gs_valid    = 1;
     mm->gs.selected = mm->gs.v0 = decode_movement_field_V0 (movement); // assumed v0 until told otherwise
-    mm->gs.v2 = decode_movement_field_V2 (movement);
+    mm->gs.v2       = decode_movement_field_V2 (movement);
   }
 
   // 13: Heading/track status
@@ -1424,8 +1424,8 @@ static void decode_ES_surface_position (struct modeS_message *mm, bool check_imf
   if (getbit(me, 13))
   {
     mm->heading_valid = 1;
-    mm->heading = getbits (me, 14, 20) * 360.0 / 128.0;
-    mm->heading_type = HEADING_TRACK_OR_HEADING;
+    mm->heading       = getbits (me, 14, 20) * 360.0 / 128.0;
+    mm->heading_type  = HEADING_TRACK_OR_HEADING;
   }
 
   // 21: IMF or T flag
@@ -1675,7 +1675,6 @@ static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
     {
       decode_ES_surface_position (mm, check_imf);
     }
-
   }
   mm->phase_corrected = false;  /* Set to 'true' by the caller if needed. */
   return (mm->CRC_ok);
@@ -1686,10 +1685,11 @@ static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
  */
 static void add_unrecognized_ME (int type, int subtype)
 {
+  unrecognized_ME *me;
+
   if (type >= 0 && type < MAX_ME_TYPE && subtype >= 0 && subtype < MAX_ME_SUBTYPE)
   {
-    unrecognized_ME *me = &Modes.stat.unrecognized_ME [type];
-
+    me = &Modes.stat.unrecognized_ME [type];
     me->sub_type [subtype]++;
   }
 }
@@ -1713,41 +1713,42 @@ static uint64_t sum_unrecognized_ME (int type)
  */
 static void print_unrecognized_ME (void)
 {
-  int      t;
-  uint64_t totals = 0;
-  int      num_totals = 0;
+  int       t, num_totals = 0;
+  uint64_t  totals = 0;
+  uint64_t  totals_ME [MAX_ME_TYPE];
 
   for (t = 0; t < MAX_ME_TYPE; t++)
-      totals += sum_unrecognized_ME (t);
-
-  if (totals == 0ULL)
   {
-    LOG_STDOUT (" %8llu unrecognized ME types.\n", 0ULL);
-    return;
+    totals_ME [t] = sum_unrecognized_ME (t);
+    totals += totals_ME [t];
   }
 
   LOG_STDOUT (" %8llu unrecognized ME types:", totals);
+  if (totals == 0ULL)
+     return;
 
   for (t = 0; t < MAX_ME_TYPE; t++)
   {
-    const unrecognized_ME *me = &Modes.stat.unrecognized_ME [t];
     char   sub_types [200];
     char  *p = sub_types;
     size_t j, left = sizeof(sub_types);
     int    n;
 
-    totals = sum_unrecognized_ME (t);
-    if (totals == 0ULL)
+    if (totals_ME[t] == 0ULL)
        continue;
 
     *p = '\0';
     for (j = 0; j < MAX_ME_SUBTYPE; j++)
-        if (me->sub_type[j] > 0ULL)
-        {
-          n = snprintf (p, left, "%zd,", j);
-          left -= n;
-          p    += n;
-        }
+    {
+      const unrecognized_ME *me = &Modes.stat.unrecognized_ME [t];
+
+      if (me->sub_type[j] > 0ULL)
+      {
+        n = snprintf (p, left, "%zd,", j);
+        left -= n;
+        p    += n;
+      }
+    }
 
     if (p > sub_types) /* remove the comma */
          p[-1] = '\0';
@@ -1757,7 +1758,7 @@ static void print_unrecognized_ME (void)
      *   45 unrecognized ME types: 29: 20 (2)
      *                             31: 25 (3)
      */
-    if (++num_totals > 1)
+    if (num_totals++ >= 1)
        LOG_STDOUT ("! \n                                ");
 
     if (sub_types[0])

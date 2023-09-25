@@ -133,8 +133,6 @@ static API_funcs *api = NULL;
  */
 bool interactive_init (void)
 {
-  aircraft a;
-
   assert (api == NULL);
 
   if (Modes.tui_interface == TUI_CURSES)
