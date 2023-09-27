@@ -110,7 +110,7 @@ OBJ_DIR = objects
 
 c_to_obj = $(addprefix $(OBJ_DIR)/, $(notdir $(1:.c=.obj)))
 
-OS_LIBS   = advapi32.lib ole32.lib setupapi.lib user32.lib winusb.lib
+OS_LIBS   = advapi32.lib iphlpapi.lib ole32.lib setupapi.lib user32.lib winusb.lib
 ASAN_LIBS =
 
 ifneq ($(CC),cl)

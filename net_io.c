@@ -4,6 +4,7 @@
  */
 #include <stdint.h>
 #include <winsock2.h>
+#include <iphlpapi.h>
 #include <windows.h>
 
 #include "misc.h"
@@ -51,21 +52,14 @@ DEF_FUNC (const char *, mg_spec,   (void));
  * For handling a list of unique network clients.
  * A list of address, service and time first seen.
  */
-#define UNIQUE_IP_INCR 200
-
 typedef struct unique_IP {
-        mg_addr   addr;     /**< The IPv4/6 address */
-        intptr_t  service;  /**< The service client seen in */
-        FILETIME  seen;     /**< time when this address was created */
+        mg_addr           addr;      /**< The IPv4/6 address */
+        FILETIME          seen;      /**< time when this address was created */
+        uint32_t          accepted;  /**< number of times for `accept()` */
+        struct unique_IP *next;
       } unique_IP;
 
-typedef struct unique_IPS {
-        unique_IP *ips;     /**< the list of unique IP addresses */
-        size_t     idx;     /**< index for the last entry in `*ips` array */
-        size_t     size;    /**< size of the `*ips` array */
-      } unique_IPS;
-
-static unique_IPS g_unique_ips;
+static unique_IP *g_unique_ips = NULL;
 
 static void        net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data);
 static void        net_timeout (void *fn_data);
@@ -1122,65 +1116,83 @@ static void net_flushall (void)
 /**
  * Check if the client `*addr` is unique.
  */
-static bool client_is_unique (const mg_addr *addr, intptr_t service)
+static bool _client_is_unique (const mg_addr *addr)
 {
   unique_IP *ip;
-  size_t     i = 0;
 
-  for (ip = g_unique_ips.ips; i < g_unique_ips.idx; i++, ip++)
-      if (!memcmp(&ip->addr.ip, &addr->ip, sizeof(ip->addr.ip)))
-         return (false);
+  if (addr->is_ip6)  /* check only IPv4 addresses */
+     return (true);
 
-  if (g_unique_ips.idx >= g_unique_ips.size)
+  for (ip = g_unique_ips; ip; ip = ip->next)
   {
-    ip = realloc (g_unique_ips.ips, g_unique_ips.size + UNIQUE_IP_INCR);
-    if (!ip)
-       return (true);    /* just assume it's unique */
-    g_unique_ips.ips = ip;
-    g_unique_ips.size += UNIQUE_IP_INCR;
+    if (*(uint32_t*)&ip->addr.ip == *(uint32_t*)&addr->ip)
+    {
+      ip->accepted++;  /* accept() counter */
+      return (false);
+    }
   }
 
-  /* Assign a new unique slot for this `*addr`
-   */
-  ip = g_unique_ips.ips + g_unique_ips.idx;
-  ip->addr    = *addr;
-  ip->service = service;
-  get_FILETIME_now (&ip->seen);
-  g_unique_ips.idx++;
-  (void) service;
+  ip = calloc (sizeof(*ip), 1);  /* Assign a new element for this `*addr` */
+  if (ip)
+  {
+    ip->addr = *addr;
+    ip->accepted = 1;
+    get_FILETIME_now (&ip->seen);
+    LIST_ADD_TAIL (unique_IP, &g_unique_ips, ip);
+  }
   return (true);
 }
 
+static bool client_is_unique (const mg_addr *addr)
+{
+  bool         unique = _client_is_unique (addr);
+  mg_host_name name;
+
+  if (Modes.tests)
+  {
+    mg_snprintf (name, sizeof(name), "%M", mg_print_ip, addr);
+    printf ("  unique: %d, ip: %s\n", unique, name);
+  }
+  return (unique);
+}
+
 /*
- * Print number of unique IP-addresses and their addresses.
+ * Print number of unique clients and their addresses.
  */
-static void print_unique_ips (int service)
+static void unique_ips_print (int service)
 {
   const unique_IP *ip;
-  char             buf [1000];
-  char            *ptr = buf;
-  size_t           left = sizeof(buf);
-  size_t           num, i, len = mg_snprintf (ptr, left, "    %8llu unique client(s): ",
-                                              Modes.stat.unique_clients[service]);
-  ptr  += len;
-  left -= len;
+  mg_host_name     addr;
+  size_t           num = 0;
 
-  if (!g_unique_ips.ips)
+  LOG_STDOUT ("    %8llu unique client(s)\n", Modes.stat.unique_clients[service]);
+  if (!Modes.log)
+     return;
+
+  for (ip = g_unique_ips; ip; ip = ip->next)
   {
-    LOG_STDOUT ("%s None!?\n", buf);
-    return;
-  }
-  for (i = num = 0, ip = g_unique_ips.ips; i < g_unique_ips.idx; i++, ip++)
-  {
-    if (ip->service != service)
-       continue;
-    len = mg_snprintf (ptr, left, "%M, ", mg_print_ip, ip->addr);
-    ptr  += len;
-    left -= len;
+    mg_snprintf (addr, sizeof(addr), "%M", mg_print_ip, ip->addr);
+    if (num == 0)
+       fprintf (Modes.log, "%27s", " ");
+    else if (num % 7 == 0)
+       fprintf (Modes.log, "\n%27s", " ");
+
+    fprintf (Modes.log, "%s%s", addr, ip->next ? ", " : "");
     num++;
   }
-  len = ptr - buf;
-  LOG_STDOUT ("%.*s\n", num > 0 ? (int)(len-2) : (int)len, buf);
+  fprintf (Modes.log, "%*s\n", 27+6, num == 0 ? "None!?" : "");
+}
+
+static void unique_ips_free (void)
+{
+  unique_IP *ip, *ip_next;
+
+  for (ip = g_unique_ips; ip; ip = ip_next)
+  {
+    ip_next = ip->next;
+    free (ip);
+  }
+  g_unique_ips = NULL;
 }
 
 static bool client_is_extern (const mg_addr *addr)
@@ -1204,10 +1216,10 @@ static bool client_handler (const mg_connection *c, intptr_t service, int ev)
 
   if (ev == MG_EV_ACCEPT)
   {
-    if (client_is_unique(addr, service))   /* Have we seen this IP-address before? */
+    if (client_is_unique(addr))       /* Have we seen this IPv4-address before? */
        Modes.stat.unique_clients [service]++;
 
-    if (client_is_extern(addr))            /* Not from 127.0.0.1 */
+    if (client_is_extern(addr))       /* Not from 127.0.0.1 */
     {
       if (client_deny(addr, service))
          deny = true;
@@ -1388,6 +1400,9 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   {
     size_t i;
 
+    if (!use_packed_dll)
+       return;
+
     for (i = 0; i < DIM(web_page_funcs); i++)
         free ((char*)web_page_funcs [i].func_name);
     unload_dynamic_table (web_page_funcs, DIM(web_page_funcs));
@@ -1416,14 +1431,14 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
     size_t      num;
 
     *have_index_html = false;
-    DEBUG (DEBUG_NET, "%s():\n", __FUNCTION__);
+    DEBUG (DEBUG_NET2, "%s():\n", __FUNCTION__);
 
     for (num = 0; (fname = (*p_mg_unlist) (num)) != NULL; num++)
     {
       size_t fsize;
 
       (*p_mg_unpack) (fname, &fsize, NULL);
-      DEBUG (DEBUG_NET, "  %-50s -> %7zu bytes\n", fname, fsize);
+      DEBUG (DEBUG_NET2, "  %-50s -> %7zu bytes\n", fname, fsize);
       if (*have_index_html == false && !strcmp(basename(fname), "index.html"))
          *have_index_html = true;
     }
@@ -1662,7 +1677,7 @@ void net_show_stats (void)
       LOG_STDOUT ("    %8llu client connections unknown.\n", Modes.stat.cli_unknown[s]);
       LOG_STDOUT ("    %8u client(s) now.\n", *net_num_connections(s));
     }
-    print_unique_ips (s);
+    unique_ips_print (s);
   }
 
   show_raw_SBS_IN_stats();
@@ -1672,26 +1687,96 @@ void net_show_stats (void)
 }
 
 /**
+ * Test `g_unique_ips` by filling it with 50 random IPv4 addresses.
+ */
+static void net_tests (void)
+{
+  int     i, service = MODES_NET_SERVICE_HTTP;
+  mg_addr addr;
+
+  printf ("\n%s():\n", __FUNCTION__);
+  memset (&addr, '\0', sizeof(addr));
+
+  *(uint32_t*) &addr.ip = 0x0100007F; /* == 127.0.0.1 */
+  if (client_is_unique(&addr))
+     Modes.stat.unique_clients [service]++;
+
+  *(uint32_t*) &addr.ip = 0x0200007F; /* == 127.0.0.2 */
+  if (client_is_unique(&addr))
+     Modes.stat.unique_clients [service]++;
+
+  for (i = 0; i < 50; i++)
+  {
+    mg_random (&addr.ip, sizeof(addr.ip));
+    if (client_is_unique(&addr))
+       Modes.stat.unique_clients [service]++;
+    Modes.stat.bytes_recv [service] += 10;
+  }
+
+  *(uint32_t*) &addr.ip = 0x0100007F; /* == 127.0.0.1 */
+  if (client_is_unique(&addr))
+     Modes.stat.unique_clients [service]++;
+
+  *(uint32_t*) &addr.ip = 0x0200007F; /* == 127.0.0.2 */
+  if (client_is_unique(&addr))
+     Modes.stat.unique_clients [service]++;
+}
+
+/**
+ * Replace the "udp://8.8.8.8:53" DNS server address set in Mongoose
+ * with the default DNS server in Windows's IPHelper API.
+ */
+static char *net_init_dns (void)
+{
+  FIXED_INFO  *fi = alloca (sizeof(*fi));
+  DWORD        size = 0;
+  IP_ADDR_STRING *ip;
+  int          i;
+
+  if (GetNetworkParams(fi, &size) != ERROR_BUFFER_OVERFLOW)
+  {
+    LOG_STDERR ("  error: %s\n", win_strerror(WSAGetLastError()));
+    return (NULL);
+  }
+  fi = alloca (size);
+  if (GetNetworkParams(fi, &size) != ERROR_SUCCESS)
+  {
+    LOG_STDERR ("  error: %s\n", win_strerror(WSAGetLastError()));
+    return (NULL);
+  }
+
+  DEBUG (DEBUG_NET, "  Host Name:   %s\n", fi->HostName);
+  DEBUG (DEBUG_NET, "  Domain Name: %s\n", fi->DomainName[0] ? fi->DomainName : "<None>");
+  DEBUG (DEBUG_NET, "  Node Type:   %u\n", fi->NodeType);
+  DEBUG (DEBUG_NET, "  DHCP scope:  %s\n", fi->ScopeId[0] ? fi->ScopeId : "<None>");
+  DEBUG (DEBUG_NET, "  Routing:     %s\n", fi->EnableRouting ? "Enabled" : "Disabled");
+  DEBUG (DEBUG_NET, "  ARP proxy:   %s\n", fi->EnableProxy   ? "Enabled" : "Disabled");
+  DEBUG (DEBUG_NET, "  DNS enabled: %s\n", fi->EnableDns     ? "Yes"     : "No");
+  DEBUG (DEBUG_NET, "  DNS Servers: %-15s (primary)\n", fi->DnsServerList.IpAddress.String);
+
+  for (i = 1, ip = fi->DnsServerList.Next; ip; ip = ip->Next, i++)
+     DEBUG (DEBUG_NET, "               %-15s (secondary %d)\n%s",
+            ip->IpAddress.String, i, ip->Next ? "" : "\n");
+
+  /* Return a malloced string of the primary DNS server
+   */
+  return mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
+}
+
+/**
  * Initialize all network stuff:
  *  \li Allocate the list for unique IPs.
  *  \li Load and check the `web-pages.dll`.
  *  \li Initialize the Mongoose network manager.
+ *  \li Set the default DNSv4 server address from Windows' IPHelper API.
  *  \li Start the 2 active network services (RAW_IN + SBS_IN).
  *  \li Or start the 4 listening (passive) network services.
  *  \li If HTTP-server is enabled, check the precence of the Web-page.
+ *  \li If `--test` was used, do some tests.
  */
 bool net_init (void)
 {
   mg_file_path web_dll;
-
-  g_unique_ips.idx  = 0;
-  g_unique_ips.size = UNIQUE_IP_INCR;
-  g_unique_ips.ips = calloc (sizeof(*g_unique_ips.ips), g_unique_ips.size);
-  if (!g_unique_ips.ips)
-  {
-    LOG_STDERR ("Memory alloc for 'g_unique_ips.ips' failed!.\n");
-    return (false);
-  }
 
   strncpy (web_dll, Modes.web_page, sizeof(web_dll));
   strlwr (web_dll);
@@ -1720,6 +1805,10 @@ bool net_init (void)
   }
 
   mg_mgr_init (&Modes.mgr);
+
+  Modes.dns = net_init_dns();
+  if (Modes.dns)
+     Modes.mgr.dns4.url = Modes.dns;
 
   /* If RAW-IN is UDP, rename description and protocol.
    */
@@ -1763,6 +1852,10 @@ bool net_init (void)
 
   if (Modes.http_out && !check_packed_web_page() && !check_web_page())
      return (false);
+
+  if (Modes.tests)
+     net_tests();
+
   return (true);
 }
 
@@ -1770,7 +1863,7 @@ bool net_exit (void)
 {
   uint32_t num = net_conn_free_all();
 
-  free (g_unique_ips.ips);
+  unique_ips_free();
 
 #ifdef USE_PACKED_DLL
   unload_web_dll();
@@ -1779,7 +1872,12 @@ bool net_exit (void)
 
   net_flushall();
   mg_mgr_free (&Modes.mgr);
+  if (Modes.dns)
+     free (Modes.dns);
+
   Modes.mgr.conns = NULL;
+  Modes.dns = NULL;
+
   if (num > 0)
      Sleep (100);
   return (num > 0);
