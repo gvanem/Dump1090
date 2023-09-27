@@ -477,6 +477,7 @@ static bool modeS_init (void)
       puts ("If we catch this, we will leak.\n");
     }
 #endif
+    net_init();          /* Call `net_tests()` too */
     return (false);
   }
 
