@@ -701,24 +701,16 @@ struct timeval {
 #define MG_ENABLE_FATFS 0
 #endif
 
-#ifndef MG_ENABLE_MBEDTLS
-#define MG_ENABLE_MBEDTLS 0
-#endif
-
-#ifndef MG_ENABLE_OPENSSL
-#define MG_ENABLE_OPENSSL 0
-#endif
-
-#ifndef MG_ENABLE_CUSTOM_TLS
-#define MG_ENABLE_CUSTOM_TLS 0
-#endif
-
 #ifndef MG_ENABLE_SSI
 #define MG_ENABLE_SSI 0
 #endif
 
 #ifndef MG_ENABLE_IPV6
 #define MG_ENABLE_IPV6 0
+#endif
+
+#ifndef MG_IPV6_V6ONLY
+#define MG_IPV6_V6ONLY 0  // IPv6 socket binds only to V6, not V4 address
 #endif
 
 #ifndef MG_ENABLE_MD5
@@ -1011,6 +1003,11 @@ char *mg_file_read(struct mg_fs *fs, const char *path, size_t *size);
 bool mg_file_write(struct mg_fs *fs, const char *path, const void *, size_t);
 bool mg_file_printf(struct mg_fs *fs, const char *path, const char *fmt, ...);
 
+// Packed API
+const char *mg_unpack(const char *path, size_t *size, time_t *mtime);
+const char *mg_unlist(size_t no);             // Get no'th packed filename
+struct mg_str mg_unpacked(const char *path);  // Packed file as mg_str
+
 
 
 
@@ -1023,12 +1020,14 @@ bool mg_file_printf(struct mg_fs *fs, const char *path, const char *fmt, ...);
 #define assert(x)
 #endif
 
+void mg_bzero(volatile unsigned char *buf, size_t len);
 void mg_random(void *buf, size_t len);
 char *mg_random_str(char *buf, size_t len);
 uint16_t mg_ntohs(uint16_t net);
 uint32_t mg_ntohl(uint32_t net);
 uint32_t mg_crc32(uint32_t crc, const char *buf, size_t len);
-uint64_t mg_millis(void);
+uint64_t mg_millis(void);  // Return milliseconds since boot
+uint64_t mg_now(void);     // Return milliseconds since Epoch
 
 #define mg_htons(x) mg_ntohs(x)
 #define mg_htonl(x) mg_ntohl(x)
@@ -1041,6 +1040,21 @@ uint64_t mg_millis(void);
 #define MG_U8P(ADDR) ((uint8_t *) (ADDR))
 #define MG_IPADDR_PARTS(ADDR) \
   MG_U8P(ADDR)[0], MG_U8P(ADDR)[1], MG_U8P(ADDR)[2], MG_U8P(ADDR)[3]
+
+#define MG_REG(x) ((volatile uint32_t *) (x))[0]
+#define MG_BIT(x) (((uint32_t) 1U) << (x))
+#define MG_SET_BITS(R, CLRMASK, SETMASK) (R) = ((R) & ~(CLRMASK)) | (SETMASK)
+
+#define MG_ROUND_UP(x, a) ((a) == 0 ? (x) : ((((x) + (a) -1) / (a)) * (a)))
+#define MG_ROUND_DOWN(x, a) ((a) == 0 ? (x) : (((x) / (a)) * (a)))
+
+#ifdef __GNUC__
+#define MG_ARM_DISABLE_IRQ() asm volatile ("cpsid i" : : : "memory")
+#define MG_ARM_ENABLE_IRQ() asm volatile ("cpsie i" : : : "memory")
+#else
+#define MG_ARM_DISABLE_IRQ()
+#define MG_ARM_ENABLE_IRQ()
+#endif
 
 struct mg_addr;
 int mg_check_ip_acl(struct mg_str acl, struct mg_addr *remote_ip);
@@ -1091,10 +1105,11 @@ void mg_iobuf_free(struct mg_iobuf *);
 size_t mg_iobuf_add(struct mg_iobuf *, size_t, const void *, size_t);
 size_t mg_iobuf_del(struct mg_iobuf *, size_t ofs, size_t len);
 
-int mg_base64_update(unsigned char p, char *to, int len);
-int mg_base64_final(char *to, int len);
-int mg_base64_encode(const unsigned char *p, int n, char *to);
-int mg_base64_decode(const char *src, int n, char *dst);
+
+size_t mg_base64_update(unsigned char input_byte, char *buf, size_t len);
+size_t mg_base64_final(char *buf, size_t len);
+size_t mg_base64_encode(const unsigned char *p, size_t n, char *buf, size_t);
+size_t mg_base64_decode(const char *src, size_t n, char *dst, size_t);
 
 
 
@@ -1331,50 +1346,71 @@ void mg_http_serve_ssi(struct mg_connection *c, const char *root,
                        const char *fullpath);
 
 
+#define MG_TLS_NONE 0     // No TLS support
+#define MG_TLS_MBED 1     // mbedTLS
+#define MG_TLS_OPENSSL 2  // OpenSSL
+#define MG_TLS_BUILTIN 3  // Built-in
+#define MG_TLS_CUSTOM 4   // Custom implementation
+
+#ifndef MG_TLS
+#define MG_TLS MG_TLS_NONE
+#endif
+
 
 
 
 
 struct mg_tls_opts {
-  const char *ca;         // CA certificate file. For both listeners and clients
-  const char *crl;        // Certificate Revocation List. For clients
-  const char *cert;       // Certificate
-  const char *certkey;    // Certificate key
-  const char *ciphers;    // Cipher list
-  struct mg_str srvname;  // If not empty, enables server name verification
-  struct mg_fs *fs;       // FS API for reading certificate files
+  struct mg_str ca;    // PEM or DER
+  struct mg_str cert;  // PEM or DER
+  struct mg_str key;   // PEM or DER
+  struct mg_str name;  // If not empty, enable host name verification
 };
 
-void mg_tls_init(struct mg_connection *, const struct mg_tls_opts *);
+void mg_tls_init(struct mg_connection *, const struct mg_tls_opts *opts);
 void mg_tls_free(struct mg_connection *);
 long mg_tls_send(struct mg_connection *, const void *buf, size_t len);
 long mg_tls_recv(struct mg_connection *, void *buf, size_t len);
 size_t mg_tls_pending(struct mg_connection *);
 void mg_tls_handshake(struct mg_connection *);
 
+// Private
+void mg_tls_ctx_init(struct mg_mgr *);
+void mg_tls_ctx_free(struct mg_mgr *);
 
 
 
 
 
 
-#if MG_ENABLE_MBEDTLS
+
+#if MG_TLS == MG_TLS_MBED
 #include <mbedtls/debug.h>
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/ssl.h>
+#include <mbedtls/ssl_ticket.h>
+
+struct mg_tls_ctx {
+  int dummy;
+#ifdef MBEDTLS_SSL_SESSION_TICKETS
+  mbedtls_ssl_ticket_context tickets;
+#endif
+};
 
 struct mg_tls {
-  char *cafile;             // CA certificate path
   mbedtls_x509_crt ca;      // Parsed CA certificate
   mbedtls_x509_crt cert;    // Parsed certificate
+  mbedtls_pk_context pk;    // Private key context
   mbedtls_ssl_context ssl;  // SSL/TLS context
   mbedtls_ssl_config conf;  // SSL-TLS config
-  mbedtls_pk_context pk;    // Private key context
+#ifdef MBEDTLS_SSL_SESSION_TICKETS
+  mbedtls_ssl_ticket_context ticket;  // Session tickets context
+#endif
 };
 #endif
 
 
-#if MG_ENABLE_OPENSSL
+#if MG_TLS == MG_TLS_OPENSSL
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -1623,13 +1659,82 @@ void mg_rpc_vok(struct mg_rpc_req *, const char *fmt, va_list *ap);
 void mg_rpc_err(struct mg_rpc_req *, int code, const char *fmt, ...);
 void mg_rpc_verr(struct mg_rpc_req *, int code, const char *fmt, va_list *);
 void mg_rpc_list(struct mg_rpc_req *r);
+// Copyright (c) 2023 Cesanta Software Limited
+// All rights reserved
 
 
-#if MG_ENABLE_TCPIP
+
+
+
+#define MG_OTA_NONE 0      // No OTA support
+#define MG_OTA_FLASH 1     // OTA via an internal flash
+#define MG_OTA_CUSTOM 100  // Custom implementation
+
+#ifndef MG_OTA
+#define MG_OTA MG_OTA_NONE
+#endif
+
+// Firmware update API
+bool mg_ota_begin(size_t new_firmware_size);     // Start writing
+bool mg_ota_write(const void *buf, size_t len);  // Write chunk, aligned to 1k
+bool mg_ota_end(void);                           // Stop writing
+
+enum {
+  MG_OTA_UNAVAILABLE = 0,  // No OTA information is present
+  MG_OTA_FIRST_BOOT = 1,   // Device booting the first time after the OTA
+  MG_OTA_UNCOMMITTED = 2,  // Ditto, but marking us for the rollback
+  MG_OTA_COMMITTED = 3,    // The firmware is good
+};
+enum { MG_FIRMWARE_CURRENT = 0, MG_FIRMWARE_PREVIOUS = 1 };
+
+int mg_ota_status(int firmware);          // Return firmware status MG_OTA_*
+uint32_t mg_ota_crc32(int firmware);      // Return firmware checksum
+uint32_t mg_ota_timestamp(int firmware);  // Firmware timestamp, UNIX UTC epoch
+size_t mg_ota_size(int firmware);         // Firmware size
+
+bool mg_ota_commit(void);    // Commit current firmware
+bool mg_ota_rollback(void);  // Rollback to the previous firmware
+// Copyright (c) 2023 Cesanta Software Limited
+// All rights reserved
 
 
 
 
+
+#define MG_SYS_NONE 0      // Dummy system
+#define MG_SYS_STM32H5 1   // STM32 H5
+#define MG_SYS_STM32H7 2   // STM32 H7
+#define MG_SYS_CUSTOM 100  // Custom implementation
+
+#ifndef MG_SYS
+#define MG_SYS MG_SYS_NONE
+#endif
+
+// Flash information
+void *mg_flash_start(void);         // Return flash start address
+size_t mg_flash_size(void);         // Return flash size
+size_t mg_flash_sector_size(void);  // Return flash sector size
+size_t mg_flash_write_align(void);  // Return flash write align, minimum 4
+int mg_flash_bank(void);            // 0: not dual bank, 1: bank1, 2: bank2
+
+// Write, erase, swap bank
+bool mg_flash_write(void *addr, const void *buf, size_t len);
+bool mg_flash_erase(void *addr);  // Must be at sector boundary
+bool mg_flash_swap_bank(void);
+
+// Convenience functions to store data on a flash sector with wear levelling
+// If `sector` is NULL, then the last sector of flash is used
+bool mg_flash_load(void *sector, uint32_t key, void *buf, size_t len);
+bool mg_flash_save(void *sector, uint32_t key, const void *buf, size_t len);
+
+void mg_sys_reset(void);  // Reboot device immediately
+
+
+
+
+
+
+#if defined(MG_ENABLE_TCPIP) && MG_ENABLE_TCPIP
 struct mg_tcpip_if;  // Mongoose TCP/IP network interface
 
 struct mg_tcpip_driver {
@@ -1652,6 +1757,8 @@ struct mg_tcpip_if {
   void *driver_data;               // Driver-specific data
   struct mg_mgr *mgr;              // Mongoose event manager
   struct mg_queue recv_queue;      // Receive queue
+  uint16_t mtu;                    // Interface MTU
+#define MG_TCPIP_MTU_DEFAULT 1500
 
   // Internal state, user can use it but should not change it
   uint8_t gwmac[6];             // Router's MAC
@@ -1679,6 +1786,7 @@ extern struct mg_tcpip_driver mg_tcpip_driver_w5500;
 extern struct mg_tcpip_driver mg_tcpip_driver_tm4c;
 extern struct mg_tcpip_driver mg_tcpip_driver_stm32h;
 extern struct mg_tcpip_driver mg_tcpip_driver_imxrt;
+extern struct mg_tcpip_driver mg_tcpip_driver_same54;
 
 // Drivers that require SPI, can use this SPI abstraction
 struct mg_tcpip_spi {
@@ -1703,6 +1811,15 @@ struct mg_tcpip_driver_imxrt1020_data {
   //    66 MHz        0x0D           4  <-- value for iMXRT1020-EVK at max freq.
   int mdc_cr;  // Valid values: -1, 0, 1, 2, 3, 4
 };
+
+
+#if MG_ENABLE_TCPIP && defined(MG_ENABLE_DRIVER_SAME54) && MG_ENABLE_DRIVER_SAME54
+
+struct mg_tcpip_driver_same54_data {
+    int mdc_cr;
+};
+
+#endif
 
 
 struct mg_tcpip_driver_stm32_data {
