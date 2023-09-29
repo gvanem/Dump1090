@@ -146,6 +146,7 @@
     <ClCompile Include="aircraft.c" />
     <ClCompile Include="airports.c" />
     <ClCompile Include="dump1090.c" />
+    <ClCompile Include="cfg_file.c" />
     <ClCompile Include="csv.c" />
     <ClCompile Include="interactive.c" />
     <ClCompile Include="location.c" />
@@ -166,6 +167,7 @@
   <ItemGroup>
     <ClInclude Include="aircraft.h" />
     <ClInclude Include="airports.h" />
+    <ClInclude Include="cfg_file.h" />
     <ClInclude Include="csv.h" />
     <ClInclude Include="interactive.h" />
     <ClInclude Include="location.h" />
