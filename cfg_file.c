@@ -33,24 +33,22 @@
  */
 #define MAX_ENV_LEN  32767
 
-static unsigned         g_dbg_level = 0;
-static unsigned         g_recurse = 0;
-static mg_file_path     g_our_dir;
-static const cfg_table *g_table;
+static unsigned      g_dbg_level = 0;
+static mg_file_path  g_our_dir;
 
 static mg_addr ipv4_test;
 static mg_addr ipv6_test;
 
-static void handle_include_file (const char *value);
-static void handle_message (const char *value);
+static void handle_include (cfg_context *ctx, const char *key, const char *value);
+static void handle_message (cfg_context *ctx, const char *key, const char *value);
 
 static cfg_table internals[] = {
-  { "include",  ARG_FUNC,   (void*) handle_include_file },
-  { "message",  ARG_FUNC,   (void*) handle_message },
-  { "ip4_test", ARG_ATOIP4, (void*) &ipv4_test },
-  { "ip6_test", ARG_ATOIP6, (void*) &ipv6_test },
-  { NULL,       0,          NULL }
-};
+    { "include",  ARG_FUNC2,  (void*) handle_include },
+    { "message",  ARG_FUNC2,  (void*) handle_message },
+    { "ip4_test", ARG_ATOIP4, (void*) &ipv4_test },
+    { "ip6_test", ARG_ATOIP6, (void*) &ipv6_test },
+    { NULL,       0,          NULL }
+  };
 
 static int   cfg_parse_file  (cfg_context *ctx);
 static bool  cfg_parse_line  (cfg_context *ctx, char **key_p, char **value_p);
@@ -61,7 +59,7 @@ bool cfg_open_and_parse (cfg_context *ctx)
 {
   int rc = 0;
 
-  if (g_recurse == 0)
+  if (ctx->current_level == 0)
   {
     mg_file_path path;
 
@@ -73,14 +71,14 @@ bool cfg_open_and_parse (cfg_context *ctx)
   }
 
   strncpy (ctx->current_file, ctx->fname, sizeof(ctx->current_file)-1);
-
   ctx->file = fopen (ctx->current_file, "rb");
   if (!ctx->file)
   {
     CFG_WARN ("Failed to open \"%s\"", ctx->current_file);
     return (false);
   }
-  g_table = ctx->tab;
+
+  ctx->current_level++;
   rc = cfg_parse_file (ctx);
   fclose (ctx->file);
   if (Modes.tests)
@@ -95,12 +93,14 @@ bool cfg_open_and_parse (cfg_context *ctx)
   return (rc > 0);
 }
 
-static void handle_message (const char *value)
+static void handle_message (cfg_context *ctx, const char *key, const char *value)
 {
-  printf ("level: %u, Message: '%s'\n", g_recurse, value);
+  printf ("level: %u, Message: '%s'\n", ctx->current_level, value);
+  (void) ctx;
+  (void) key;
 }
 
-static void handle_include_file (const char *value)
+static void handle_include (cfg_context *ctx, const char *key, const char *value)
 {
   const char *new_file = value;
   struct stat st;
@@ -119,7 +119,7 @@ static void handle_include_file (const char *value)
     new_file++;
     if (stat(new_file, &st) == 0 && ((st.st_mode) & _S_IFMT) != _S_IFREG)
     {
-      CFG_WARN ("include-file \"%s\" ignored", new_file);
+      CFG_WARN ("Ignoring include-file \"%s\" not found", new_file);
       ignore = true;
     }
   }
@@ -131,12 +131,12 @@ static void handle_include_file (const char *value)
     cfg_context new_ctx;
 
     memset (&new_ctx, '\0', sizeof(new_ctx));
-    new_ctx.fname = new_file;
-    new_ctx.tab   = g_table;
-    g_recurse++;
+    new_ctx.fname         = new_file;
+    new_ctx.tab           = ctx->tab;
+    new_ctx.current_level = ctx->current_level + 1;
     cfg_open_and_parse (&new_ctx);
-    g_recurse--;
   }
+  (void) key;
 }
 
 /*
@@ -352,6 +352,11 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
            rc = 1;
            break;
 
+      case ARG_FUNC2:
+           (*(cfg_callback*) arg) (ctx, key, value);
+           rc = 1;
+           break;
+
       case ARG_STRDUP:
            *(char**)arg = strdup (value);
            rc = true;
@@ -374,7 +379,7 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
 }
 
 /**
- * Returns the expanded version of an environment variable.
+ * Returns the expanded version of an variable.
  *
  * \eg If `INCLUDE=c:\VC\include;%C_INCLUDE_PATH%` and
  *   + `C_INCLUDE_PATH=c:\MinGW\include`, the expansion returns

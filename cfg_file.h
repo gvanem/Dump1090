@@ -11,7 +11,8 @@ typedef enum cfg_tab_types {
         ARG_ATOIP6,        /**< convert to a IPv6 `struct mg_addr` */
         ARG_STRDUP,        /**< duplicate string value */
         ARG_STRCPY,        /**< copy string value */
-        ARG_FUNC           /**< call function */
+        ARG_FUNC,          /**< call function with only the `value` */
+        ARG_FUNC2          /**< call function matching `cfg_callback` */
       } cfg_tab_types;
 
 typedef struct cfg_table {
@@ -26,9 +27,14 @@ typedef struct cfg_context {
        FILE            *file;
        mg_file_path     current_file;
        unsigned         current_line;
+       unsigned         current_level;
        char             current_key [256];
        char             current_val [512];
      } cfg_context;
+
+typedef void (*cfg_callback) (cfg_context *ctx,
+                              const char  *key,
+                              const char  *value);
 
 bool cfg_open_and_parse (cfg_context *ctx);
 
