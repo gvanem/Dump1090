@@ -32,6 +32,7 @@
 void modeS_log (const char *buf)
 {
   const char *time = NULL;
+  char  day_change [20] = "";
 
   if (!Modes.log)
      return;
@@ -41,16 +42,22 @@ void modeS_log (const char *buf)
   else
   {
     SYSTEMTIME now;
+    static WORD day = 0;
 
     GetLocalTime (&now);
     time = modeS_SYSTEMTIME_to_str (&now, false);
+    if (now.wDay != day) /* show the date once per day */
+    {
+      snprintf (day_change, sizeof(day_change), "%02u/%02u/%02u:\n", now.wYear, now.wMonth, now.wDay);
+      day = now.wDay;
+    }
   }
 
   if (*buf == '\n')
      buf++;
 
   if (time)
-       fprintf (Modes.log, "%s: %s", time, buf);
+       fprintf (Modes.log, "%s%s: %s", day_change, time, buf);
   else fprintf (Modes.log, "%*.*s%s", TSIZE, TSIZE, "", buf);
 }
 
