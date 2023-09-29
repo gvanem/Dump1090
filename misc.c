@@ -371,6 +371,38 @@ char *str_ltrim (char *s)
 }
 
 /**
+ * Trim trailing blanks (space/tab) from a string.
+ */
+char *str_rtrim (char *s)
+{
+  size_t n;
+
+  assert (s != NULL);
+  n = strlen (s);
+  if (n == 0)
+     return (s);
+
+  n--;
+  while (n)
+  {
+    int ch = (int)s [n];
+    if (!isspace(ch))
+       break;
+    s [n--] = '\0';
+  }
+
+  return (s);
+}
+
+/**
+ * Trim leading and trailing blanks (space/tab) from a string.
+ */
+char *str_trim (char *s)
+{
+  return str_rtrim (str_ltrim(s));
+}
+
+/**
  * Strip drive-letter, directory and suffix from a filename.
  */
 char *basename (const char *fname)

@@ -335,8 +335,9 @@ struct sqlite3;
  */
 typedef struct global_data {
         mg_file_path      who_am_I;                 /**< The full name of this program. */
-        mg_file_path      where_am_I;               /**< The current directory (no trailing `\\` and not used). */
+        mg_file_path      where_am_I;               /**< The directory of this program. */
         mg_file_path      tmp_dir;                  /**< The `%TEMP%\\dump1090` directory. (no trailing `\\`). */
+        mg_file_path      cfg_file;                 /**< The config-file (default: "where_am_I\\dump1090.cfg") */
         uintptr_t         reader_thread;            /**< Device reader thread ID. */
         CRITICAL_SECTION  data_mutex;               /**< Mutex to synchronize buffer access. */
         CRITICAL_SECTION  print_mutex;              /**< Mutex to synchronize printouts. */
@@ -344,7 +345,7 @@ typedef struct global_data {
         uint32_t          data_len;                 /**< Length of raw IQ buffer. */
         uint16_t         *magnitude;                /**< Magnitude vector. */
         uint16_t         *magnitude_lut;            /**< I/Q -> Magnitude lookup table. */
-        int               fd;                       /**< `--infile` option file descriptor. */
+        int               fd;                       /**< File descriptor for `--infile` option. */
         volatile bool     exit;                     /**< Exit from the main loop when true. */
         volatile bool     data_ready;               /**< Data ready to be processed. */
         uint32_t         *ICAO_cache;               /**< Recently seen ICAO addresses. */
@@ -589,6 +590,8 @@ uint32_t    ato_hertz (const char *Hertz);
 bool        str_startswith (const char *s1, const char *s2);
 bool        str_endswith (const char *s1, const char *s2);
 char       *str_ltrim (char *s);
+char       *str_rtrim (char *s);
+char       *str_trim (char *s);
 int         hex_digit_val (int c);
 const char *unescape_hex (const char *value);
 char       *basename (const char *fname);
