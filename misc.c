@@ -976,6 +976,109 @@ static const char *build_features (void)
 }
 
 /**
+ * Print a long string to screen.
+ * Try to wrap nicely according to the screen-width.
+ * Multiple spaces ("  ") are collapsed into one space.
+ */
+void puts_long_line (const char *start, size_t indent)
+{
+  static size_t width = 0;
+  size_t        left;
+  const char   *c = start;
+
+  if (width == 0)
+  {
+    CONSOLE_SCREEN_BUFFER_INFO console_info;
+    HANDLE  hnd = GetStdHandle (STD_OUTPUT_HANDLE);
+
+    width = UINT_MAX;
+
+    memset (&console_info, '\0', sizeof(console_info));
+    if (hnd != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(hnd, &console_info) &&
+        GetFileType(hnd) == FILE_TYPE_CHAR)
+    {
+      width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
+    }
+  }
+
+  left = width - indent;
+
+  while (*c)
+  {
+    if (*c == ' ')
+    {
+      /* Break a long line at a space.
+       */
+      const char *p = strchr (c+1, ' ');
+      int   ch;
+
+      if (!p)
+         p = strchr (c+1, '\0');
+      if (left < 2 || (left <= (size_t)(p - c)))
+      {
+        printf ("\n%*c", (int)indent, ' ');
+        left  = width - indent;
+        start = ++c;
+        continue;
+      }
+      ch = (int) c[1];
+      if (isspace(ch))  /* Drop excessive blanks */
+      {
+        c++;
+        continue;
+      }
+    }
+    putchar (*c++);
+    left--;
+  }
+  putchar ('\n');
+}
+
+/**
+ * Print the CFLAGS and LDFLAGS we were built with.
+ *
+ * On a `make depend` (`DOING_MAKE_DEPEND` is defined),
+ * do not add the above generated files to the dependency output.
+ *
+ * When building with `msbuild Dump1090.vcxproj` or during `make docs`,
+ * do not included these generated files.
+ */
+#if defined(__clang__)
+  #define CFLAGS   "cflags_clang-cl.h"
+  #define LDFLAGS  "ldflags_clang-cl.h"
+#else
+  #define CFLAGS   "cflags_cl.h"
+  #define LDFLAGS  "ldflags_cl.h"
+#endif
+
+#if defined(DOING_MSBUILD) || defined(DOING_MAKE_DEPEND) || defined(__DOXYGEN__)
+  #undef CFLAGS
+  #undef LDFLAGS
+#endif
+
+static void print_CFLAGS (void)
+{
+#if defined(CFLAGS)
+  #include CFLAGS
+  fputs ("CFLAGS:  ", stdout);
+  puts_long_line (cflags, sizeof("CFLAGS:  ") - 1);
+#else
+  fputs ("CFLAGS:  Unknown\n", stdout);
+#endif
+}
+
+static void print_LDFLAGS (void)
+{
+#if defined(LDFLAGS)
+  #include LDFLAGS
+  fputs ("LDFLAGS: ", stdout);
+  puts_long_line (ldflags, sizeof("LDFLAGS: ") - 1);
+#else
+  fputs ("LDFLAGS: Unknown\n", stdout);
+#endif
+}
+
+/**
  * Print version information.
  */
 void show_version_info (bool verbose)
@@ -983,9 +1086,6 @@ void show_version_info (bool verbose)
   printf ("dump1090 ver: %s (%s, %s). Built at %s.\n", PROG_VERSION, compiler_info(), build_features(), __DATE__);
   if (verbose)
   {
- // print_cflags();
- // print_ldflags();
-
     printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s.\n",
             RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, RTL_VER_ID);
     printf ("PDCurses ver: %s\n", PDC_VERDOT);
@@ -993,6 +1093,8 @@ void show_version_info (bool verbose)
     printf ("Miniz ver:    %s\n", mz_version());
     print_packed_web_info();
     print_sql_info();
+    print_CFLAGS();
+    print_LDFLAGS();
   }
   exit (0);
 }

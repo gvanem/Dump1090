@@ -83,7 +83,7 @@
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -DDOING_MSBUILD %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
@@ -99,7 +99,7 @@
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -DDOING_MSBUILD %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX86</TargetMachine>
@@ -116,7 +116,7 @@
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -DDOING_MSBUILD %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX64</TargetMachine>
@@ -132,7 +132,7 @@
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <AdditionalOptions>/FIdump1090_config.h %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/FIdump1090_config.h -DDOING_MSBUILD %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <TargetMachine>MachineX64</TargetMachine>
