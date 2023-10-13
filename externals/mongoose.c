@@ -113,6 +113,505 @@ size_t mg_base64_decode(const char *src, size_t n, char *dst, size_t dl) {
 }
 
 #ifdef MG_ENABLE_LINES
+#line 1 "src/device_dummy.c"
+#endif
+
+
+#if MG_DEVICE == MG_DEVICE_NONE
+void *mg_flash_start(void) {
+  return NULL;
+}
+size_t mg_flash_size(void) {
+  return 0;
+}
+size_t mg_flash_sector_size(void) {
+  return 0;
+}
+size_t mg_flash_write_align(void) {
+  return 0;
+}
+int mg_flash_bank(void) {
+  return 0;
+}
+bool mg_flash_erase(void *location) {
+  (void) location;
+  return false;
+}
+bool mg_flash_swap_bank(void) {
+  return true;
+}
+bool mg_flash_write(void *addr, const void *buf, size_t len) {
+  (void) addr, (void) buf, (void) len;
+  return false;
+}
+void mg_device_reset(void) {
+}
+#endif
+
+#ifdef MG_ENABLE_LINES
+#line 1 "src/device_flash.c"
+#endif
+
+
+#if MG_DEVICE == MG_DEVICE_STM32H7 || MG_DEVICE == MG_DEVICE_STM32H5
+// Flash can be written only if it is erased. Erased flash is 0xff (all bits 1)
+// Writes must be mg_flash_write_align() - aligned. Thus if we want to save an
+// object, we pad it at the end for alignment.
+//
+// Objects in the flash sector are stored sequentially:
+// | 32-bit size | 32-bit KEY | ..data.. | ..pad.. | 32-bit size | ......
+//
+// In order to get to the next object, read its size, then align up.
+
+// Traverse the list of saved objects
+size_t mg_flash_next(char *p, char *end, uint32_t *key, size_t *size) {
+  size_t aligned_size = 0, align = mg_flash_write_align(), left = end - p;
+  uint32_t *p32 = (uint32_t *) p, min_size = sizeof(uint32_t) * 2;
+  if (p32[0] != 0xffffffff && left > MG_ROUND_UP(min_size, align)) {
+    if (size) *size = (size_t) p32[0];
+    if (key) *key = p32[1];
+    aligned_size = MG_ROUND_UP(p32[0] + sizeof(uint32_t) * 2, align);
+    if (left < aligned_size) aligned_size = 0;  // Out of bounds, fail
+  }
+  return aligned_size;
+}
+
+// Return the last sector of Bank 2
+static char *flash_last_sector(void) {
+  size_t ss = mg_flash_sector_size(), size = mg_flash_size();
+  char *base = (char *) mg_flash_start(), *last = base + size - ss;
+  if (mg_flash_bank() == 2) last -= size / 2;
+  return last;
+}
+
+// Find a saved object with a given key
+bool mg_flash_load(void *sector, uint32_t key, void *buf, size_t len) {
+  char *base = (char *) mg_flash_start(), *s = (char *) sector, *res = NULL;
+  size_t ss = mg_flash_sector_size(), ofs = 0, n, sz;
+  bool ok = false;
+  if (s == NULL) s = flash_last_sector();
+  if (s < base || s >= base + mg_flash_size()) {
+    MG_ERROR(("%p is outsize of flash", sector));
+  } else if (((s - base) % ss) != 0) {
+    MG_ERROR(("%p is not a sector boundary", sector));
+  } else {
+    uint32_t k, scanned = 0;
+    while ((n = mg_flash_next(s + ofs, s + ss, &k, &sz)) > 0) {
+      // MG_DEBUG((" > obj %lu, ofs %lu, key %x/%x", scanned, ofs, k, key));
+      // mg_hexdump(s + ofs, n);
+      if (k == key && sz == len) {
+        res = s + ofs + sizeof(uint32_t) * 2;
+        memcpy(buf, res, len);  // Copy object
+        ok = true;              // Keep scanning for the newer versions of it
+      }
+      ofs += n, scanned++;
+    }
+    MG_DEBUG(("Scanned %u objects, key %x is @ %p", scanned, key, res));
+  }
+  return ok;
+}
+
+static bool mg_flash_writev(char *location, struct mg_str *strings, size_t n) {
+  size_t align = mg_flash_write_align(), i, j, k = 0, nwritten = 0;
+  char buf[align];
+  bool ok = true;
+  for (i = 0; ok && i < n; i++) {
+    for (j = 0; ok && j < strings[i].len; j++) {
+      buf[k++] = strings[i].ptr[j];
+      if (k >= sizeof(buf)) {
+        ok = mg_flash_write(location + nwritten, buf, sizeof(buf));
+        k = 0, nwritten += sizeof(buf);
+      }
+    }
+  }
+  if (k > 0) {
+    while (k < sizeof(buf)) buf[k++] = 0xff;
+    ok = mg_flash_write(location + nwritten, buf, sizeof(buf));
+  }
+  return ok;
+}
+
+// For all saved objects in the sector, delete old versions of objects
+static void mg_flash_sector_cleanup(char *sector) {
+  // Buffer all saved objects into an IO buffer (backed by RAM)
+  // erase sector, and re-save them.
+  struct mg_iobuf io = {0, 0, 0, 2048};
+  size_t ss = mg_flash_sector_size();
+  size_t n, size, size2, ofs = 0, hs = sizeof(uint32_t) * 2;
+  uint32_t key;
+  // Traverse all objects
+  MG_DEBUG(("Cleaning up sector %p", sector));
+  while ((n = mg_flash_next(sector + ofs, sector + ss, &key, &size)) > 0) {
+    // Delete an old copy of this object in the cache
+    for (size_t o = 0; o < io.len; o += size2 + hs) { 
+      uint32_t k = *(uint32_t *) (io.buf + o + sizeof(uint32_t));
+      size2 = *(uint32_t *) (io.buf + o);
+      if (k == key) {
+        mg_iobuf_del(&io, o, size2 + hs);
+        break;
+      }
+    }
+    // And add the new copy
+    mg_iobuf_add(&io, io.len, sector + ofs, size + hs);  
+    ofs += n;
+  }
+  // All objects are cached in RAM now
+  if (mg_flash_erase(sector)) {  // Erase sector. If successful,
+    for (ofs = 0; ofs < io.len; ofs += size + hs) {  // Traverse cached objects
+      size = *(uint32_t *) (io.buf + ofs);
+      key = *(uint32_t *) (io.buf + ofs + sizeof(uint32_t));
+      mg_flash_save(sector, key, io.buf + ofs + hs, size);  // Save to flash
+    }
+  }
+  mg_iobuf_free(&io);
+}
+
+// Save an object with a given key - append to the end of an object list
+bool mg_flash_save(void *sector, uint32_t key, const void *buf, size_t len) {
+  char *base = (char *) mg_flash_start(), *s = (char *) sector;
+  size_t ss = mg_flash_sector_size(), ofs = 0, n;
+  bool ok = false;
+  if (s == NULL) s = flash_last_sector();
+  if (s < base || s >= base + mg_flash_size()) {
+    MG_ERROR(("%p is outsize of flash", sector));
+  } else if (((s - base) % ss) != 0) {
+    MG_ERROR(("%p is not a sector boundary", sector));
+  } else {
+    size_t needed = sizeof(uint32_t) * 2 + len;
+    size_t needed_aligned = MG_ROUND_UP(needed, mg_flash_write_align());
+    while ((n = mg_flash_next(s + ofs, s + ss, NULL, NULL)) > 0) ofs += n;
+
+    // If there is not enough space left, cleanup sector and re-eval ofs
+    if (ofs + needed_aligned > ss) {
+      mg_flash_sector_cleanup(s);
+      ofs = 0;
+      while ((n = mg_flash_next(s + ofs, s + ss, NULL, NULL)) > 0) ofs += n;
+    }
+
+    if (ofs + needed_aligned <= ss) {
+      // Enough space to save this object
+      uint32_t hdr[2] = {(uint32_t) len, key};
+      struct mg_str data[] = {mg_str_n((char *) hdr, sizeof(hdr)),
+                              mg_str_n(buf, len)};
+      ok = mg_flash_writev(s + ofs, data, 2);
+      MG_DEBUG(("Saving %lu bytes @ %p, key %x: %d", len, s + ofs, key, ok));
+      MG_DEBUG(("Sector space left: %lu bytes", ss - ofs - needed_aligned));
+    } else {
+      MG_ERROR(("Sector is full"));
+    }
+  }
+  return ok;
+}
+#else
+bool mg_flash_save(void *sector, uint32_t key, const void *buf, size_t len) {
+  (void) sector, (void) key, (void) buf, (void) len;
+  return false;
+}
+bool mg_flash_load(void *sector, uint32_t key, void *buf, size_t len) {
+  (void) sector, (void) key, (void) buf, (void) len;
+  return false;
+}
+#endif
+
+#ifdef MG_ENABLE_LINES
+#line 1 "src/device_stm32h5.c"
+#endif
+
+
+
+#if MG_DEVICE == MG_DEVICE_STM32H5
+
+#define FLASH_BASE 0x40022000          // Base address of the flash controller
+#define FLASH_KEYR (FLASH_BASE + 0x4)  // See RM0481 7.11
+#define FLASH_OPTKEYR (FLASH_BASE + 0xc)
+#define FLASH_OPTCR (FLASH_BASE + 0x1c)
+#define FLASH_NSSR (FLASH_BASE + 0x20)
+#define FLASH_NSCR (FLASH_BASE + 0x28)
+#define FLASH_NSCCR (FLASH_BASE + 0x30)
+#define FLASH_OPTSR_CUR (FLASH_BASE + 0x50)
+#define FLASH_OPTSR_PRG (FLASH_BASE + 0x54)
+
+void *mg_flash_start(void) {
+  return (void *) 0x08000000;
+}
+size_t mg_flash_size(void) {
+  return 2 * 1024 * 1024;  // 2Mb
+}
+size_t mg_flash_sector_size(void) {
+  return 8 * 1024;  // 8k
+}
+size_t mg_flash_write_align(void) {
+  return 16;  // 128 bit
+}
+int mg_flash_bank(void) {
+  return MG_REG(FLASH_OPTCR) & MG_BIT(31) ? 2 : 1;
+}
+
+static void flash_unlock(void) {
+  static bool unlocked = false;
+  if (unlocked == false) {
+    MG_REG(FLASH_KEYR) = 0x45670123;
+    MG_REG(FLASH_KEYR) = 0Xcdef89ab;
+    MG_REG(FLASH_OPTKEYR) = 0x08192a3b;
+    MG_REG(FLASH_OPTKEYR) = 0x4c5d6e7f;
+    unlocked = true;
+  }
+}
+
+static int flash_page_start(volatile uint32_t *dst) {
+  char *base = (char *) mg_flash_start(), *end = base + mg_flash_size();
+  volatile char *p = (char *) dst;
+  return p >= base && p < end && ((p - base) % mg_flash_sector_size()) == 0;
+}
+
+static bool flash_is_err(void) {
+  return MG_REG(FLASH_NSSR) & ((MG_BIT(8) - 1) << 17);  // RM0481 7.11.9
+}
+
+static void flash_wait(void) {
+  while ((MG_REG(FLASH_NSSR) & MG_BIT(0)) &&
+         (MG_REG(FLASH_NSSR) & MG_BIT(16)) == 0) {
+    (void) 0;
+  }
+}
+
+static void flash_clear_err(void) {
+  flash_wait();                                    // Wait until ready
+  MG_REG(FLASH_NSCCR) = ((MG_BIT(9) - 1) << 16U);  // Clear all errors
+}
+
+static bool flash_bank_is_swapped(void) {
+  return MG_REG(FLASH_OPTCR) & MG_BIT(31);  // RM0481 7.11.8
+}
+
+bool mg_flash_erase(void *location) {
+  bool ok = false;
+  if (flash_page_start(location) == false) {
+    MG_ERROR(("%p is not on a sector boundary"));
+  } else {
+    uintptr_t diff = (char *) location - (char *) mg_flash_start();
+    uint32_t sector = diff / mg_flash_sector_size();
+    flash_unlock();
+    flash_clear_err();
+    MG_REG(FLASH_NSCR) = 0;
+    if ((sector < 128 && flash_bank_is_swapped()) ||
+        (sector > 127 && !flash_bank_is_swapped())) {
+      MG_REG(FLASH_NSCR) |= MG_BIT(31);  // Set FLASH_CR_BKSEL
+    }
+    if (sector > 127) sector -= 128;
+    MG_REG(FLASH_NSCR) |= MG_BIT(2) | (sector << 6);  // Erase | sector_num
+    MG_REG(FLASH_NSCR) |= MG_BIT(5);                  // Start erasing
+    flash_wait();
+    ok = !flash_is_err();
+    MG_DEBUG(("Erase sector %lu @ %p: %s. CR %#lx SR %#lx", sector, location,
+              ok ? "ok" : "fail", MG_REG(FLASH_NSCR), MG_REG(FLASH_NSSR)));
+    // mg_hexdump(location, 32);
+  }
+  return ok;
+}
+
+bool mg_flash_swap_bank(void) {
+  uint32_t desired = flash_bank_is_swapped() ? 0 : MG_BIT(31);
+  flash_unlock();
+  flash_clear_err();
+  // printf("OPTSR_PRG 1 %#lx\n", FLASH->OPTSR_PRG);
+  MG_SET_BITS(MG_REG(FLASH_OPTSR_PRG), MG_BIT(31), desired);
+  // printf("OPTSR_PRG 2 %#lx\n", FLASH->OPTSR_PRG);
+  MG_REG(FLASH_OPTCR) |= MG_BIT(1);  // OPTSTART
+  while ((MG_REG(FLASH_OPTSR_CUR) & MG_BIT(31)) != desired) (void) 0;
+  return true;
+}
+
+bool mg_flash_write(void *addr, const void *buf, size_t len) {
+  if ((len % mg_flash_write_align()) != 0) {
+    MG_ERROR(("%lu is not aligned to %lu", len, mg_flash_write_align()));
+    return false;
+  }
+  uint32_t *dst = (uint32_t *) addr;
+  uint32_t *src = (uint32_t *) buf;
+  uint32_t *end = (uint32_t *) ((char *) buf + len);
+  bool ok = true;
+  flash_unlock();
+  flash_clear_err();
+  MG_ARM_DISABLE_IRQ();
+  // MG_DEBUG(("Starting flash write %lu bytes @ %p", len, addr));
+  while (ok && src < end) {
+    if (flash_page_start(dst) && mg_flash_erase(dst) == false) break;
+    MG_REG(FLASH_NSCR) = MG_BIT(1);  // Set programming flag
+    *(volatile uint32_t *) dst++ = *src++;
+    flash_wait();
+    if (flash_is_err()) ok = false;
+  }
+  MG_DEBUG(("Flash write %lu bytes @ %p: %s. CR %#lx SR %#lx", len, dst,
+            flash_is_err() ? "fail" : "ok", MG_REG(FLASH_NSCR),
+            MG_REG(FLASH_NSSR)));
+  if (flash_is_err()) ok = false;
+  // mg_hexdump(addr, len > 32 ? 32 : len);
+  //  MG_REG(FLASH_NSCR) &= ~MG_BIT(1);  // Set programming flag
+  MG_REG(FLASH_NSCR) = 0;  // Clear flags
+  MG_ARM_ENABLE_IRQ();
+  return ok;
+}
+
+void mg_device_reset(void) {
+  // SCB->AIRCR = ((0x5fa << SCB_AIRCR_VECTKEY_Pos)|SCB_AIRCR_SYSRESETREQ_Msk);
+  *(volatile unsigned long *) 0xe000ed0c = 0x5fa0004;
+}
+#endif
+
+#ifdef MG_ENABLE_LINES
+#line 1 "src/device_stm32h7.c"
+#endif
+
+
+
+#if MG_DEVICE == MG_DEVICE_STM32H7
+
+#define FLASH_BASE1 0x52002000  // Base address for bank1
+#define FLASH_BASE2 0x52002100  // Base address for bank2
+#define FLASH_KEYR 0x04         // See RM0433 4.9.2
+#define FLASH_OPTKEYR 0x08
+#define FLASH_OPTCR 0x18
+#define FLASH_SR 0x10
+#define FLASH_CR 0x0c
+#define FLASH_CCR 0x14
+#define FLASH_OPTSR_CUR 0x1c
+#define FLASH_OPTSR_PRG 0x20
+
+void *mg_flash_start(void) {
+  return (void *) 0x08000000;
+}
+size_t mg_flash_size(void) {
+  return 2 * 1024 * 1024;  // 2Mb
+}
+size_t mg_flash_sector_size(void) {
+  return 128 * 1024;  // 128k
+}
+size_t mg_flash_write_align(void) {
+  return 32;  // 256 bit
+}
+int mg_flash_bank(void) {
+  return MG_REG(FLASH_BASE1 + FLASH_OPTCR) & MG_BIT(31) ? 2 : 1;
+}
+
+static void flash_unlock(void) {
+  static bool unlocked = false;
+  if (unlocked == false) {
+    MG_REG(FLASH_BASE1 + FLASH_KEYR) = 0x45670123;
+    MG_REG(FLASH_BASE1 + FLASH_KEYR) = 0xcdef89ab;
+    MG_REG(FLASH_BASE2 + FLASH_KEYR) = 0x45670123;
+    MG_REG(FLASH_BASE2 + FLASH_KEYR) = 0xcdef89ab;
+    MG_REG(FLASH_BASE1 + FLASH_OPTKEYR) = 0x08192a3b;  // opt reg is "shared"
+    MG_REG(FLASH_BASE1 + FLASH_OPTKEYR) = 0x4c5d6e7f;  // thus unlock once
+    unlocked = true;
+  }
+}
+
+static bool flash_page_start(volatile uint32_t *dst) {
+  char *base = (char *) mg_flash_start(), *end = base + mg_flash_size();
+  volatile char *p = (char *) dst;
+  return p >= base && p < end && ((p - base) % mg_flash_sector_size()) == 0;
+}
+
+static bool flash_is_err(uint32_t bank) {
+  return MG_REG(bank + FLASH_SR) & ((MG_BIT(11) - 1) << 17);  // RM0433 4.9.5
+}
+
+static void flash_wait(uint32_t bank) {
+  while (MG_REG(bank + FLASH_SR) & (MG_BIT(0) | MG_BIT(2))) (void) 0;
+}
+
+static void flash_clear_err(uint32_t bank) {
+  flash_wait(bank);                                      // Wait until ready
+  MG_REG(bank + FLASH_CCR) = ((MG_BIT(11) - 1) << 16U);  // Clear all errors
+}
+
+static bool flash_bank_is_swapped(uint32_t bank) {
+  return MG_REG(bank + FLASH_OPTCR) & MG_BIT(31);  // RM0433 4.9.7
+}
+
+// Figure out flash bank based on the address
+static uint32_t flash_bank(void *addr) {
+  size_t ofs = (char *) addr - (char *) mg_flash_start();
+  return ofs < mg_flash_size() / 2 ? FLASH_BASE1 : FLASH_BASE2;
+}
+
+bool mg_flash_erase(void *addr) {
+  bool ok = false;
+  if (flash_page_start(addr) == false) {
+    MG_ERROR(("%p is not on a sector boundary", addr));
+  } else {
+    uintptr_t diff = (char *) addr - (char *) mg_flash_start();
+    uint32_t sector = diff / mg_flash_sector_size();
+    uint32_t bank = flash_bank(addr);
+
+    flash_unlock();
+    if (sector > 7) sector -= 8;
+    // MG_INFO(("Erasing @ %p, sector %lu, bank %#x", addr, sector, bank));
+
+    flash_clear_err(bank);
+    MG_REG(bank + FLASH_CR) |= (sector & 7U) << 8U;  // Sector to erase
+    MG_REG(bank + FLASH_CR) |= MG_BIT(2);            // Sector erase bit
+    MG_REG(bank + FLASH_CR) |= MG_BIT(7);            // Start erasing
+    ok = !flash_is_err(bank);
+    MG_DEBUG(("Erase sector %lu @ %p %s. CR %#lx SR %#lx", sector, addr,
+              ok ? "ok" : "fail", MG_REG(bank + FLASH_CR),
+              MG_REG(bank + FLASH_SR)));
+    // mg_hexdump(addr, 32);
+  }
+  return ok;
+}
+
+bool mg_flash_swap_bank() {
+  uint32_t bank = FLASH_BASE1;
+  uint32_t desired = flash_bank_is_swapped(bank) ? 0 : MG_BIT(31);
+  flash_unlock();
+  flash_clear_err(bank);
+  // printf("OPTSR_PRG 1 %#lx\n", FLASH->OPTSR_PRG);
+  MG_SET_BITS(MG_REG(bank + FLASH_OPTSR_PRG), MG_BIT(31), desired);
+  // printf("OPTSR_PRG 2 %#lx\n", FLASH->OPTSR_PRG);
+  MG_REG(bank + FLASH_OPTCR) |= MG_BIT(1);  // OPTSTART
+  while ((MG_REG(bank + FLASH_OPTSR_CUR) & MG_BIT(31)) != desired) (void) 0;
+  return true;
+}
+
+bool mg_flash_write(void *addr, const void *buf, size_t len) {
+  if ((len % mg_flash_write_align()) != 0) {
+    MG_ERROR(("%lu is not aligned to %lu", len, mg_flash_write_align()));
+    return false;
+  }
+  uint32_t bank = flash_bank(addr);
+  uint32_t *dst = (uint32_t *) addr;
+  uint32_t *src = (uint32_t *) buf;
+  uint32_t *end = (uint32_t *) ((char *) buf + len);
+  bool ok = true;
+  flash_unlock();
+  flash_clear_err(bank);
+  MG_ARM_DISABLE_IRQ();
+  MG_REG(bank + FLASH_CR) = MG_BIT(1);  // Set programming flag
+  // MG_INFO(("Writing flash @ %p, %lu bytes", addr, len));
+  while (ok && src < end) {
+    if (flash_page_start(dst) && mg_flash_erase(dst) == false) break;
+    *(volatile uint32_t *) dst++ = *src++;
+    flash_wait(bank);
+    if (flash_is_err(bank)) ok = false;
+  }
+  MG_DEBUG(("Flash write %lu bytes @ %p: %s. CR %#lx SR %#lx", len, dst,
+            ok ? "ok" : "fail", MG_REG(bank + FLASH_CR),
+            MG_REG(bank + FLASH_SR)));
+  // mg_hexdump(addr, len > 32 ? 32 : len);
+  MG_REG(bank + FLASH_CR) &= ~MG_BIT(1);  // Clear programming flag
+  MG_ARM_ENABLE_IRQ();
+  return ok;
+}
+
+void mg_device_reset(void) {
+  // SCB->AIRCR = ((0x5fa << SCB_AIRCR_VECTKEY_Pos)|SCB_AIRCR_SYSRESETREQ_Msk);
+  *(volatile unsigned long *) 0xe000ed0c = 0x5fa0004;
+}
+#endif
+
+#ifdef MG_ENABLE_LINES
 #line 1 "src/dns.c"
 #endif
 
@@ -221,7 +720,7 @@ bool mg_dns_parse(const uint8_t *buf, size_t len, struct mg_dns_message *dm) {
 
   if (len < sizeof(*h)) return 0;                // Too small, headers dont fit
   if (mg_ntohs(h->num_questions) > 1) return 0;  // Sanity
-  if (mg_ntohs(h->num_answers) > 10) return 0;   // Sanity
+  if (mg_ntohs(h->num_answers) > 15) return 0;   // Sanity
   dm->txnid = mg_ntohs(h->txnid);
 
   for (i = 0; i < mg_ntohs(h->num_questions); i++) {
@@ -1485,8 +1984,7 @@ int mg_http_parse(const char *s, size_t len, struct mg_http_message *hm) {
   hm->message.ptr = hm->head.ptr = s;
   hm->body.ptr = end;
   hm->head.len = (size_t) req_len;
-  hm->chunk.ptr = end;
-  hm->message.len = hm->body.len = (size_t) ~0;  // Set body length to infinite
+  hm->message.len = hm->body.len = (size_t) -1;  // Set body length to infinite
 
   // Parse request line
   hm->method.ptr = s;
@@ -2191,131 +2689,75 @@ static bool is_hex_digit(int c) {
          (c >= 'A' && c <= 'F');
 }
 
-// If a server sends data to the client using chunked encoding, Mongoose strips
-// off the chunking prefix (hex length and \r\n) and suffix (\r\n), appends the
-// stripped data to the body, and fires the MG_EV_HTTP_CHUNK event.  When zero
-// chunk is received, we fire MG_EV_HTTP_MSG, and the body already has all
-// chunking prefixes/suffixes stripped.
-//
-// If a server sends data without chunked encoding, we also fire a series of
-// MG_EV_HTTP_CHUNK events for every received piece of data, and then we fire
-// MG_EV_HTTP_MSG event in the end.
-//
-// We track total processed length in the c->pfn_data, which is a void *
-// pointer: we store a size_t value there.
-static bool getchunk(struct mg_str s, size_t *prefixlen, size_t *datalen) {
-  size_t i = 0, n;
-  while (i < s.len && is_hex_digit(s.ptr[i])) i++;
-  n = mg_unhexn(s.ptr, i);
-  // MG_INFO(("%d %d", (int) (i + n + 4), (int) s.len));
-  if (s.len < i + n + 4) return false;  // Chunk not yet fully buffered
-  if (s.ptr[i] != '\r' || s.ptr[i + 1] != '\n') return false;
-  if (s.ptr[i + n + 2] != '\r' || s.ptr[i + n + 3] != '\n') return false;
-  *prefixlen = i + 2;
-  *datalen = n;
-  return true;
+static int skip_chunk(const char *buf, int len, int *pl, int *dl) {
+  int i = 0, n = 0;
+  if (len < 3) return 0;
+  while (i < len && is_hex_digit(buf[i])) i++;
+  if (len < i + 1 || buf[i] != '\r' || buf[i + 1] != '\n') return -1;  // Error
+  n = (int) mg_unhexn(buf, (size_t) i);  // Decode hex length
+  if (n < 0) return -1;                  // Error
+  if (len < i + n + 4) return 0;         // Chunk not yet fully buffered
+  if (buf[i + n + 2] != '\r' || buf[i + n + 3] != '\n') return -1;  // Error
+  *pl = i + 2, *dl = n;
+  return i + 2 + n + 2;
 }
 
-static bool mg_is_chunked(struct mg_http_message *hm) {
+static bool is_chunked(struct mg_http_message *hm) {
   const char *needle = "chunked";
   struct mg_str *te = mg_http_get_header(hm, "Transfer-Encoding");
   return te != NULL && mg_vcasecmp(te, needle) == 0;
 }
 
-void mg_http_delete_chunk(struct mg_connection *c, struct mg_http_message *hm) {
-  size_t ofs = (size_t) (hm->chunk.ptr - (char *) c->recv.buf);
-  mg_iobuf_del(&c->recv, ofs, hm->chunk.len);
-  c->pfn_data = (void *) ((size_t) c->pfn_data | MG_DMARK);
-}
-
-static void deliver_chunked_chunks(struct mg_connection *c, size_t hlen,
-                                   struct mg_http_message *hm, bool *next) {
-  //  |  ... headers ... | HEXNUM\r\n ..data.. \r\n | ......
-  //  +------------------+--------------------------+----
-  //  |      hlen        |           chunk1         | ......
-  char *buf = (char *) &c->recv.buf[hlen], *p = buf;
-  size_t len = c->recv.len - hlen;
-  size_t processed = ((size_t) c->pfn_data) & ~MG_DMARK;
-  size_t mark, pl, dl, del = 0, ofs = 0;
-  bool last = false;
-  if (processed <= len) len -= processed, buf += processed;
-  while (!last && getchunk(mg_str_n(buf + ofs, len - ofs), &pl, &dl)) {
-    size_t saved = c->recv.len;
-    memmove(p + processed, buf + ofs + pl, dl);
-    // MG_INFO(("P2 [%.*s]", (int) (processed + dl), p));
-    hm->chunk = mg_str_n(p + processed, dl);
-    mg_call(c, MG_EV_HTTP_CHUNK, hm);
-    ofs += pl + dl + 2, del += pl + 2;  // 2 is for \r\n suffix
-    processed += dl;
-    if (c->recv.len != saved) processed -= dl, buf -= dl;
-    // mg_hexdump(c->recv.buf, hlen + processed);
-    last = (dl == 0);
-  }
-  mg_iobuf_del(&c->recv, hlen + processed, del);
-  mark = ((size_t) c->pfn_data) & MG_DMARK;
-  c->pfn_data = (void *) (processed | mark);
-  if (last) {
-    hm->body.len = processed;
-    hm->message.len = hlen + processed;
-    c->pfn_data = NULL;
-    if (mark) mg_iobuf_del(&c->recv, 0, hlen), *next = true;
-    // MG_INFO(("LAST, mark: %lx", mark));
-    // mg_hexdump(c->recv.buf, c->recv.len);
-  }
-}
-
-static void deliver_normal_chunks(struct mg_connection *c, size_t hlen,
-                                  struct mg_http_message *hm, bool *next) {
-  size_t left, processed = ((size_t) c->pfn_data) & ~MG_DMARK;
-  size_t deleted = ((size_t) c->pfn_data) & MG_DMARK;
-  hm->chunk = mg_str_n((char *) &c->recv.buf[hlen], c->recv.len - hlen);
-  if (processed <= hm->chunk.len && !deleted) {
-    hm->chunk.len -= processed;
-    hm->chunk.ptr += processed;
-  }
-  left = hm->body.len < processed ? 0 : hm->body.len - processed;
-  if (hm->chunk.len > left) hm->chunk.len = left;
-  if (hm->chunk.len > 0) mg_call(c, MG_EV_HTTP_CHUNK, hm);
-  processed += hm->chunk.len;
-  deleted = ((size_t) c->pfn_data) & MG_DMARK;  // Re-evaluate after user call
-  if (processed >= hm->body.len) {              // Last, 0-len chunk
-    hm->chunk.len = 0;                          // Reset length
-    mg_call(c, MG_EV_HTTP_CHUNK, hm);           // Call user handler
-    c->pfn_data = NULL;                         // Reset processed counter
-    if (processed && deleted) mg_iobuf_del(&c->recv, 0, hlen), *next = true;
-  } else {
-    c->pfn_data = (void *) (processed | deleted);  // if it is set
-  }
-}
-
 static void http_cb(struct mg_connection *c, int ev, void *evd, void *fnd) {
   if (ev == MG_EV_READ || ev == MG_EV_CLOSE) {
     struct mg_http_message hm;
-    while (c->recv.buf != NULL && c->recv.len > 0) {
-      bool next = false;
-      int hlen = mg_http_parse((char *) c->recv.buf, c->recv.len, &hm);
-      if (hlen < 0) {
-        mg_error(c, "HTTP parse:\n%.*s", (int) c->recv.len, c->recv.buf);
-        break;
+    size_t ofs = 0;  // Parsing offset
+
+    while (c->is_resp == 0 && ofs < c->recv.len) {
+      const char *buf = (char *) c->recv.buf + ofs;
+      int n = mg_http_parse(buf, c->recv.len - ofs, &hm);
+      if (n < 0) {
+        mg_error(c, "HTTP parse");
+        return;
       }
-      if (c->is_resp) break;           // Response is still generated
-      if (hlen == 0) break;            // Request is not buffered yet
-      if (ev == MG_EV_CLOSE) {         // If client did not set Content-Length
-        hm.message.len = c->recv.len;  // and closes now, deliver a MSG
+      if (n == 0) break;        // Request is not buffered yet
+      if (ev == MG_EV_CLOSE) {  // If client did not set Content-Length
+        hm.message.len = c->recv.len - ofs;  // and closes now, deliver MSG
         hm.body.len = hm.message.len - (size_t) (hm.body.ptr - hm.message.ptr);
       }
-      if (mg_is_chunked(&hm)) {
-        deliver_chunked_chunks(c, (size_t) hlen, &hm, &next);
-      } else {
-        deliver_normal_chunks(c, (size_t) hlen, &hm, &next);
+
+      if (is_chunked(&hm)) {
+        // For chunked data, strip off prefixes and suffixes from chunks
+        // and relocate them right after the headers, then report a message
+        char *s = (char *) c->recv.buf + ofs + n;
+        int o = 0, pl, dl, cl, len = (int) (c->recv.len - ofs - (size_t) n);
+
+        // Find zero-length chunk (the end of the body)
+        while ((cl = skip_chunk(s + o, len - o, &pl, &dl)) > 0 && dl) o += cl;
+        if (cl == 0) break;  // No zero-len chunk, buffer more data
+        if (cl < 0) {
+          mg_error(c, "Invalid chunk");
+          break;
+        }
+
+        // Zero chunk found. Second pass: strip + relocate
+        o = 0, hm.body.len = 0, hm.message.len = (size_t) n;
+        while ((cl = skip_chunk(s + o, len - o, &pl, &dl)) > 0) {
+          memmove(s + hm.body.len, s + o + pl, (size_t) dl);
+          o += cl, hm.body.len += (size_t) dl, hm.message.len += (size_t) dl;
+          if (dl == 0) break;
+        }
+        ofs += (size_t) (n + o);
+      } else { // Normal, non-chunked data
+        size_t len = c->recv.len - ofs - (size_t) n;
+        if (hm.body.len > len) break;  // Buffer more data
+        ofs += (size_t) n + hm.body.len;
       }
-      if (next) continue;  // Chunks & request were deleted
-      //  Chunk events are delivered. If we have full body, deliver MSG
-      if (c->recv.len < hm.message.len) break;
+
       if (c->is_accepted) c->is_resp = 1;  // Start generating response
       mg_call(c, MG_EV_HTTP_MSG, &hm);     // User handler can clear is_resp
-      mg_iobuf_del(&c->recv, 0, hm.message.len);
     }
+    if (ofs > 0) mg_iobuf_del(&c->recv, 0, ofs);  // Delete processed data
   }
   (void) evd, (void) fnd;
 }
@@ -2512,6 +2954,55 @@ static double mg_atod(const char *p, int len, int *numlen) {
   return d;
 }
 
+// Iterate over object or array elements
+size_t mg_json_next(struct mg_str obj, size_t ofs, struct mg_str *key,
+                    struct mg_str *val) {
+  if (ofs >= obj.len) {
+    ofs = 0;  // Out of boundaries, stop scanning
+  } else if (obj.len < 2 || (*obj.ptr != '{' && *obj.ptr != '[')) {
+    ofs = 0;  // Not an array or object, stop
+  } else {
+    struct mg_str sub = mg_str_n(obj.ptr + ofs, obj.len - ofs);
+    if (ofs == 0) ofs++, sub.ptr++, sub.len--;
+    if (*obj.ptr == '[') {  // Iterate over an array
+      int n = 0, o = mg_json_get(sub, "$", &n);
+      if (n < 0 || o < 0 || (size_t) (o + n) > sub.len) {
+        ofs = 0;  // Error parsing key, stop scanning
+      } else {
+        if (key) *key = mg_str_n(NULL, 0);
+        if (val) *val = mg_str_n(sub.ptr + o, (size_t) n);
+        ofs = (size_t) (&sub.ptr[o + n] - obj.ptr);
+      }
+    } else {  // Iterate over an object
+      int n = 0, o = mg_json_get(sub, "$", &n);
+      if (n < 0 || o < 0 || (size_t) (o + n) > sub.len) {
+        ofs = 0;  // Error parsing key, stop scanning
+      } else {
+        if (key) *key = mg_str_n(sub.ptr + o, (size_t) n);
+        sub.ptr += o + n, sub.len -= (size_t) (o + n);
+        while (sub.len > 0 && *sub.ptr != ':') sub.len--, sub.ptr++;
+        if (sub.len > 0 && *sub.ptr == ':') sub.len--, sub.ptr++;
+        n = 0, o = mg_json_get(sub, "$", &n);
+        if (n < 0 || o < 0 || (size_t) (o + n) > sub.len) {
+          ofs = 0;  // Error parsing value, stop scanning
+        } else {
+          if (val) *val = mg_str_n(sub.ptr + o, (size_t) n);
+          ofs = (size_t) (&sub.ptr[o + n] - obj.ptr);
+        }
+      }
+    }
+    //MG_INFO(("SUB ofs %u %.*s", ofs, sub.len, sub.ptr));
+    while (ofs && ofs < obj.len &&
+           (obj.ptr[ofs] == ' ' || obj.ptr[ofs] == '\t' ||
+            obj.ptr[ofs] == '\n' || obj.ptr[ofs] == '\r')) {
+      ofs++;
+    }
+    if (ofs && ofs < obj.len && obj.ptr[ofs] == ',') ofs++;
+    if (ofs > obj.len) ofs = 0;
+  }
+  return ofs;
+}
+
 int mg_json_get(struct mg_str json, const char *path, int *toklen) {
   const char *s = json.ptr;
   int len = (int) json.len;
@@ -2607,8 +3098,8 @@ int mg_json_get(struct mg_str json, const char *path, int *toklen) {
           // printf("K %s [%.*s] [%.*s] %d %d %d %d %d\n", path, pos, path, n,
           //        &s[i + 1], n, depth, ed, ci, ei);
           //  NOTE(cpq): in the check sequence below is important.
-          //  strncmp() must go first: it fails fast if the remaining length of
-          //  the path is smaller than `n`.
+          //  strncmp() must go first: it fails fast if the remaining length
+          //  of the path is smaller than `n`.
           if (depth == ed && path[pos - 1] == '.' &&
               strncmp(&s[i + 1], &path[pos], (size_t) n) == 0 &&
               (path[pos + n] == '\0' || path[pos + n] == '.' ||
@@ -2775,6 +3266,9 @@ void mg_log_set(int log_level) {
   s_level = log_level;
 }
 
+#if MG_ENABLE_CUSTOM_LOG
+// Let user define their own mg_log_prefix() and mg_log()
+#else
 bool mg_log_prefix(int level, const char *file, int line, const char *fname) {
   if (level <= s_level) {
     const char *p = strrchr(file, '/');
@@ -2799,6 +3293,7 @@ void mg_log(const char *fmt, ...) {
   va_end(ap);
   logs("\r\n", 2);
 }
+#endif
 
 static unsigned char nibble(unsigned c) {
   return (unsigned char) (c < 10 ? c + '0' : c + 'W');
@@ -2830,6 +3325,21 @@ void mg_hexdump(const void *buf, size_t len) {
 #endif
 
 
+
+//  This code implements the MD5 message-digest algorithm.
+//  The algorithm is due to Ron Rivest.  This code was
+//  written by Colin Plumb in 1993, no copyright is claimed.
+//  This code is in the public domain; do with it what you wish.
+//
+//  Equivalent code is available from RSA Data Security, Inc.
+//  This code has been tested against that, and is equivalent,
+//  except that you don't need to include two pages of legalese
+//  with every copy.
+//
+//  To compute the message digest of a chunk of bytes, declare an
+//  MD5Context structure, pass it to MD5Init, call MD5Update as
+//  needed on buffers full of bytes, and then call MD5Final, which
+//  will fill a supplied 16-byte array with the digest.
 
 #if defined(MG_ENABLE_MD5) && MG_ENABLE_MD5
 
@@ -3642,6 +4152,7 @@ static bool mg_v4mapped(struct mg_str str, struct mg_addr *addr) {
 
 static bool mg_aton6(struct mg_str str, struct mg_addr *addr) {
   size_t i, j = 0, n = 0, dc = 42;
+  addr->scope_id = 0;
   if (str.len > 2 && str.ptr[0] == '[') str.ptr++, str.len -= 2;
   if (mg_v4mapped(str, addr)) return true;
   for (i = 0; i < str.len; i++) {
@@ -3650,7 +4161,7 @@ static bool mg_aton6(struct mg_str str, struct mg_addr *addr) {
         (str.ptr[i] >= 'A' && str.ptr[i] <= 'F')) {
       unsigned long val;
       if (i > j + 3) return false;
-      // MG_DEBUG(("%zu %zu [%.*s]", i, j, (int) (i - j + 1), &str.ptr[j]));
+      // MG_DEBUG(("%lu %lu [%.*s]", i, j, (int) (i - j + 1), &str.ptr[j]));
       val = mg_unhexn(&str.ptr[j], i - j + 1);
       addr->ip[n] = (uint8_t) ((val >> 8) & 255);
       addr->ip[n + 1] = (uint8_t) (val & 255);
@@ -3664,6 +4175,11 @@ static bool mg_aton6(struct mg_str str, struct mg_addr *addr) {
       }
       if (n > 14) return false;
       addr->ip[n] = addr->ip[n + 1] = 0;  // For trailing ::
+    } else if (str.ptr[i] == '%') {       // Scope ID
+      for (i = i + 1; i < str.len; i++) {
+        if (str.ptr[i] < '0' || str.ptr[i] > '9') return false;
+        addr->scope_id *= 10, addr->scope_id += (uint8_t) (str.ptr[i] - '0');
+      }
     } else {
       return false;
     }
@@ -4711,7 +5227,10 @@ static void mg_tcpip_poll(struct mg_tcpip_if *ifp, uint64_t uptime_ms) {
   if (ifp->driver->rx != NULL) {  // Polling driver. We must call it
     size_t len =
         ifp->driver->rx(ifp->recv_queue.buf, ifp->recv_queue.size, ifp);
-    if (len > 0) mg_tcpip_rx(ifp, ifp->recv_queue.buf, len);
+    if (len > 0) {
+      ifp->nrecv++;
+      mg_tcpip_rx(ifp, ifp->recv_queue.buf, len);
+    }
   } else {  // Interrupt-based driver. Fills recv queue itself
     char *buf;
     size_t len = mg_queue_next(&ifp->recv_queue, &buf);
@@ -4804,12 +5323,6 @@ void mg_tcpip_free(struct mg_tcpip_if *ifp) {
   free((char *) ifp->tx.ptr);
 }
 
-int mg_mkpipe(struct mg_mgr *m, mg_event_handler_t fn, void *d, bool udp) {
-  (void) m, (void) fn, (void) d, (void) udp;
-  MG_ERROR(("Not implemented"));
-  return -1;
-}
-
 static void send_syn(struct mg_connection *c) {
   struct connstate *s = (struct connstate *) (c + 1);
   uint32_t isn = mg_htonl((uint32_t) mg_ntohs(c->loc.port));
@@ -4831,16 +5344,16 @@ void mg_connect_resolved(struct mg_connection *c) {
   MG_DEBUG(("%lu %M -> %M", c->id, mg_print_ip_port, &c->loc, mg_print_ip_port,
             &c->rem));
   mg_call(c, MG_EV_RESOLVE, NULL);
-  if (((rem_ip & ifp->mask) == (ifp->ip & ifp->mask))) {
+  if (c->is_udp && (rem_ip == 0xffffffff || rem_ip == (ifp->ip | ~ifp->mask))) {
+    struct connstate *s = (struct connstate *) (c + 1);
+    memset(s->mac, 0xFF, sizeof(s->mac));  // global or local broadcast
+  } else if (((rem_ip & ifp->mask) == (ifp->ip & ifp->mask))) {
     // If we're in the same LAN, fire an ARP lookup.
     MG_DEBUG(("%lu ARP lookup...", c->id));
     arp_ask(ifp, rem_ip);
     settmout(c, MIP_TTYPE_ARP);
     c->is_arplooking = 1;
     c->is_connecting = 1;
-  } else if (rem_ip == (ifp->ip | ~ifp->mask)) {
-    struct connstate *s = (struct connstate *) (c + 1);
-    memset(s->mac, 0xFF, sizeof(s->mac));  // local broadcast
   } else if ((*((uint8_t *) &rem_ip) & 0xE0) == 0xE0) {
     struct connstate *s = (struct connstate *) (c + 1);  // 224 to 239, E0 to EF
     uint8_t mcastp[3] = {0x01, 0x00, 0x5E};              // multicast group
@@ -4989,7 +5502,7 @@ size_t mg_ota_size(int fw) {
 
 
 
-// This OTA implementation uses the internal flash API outlined in sys.h
+// This OTA implementation uses the internal flash API outlined in device.h
 // It splits flash into 2 equal partitions, and stores OTA status in the
 // last sector of the partition.
 
@@ -5852,6 +6365,7 @@ static socklen_t tousa(struct mg_addr *a, union usa *usa) {
   if (a->is_ip6) {
     usa->sin.sin_family = AF_INET6;
     usa->sin6.sin6_port = a->port;
+    usa->sin6.sin6_scope_id = a->scope_id;
     memcpy(&usa->sin6.sin6_addr, a->ip, sizeof(a->ip));
     len = sizeof(usa->sin6);
   }
@@ -5867,6 +6381,7 @@ static void tomgaddr(union usa *usa, struct mg_addr *a, bool is_ip6) {
   if (is_ip6) {
     memcpy(a->ip, &usa->sin6.sin6_addr, sizeof(a->ip));
     a->port = usa->sin6.sin6_port;
+    a->scope_id = (uint8_t) usa->sin6.sin6_scope_id;
   }
 #endif
 }
@@ -6171,7 +6686,7 @@ static void accept_conn(struct mg_mgr *mgr, struct mg_connection *lsn) {
   socklen_t sa_len = sizeof(usa);
   MG_SOCKET_TYPE fd = raccept(FD(lsn), &usa, &sa_len);
   if (fd == MG_INVALID_SOCKET) {
-#if MG_ARCH == MG_ARCH_AZURERTOS
+#if MG_ARCH == MG_ARCH_AZURERTOS || defined(__ECOS)
     // AzureRTOS, in non-block socket mode can mark listening socket readable
     // even it is not. See comment for 'select' func implementation in
     // nx_bsd.c That's not an error, just should try later
@@ -6692,505 +7207,6 @@ bool mg_path_is_sane(const char *path) {
   }
   return true;
 }
-
-#ifdef MG_ENABLE_LINES
-#line 1 "src/sys_dummy.c"
-#endif
-
-
-#if MG_SYS == MG_SYS_NONE
-void *mg_flash_start(void) {
-  return NULL;
-}
-size_t mg_flash_size(void) {
-  return 0;
-}
-size_t mg_flash_sector_size(void) {
-  return 0;
-}
-size_t mg_flash_write_align(void) {
-  return 0;
-}
-int mg_flash_bank(void) {
-  return 0;
-}
-bool mg_flash_erase(void *location) {
-  (void) location;
-  return false;
-}
-bool mg_flash_swap_bank(void) {
-  return true;
-}
-bool mg_flash_write(void *addr, const void *buf, size_t len) {
-  (void) addr, (void) buf, (void) len;
-  return false;
-}
-void mg_sys_reset(void) {
-}
-#endif
-
-#ifdef MG_ENABLE_LINES
-#line 1 "src/sys_flash.c"
-#endif
-
-
-#if MG_SYS == MG_SYS_STM32H7 || MG_SYS == MG_SYS_STM32H5
-// Flash can be written only if it is erased. Erased flash is 0xff (all bits 1)
-// Writes must be mg_flash_write_align() - aligned. Thus if we want to save an
-// object, we pad it at the end for alignment.
-//
-// Objects in the flash sector are stored sequentially:
-// | 32-bit size | 32-bit KEY | ..data.. | ..pad.. | 32-bit size | ......
-//
-// In order to get to the next object, read its size, then align up.
-
-// Traverse the list of saved objects
-size_t mg_flash_next(char *p, char *end, uint32_t *key, size_t *size) {
-  size_t aligned_size = 0, align = mg_flash_write_align(), left = end - p;
-  uint32_t *p32 = (uint32_t *) p, min_size = sizeof(uint32_t) * 2;
-  if (p32[0] != 0xffffffff && left > MG_ROUND_UP(min_size, align)) {
-    if (size) *size = (size_t) p32[0];
-    if (key) *key = p32[1];
-    aligned_size = MG_ROUND_UP(p32[0] + sizeof(uint32_t) * 2, align);
-    if (left < aligned_size) aligned_size = 0;  // Out of bounds, fail
-  }
-  return aligned_size;
-}
-
-// Return the last sector of Bank 2
-static char *flash_last_sector(void) {
-  size_t ss = mg_flash_sector_size(), size = mg_flash_size();
-  char *base = (char *) mg_flash_start(), *last = base + size - ss;
-  if (mg_flash_bank() == 2) last -= size / 2;
-  return last;
-}
-
-// Find a saved object with a given key
-bool mg_flash_load(void *sector, uint32_t key, void *buf, size_t len) {
-  char *base = (char *) mg_flash_start(), *s = (char *) sector, *res = NULL;
-  size_t ss = mg_flash_sector_size(), ofs = 0, n, sz;
-  bool ok = false;
-  if (s == NULL) s = flash_last_sector();
-  if (s < base || s >= base + mg_flash_size()) {
-    MG_ERROR(("%p is outsize of flash", sector));
-  } else if (((s - base) % ss) != 0) {
-    MG_ERROR(("%p is not a sector boundary", sector));
-  } else {
-    uint32_t k, scanned = 0;
-    while ((n = mg_flash_next(s + ofs, s + ss, &k, &sz)) > 0) {
-      // MG_DEBUG((" > obj %lu, ofs %lu, key %x/%x", scanned, ofs, k, key));
-      // mg_hexdump(s + ofs, n);
-      if (k == key && sz == len) {
-        res = s + ofs + sizeof(uint32_t) * 2;
-        memcpy(buf, res, len);  // Copy object
-        ok = true;              // Keep scanning for the newer versions of it
-      }
-      ofs += n, scanned++;
-    }
-    MG_DEBUG(("Scanned %u objects, key %x is @ %p", scanned, key, res));
-  }
-  return ok;
-}
-
-static bool mg_flash_writev(char *location, struct mg_str *strings, size_t n) {
-  size_t align = mg_flash_write_align(), i, j, k = 0, nwritten = 0;
-  char buf[align];
-  bool ok = true;
-  for (i = 0; ok && i < n; i++) {
-    for (j = 0; ok && j < strings[i].len; j++) {
-      buf[k++] = strings[i].ptr[j];
-      if (k >= sizeof(buf)) {
-        ok = mg_flash_write(location + nwritten, buf, sizeof(buf));
-        k = 0, nwritten += sizeof(buf);
-      }
-    }
-  }
-  if (k > 0) {
-    while (k < sizeof(buf)) buf[k++] = 0xff;
-    ok = mg_flash_write(location + nwritten, buf, sizeof(buf));
-  }
-  return ok;
-}
-
-// For all saved objects in the sector, delete old versions of objects
-static void mg_flash_sector_cleanup(char *sector) {
-  // Buffer all saved objects into an IO buffer (backed by RAM)
-  // erase sector, and re-save them.
-  struct mg_iobuf io = {0, 0, 0, 2048};
-  size_t ss = mg_flash_sector_size();
-  size_t n, size, size2, ofs = 0, hs = sizeof(uint32_t) * 2;
-  uint32_t key;
-  // Traverse all objects
-  MG_DEBUG(("Cleaning up sector %p", sector));
-  while ((n = mg_flash_next(sector + ofs, sector + ss, &key, &size)) > 0) {
-    // Delete an old copy of this object in the cache
-    for (size_t o = 0; o < io.len; o += size2 + hs) { 
-      uint32_t k = *(uint32_t *) (io.buf + o + sizeof(uint32_t));
-      size2 = *(uint32_t *) (io.buf + o);
-      if (k == key) {
-        mg_iobuf_del(&io, o, size2 + hs);
-        break;
-      }
-    }
-    // And add the new copy
-    mg_iobuf_add(&io, io.len, sector + ofs, size + hs);  
-    ofs += n;
-  }
-  // All objects are cached in RAM now
-  if (mg_flash_erase(sector)) {  // Erase sector. If successful,
-    for (ofs = 0; ofs < io.len; ofs += size + hs) {  // Traverse cached objects
-      size = *(uint32_t *) (io.buf + ofs);
-      key = *(uint32_t *) (io.buf + ofs + sizeof(uint32_t));
-      mg_flash_save(sector, key, io.buf + ofs + hs, size);  // Save to flash
-    }
-  }
-  mg_iobuf_free(&io);
-}
-
-// Save an object with a given key - append to the end of an object list
-bool mg_flash_save(void *sector, uint32_t key, const void *buf, size_t len) {
-  char *base = (char *) mg_flash_start(), *s = (char *) sector;
-  size_t ss = mg_flash_sector_size(), ofs = 0, n;
-  bool ok = false;
-  if (s == NULL) s = flash_last_sector();
-  if (s < base || s >= base + mg_flash_size()) {
-    MG_ERROR(("%p is outsize of flash", sector));
-  } else if (((s - base) % ss) != 0) {
-    MG_ERROR(("%p is not a sector boundary", sector));
-  } else {
-    size_t needed = sizeof(uint32_t) * 2 + len;
-    size_t needed_aligned = MG_ROUND_UP(needed, mg_flash_write_align());
-    while ((n = mg_flash_next(s + ofs, s + ss, NULL, NULL)) > 0) ofs += n;
-
-    // If there is not enough space left, cleanup sector and re-eval ofs
-    if (ofs + needed_aligned > ss) {
-      mg_flash_sector_cleanup(s);
-      ofs = 0;
-      while ((n = mg_flash_next(s + ofs, s + ss, NULL, NULL)) > 0) ofs += n;
-    }
-
-    if (ofs + needed_aligned <= ss) {
-      // Enough space to save this object
-      uint32_t hdr[2] = {(uint32_t) len, key};
-      struct mg_str data[] = {mg_str_n((char *) hdr, sizeof(hdr)),
-                              mg_str_n(buf, len)};
-      ok = mg_flash_writev(s + ofs, data, 2);
-      MG_DEBUG(("Saving %lu bytes @ %p, key %x: %d", len, s + ofs, key, ok));
-      MG_DEBUG(("Sector space left: %lu bytes", ss - ofs - needed_aligned));
-    } else {
-      MG_ERROR(("Sector is full"));
-    }
-  }
-  return ok;
-}
-#else
-bool mg_flash_save(void *sector, uint32_t key, const void *buf, size_t len) {
-  (void) sector, (void) key, (void) buf, (void) len;
-  return false;
-}
-bool mg_flash_load(void *sector, uint32_t key, void *buf, size_t len) {
-  (void) sector, (void) key, (void) buf, (void) len;
-  return false;
-}
-#endif
-
-#ifdef MG_ENABLE_LINES
-#line 1 "src/sys_stm32h5.c"
-#endif
-
-
-
-#if MG_SYS == MG_SYS_STM32H5
-
-#define FLASH_BASE 0x40022000          // Base address of the flash controller
-#define FLASH_KEYR (FLASH_BASE + 0x4)  // See RM0481 7.11
-#define FLASH_OPTKEYR (FLASH_BASE + 0xc)
-#define FLASH_OPTCR (FLASH_BASE + 0x1c)
-#define FLASH_NSSR (FLASH_BASE + 0x20)
-#define FLASH_NSCR (FLASH_BASE + 0x28)
-#define FLASH_NSCCR (FLASH_BASE + 0x30)
-#define FLASH_OPTSR_CUR (FLASH_BASE + 0x50)
-#define FLASH_OPTSR_PRG (FLASH_BASE + 0x54)
-
-void *mg_flash_start(void) {
-  return (void *) 0x08000000;
-}
-size_t mg_flash_size(void) {
-  return 2 * 1024 * 1024;  // 2Mb
-}
-size_t mg_flash_sector_size(void) {
-  return 8 * 1024;  // 8k
-}
-size_t mg_flash_write_align(void) {
-  return 16;  // 128 bit
-}
-int mg_flash_bank(void) {
-  return MG_REG(FLASH_OPTCR) & MG_BIT(31) ? 2 : 1;
-}
-
-static void flash_unlock(void) {
-  static bool unlocked = false;
-  if (unlocked == false) {
-    MG_REG(FLASH_KEYR) = 0x45670123;
-    MG_REG(FLASH_KEYR) = 0Xcdef89ab;
-    MG_REG(FLASH_OPTKEYR) = 0x08192a3b;
-    MG_REG(FLASH_OPTKEYR) = 0x4c5d6e7f;
-    unlocked = true;
-  }
-}
-
-static int flash_page_start(volatile uint32_t *dst) {
-  char *base = (char *) mg_flash_start(), *end = base + mg_flash_size();
-  volatile char *p = (char *) dst;
-  return p >= base && p < end && ((p - base) % mg_flash_sector_size()) == 0;
-}
-
-static bool flash_is_err(void) {
-  return MG_REG(FLASH_NSSR) & ((MG_BIT(8) - 1) << 17);  // RM0481 7.11.9
-}
-
-static void flash_wait(void) {
-  while ((MG_REG(FLASH_NSSR) & MG_BIT(0)) &&
-         (MG_REG(FLASH_NSSR) & MG_BIT(16)) == 0) {
-    (void) 0;
-  }
-}
-
-static void flash_clear_err(void) {
-  flash_wait();                                    // Wait until ready
-  MG_REG(FLASH_NSCCR) = ((MG_BIT(9) - 1) << 16U);  // Clear all errors
-}
-
-static bool flash_bank_is_swapped(void) {
-  return MG_REG(FLASH_OPTCR) & MG_BIT(31);  // RM0481 7.11.8
-}
-
-bool mg_flash_erase(void *location) {
-  bool ok = false;
-  if (flash_page_start(location) == false) {
-    MG_ERROR(("%p is not on a sector boundary"));
-  } else {
-    uintptr_t diff = (char *) location - (char *) mg_flash_start();
-    uint32_t sector = diff / mg_flash_sector_size();
-    flash_unlock();
-    flash_clear_err();
-    MG_REG(FLASH_NSCR) = 0;
-    if ((sector < 128 && flash_bank_is_swapped()) ||
-        (sector > 127 && !flash_bank_is_swapped())) {
-      MG_REG(FLASH_NSCR) |= MG_BIT(31);  // Set FLASH_CR_BKSEL
-    }
-    if (sector > 127) sector -= 128;
-    MG_REG(FLASH_NSCR) |= MG_BIT(2) | (sector << 6);  // Erase | sector_num
-    MG_REG(FLASH_NSCR) |= MG_BIT(5);                  // Start erasing
-    flash_wait();
-    ok = !flash_is_err();
-    MG_DEBUG(("Erase sector %lu @ %p: %s. CR %#lx SR %#lx", sector, location,
-              ok ? "ok" : "fail", MG_REG(FLASH_NSCR), MG_REG(FLASH_NSSR)));
-    // mg_hexdump(location, 32);
-  }
-  return ok;
-}
-
-bool mg_flash_swap_bank(void) {
-  uint32_t desired = flash_bank_is_swapped() ? 0 : MG_BIT(31);
-  flash_unlock();
-  flash_clear_err();
-  // printf("OPTSR_PRG 1 %#lx\n", FLASH->OPTSR_PRG);
-  MG_SET_BITS(MG_REG(FLASH_OPTSR_PRG), MG_BIT(31), desired);
-  // printf("OPTSR_PRG 2 %#lx\n", FLASH->OPTSR_PRG);
-  MG_REG(FLASH_OPTCR) |= MG_BIT(1);  // OPTSTART
-  while ((MG_REG(FLASH_OPTSR_CUR) & MG_BIT(31)) != desired) (void) 0;
-  return true;
-}
-
-bool mg_flash_write(void *addr, const void *buf, size_t len) {
-  if ((len % mg_flash_write_align()) != 0) {
-    MG_ERROR(("%lu is not aligned to %lu", len, mg_flash_write_align()));
-    return false;
-  }
-  uint32_t *dst = (uint32_t *) addr;
-  uint32_t *src = (uint32_t *) buf;
-  uint32_t *end = (uint32_t *) ((char *) buf + len);
-  bool ok = true;
-  flash_unlock();
-  flash_clear_err();
-  MG_ARM_DISABLE_IRQ();
-  // MG_DEBUG(("Starting flash write %lu bytes @ %p", len, addr));
-  while (ok && src < end) {
-    if (flash_page_start(dst) && mg_flash_erase(dst) == false) break;
-    MG_REG(FLASH_NSCR) = MG_BIT(1);  // Set programming flag
-    *(volatile uint32_t *) dst++ = *src++;
-    flash_wait();
-    if (flash_is_err()) ok = false;
-  }
-  MG_DEBUG(("Flash write %lu bytes @ %p: %s. CR %#lx SR %#lx", len, dst,
-            flash_is_err() ? "fail" : "ok", MG_REG(FLASH_NSCR),
-            MG_REG(FLASH_NSSR)));
-  if (flash_is_err()) ok = false;
-  // mg_hexdump(addr, len > 32 ? 32 : len);
-  //  MG_REG(FLASH_NSCR) &= ~MG_BIT(1);  // Set programming flag
-  MG_REG(FLASH_NSCR) = 0;  // Clear flags
-  MG_ARM_ENABLE_IRQ();
-  return ok;
-}
-
-void mg_sys_reset(void) {
-  // SCB->AIRCR = ((0x5fa << SCB_AIRCR_VECTKEY_Pos)|SCB_AIRCR_SYSRESETREQ_Msk);
-  *(volatile unsigned long *) 0xe000ed0c = 0x5fa0004;
-}
-#endif
-
-#ifdef MG_ENABLE_LINES
-#line 1 "src/sys_stm32h7.c"
-#endif
-
-
-
-#if MG_SYS == MG_SYS_STM32H7
-
-#define FLASH_BASE1 0x52002000  // Base address for bank1
-#define FLASH_BASE2 0x52002100  // Base address for bank2
-#define FLASH_KEYR 0x04         // See RM0433 4.9.2
-#define FLASH_OPTKEYR 0x08
-#define FLASH_OPTCR 0x18
-#define FLASH_SR 0x10
-#define FLASH_CR 0x0c
-#define FLASH_CCR 0x14
-#define FLASH_OPTSR_CUR 0x1c
-#define FLASH_OPTSR_PRG 0x20
-
-void *mg_flash_start(void) {
-  return (void *) 0x08000000;
-}
-size_t mg_flash_size(void) {
-  return 2 * 1024 * 1024;  // 2Mb
-}
-size_t mg_flash_sector_size(void) {
-  return 128 * 1024;  // 128k
-}
-size_t mg_flash_write_align(void) {
-  return 32;  // 256 bit
-}
-int mg_flash_bank(void) {
-  return MG_REG(FLASH_BASE1 + FLASH_OPTCR) & MG_BIT(31) ? 2 : 1;
-}
-
-static void flash_unlock(void) {
-  static bool unlocked = false;
-  if (unlocked == false) {
-    MG_REG(FLASH_BASE1 + FLASH_KEYR) = 0x45670123;
-    MG_REG(FLASH_BASE1 + FLASH_KEYR) = 0xcdef89ab;
-    MG_REG(FLASH_BASE2 + FLASH_KEYR) = 0x45670123;
-    MG_REG(FLASH_BASE2 + FLASH_KEYR) = 0xcdef89ab;
-    MG_REG(FLASH_BASE1 + FLASH_OPTKEYR) = 0x08192a3b;  // opt reg is "shared"
-    MG_REG(FLASH_BASE1 + FLASH_OPTKEYR) = 0x4c5d6e7f;  // thus unlock once
-    unlocked = true;
-  }
-}
-
-static bool flash_page_start(volatile uint32_t *dst) {
-  char *base = (char *) mg_flash_start(), *end = base + mg_flash_size();
-  volatile char *p = (char *) dst;
-  return p >= base && p < end && ((p - base) % mg_flash_sector_size()) == 0;
-}
-
-static bool flash_is_err(uint32_t bank) {
-  return MG_REG(bank + FLASH_SR) & ((MG_BIT(11) - 1) << 17);  // RM0433 4.9.5
-}
-
-static void flash_wait(uint32_t bank) {
-  while (MG_REG(bank + FLASH_SR) & (MG_BIT(0) | MG_BIT(2))) (void) 0;
-}
-
-static void flash_clear_err(uint32_t bank) {
-  flash_wait(bank);                                      // Wait until ready
-  MG_REG(bank + FLASH_CCR) = ((MG_BIT(11) - 1) << 16U);  // Clear all errors
-}
-
-static bool flash_bank_is_swapped(uint32_t bank) {
-  return MG_REG(bank + FLASH_OPTCR) & MG_BIT(31);  // RM0433 4.9.7
-}
-
-// Figure out flash bank based on the address
-static uint32_t flash_bank(void *addr) {
-  size_t ofs = (char *) addr - (char *) mg_flash_start();
-  return ofs < mg_flash_size() / 2 ? FLASH_BASE1 : FLASH_BASE2;
-}
-
-bool mg_flash_erase(void *addr) {
-  bool ok = false;
-  if (flash_page_start(addr) == false) {
-    MG_ERROR(("%p is not on a sector boundary", addr));
-  } else {
-    uintptr_t diff = (char *) addr - (char *) mg_flash_start();
-    uint32_t sector = diff / mg_flash_sector_size();
-    uint32_t bank = flash_bank(addr);
-
-    flash_unlock();
-    if (sector > 7) sector -= 8;
-    // MG_INFO(("Erasing @ %p, sector %lu, bank %#x", addr, sector, bank));
-
-    flash_clear_err(bank);
-    MG_REG(bank + FLASH_CR) |= (sector & 7U) << 8U;  // Sector to erase
-    MG_REG(bank + FLASH_CR) |= MG_BIT(2);            // Sector erase bit
-    MG_REG(bank + FLASH_CR) |= MG_BIT(7);            // Start erasing
-    ok = !flash_is_err(bank);
-    MG_DEBUG(("Erase sector %lu @ %p %s. CR %#lx SR %#lx", sector, addr,
-              ok ? "ok" : "fail", MG_REG(bank + FLASH_CR),
-              MG_REG(bank + FLASH_SR)));
-    // mg_hexdump(addr, 32);
-  }
-  return ok;
-}
-
-bool mg_flash_swap_bank() {
-  uint32_t bank = FLASH_BASE1;
-  uint32_t desired = flash_bank_is_swapped(bank) ? 0 : MG_BIT(31);
-  flash_unlock();
-  flash_clear_err(bank);
-  // printf("OPTSR_PRG 1 %#lx\n", FLASH->OPTSR_PRG);
-  MG_SET_BITS(MG_REG(bank + FLASH_OPTSR_PRG), MG_BIT(31), desired);
-  // printf("OPTSR_PRG 2 %#lx\n", FLASH->OPTSR_PRG);
-  MG_REG(bank + FLASH_OPTCR) |= MG_BIT(1);  // OPTSTART
-  while ((MG_REG(bank + FLASH_OPTSR_CUR) & MG_BIT(31)) != desired) (void) 0;
-  return true;
-}
-
-bool mg_flash_write(void *addr, const void *buf, size_t len) {
-  if ((len % mg_flash_write_align()) != 0) {
-    MG_ERROR(("%lu is not aligned to %lu", len, mg_flash_write_align()));
-    return false;
-  }
-  uint32_t bank = flash_bank(addr);
-  uint32_t *dst = (uint32_t *) addr;
-  uint32_t *src = (uint32_t *) buf;
-  uint32_t *end = (uint32_t *) ((char *) buf + len);
-  bool ok = true;
-  flash_unlock();
-  flash_clear_err(bank);
-  MG_ARM_DISABLE_IRQ();
-  MG_REG(bank + FLASH_CR) = MG_BIT(1);  // Set programming flag
-  // MG_INFO(("Writing flash @ %p, %lu bytes", addr, len));
-  while (ok && src < end) {
-    if (flash_page_start(dst) && mg_flash_erase(dst) == false) break;
-    *(volatile uint32_t *) dst++ = *src++;
-    flash_wait(bank);
-    if (flash_is_err(bank)) ok = false;
-  }
-  MG_DEBUG(("Flash write %lu bytes @ %p: %s. CR %#lx SR %#lx", len, dst,
-            ok ? "ok" : "fail", MG_REG(bank + FLASH_CR),
-            MG_REG(bank + FLASH_SR)));
-  // mg_hexdump(addr, len > 32 ? 32 : len);
-  MG_REG(bank + FLASH_CR) &= ~MG_BIT(1);  // Clear programming flag
-  MG_ARM_ENABLE_IRQ();
-  return ok;
-}
-
-void mg_sys_reset(void) {
-  // SCB->AIRCR = ((0x5fa << SCB_AIRCR_VECTKEY_Pos)|SCB_AIRCR_SYSRESETREQ_Msk);
-  *(volatile unsigned long *) 0xe000ed0c = 0x5fa0004;
-}
-#endif
 
 #ifdef MG_ENABLE_LINES
 #line 1 "src/timer.c"
@@ -8422,16 +8438,30 @@ size_t mg_ws_wrap(struct mg_connection *c, size_t len, int op) {
 #endif
 
 
-/*
- * Todo
- * This driver doesn't support 10M line autoconfiguration yet.
- * Packets aren't sent if the link negociated 10M line.
- * todo: MAC back auto reconfiguration.
- */
-
-#if MG_ENABLE_TCPIP && defined(MG_ENABLE_DRIVER_IMXRT1020)
+#if MG_ENABLE_TCPIP && defined(MG_ENABLE_DRIVER_IMXRT1020) && \
+    MG_ENABLE_DRIVER_IMXRT1020
 struct imx_rt1020_enet {
-volatile uint32_t RESERVED0, EIR, EIMR, RESERVED1, RDAR, TDAR, RESERVED2[3], ECR, RESERVED3[6], MMFR, MSCR, RESERVED4[7], MIBC, RESERVED5[7], RCR, RESERVED6[15], TCR, RESERVED7[7], PALR, PAUR, OPD, TXIC0, TXIC1, TXIC2, RESERVED8, RXIC0, RXIC1, RXIC2, RESERVED9[3], IAUR, IALR, GAUR, GALR, RESERVED10[7], TFWR, RESERVED11[14], RDSR, TDSR, MRBR[2], RSFL, RSEM, RAEM, RAFL, TSEM, TAEM, TAFL, TIPG, FTRL, RESERVED12[3], TACC, RACC, RESERVED13[15], RMON_T_PACKETS, RMON_T_BC_PKT, RMON_T_MC_PKT, RMON_T_CRC_ALIGN, RMON_T_UNDERSIZE, RMON_T_OVERSIZE, RMON_T_FRAG, RMON_T_JAB, RMON_T_COL, RMON_T_P64, RMON_T_P65TO127, RMON_T_P128TO255, RMON_T_P256TO511, RMON_T_P512TO1023, RMON_T_P1024TO2048, RMON_T_GTE2048, RMON_T_OCTETS, IEEE_T_DROP, IEEE_T_FRAME_OK, IEEE_T_1COL, IEEE_T_MCOL, IEEE_T_DEF, IEEE_T_LCOL, IEEE_T_EXCOL, IEEE_T_MACERR, IEEE_T_CSERR, IEEE_T_SQE, IEEE_T_FDXFC, IEEE_T_OCTETS_OK, RESERVED14[3], RMON_R_PACKETS, RMON_R_BC_PKT, RMON_R_MC_PKT, RMON_R_CRC_ALIGN, RMON_R_UNDERSIZE, RMON_R_OVERSIZE, RMON_R_FRAG, RMON_R_JAB, RESERVED15, RMON_R_P64, RMON_R_P65TO127, RMON_R_P128TO255, RMON_R_P256TO511, RMON_R_P512TO1023, RMON_R_P1024TO2047, RMON_R_GTE2048, RMON_R_OCTETS, IEEE_R_DROP, IEEE_R_FRAME_OK, IEEE_R_CRC, IEEE_R_ALIGN, IEEE_R_MACERR, IEEE_R_FDXFC, IEEE_R_OCTETS_OK, RESERVED16[71], ATCR, ATVR, ATOFF, ATPER, ATCOR, ATINC, ATSTMP, RESERVED17[122], TGSR, TCSR0, TCCR0, TCSR1, TCCR1, TCSR2, TCCR2, TCSR3;
+  volatile uint32_t RESERVED0, EIR, EIMR, RESERVED1, RDAR, TDAR, RESERVED2[3],
+      ECR, RESERVED3[6], MMFR, MSCR, RESERVED4[7], MIBC, RESERVED5[7], RCR,
+      RESERVED6[15], TCR, RESERVED7[7], PALR, PAUR, OPD, TXIC0, TXIC1, TXIC2,
+      RESERVED8, RXIC0, RXIC1, RXIC2, RESERVED9[3], IAUR, IALR, GAUR, GALR,
+      RESERVED10[7], TFWR, RESERVED11[14], RDSR, TDSR, MRBR[2], RSFL, RSEM,
+      RAEM, RAFL, TSEM, TAEM, TAFL, TIPG, FTRL, RESERVED12[3], TACC, RACC,
+      RESERVED13[15], RMON_T_PACKETS, RMON_T_BC_PKT, RMON_T_MC_PKT,
+      RMON_T_CRC_ALIGN, RMON_T_UNDERSIZE, RMON_T_OVERSIZE, RMON_T_FRAG,
+      RMON_T_JAB, RMON_T_COL, RMON_T_P64, RMON_T_P65TO127, RMON_T_P128TO255,
+      RMON_T_P256TO511, RMON_T_P512TO1023, RMON_T_P1024TO2048, RMON_T_GTE2048,
+      RMON_T_OCTETS, IEEE_T_DROP, IEEE_T_FRAME_OK, IEEE_T_1COL, IEEE_T_MCOL,
+      IEEE_T_DEF, IEEE_T_LCOL, IEEE_T_EXCOL, IEEE_T_MACERR, IEEE_T_CSERR,
+      IEEE_T_SQE, IEEE_T_FDXFC, IEEE_T_OCTETS_OK, RESERVED14[3], RMON_R_PACKETS,
+      RMON_R_BC_PKT, RMON_R_MC_PKT, RMON_R_CRC_ALIGN, RMON_R_UNDERSIZE,
+      RMON_R_OVERSIZE, RMON_R_FRAG, RMON_R_JAB, RESERVED15, RMON_R_P64,
+      RMON_R_P65TO127, RMON_R_P128TO255, RMON_R_P256TO511, RMON_R_P512TO1023,
+      RMON_R_P1024TO2047, RMON_R_GTE2048, RMON_R_OCTETS, IEEE_R_DROP,
+      IEEE_R_FRAME_OK, IEEE_R_CRC, IEEE_R_ALIGN, IEEE_R_MACERR, IEEE_R_FDXFC,
+      IEEE_R_OCTETS_OK, RESERVED16[71], ATCR, ATVR, ATOFF, ATPER, ATCOR, ATINC,
+      ATSTMP, RESERVED17[122], TGSR, TCSR0, TCCR0, TCSR1, TCCR1, TCSR2, TCCR2,
+      TCSR3;
 };
 
 #undef ENET
@@ -8440,248 +8470,159 @@ volatile uint32_t RESERVED0, EIR, EIMR, RESERVED1, RDAR, TDAR, RESERVED2[3], ECR
 #undef BIT
 #define BIT(x) ((uint32_t) 1 << (x))
 
-#define ENET_RXBUFF_SIZE 1536 // 1522 Buffer must be 64bits aligned
-#define ENET_TXBUFF_SIZE 1536 // 1522 hence set to 0x600 (1536)
-#define ENET_RXBD_NUM          (4)
-#define ENET_TXBD_NUM          (4)
+// Max frame size, every buffer must be 64-bit aligned (1536 = 0x600)
+#define ETH_PKT_SIZE 1536
+#define ETH_DESC_CNT 4  // Descriptors count
 
-const uint32_t EIMR_RX_ERR = 0x2400000;              // Intr mask RXF+EBERR
+typedef struct {
+  uint16_t length;   // Data length
+  uint16_t control;  // Control and status
+  uint32_t *buffer;  // Data ptr
+} enet_bd_t;
 
-void ETH_IRQHandler(void);
-static bool mg_tcpip_driver_imxrt1020_init(struct mg_tcpip_if *ifp);
-static void wait_phy_complete(void);
-static struct mg_tcpip_if *s_ifp;                         // MIP interface
+// TODO(): handle these in a portable compiler-independent CMSIS-friendly way
+// Descriptors: in non-cached area (TODO(scaprile)), 64-bit aligned
+enet_bd_t s_rxdesc[ETH_DESC_CNT] __attribute__((aligned((64U))));
+enet_bd_t s_txdesc[ETH_DESC_CNT] __attribute__((aligned((64U))));
+// Buffers: 64-bit aligned
+uint8_t s_rxbuf[ETH_DESC_CNT][ETH_PKT_SIZE] __attribute__((aligned((64U))));
+uint8_t s_txbuf[ETH_DESC_CNT][ETH_PKT_SIZE] __attribute__((aligned((64U))));
 
-static size_t mg_tcpip_driver_imxrt1020_tx(const void *, size_t , struct mg_tcpip_if *);
-static bool mg_tcpip_driver_imxrt1020_up(struct mg_tcpip_if *ifp);
+static struct mg_tcpip_if *s_ifp;  // MIP interface
 
-enum { IMXRT1020_PHY_ADDR = 0x02, IMXRT1020_PHY_BCR = 0, IMXRT1020_PHY_BSR = 1 };     // PHY constants
+enum { PHY_ADDR = 2, PHY_BCR = 0, PHY_BSR = 1, PHY_PC1R = 30, PHY_PC2R = 31 };
 
-void delay(uint32_t);
-void delay (uint32_t di) {
-  volatile int dno = 0; // Prevent optimization
-  for (uint32_t i = 0; i < di; i++)
-    for (int j=0; j<20; j++) // PLLx20 (500 MHz/24MHz)
-      dno++;
+static uint32_t eth_read_phy(uint8_t addr, uint8_t reg) {
+  ENET->EIR |= BIT(23);  // MII interrupt clear
+  ENET->MMFR = (1 << 30) | (2 << 28) | (addr << 23) | (reg << 18) | (2 << 16);
+  while ((ENET->EIR & BIT(23)) == 0) (void) 0;
+  return ENET->MMFR & 0xffff;
 }
 
-static void wait_phy_complete(void) {
-  delay(0x00010000);
-  const uint32_t delay_max = 0x00100000;
-  uint32_t delay_cnt = 0;
-  while (!(ENET->EIR & BIT(23)) && (delay_cnt < delay_max))
-  {delay_cnt++;}
-  ENET->EIR |= BIT(23); // MII interrupt clear
+static void eth_write_phy(uint8_t addr, uint8_t reg, uint32_t val) {
+  ENET->EIR |= BIT(23);  // MII interrupt clear
+  ENET->MMFR =
+      (1 << 30) | (1 << 28) | (addr << 23) | (reg << 18) | (2 << 16) | val;
+  while ((ENET->EIR & BIT(23)) == 0) (void) 0;
 }
 
-static uint32_t imxrt1020_eth_read_phy(uint8_t addr, uint8_t reg) {
-  ENET->EIR |= BIT(23); // MII interrupt clear
-  uint32_t mask_phy_adr_reg = 0x1f; // 0b00011111: Ensure we write 5 bits (Phy address & register)
-  uint32_t phy_transaction = 0x00;
-  phy_transaction = (0x1 << 30) \
-                  | (0x2 << 28) \
-                  | ((uint32_t)(addr & mask_phy_adr_reg) << 23) \
-                  | ((uint32_t)(reg & mask_phy_adr_reg)  << 18) \
-                  | (0x2 << 16);
-
-  ENET->MMFR = phy_transaction;
-  wait_phy_complete();
-
-  return (ENET->MMFR & 0x0000ffff);
-}
-
-static void imxrt1020_eth_write_phy(uint8_t addr, uint8_t reg, uint32_t val) {
-  ENET->EIR |= BIT(23); // MII interrupt clear
-  uint8_t mask_phy_adr_reg = 0x1f; // 0b00011111: Ensure we write 5 bits (Phy address & register)
-  uint32_t mask_phy_data = 0x0000ffff; // Ensure we write 16 bits (data)
-  addr &= mask_phy_adr_reg;
-  reg &= mask_phy_adr_reg;
-  val &= mask_phy_data;
-  uint32_t phy_transaction = 0x00;
-  phy_transaction = (uint32_t)(0x1 << 30) \
-                  | (uint32_t)(0x1 << 28) \
-                  | (uint32_t)(addr << 23) \
-                  | (uint32_t)(reg  << 18) \
-                  | (uint32_t)(0x2 << 16) \
-                  | (uint32_t)(val);
-  ENET->MMFR = phy_transaction;
-  wait_phy_complete();
-}
-
-// FEC RX/TX descriptors (Enhanced descriptor not enabled)
-// Descriptor buffer structure, little endian
-
-typedef struct enet_bd_struct_def
-{
-    uint16_t length;  // Data length
-    uint16_t control; // Control and status
-    uint32_t *buffer; // Data ptr
-} enet_bd_struct_t;
-
-// Descriptor and buffer globals, in non-cached area, 64 bits aligned.
-
-__attribute__((section("NonCacheable,\"aw\",%nobits @"))) enet_bd_struct_t rx_buffer_descriptor[(ENET_RXBD_NUM)] __attribute__((aligned((64U))));
-__attribute__((section("NonCacheable,\"aw\",%nobits @"))) enet_bd_struct_t tx_buffer_descriptor[(ENET_TXBD_NUM)] __attribute__((aligned((64U))));
-
-uint8_t rx_data_buffer[(ENET_RXBD_NUM)][((unsigned int)(((ENET_RXBUFF_SIZE)) + (((64U))-1U)) & (unsigned int)(~(unsigned int)(((64U))-1U)))] __attribute__((aligned((64U))));
-uint8_t tx_data_buffer[(ENET_TXBD_NUM)][((unsigned int)(((ENET_TXBUFF_SIZE)) + (((64U))-1U)) & (unsigned int)(~(unsigned int)(((64U))-1U)))] __attribute__((aligned((64U))));
-
-// Initialise driver imx_rt1020
-
-// static bool mg_tcpip_driver_imxrt1020_init(uint8_t *mac, void *data) { // VO
+//  MDC clock is generated from IPS Bus clock (ipg_clk); as per 802.3,
+//  it must not exceed 2.5MHz
+// The PHY receives the PLL6-generated 50MHz clock
 static bool mg_tcpip_driver_imxrt1020_init(struct mg_tcpip_if *ifp) {
-
-  struct mg_tcpip_driver_imxrt1020_data *d = (struct mg_tcpip_driver_imxrt1020_data *) ifp->driver_data;
+  struct mg_tcpip_driver_imxrt1020_data *d =
+      (struct mg_tcpip_driver_imxrt1020_data *) ifp->driver_data;
   s_ifp = ifp;
 
-  // ENET Reset, wait complete
-  ENET->ECR |= BIT(0);
-  while((ENET->ECR & BIT(0)) != 0) {}
-
-  // Re-latches the pin strapping pin values
-  ENET->ECR |= BIT(0);
-  while((ENET->ECR & BIT(0)) != 0) {}
-
-  // Setup MII/RMII MDC clock divider (<= 2.5MHz).
-  ENET->MSCR = 0x130; // HOLDTIME 2 clk, Preamble enable, MDC MII_Speed Div 0x30
-  imxrt1020_eth_write_phy(IMXRT1020_PHY_ADDR, IMXRT1020_PHY_BCR, 0x8000); // PHY W @0x00 D=0x8000 Soft reset
-  while (imxrt1020_eth_read_phy(IMXRT1020_PHY_ADDR, IMXRT1020_PHY_BSR) & BIT(15)) {delay(0x5000);} // Wait finished poll 10ms
-
-  // PHY: Start Link
-  {
-    imxrt1020_eth_write_phy(IMXRT1020_PHY_ADDR, IMXRT1020_PHY_BCR, 0x1200); // PHY W @0x00 D=0x1200 Autonego enable + start
-    imxrt1020_eth_write_phy(IMXRT1020_PHY_ADDR, 0x1f, 0x8180);    // PHY W @0x1f D=0x8180 Ref clock 50 MHz at XI input
-
-    uint32_t bcr = imxrt1020_eth_read_phy(IMXRT1020_PHY_ADDR, IMXRT1020_PHY_BCR);
-    bcr &= ~BIT(10); // Isolation -> Normal
-    imxrt1020_eth_write_phy(IMXRT1020_PHY_ADDR, IMXRT1020_PHY_BCR, bcr);
+  // Init RX descriptors
+  for (int i = 0; i < ETH_DESC_CNT; i++) {
+    s_rxdesc[i].control = BIT(15);                 // Own (E)
+    s_rxdesc[i].buffer = (uint32_t *) s_rxbuf[i];  // Point to data buffer
   }
+  s_rxdesc[ETH_DESC_CNT - 1].control |= BIT(13);  // Wrap last descriptor
 
-  // Disable ENET
-  ENET->ECR = 0x0; //  Disable before configuration
-
-  // Configure ENET
-  ENET->RCR = 0x05ee0104; // #CRCFWD=0 (CRC kept in frame) + RMII + MII Enable
-  
-  ENET->TCR = BIT(8) | BIT(2); // Addins (MAC address from PAUR+PALR) + Full duplex enable
-  //ENET->TFWR = BIT(8); // Store And Forward Enable, 64 bytes (minimize tx latency)
-
-  // Configure descriptors and buffers
-  // RX
-  for (int i = 0; i < ENET_RXBD_NUM; i++) {
-    // Wrap last descriptor buffer ptr
-    rx_buffer_descriptor[i].control = (BIT(15) | ((i<(ENET_RXBD_NUM-1))?0:BIT(13))); // E+(W*)
-    rx_buffer_descriptor[i].buffer = (uint32_t *)rx_data_buffer[i];
+  // Init TX descriptors
+  for (int i = 0; i < ETH_DESC_CNT; i++) {
+    s_txdesc[i].control = BIT(10);  // Own (TC)
+    s_txdesc[i].buffer = (uint32_t *) s_txbuf[i];
   }
+  s_txdesc[ETH_DESC_CNT - 1].control |= BIT(13);  // Wrap last descriptor
 
-  // TX
-  for (int i = 0; i < ENET_TXBD_NUM; i++) {
-    // Wrap last descriptor buffer ptr
-    tx_buffer_descriptor[i].control = ((i<(ENET_RXBD_NUM-1))?0:BIT(13)) | BIT(10); // (W*)+TC
-    tx_buffer_descriptor[i].buffer = (uint32_t *)tx_data_buffer[i];
-  }
+  ENET->ECR = BIT(0);                     // Software reset, disable
+  while ((ENET->ECR & BIT(0))) (void) 0;  // Wait until done
 
-  // Continue ENET configuration
-  ENET->RDSR = (uint32_t)(uintptr_t)rx_buffer_descriptor;
-  ENET->TDSR = (uint32_t)(uintptr_t)tx_buffer_descriptor;
-  ENET->MRBR[0] = ENET_RXBUFF_SIZE; // Same size for RX/TX buffers
+  // Set MDC clock divider. If user told us the value, use it.
+  // TODO(): Otherwise, guess (currently assuming max freq)
+  int cr = (d == NULL || d->mdc_cr < 0) ? 24 : d->mdc_cr;
+  ENET->MSCR = (1 << 8) | ((cr & 0x3f) << 1);  // HOLDTIME 2 clks
 
+  eth_write_phy(PHY_ADDR, PHY_BCR, BIT(15));  // Reset PHY
+  eth_write_phy(PHY_ADDR, PHY_BCR, BIT(12));  // Set autonegotiation
+  // PHY: Enable 50 MHz external ref clock at XI (preserve defaults)
+  eth_write_phy(PHY_ADDR, PHY_PC2R, BIT(15) | BIT(8) | BIT(7));
+  // Select RMII mode, 100M, keep CRC, set max rx length, disable loop
+  ENET->RCR = (1518 << 16) | BIT(8) | BIT(2);
+  // ENET->RCR |= BIT(3);     // Receive all
+  ENET->TCR = BIT(2);  // Full-duplex
+  ENET->RDSR = (uint32_t) (uintptr_t) s_rxdesc;
+  ENET->TDSR = (uint32_t) (uintptr_t) s_txdesc;
+  ENET->MRBR[0] = ETH_PKT_SIZE;  // Same size for RX/TX buffers
   // MAC address filtering (bytes in reversed order)
   ENET->PAUR = ((uint32_t) ifp->mac[4] << 24U) | (uint32_t) ifp->mac[5] << 16U;
-  ENET->PALR = (uint32_t) (ifp->mac[0] << 24U) | ((uint32_t) ifp->mac[1] << 16U) |
-                 ((uint32_t) ifp->mac[2] << 8U) | ifp->mac[3];
-
-  // Init Hash tables (mac filtering)
-  ENET->IAUR = 0; // Unicast
-  ENET->IALR = 0;
-  ENET->GAUR = 0; // Multicast
-  ENET->GALR = 0;
-
-  // Set ENET Online
-  ENET->ECR |= BIT(8); // ENET Set Little-endian + (FEC buffer desc.)
-  ENET->ECR |= BIT(1); // Enable
-
-  // Set interrupt mask
-  ENET->EIMR = EIMR_RX_ERR;
-
-  // RX Descriptor activation
-  ENET->RDAR = BIT(24); // Activate Receive Descriptor
+  ENET->PALR = (uint32_t) (ifp->mac[0] << 24U) |
+               ((uint32_t) ifp->mac[1] << 16U) |
+               ((uint32_t) ifp->mac[2] << 8U) | ifp->mac[3];
+  ENET->ECR = BIT(8) | BIT(1);  // Little-endian CPU, Enable
+  ENET->EIMR = BIT(25);         // Set interrupt mask
+  ENET->RDAR = BIT(24);         // Receive Descriptors have changed
   return true;
 }
 
 // Transmit frame
-static uint32_t s_rt1020_txno;
+static uint32_t s_txno;
 
-static size_t mg_tcpip_driver_imxrt1020_tx(const void *buf, size_t len, struct mg_tcpip_if *ifp) {
-
-  if (len > sizeof(tx_data_buffer[ENET_TXBD_NUM])) {
-  //  MG_ERROR(("Frame too big, %ld", (long) len));
-    len = 0;  // Frame is too big
-  } else if ((tx_buffer_descriptor[s_rt1020_txno].control & BIT(15))) {
-  MG_ERROR(("No free descriptors"));
-    // printf("D0 %lx SR %lx\n", (long) s_txdesc[0][0], (long) ETH->DMASR);
-    len = 0;  // All descriptors are busy, fail
+static size_t mg_tcpip_driver_imxrt1020_tx(const void *buf, size_t len,
+                                           struct mg_tcpip_if *ifp) {
+  if (len > sizeof(s_txbuf[ETH_DESC_CNT])) {
+    MG_ERROR(("Frame too big, %ld", (long) len));
+    len = 0;  // fail
+  } else if ((s_txdesc[s_txno].control & BIT(15))) {
+    ifp->nerr++;
+    MG_ERROR(("No descriptors available"));
+    len = 0;  // fail
   } else {
-    memcpy(tx_data_buffer[s_rt1020_txno], buf, len);     // Copy data
-    tx_buffer_descriptor[s_rt1020_txno].length = (uint16_t) len;  // Set data len
-    tx_buffer_descriptor[s_rt1020_txno].control |= (uint16_t)(BIT(10)); // TC (transmit CRC)
-    //  tx_buffer_descriptor[s_rt1020_txno].control &= (uint16_t)(BIT(14) | BIT(12)); // Own doesn't affect HW
-    tx_buffer_descriptor[s_rt1020_txno].control |= (uint16_t)(BIT(15) | BIT(11)); // R+L (ready+last)
-    ENET->TDAR = BIT(24); // Descriptor updated. Hand over to DMA.
-    // INFO
-    // Relevant Descriptor bits: 15(R)  Ready
-    //                           11(L)  last in frame
-    //                           10(TC) transmis CRC
-    // __DSB(); // ARM errata 838869 Cortex-M4, M4F, M7, M7F: "store immediate overlapping
-                // exception" return might vector to incorrect interrupt.
-    if (++s_rt1020_txno >= ENET_TXBD_NUM) s_rt1020_txno = 0;
+    memcpy(s_txbuf[s_txno], buf, len);         // Copy data
+    s_txdesc[s_txno].length = (uint16_t) len;  // Set data len
+    // Table 37-34, R, L, TC (Ready, last, transmit CRC after frame
+    s_txdesc[s_txno].control |= (uint16_t) (BIT(15) | BIT(11) | BIT(10));
+    ENET->TDAR = BIT(24);  // Descriptor ring updated
+    if (++s_txno >= ETH_DESC_CNT) s_txno = 0;
   }
   (void) ifp;
   return len;
 }
 
-// IRQ (RX)
-static uint32_t s_rt1020_rxno;
-
-void ENET_IRQHandler(void) {
-  ENET->EIMR = 0;           // Mask interrupts.
-  uint32_t eir = ENET->EIR; // Read EIR
-  ENET->EIR = 0xffffffff;   // Clear interrupts
-
-  if (eir & EIMR_RX_ERR) // Global mask used
-  {
-    if (rx_buffer_descriptor[s_rt1020_rxno].control & BIT(15)) {
-      ENET->EIMR = EIMR_RX_ERR; // Enable interrupts
-      return;  // Empty? -> exit.
-    }
-    // Read inframes
-    else { // Frame received, loop
-      for (uint32_t i = 0; i < 10; i++) {  // read as they arrive but not forever
-        if (rx_buffer_descriptor[s_rt1020_rxno].control & BIT(15)) break;  // exit when done
-        // Process if CRC OK and frame not truncated
-        if (!(rx_buffer_descriptor[s_rt1020_rxno].control & (BIT(2) | BIT(0)))) {
-          uint32_t len = (rx_buffer_descriptor[s_rt1020_rxno].length);
-          mg_tcpip_qwrite(rx_buffer_descriptor[s_rt1020_rxno].buffer, len > 4 ? len - 4 : len, s_ifp);
-        }
-        rx_buffer_descriptor[s_rt1020_rxno].control |= BIT(15); // Inform DMA RX is empty
-        if (++s_rt1020_rxno >= ENET_RXBD_NUM) s_rt1020_rxno = 0;
-      }
-    }
-  }
-  ENET->EIMR = EIMR_RX_ERR; // Enable interrupts
-}
-
-// Up/down status
 static bool mg_tcpip_driver_imxrt1020_up(struct mg_tcpip_if *ifp) {
-  uint32_t bsr = imxrt1020_eth_read_phy(IMXRT1020_PHY_ADDR, IMXRT1020_PHY_BSR);
-  (void) ifp;
-  return bsr & BIT(2) ? 1 : 0;
+  uint32_t bsr = eth_read_phy(PHY_ADDR, PHY_BSR);
+  bool up = bsr & BIT(2) ? 1 : 0;
+  if ((ifp->state == MG_TCPIP_STATE_DOWN) && up) {  // link state just went up
+    uint32_t pc1r = eth_read_phy(PHY_ADDR, PHY_PC1R);
+    uint32_t tcr = ENET->TCR |= BIT(2);        // Full-duplex
+    uint32_t rcr = ENET->RCR &= ~BIT(9);       // 100M
+    if ((pc1r & 3) == 1) rcr |= BIT(9);        // 10M
+    if ((pc1r & BIT(2)) == 0) tcr &= ~BIT(2);  // Half-duplex
+    ENET->TCR = tcr;  // IRQ handler does not fiddle with these registers
+    ENET->RCR = rcr;
+    MG_DEBUG(("Link is %uM %s-duplex", rcr & BIT(9) ? 10 : 100,
+              tcr & BIT(2) ? "full" : "half"));
+  }
+  return up;
 }
 
-// API
+void ENET_IRQHandler(void);
+static uint32_t s_rxno;
+void ENET_IRQHandler(void) {
+  ENET->EIR = BIT(25);  // Ack IRQ
+  // Frame received, loop
+  for (uint32_t i = 0; i < 10; i++) {  // read as they arrive but not forever
+    if (s_rxdesc[s_rxno].control & BIT(15)) break;  // exit when done
+    // skip partial/errored frames (Table 37-32)
+    if ((s_rxdesc[s_rxno].control & BIT(11)) &&
+        !(s_rxdesc[s_rxno].control &
+          (BIT(5) | BIT(4) | BIT(2) | BIT(1) | BIT(0)))) {
+      uint32_t len = (s_rxdesc[s_rxno].length);
+      mg_tcpip_qwrite(s_rxbuf[s_rxno], len > 4 ? len - 4 : len, s_ifp);
+    }
+    s_rxdesc[s_rxno].control |= BIT(15);
+    if (++s_rxno >= ETH_DESC_CNT) s_rxno = 0;
+  }
+  ENET->RDAR = BIT(24);  // Receive Descriptors have changed
+  // If b24 == 0, descriptors were exhausted and probably frames were dropped
+}
+
 struct mg_tcpip_driver mg_tcpip_driver_imxrt1020 = {
-  mg_tcpip_driver_imxrt1020_init, mg_tcpip_driver_imxrt1020_tx, NULL,
-  mg_tcpip_driver_imxrt1020_up};
+    mg_tcpip_driver_imxrt1020_init, mg_tcpip_driver_imxrt1020_tx, NULL,
+    mg_tcpip_driver_imxrt1020_up};
 
 #endif
 
