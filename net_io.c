@@ -54,6 +54,7 @@ DEF_FUNC (const char *, mg_spec,   (void));
  */
 typedef struct unique_IP {
         mg_addr           addr;      /**< The IPv4/6 address */
+        intptr_t          service;   /**< unique in service */
         FILETIME          seen;      /**< time when this address was created */
         uint32_t          accepted;  /**< number of times for `accept()` */
         struct unique_IP *next;
@@ -116,7 +117,6 @@ static const char *event_name (int ev)
           ev == MG_EV_CLOSE      ? "MG_EV_CLOSE" :
           ev == MG_EV_ERROR      ? "MG_EV_ERROR" :
           ev == MG_EV_HTTP_MSG   ? "MG_EV_HTTP_MSG" :
-          ev == MG_EV_HTTP_CHUNK ? "MG_EV_HTTP_CHUNK" :
           ev == MG_EV_WS_OPEN    ? "MG_EV_WS_OPEN" :
           ev == MG_EV_WS_MSG     ? "MG_EV_WS_MSG" :
           ev == MG_EV_WS_CTL     ? "MG_EV_WS_CTL" :
@@ -905,11 +905,6 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
       DEBUG (DEBUG_NET, "HTTP %d for '%.*s' (conn-id: %lu)\n",
              status, (int)hm->uri.len, hm->uri.ptr, c->id);
     }
-    else if (ev == MG_EV_HTTP_CHUNK)
-    {
-      DEBUG (DEBUG_MONGOOSE2, "HTTP chunk (conn-id: %lu):\n", c->id);
-      HEX_DUMP (hm->message.ptr, hm->message.len);
-    }
     else
       DEBUG (DEBUG_NET, "Ignoring HTTP event '%s' (conn-id: %lu)\n",
              event_name(ev), c->id);
@@ -947,8 +942,7 @@ static bool connection_setup_listen (intptr_t service, mg_connection **c, bool s
 #if 0
     net_store_error (service, err);
 #else
-    LOG_STDERR ("Listen socket for \"%s\" failed; %s.\n",
-                net_service_descr(service), err);
+    LOG_STDERR ("Listen socket for \"%s\" failed; %s.\n", net_service_descr(service), err);
 #endif
     return (false);
   }
@@ -1116,7 +1110,7 @@ static void net_flushall (void)
 /**
  * Check if the client `*addr` is unique.
  */
-static bool _client_is_unique (const mg_addr *addr)
+static bool _client_is_unique (const mg_addr *addr, intptr_t service)
 {
   unique_IP *ip;
 
@@ -1125,7 +1119,7 @@ static bool _client_is_unique (const mg_addr *addr)
 
   for (ip = g_unique_ips; ip; ip = ip->next)
   {
-    if (*(uint32_t*)&ip->addr.ip == *(uint32_t*)&addr->ip)
+    if (ip->service == service && *(uint32_t*)&ip->addr.ip == *(uint32_t*)&addr->ip)
     {
       ip->accepted++;  /* accept() counter */
       return (false);
@@ -1135,7 +1129,8 @@ static bool _client_is_unique (const mg_addr *addr)
   ip = calloc (sizeof(*ip), 1);  /* Assign a new element for this `*addr` */
   if (ip)
   {
-    ip->addr = *addr;
+    ip->addr     = *addr;
+    ip->service  = service;
     ip->accepted = 1;
     get_FILETIME_now (&ip->seen);
     LIST_ADD_TAIL (unique_IP, &g_unique_ips, ip);
@@ -1143,9 +1138,9 @@ static bool _client_is_unique (const mg_addr *addr)
   return (true);
 }
 
-static bool client_is_unique (const mg_addr *addr)
+static bool client_is_unique (const mg_addr *addr, intptr_t service)
 {
-  bool         unique = _client_is_unique (addr);
+  bool         unique = _client_is_unique (addr, service);
   mg_host_name name;
 
   if (Modes.tests)
@@ -1159,7 +1154,7 @@ static bool client_is_unique (const mg_addr *addr)
 /*
  * Print number of unique clients and their addresses.
  */
-static void unique_ips_print (int service)
+static void unique_ips_print (intptr_t service)
 {
   const unique_IP *ip;
   mg_host_name     addr;
@@ -1171,6 +1166,9 @@ static void unique_ips_print (int service)
 
   for (ip = g_unique_ips; ip; ip = ip->next)
   {
+    if (ip->service != service)
+       continue;
+
     mg_snprintf (addr, sizeof(addr), "%M", mg_print_ip, ip->addr);
     if (num == 0)
        fprintf (Modes.log, "%27s", " ");
@@ -1216,10 +1214,10 @@ static bool client_handler (const mg_connection *c, intptr_t service, int ev)
 
   if (ev == MG_EV_ACCEPT)
   {
-    if (client_is_unique(addr))       /* Have we seen this IPv4-address before? */
+    if (client_is_unique(addr, service))  /* Have we seen this IPv4-address before? */
        Modes.stat.unique_clients [service]++;
 
-    if (client_is_extern(addr))       /* Not from 127.0.0.1 */
+    if (client_is_extern(addr))           /* Not from 127.0.0.1 */
     {
       if (client_deny(addr, service))
          deny = true;
@@ -1238,6 +1236,22 @@ static bool client_handler (const mg_connection *c, intptr_t service, int ev)
                   net_str_addr(addr, addr_buf, sizeof(addr_buf)), c->id, net_service_descr(service));
   }
   return (!deny);
+}
+
+/**
+ * \todo
+ * Callbacks from cfg_file.c
+ */
+bool net_deny4 (const char *val)
+{
+  (void) val;
+  return (true);
+}
+
+bool net_deny6 (const char *val)
+{
+  (void) val;
+  return (true);
 }
 
 /**
@@ -1691,35 +1705,41 @@ void net_show_stats (void)
  */
 static void net_tests (void)
 {
-  int     i, service = MODES_NET_SERVICE_HTTP;
-  mg_addr addr;
+  const unique_IP *ip;
+  int              i, service = MODES_NET_SERVICE_HTTP;
+  uint64_t         num;
+  mg_addr          addr;
 
   printf ("\n%s():\n", __FUNCTION__);
   memset (&addr, '\0', sizeof(addr));
 
   *(uint32_t*) &addr.ip = 0x0100007F; /* == 127.0.0.1 */
-  if (client_is_unique(&addr))
+  if (client_is_unique(&addr, service))
      Modes.stat.unique_clients [service]++;
 
   *(uint32_t*) &addr.ip = 0x0200007F; /* == 127.0.0.2 */
-  if (client_is_unique(&addr))
+  if (client_is_unique(&addr, service))
      Modes.stat.unique_clients [service]++;
 
   for (i = 0; i < 50; i++)
   {
     mg_random (&addr.ip, sizeof(addr.ip));
-    if (client_is_unique(&addr))
+    if (client_is_unique(&addr, service))
        Modes.stat.unique_clients [service]++;
     Modes.stat.bytes_recv [service] += 10;
   }
 
   *(uint32_t*) &addr.ip = 0x0100007F; /* == 127.0.0.1 */
-  if (client_is_unique(&addr))
+  if (client_is_unique(&addr, service))
      Modes.stat.unique_clients [service]++;
 
   *(uint32_t*) &addr.ip = 0x0200007F; /* == 127.0.0.2 */
-  if (client_is_unique(&addr))
+  if (client_is_unique(&addr, service))
      Modes.stat.unique_clients [service]++;
+
+  for (num = 0, ip = g_unique_ips; ip; ip = ip->next)
+      num++;
+  assert (num == Modes.stat.unique_clients[service]);
 }
 
 /**
@@ -1853,7 +1873,7 @@ bool net_init (void)
   if (Modes.http_out && !check_packed_web_page() && !check_web_page())
      return (false);
 
-  if (Modes.tests)
+  if (Modes.tests >= 2)
      net_tests();
 
   return (true);
