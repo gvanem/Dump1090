@@ -7,7 +7,7 @@
 
 #define VER_MAJOR 0
 #define VER_MINOR 4
-#define VER_MICRO 1
+#define VER_MICRO 2
 
 /* Warning control:
  */
@@ -118,7 +118,6 @@
 #define MG_ENABLE_IPV6          0  /* No IPv6 code */
 #define MG_ENABLE_MD5           0  /* No need for MD5 code */
 #define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
-#define MG_ENABLE_POLL          1  /* Prefer `WSAPoll()` over `select()` (unless `MG_ENABLE_EPOLL` is defined) */
 #define MG_ENABLE_DIRLIST       0  /* No need for directory listings in HTTP */
 #define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
 

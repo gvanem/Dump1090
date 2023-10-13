@@ -390,8 +390,8 @@ typedef struct global_data {
 
         /** Configuration
          */
-        const char  *infile;                     /**< Input IQ samples from file with option `--infile file`. */
-        const char  *logfile;                    /**< Write debug/info to file with option `--logfile file`. */
+        mg_file_path infile;                     /**< Input IQ samples from file with option `--infile file`. */
+        mg_file_path logfile;                    /**< Write debug/info to file with option `--logfile file`. */
         FILE        *log;                        /**< Opened it for exclusive write access. */
         uint64_t     loops;                      /**< Read input file in a loop. */
         uint32_t     debug;                      /**< `DEBUG()` mode bits. */
@@ -421,6 +421,12 @@ typedef struct global_data {
         int          tests;                      /**< Perform some tests. */
         int          tests_arg;                  /**< With optional tests-count. */
         int          tui_interface;              /**< Selected `--tui` interface. */
+
+#if 0
+        /** For handling a config-file.
+         */
+        cfg_context cfg_ctx;
+#endif
 
         /** For handling a `Modes.aircraft_db` file:
          */
@@ -617,6 +623,7 @@ uint32_t    download_to_file (const char *url, const char *file);
 char       *download_to_buf  (const char *url);
 int         load_dynamic_table (struct dyn_struct *tab, int tab_size);
 int         unload_dynamic_table (struct dyn_struct *tab, int tab_size);
+void        puts_long_line (const char *start, size_t indent);
 void        show_version_info (bool verbose);
 void        spherical_to_cartesian (const pos_t *pos, cartesian_t *cart);
 void        cartesian_to_spherical (const cartesian_t *cart, pos_t *pos, double heading);

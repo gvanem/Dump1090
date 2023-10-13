@@ -13,6 +13,9 @@ MAKEFLAGS += --warn-undefined-variables
 #
 # Choose your weapons:
 #
+USE_CFG_FILE ?= 1
+
+#
 # Use CRT debug-mode.
 #
 USE_CRT_DEBUG ?= 0
@@ -20,10 +23,12 @@ USE_CRT_DEBUG ?= 0
 #
 # Option for 'externals/mongoose.c':
 #
-# Use a Windows version of 'epoll()' from
-# https://github.com/piscisaureus/wepoll
+# USE_EPOLL=1:   use a Windows version of 'epoll()' from https://github.com/piscisaureus/wepoll
+# USE_WSAPOLL=1: use `WSAPoll()` in `externals/mongoose.c`
+# USE_WSAPOLL=0: use `select()` in `externals/mongoose.c`
 #
-USE_EPOLL ?= 0
+USE_EPOLL   ?= 0
+USE_WSAPOLL ?= 0
 
 #
 # Enable bundling *all* web_root pages inside 'web-pages.dll' as
@@ -119,6 +124,12 @@ ifneq ($(CC),cl)
   endif
 endif
 
+#
+# The CFLAGS + LDFLAGS used. Printed on 'dump1090.exe -VV'.
+#
+GENERATED = $(OBJ_DIR)/cflags_$(CC).h \
+            $(OBJ_DIR)/ldflags_$(CC).h
+
 vpath %.c externals         \
           externals/Curses  \
           externals/rtl-sdr \
@@ -126,7 +137,7 @@ vpath %.c externals         \
 
 vpath %.rc $(OBJ_DIR)
 
-CFLAGS = -nologo -Zi -W4           \
+CFLAGS = -nologo -c -Zi -W4        \
          -FI./dump1090_config.h    \
          -fp:precise               \
          -I.                       \
@@ -140,6 +151,10 @@ LDFLAGS = -nologo -map -debug -verbose -incremental:no \
           -nodefaultlib:oldnames.lib -machine:$(CPU)
 
 RCFLAGS = -nologo
+
+ifeq ($(USE_CFG_FILE),1)
+  CFLAGS += -DUSE_CFG_FILE
+endif
 
 ifeq ($(USE_CRT_DEBUG),1)
   CFLAGS  += -MDd -GS -Oy- -RTCu -RTCs
@@ -192,9 +207,7 @@ ifeq ($(USE_ASAN),1)
                   clang_rt.asan_dynamic_runtime_thunk-x86_64.lib
     endif
   endif
-endif
 
-ifeq ($(USE_ASAN),1)
   ifeq ($(CC),clang-cl)
     $(info Detected 'CLANG_ROOT=$(CLANG_$(BITS))' for 'USE_ASAN=$(USE_ASAN)'.)
   endif
@@ -216,6 +229,7 @@ TARGETS = dump1090.exe
 
 SOURCES = aircraft.c           \
           airports.c           \
+          cfg_file.c           \
           csv.c                \
           dump1090.c           \
           interactive.c        \
@@ -237,11 +251,6 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_r82xx.c)
 
 #
-# Empty by default
-#
-GENERATED =
-
-#
 # For 'web-pages.dll':
 #
 WEB_SRC ?= $(OBJ_DIR)/web-page-1.c \
@@ -250,11 +259,20 @@ WEB_SRC ?= $(OBJ_DIR)/web-page-1.c \
            $(OBJ_DIR)/web-page-4.c \
            $(OBJ_DIR)/web-page-5.c
 
-WEB_SUFFIX ?= 1 2 3 4 5
+WEB_SUFFIXES ?= 1 2 3 4 5
 
 ifeq ($(USE_EPOLL),1)
   CFLAGS += -DMG_ENABLE_EPOLL=1
   SOURCES += externals/wepoll.c
+
+else ifeq ($(USE_WSAPOLL),1)
+  CFLAGS += -DMG_ENABLE_POLL=1
+
+else
+  #
+  # No code checks for this, but for 'dump1090.exe -VV' only
+  #
+  CFLAGS += -DMG_ENABLE_SELECT=1
 endif
 
 ifeq ($(USE_READSB_DEMOD),1)
@@ -308,7 +326,7 @@ LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/um/$(CPU)
 #
 LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/ucrt/$(CPU)
 
-all: $(OBJ_DIR) $(GENERATED) $(TARGETS)
+all: $(GENERATED) $(TARGETS)
 	$(call green_msg, Welcome to Dump1090.)
 
 $(OBJ_DIR) doxy-docs:
@@ -324,7 +342,7 @@ $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c
 	$(call C_compile, $@, -DCOMPILING_SQLITE3_SHELL $<)
 
 web-pages.dll: $(WEB_OBJ) $(OBJ_DIR)/web-pages.res
-	$(call link_web_DLL, $@, $^ $(ASAN_LIBS), $(WEB_SUFFIX))
+	$(call link_web_DLL, $@, $^ $(ASAN_LIBS), $(WEB_SUFFIXES))
 ifeq ($(USE_UPX),1)
 	$(call red_msg, Compressing $@ will take some time...)
 	upx -v $@
@@ -391,6 +409,15 @@ gen_favicons: favicon.png favicon.ico
 	xxd -i favicon.ico >> favicon.c
 	@echo
 
+#
+# For 'dump1090.exe -VV':
+#
+$(OBJ_DIR)/cflags_$(CC).h: $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate_cflags_h, $@, $(_CC) $(CFLAGS))
+
+$(OBJ_DIR)/ldflags_$(CC).h: $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate_ldflags_h, $@, link $(LDFLAGS) -out:dump1090.exe $(OBJECTS) $(OBJ_DIR)/dump1090.res $(OS_LIBS) $(ASAN_LIBS))
+
 docs: doxy-docs doxy-docs/Doxyfile
 	cd $< ; doxygen Doxyfile
 	$(call green_msg, Doxygen generated docs done. Look in 'doxy-docs/doxygen.log' for details.\n)
@@ -455,13 +482,13 @@ green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
 red_msg   = @echo -e "$(BRIGHT_RED)$(strip $(1))\e[0m"
 
 define C_compile
-  $(_CC) -c $(CFLAGS) -Fo./$(strip $(1) $(2))
+  $(_CC) $(CFLAGS) -Fo./$(strip $(1) $(2))
   @echo
 endef
 
 define C_compile_web_page
   $(call red_msg, Compiling $(1) will take some time...)
-  $(_CC) -c $(CFLAGS) -Fo./$(strip $(1) $(2))
+  $(_CC) $(CFLAGS) -Fo./$(strip $(1) $(2))
   @echo
 endef
 
@@ -510,6 +537,16 @@ endef
 define generate
   $(call green_msg, Generating $(1))
   $(file > $(1),$(call Warning,$(strip $(2))))
+endef
+
+define generate_cflags_h
+  $(call generate, $(1),//)
+  $(file >> $(1),const char *cflags = "$(strip $(2))";)
+endef
+
+define generate_ldflags_h
+  $(call generate, $(1),//)
+  $(file >> $(1),const char *ldflags = "$(strip $(2))";)
 endef
 
 define generate_web_page
@@ -710,7 +747,7 @@ define check_for_unused_libs_py
   report (process(State.IDLE))
 endef
 
-DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS))
+DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS)) -DDOING_MAKE_DEPEND
 DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.obj: @'
 
 #

@@ -67,6 +67,8 @@ bool        net_handler_sending (intptr_t service);
 void        net_connection_recv (connection *conn, net_msg_handler handler, bool is_server);
 void        net_connection_send (intptr_t service, const void *msg, size_t len);
 bool        net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+bool        net_deny4 (const char *val);
+bool        net_deny6 (const char *val);
 
 #endif  /* _NETWORK_H */
 
