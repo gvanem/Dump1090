@@ -435,7 +435,7 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
     get_home_distance (a, &km_nmiles);
     get_est_home_distance (a, &km_nmiles);
     if (a->EST_distance_buf[0])
-       strncpy (distance_buf, a->EST_distance_buf, sizeof(distance_buf)-1);
+       strcpy_s (distance_buf, sizeof(distance_buf), a->EST_distance_buf);
   }
 
   if (a->SQL)
@@ -465,8 +465,8 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
      */
     if (departure && destination)
     {
-      strncpy (dep_buf, departure, sizeof(dep_buf)-1);
-      strncpy (dst_buf, destination, sizeof(dst_buf)-1);
+      strcpy_s (dep_buf, sizeof(dep_buf), departure);
+      strcpy_s (dst_buf, sizeof(dst_buf), destination);
     }
     else
     {

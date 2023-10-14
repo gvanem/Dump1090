@@ -607,19 +607,19 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
   }
   else if (ctx->field_num == 1)   /* "registration" field */
   {
-    strncpy (rec.reg_num, value, sizeof(rec.reg_num)-1);
+    strcpy_s (rec.reg_num, sizeof(rec.reg_num), value);
   }
   else if (ctx->field_num == 3)   /* "manufacturername" field */
   {
-    strncpy (rec.manufact, value, sizeof(rec.manufact)-1);
+    strcpy_s (rec.manufact, sizeof(rec.manufact), value);
   }
   else if (ctx->field_num == 8)  /* "icaoaircrafttype" field */
   {
-    strncpy (rec.type, value, sizeof(rec.type)-1);
+    strcpy_s (rec.type, sizeof(rec.type), value);
   }
   else if (ctx->field_num == 10)  /* "operatorcallsign" field */
   {
-    strncpy (rec.call_sign, value, sizeof(rec.call_sign)-1);
+    strcpy_s (rec.call_sign, sizeof(rec.call_sign), value);
   }
   else if (ctx->field_num == ctx->num_fields - 1)  /* we got the last field */
   {
@@ -1185,10 +1185,10 @@ static int sql_callback (void *cb_arg, int argc, char **argv, char **col_name)
 
   if (argc == 5 && mg_unhexn(argv[0], 6) == a->addr)
   {
-    strncpy (a->reg_num,   argv[1], sizeof(a->reg_num)-1);
-    strncpy (a->manufact,  argv[2], sizeof(a->manufact)-1);
-    strncpy (a->type,      argv[3], sizeof(a->type)-1);
-    strncpy (a->call_sign, argv[4], sizeof(a->call_sign)-1);
+    strcpy_s (a->reg_num,   sizeof(a->reg_num),   argv[1]);
+    strcpy_s (a->manufact,  sizeof(a->manufact),  argv[2]);
+    strcpy_s (a->type,      sizeof(a->type),      argv[3]);
+    strcpy_s (a->call_sign, sizeof(a->call_sign), argv[4]);
   }
   (void) col_name;
   return (0);

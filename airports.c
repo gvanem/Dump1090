@@ -334,11 +334,11 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
 
   if (ctx->field_num == 0)        /* "ICAO" and first field */
   {
-    strncpy (rec.ICAO, value, sizeof(rec.ICAO)-1);
+    strcpy_s (rec.ICAO, sizeof(rec.ICAO), value);
   }
   else if (ctx->field_num == 1)   /* "IATA" field */
   {
-    strncpy (rec.IATA, value, sizeof(rec.IATA)-1);
+    strcpy_s (rec.IATA, sizeof(rec.IATA), value);
   }
   else if (ctx->field_num == 2)   /* "Full_name" field */
   {
@@ -403,7 +403,7 @@ static const airport *CSV_lookup_ICAO (const char *ICAO)
   {
     airport key;
 
-    strncpy (key.ICAO, ICAO, sizeof(key.ICAO)-1);
+    strcpy_s (key.ICAO, sizeof(key.ICAO), ICAO);
     a = bsearch (&key, g_data.airport_CSV, g_data.ap_stats.CSV_numbers,
                  sizeof(*g_data.airport_CSV), CSV_compare_on_ICAO);
     if (num_lookups)

@@ -111,9 +111,9 @@ static void sdrplay_store_error (sdrplay_api_ErrT rc)
   sdr.last_rc = rc;
 
   if (sdr.sdrplay_api_GetErrorString)
-       strncpy (sdr.last_err, (*sdr.sdrplay_api_GetErrorString)(rc), sizeof(sdr.last_err));
+       strcpy_s (sdr.last_err, sizeof(sdr.last_err), (*sdr.sdrplay_api_GetErrorString)(rc));
   else if (rc == sdrplay_api_NotInitialised)
-       strncpy (sdr.last_err, "SDRplay API not initialised", sizeof(sdr.last_err));
+       strcpy_s (sdr.last_err, sizeof(sdr.last_err), "SDRplay API not initialised");
   else sdr.last_err[0] = '\0';
 }
 
@@ -497,7 +497,7 @@ int sdrplay_read_async (sdrplay_dev *device,
 
   if (device != g_sdr_device)
   {
-    strncpy (sdr.last_err, "No device", sizeof(sdr.last_err));
+    strcpy_s (sdr.last_err, sizeof(sdr.last_err), "No device");
     sdr.last_rc = sdrplay_api_NotInitialised;
     return (sdr.last_rc);
   }
@@ -538,7 +538,7 @@ int sdrplay_read_async (sdrplay_dev *device,
   {
     if ((uint32_t)sdr.dev->rspDuoSampleFreq != Modes.sample_rate)
     {
-      strncpy (sdr.last_err, "RSPduo Master tuner in use and is not running in ADS-B compatible mode", sizeof(sdr.last_err));
+      strcpy_s (sdr.last_err, sizeof(sdr.last_err), "RSPduo Master tuner in use and is not running in ADS-B compatible mode");
       LOG_STDERR ("Error: %s.\n"
                   "Set the Master tuner to ADS-B compatible mode and restart %s.\n",
                   sdr.last_err, Modes.who_am_I);
@@ -664,12 +664,12 @@ int sdrplay_cancel_async (sdrplay_dev *device)
 {
   if (device != g_sdr_device)
   {
-    strncpy (sdr.last_err, "No device", sizeof(sdr.last_err));
+    strcpy_s (sdr.last_err, sizeof(sdr.last_err), "No device");
     sdr.last_rc = sdrplay_api_NotInitialised;
   }
   else if (g_sdr_device->cancelling)
   {
-    strncpy (sdr.last_err, "Cancelling", sizeof(sdr.last_err));
+    strcpy_s (sdr.last_err, sizeof(sdr.last_err), "Cancelling");
     sdr.last_rc = sdrplay_api_StopPending;
   }
   else
@@ -817,7 +817,7 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   return (sdrplay_api_Success);
 
 nomem:
-  strncpy (sdr.last_err, "Insufficient memory", sizeof(sdr.last_err));
+  strcpy_s (sdr.last_err, sizeof(sdr.last_err), "Insufficient memory");
 
 failed:
   LOG_STDERR ("%s.\n", sdr.last_err);
@@ -832,7 +832,7 @@ static int sdrplay_release (sdrplay_dev *device)
 {
   if (device != g_sdr_device || !g_sdr_device) /* support only 1 device */
   {
-    strncpy (sdr.last_err, "No device", sizeof(sdr.last_err));
+    strcpy_s (sdr.last_err, sizeof(sdr.last_err), "No device");
     sdr.last_rc = sdrplay_api_NotInitialised;
   }
   else
@@ -870,7 +870,7 @@ int sdrplay_exit (sdrplay_dev *device)
 
   if (!sdr.dll_hnd)
   {
-    strncpy (sdr.last_err, "No DLL loaded", sizeof(sdr.last_err));
+    strcpy_s (sdr.last_err, sizeof(sdr.last_err), "No DLL loaded");
     sdr.last_rc = sdrplay_api_NotInitialised;
     return (sdr.last_rc);
   }

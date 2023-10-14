@@ -227,7 +227,7 @@ uint32_t ato_hertz (const char *Hertz)
   double   multiplier = 1.0;
   uint32_t ret;
 
-  strncpy (tmp, Hertz, sizeof(tmp)-1);
+  strcpy_s (tmp, sizeof(tmp), Hertz);
   len = strlen (tmp);
   last_ch = tmp [len-1];
   tmp [len-1] = '\0';
