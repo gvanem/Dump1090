@@ -200,7 +200,7 @@ ifeq ($(USE_ASAN),1)
 
   ifeq ($(CC),clang-cl)
     LDFLAGS += -inferasanlibs:no \
-               -libpath:$(CLANG_$(BITS))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
+               -libpath:$(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
 
     ifeq ($(CPU),x86)
       ASAN_LIBS = clang_rt.asan_dynamic-i386.lib \
@@ -212,7 +212,7 @@ ifeq ($(USE_ASAN),1)
   endif
 
   ifeq ($(CC),clang-cl)
-    $(info Detected 'CLANG_ROOT=$(CLANG_$(BITS))' for 'USE_ASAN=$(USE_ASAN)'.)
+    $(info Detected 'CLANG_ROOT=$(realpath $(CLANG_$(BITS)))' for 'USE_ASAN=$(USE_ASAN)'.)
   endif
 endif
 
