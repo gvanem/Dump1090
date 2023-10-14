@@ -407,6 +407,9 @@ typedef struct global_data {
         int          only_addr;                  /**< Print only ICAO addresses. */
         int          metric;                     /**< Use metric units. */
         int          aggressive;                 /**< Aggressive detection algorithm. */
+        bool         error_correct_2;            /**< Alias for the above. */
+        bool         error_correct_1;            /**< Fix 1 bit errors (default: true). */
+        bool         check_crc;                  /**< Fix 1 or 2 bit errors (default: true). */
         int          keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
         mg_file_path web_page;                   /**< The base-name of the web-page to server for HTTP clients. */
         mg_file_path web_root;                   /**< And it's directory. */

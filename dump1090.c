@@ -30,7 +30,7 @@
 global_data Modes;
 
 /**
- * \addtogroup Main      Main decoder
+ * \addtogroup Main      Main functions
  * \addtogroup Misc      Support functions
  * \addtogroup Samplers  SDR input functions
  *
@@ -88,6 +88,9 @@ static void      modeS_send_SBS_output (const modeS_message *mm, const aircraft 
 static void      modeS_user_message (const modeS_message *mm);
 
 static bool      set_bandwidth (const char *arg);
+static bool      set_bias_tee (const char *arg);
+static bool      set_calibrate (const char *arg);
+static bool      set_digital_agc (const char *arg);
 static bool      set_frequency (const char *arg);
 static bool      set_gain (const char *arg);
 static bool      set_if_mode (const char *arg);
@@ -101,6 +104,7 @@ static bool      set_host_port_sbs (const char *arg);
 static bool      set_keep_alive (const char *arg);
 static bool      set_logfile (const char *arg);
 static bool      set_loops (const char *arg);
+static bool      set_metric (const char *arg);
 static bool      set_max_messages (const char *arg);
 static bool      set_port_http (const char *arg);
 static bool      set_port_raw_in (const char *arg);
@@ -108,6 +112,7 @@ static bool      set_port_raw_out (const char *arg);
 static bool      set_port_sbs (const char *arg);
 static bool      set_ppm (const char *arg);
 static bool      set_sample_rate (const char *arg);
+static bool      set_silent (const char *arg);
 static void      set_tui (const char *arg);
 static bool      set_web_page (const char *arg);
 
@@ -121,14 +126,15 @@ static void      modeS_exit (void);
 
 #if defined(USE_CFG_FILE)
   static const struct cfg_table config[] = {
-      { "bias-t",           ARG_ATOI,   (void*) &Modes.bias_tee },
+      { "bias-t",           ARG_FUNC1,  (void*) set_bias_tee },
+      { "calibrate",        ARG_FUNC1,  (void*) set_calibrate },
       { "deny4",            ARG_FUNC1,  (void*) net_deny4 },
       { "deny6",            ARG_FUNC1,  (void*) net_deny6 },
       { "gain",             ARG_FUNC1,  (void*) set_gain },
       { "homepos",          ARG_FUNC1,  (void*) set_home_pos },
       { "location",         ARG_FUNC1,  (void*) set_home_pos_from_location_API },
       { "if-mode",          ARG_FUNC1,  (void*) set_if_mode },
-      { "metric",           ARG_ATOI,   (void*) &Modes.metric },
+      { "metric",           ARG_FUNC1,  (void*) set_metric },
       { "web-page",         ARG_FUNC1,  (void*) set_web_page },
       { "tui",              ARG_FUNC1,  (void*) set_tui },
       { "airports",         ARG_STRCPY, (void*) &Modes.airport_db },
@@ -136,7 +142,7 @@ static void      modeS_exit (void);
       { "aircrafts-update", ARG_STRDUP, (void*) &Modes.aircraft_db_update },
       { "bandwidth",        ARG_FUNC1,  (void*) set_bandwidth },
       { "freq",             ARG_FUNC1,  (void*) set_frequency },
-      { "agc",              ARG_ATOI,   (void*) &Modes.dig_agc },
+      { "agc",              ARG_FUNC1,  (void*) set_digital_agc },
       { "interactive-ttl",  ARG_FUNC1,  (void*) set_interactive_ttl },
       { "keep-alive",       ARG_FUNC1,  (void*) set_keep_alive },
       { "logfile",          ARG_FUNC1,  (void*) set_logfile },
@@ -147,15 +153,14 @@ static void      modeS_exit (void);
       { "net-ro-port",      ARG_FUNC1,  (void*) set_port_raw_out },
       { "net-sbs-port",     ARG_FUNC1,  (void*) set_port_sbs },
       { "samplerate",       ARG_FUNC1,  (void*) set_sample_rate },
-      { "silent",           ARG_ATOI,   (void*) &Modes.silent },
+      { "silent",           ARG_FUNC1,  (void*) set_silent },
       { "ppm",              ARG_FUNC1,  (void*) set_ppm },
-      { "calibrate",        ARG_ATOI,   (void*) &Modes.rtlsdr.calibrate },
       { "host-raw",         ARG_FUNC1,  (void*) set_host_port_raw_in },
       { "host-sbs",         ARG_FUNC1,  (void*) set_host_port_sbs },
 #if 0
-      { "crc-check",        ARG_ATOI,   (void*) &Modes.check_crc },
-      { "error-correct1",   ARG_ATOI,   (void*) &Modes.check_crc1 },
-      { "error-correct2",   ARG_ATOI,   (void*) &Modes.check_crc2 },
+      { "crc-check",        ARG_FUNC1,  (void*) set_check_crc      &Modes.check_crc },
+      { "error-correct1",   ARG_FUNC1,  (void*) set_error_correct1 &Modes.error_correct_1 },
+      { "error-correct2",   ARG_FUNC1,  (void*) set_error_correct2 &Modes.error_correct_2 },
 #endif
       { NULL,       0,        NULL }
     };
@@ -378,6 +383,11 @@ static void modeS_init_config (void)
   Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
   Modes.json_interval   = 1000;
   Modes.tui_interface   = TUI_WINCON;
+
+  Modes.check_crc       = true;
+  Modes.error_correct_1 = true;
+  Modes.error_correct_2 = false;
+
 #if !defined(USE_CFG_FILE)
   Modes.keep_alive = 1;
 #endif
@@ -3358,6 +3368,12 @@ static bool set_bandwidth (const char *arg)
   return (true);
 }
 
+static bool set_bias_tee (const char *arg)
+{
+  Modes.bias_tee = cfg_true (arg);
+  return (true);
+}
+
 static bool set_frequency (const char *arg)
 {
   Modes.freq = ato_hertz (arg);
@@ -3391,7 +3407,7 @@ static bool set_interactive_ttl (const char *arg)
 
 static bool set_infile (const char *arg)
 {
-  strncpy (Modes.infile, arg, sizeof(Modes.infile)-1);
+  strcpy_s (Modes.infile, sizeof(Modes.infile), arg);
   return (true);
 }
 
@@ -3401,9 +3417,15 @@ static bool set_keep_alive (const char *arg)
   return (true);
 }
 
+static bool set_metric (const char *arg)
+{
+  Modes.metric = cfg_true (arg);
+  return (true);
+}
+
 static bool set_logfile (const char *arg)
 {
-  strncpy (Modes.logfile, arg, sizeof(Modes.logfile)-1);
+  strcpy_s (Modes.logfile, sizeof(Modes.logfile), arg);
   return (true);
 }
 
@@ -3452,13 +3474,8 @@ static bool set_host_port_raw_in (const char *arg)
 
 static bool set_host_port_raw_out (const char *arg)
 {
-#if 0
-  strncpy (modeS_net_services [MODES_NET_SERVICE_RAW_OUT].host, arg,
-           sizeof(modeS_net_services [MODES_NET_SERVICE_RAW_OUT].host));
-#else
   if (!net_set_host_port(arg, &modeS_net_services [MODES_NET_SERVICE_RAW_OUT], MODES_NET_PORT_RAW_OUT))
      return (false);
-#endif
   return (true);
 }
 
@@ -3475,11 +3492,29 @@ static bool set_ppm (const char *arg)
   return (true);
 }
 
+static bool set_calibrate (const char *arg)
+{
+  Modes.rtlsdr.calibrate = cfg_true (arg);
+  return (true);
+}
+
+static bool set_digital_agc (const char *arg)
+{
+  Modes.dig_agc = cfg_true (arg);
+  return (true);
+}
+
+static bool set_silent (const char *arg)
+{
+  Modes.silent = cfg_true (arg);
+  return (true);
+}
+
 static bool set_web_page (const char *arg)
 {
 #if defined(USE_CFG_FILE)
-  strncpy (Modes.web_root, dirname(arg), sizeof(Modes.web_root)-1);
-  strncpy (Modes.web_page, basename(arg), sizeof(Modes.web_page)-1);
+  strcpy_s (Modes.web_root, sizeof(Modes.web_root), dirname(arg));
+  strcpy_s (Modes.web_page, sizeof(Modes.web_page), basename(arg));
 #else
   (void) arg;
 #endif
@@ -3547,15 +3582,15 @@ static bool parse_cmd_line (int argc, char **argv)
     {
 #if defined(USE_CFG_FILE)
       case 'c':
-           strncpy (Modes.cfg_file, optarg, sizeof(Modes.cfg_file));
+           strcpy_s (Modes.cfg_file, sizeof(Modes.cfg_file), optarg);
            break;
 #else
       case 'a':
-           strncpy (Modes.airport_db, optarg, sizeof(Modes.airport_db)-1);
+           strcpy_s (Modes.airport_db, sizeof(Modes.airport_db), optarg);
            break;
 
       case 'b':
-           strncpy (Modes.aircraft_db, optarg, sizeof(Modes.aircraft_db)-1);
+           strcpy_s (Modes.aircraft_db, sizeof(Modes.aircraft_db), optarg);
            break;
 
       case 'B':
@@ -3634,8 +3669,8 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 'w':
-           strncpy (Modes.web_root, dirname(optarg), sizeof(Modes.web_root)-1);
-           strncpy (Modes.web_page, basename(optarg), sizeof(Modes.web_page)-1);
+           strcpy_s (Modes.web_root, sizeof(Modes.web_root), dirname(optarg));
+           strcpy_s (Modes.web_page, sizeof(Modes.web_page), basename(optarg));
            break;
 
       case 'A':        /* option `--tui wincon|curses' */
