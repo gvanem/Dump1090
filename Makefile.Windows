@@ -21,14 +21,12 @@ USE_CFG_FILE ?= 1
 USE_CRT_DEBUG ?= 0
 
 #
-# Option for 'externals/mongoose.c':
+# Option for polling of network events in 'externals/mongoose.c':
+#   USE_NET_POLLER=EPOLL:   use a Windows version of 'epoll()' from https://github.com/piscisaureus/wepoll
+#   USE_NET_POLLER=WSAPOLL: use 'WSAPoll()'
+#   USE_NET_POLLER=SELECT:  use 'select()'
 #
-# USE_EPOLL=1:   use a Windows version of 'epoll()' from https://github.com/piscisaureus/wepoll
-# USE_WSAPOLL=1: use `WSAPoll()` in `externals/mongoose.c`
-# USE_WSAPOLL=0: use `select()` in `externals/mongoose.c`
-#
-USE_EPOLL   ?= 0
-USE_WSAPOLL ?= 0
+USE_NET_POLLER ?= SELECT
 
 #
 # Enable bundling *all* web_root pages inside 'web-pages.dll' as
@@ -77,7 +75,7 @@ USE_ASTYLE ?= 1
 #
 # Python is needed for:
 #   *) .c-file preprocessing.
-#   *) generation of '$(OBJ_DIR)/web-pages-[1-4].c'.
+#   *) generation of '$(OBJ_DIR)/web-pages-*.c'.
 #   *) and in the 'link_EXE()' macro.
 #
 PYTHON ?= py -3
@@ -129,6 +127,11 @@ endif
 #
 GENERATED = $(OBJ_DIR)/cflags_$(CC).h \
             $(OBJ_DIR)/ldflags_$(CC).h
+
+#
+# For the 'link_EXE' macro
+#
+GENERATED += $(OBJ_DIR)/check-for-unused-libs.py
 
 vpath %.c externals         \
           externals/Curses  \
@@ -261,18 +264,26 @@ WEB_SRC ?= $(OBJ_DIR)/web-page-1.c \
 
 WEB_SUFFIXES ?= 1 2 3 4 5
 
-ifeq ($(USE_EPOLL),1)
+ifeq ($(USE_PACKED_DLL),1)
+  TARGETS   += web-pages.dll
+  CFLAGS    += -DUSE_PACKED_DLL
+  GENERATED += $(WEB_SRC)
+endif
+
+ifeq ($(USE_NET_POLLER),EPOLL)
   CFLAGS += -DMG_ENABLE_EPOLL=1
   SOURCES += externals/wepoll.c
 
-else ifeq ($(USE_WSAPOLL),1)
+else ifeq ($(USE_NET_POLLER),WSAPOLL)
   CFLAGS += -DMG_ENABLE_POLL=1
 
-else
+else ifeq ($(USE_NET_POLLER),SELECT)
   #
   # No code checks for this, but for 'dump1090.exe -VV' only
   #
   CFLAGS += -DMG_ENABLE_SELECT=1
+else
+  $(error Illegal 'USE_NET_POLLER' value)
 endif
 
 ifeq ($(USE_READSB_DEMOD),1)
@@ -280,17 +291,11 @@ ifeq ($(USE_READSB_DEMOD),1)
   SOURCES += externals/demod_2400.c
 endif
 
-ifeq ($(USE_PACKED_DLL),1)
-  TARGETS   += web-pages.dll
-  CFLAGS    += -DUSE_PACKED_DLL
-  GENERATED += $(WEB_SRC)
-endif
-
 OBJECTS = $(call c_to_obj, $(SOURCES))
 WEB_OBJ = $(call c_to_obj, $(WEB_SRC))
 
 #
-# Select currect MSVC / clang-cl compiler w/o the 'vcvarsall.bat' non-sense.
+# Select currect MSVC / clang-cl compiler without the 'vcvarsall.bat' non-sense.
 #
 # E.g.:
 #  'VCToolkitInstallDir=c:\dev\VC_2019\VC\Tools\MSVC\14.38.32919' -- the root of the MSVC tools.
@@ -332,10 +337,10 @@ all: $(GENERATED) $(TARGETS)
 $(OBJ_DIR) doxy-docs:
 	- mkdir $@
 
-dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res | check-for-unused-libs.py
+dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
 	$(call link_EXE, $@, $^ $(OS_LIBS) $(ASAN_LIBS))
 
-sqlite3.exe: $(OBJ_DIR)/sqlite3-shell.obj $(OBJ_DIR)/sqlite3.obj | check-for-unused-libs.py
+sqlite3.exe: $(OBJ_DIR)/sqlite3-shell.obj $(OBJ_DIR)/sqlite3.obj
 	$(call link_EXE, $@, $^ -nodefaultlib:uuid.lib oldnames.lib)
 
 $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c
@@ -433,20 +438,16 @@ doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call generate, $@, #)
 	$(file >> $@,$(dump1090_Doxyfile))
 
-%.i: %.c cpp-filter.py FORCE
+%.i: %.c $(OBJ_DIR)/cpp-filter.py FORCE
 	$(call C_preprocess, $@, $<)
 
 FORCE:
 
-cpp-filter.py: $(THIS_FILE)
-	$(call generate, $@, #)
-	$(file >> $@,if 1:)
-	$(file >> $@,$(cpp_filter_py))
+$(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate_py,$@,$(cpp_filter_py))
 
-check-for-unused-libs.py: $(THIS_FILE)
-	$(call generate, $@, #)
-	$(file >> $@,if 1:)
-	$(file >> $@,$(check_for_unused_libs_py))
+$(OBJ_DIR)/check-for-unused-libs.py: $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate_py,$@,$(check_for_unused_libs_py))
 
 #
 # '$(sort ..)' will create a unique list.
@@ -457,9 +458,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
                       $(TARGETS:.exe=.lib) \
                       web-pages.{dll,map,pdb})
 
-OTHER_JUNK = vc1*.pdb link.tmp link.args \
-             cpp-filter.py               \
-             check-for-unused-libs.py
+OTHER_JUNK = vc1*.pdb link.tmp link.args
 
 clean: docs_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
@@ -508,7 +507,7 @@ define link_EXE
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.exe=.map)
   @rm -f $(1:.exe=.exp)
-  @$(PYTHON) check-for-unused-libs.py link.tmp
+  @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
 endef
 
 define func_exports
@@ -537,6 +536,12 @@ endef
 define generate
   $(call green_msg, Generating $(1))
   $(file > $(1),$(call Warning,$(strip $(2))))
+endef
+
+define generate_py
+  $(call generate, $(1), #)
+  $(file >> $@,if 1:)
+  $(file >> $@,$(2))
 endef
 
 define generate_cflags_h
@@ -577,12 +582,13 @@ define C_preprocess
   $(file >> $(1), *---------------------------------------------------------)
   $(file >> $(1), * Try to compile this output.)
   $(file >> $(1), */)
-  $(_CC) -E $(CFLAGS) $(d1PP) $(2) | $(PYTHON) cpp-filter.py $(C_FORMATER) >> $(1)
+  $(_CC) -E $(CFLAGS) $(d1PP) $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(C_FORMATER) >> $(1)
 endef
 
 doxy_SOURCES = $(addprefix ../, $(SOURCES))
 doxy_HEADERS = ../aircraft.h                \
                ../airports.h                \
+               ../cfg_file.h                \
                ../csv.h                     \
                ../dump1090_config.h         \
                ../interactive.h             \
@@ -592,6 +598,7 @@ doxy_HEADERS = ../aircraft.h                \
                ../sdrplay.h                 \
                ../externals/Curses/curses.h \
                ../externals/miniz.h         \
+               ../externals/sqlite3.h       \
                ../externals/zip.h
 
 define dump1090_Doxyfile
