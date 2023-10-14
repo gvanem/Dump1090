@@ -1159,8 +1159,9 @@ static void unique_ips_print (intptr_t service)
   const unique_IP *ip;
   mg_host_name     addr;
   size_t           num = 0;
+  bool             has_next;
 
-  LOG_STDOUT ("    %8llu unique client(s)\n", Modes.stat.unique_clients[service]);
+  LOG_STDOUT ("    %8llu unique client(s):\n", Modes.stat.unique_clients[service]);
   if (!Modes.log)
      return;
 
@@ -1175,10 +1176,13 @@ static void unique_ips_print (intptr_t service)
     else if (num % 7 == 0)
        fprintf (Modes.log, "\n%27s", " ");
 
-    fprintf (Modes.log, "%s%s", addr, ip->next ? ", " : "");
+    has_next = (ip->next && ip->next->service == service);
+    fprintf (Modes.log, "%s%s", addr, has_next ? ", " : "");
     num++;
   }
-  fprintf (Modes.log, "%*s\n", 27+6, num == 0 ? "None!?" : "");
+  if (num == 0)
+       fprintf (Modes.log, "%*s\n", 27+6, "None!?");
+  else fputc ('\n', Modes.log);
 }
 
 static void unique_ips_free (void)
@@ -1798,7 +1802,7 @@ bool net_init (void)
 {
   mg_file_path web_dll;
 
-  strncpy (web_dll, Modes.web_page, sizeof(web_dll));
+  strcpy_s (web_dll, sizeof(web_dll), Modes.web_page);
   strlwr (web_dll);
   if (strstr(web_dll, ".dll;"))
      use_packed_dll = true;
