@@ -761,7 +761,7 @@ DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.obj: @'
 # Fixed dependencies:
 #
 $(OBJ_DIR)/dump1090.obj \
-$(OBJ_DIR)/misc.obj:    dump1090_config.h
+$(OBJ_DIR)/misc.obj:    dump1090_config.h $(OBJ_DIR)/cflags_$(CC).h $(OBJ_DIR)/ldflags_$(CC).h
 
 CURSES_SRC = $(addprefix externals/Curses/, \
                addch.c                      \
