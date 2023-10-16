@@ -1,22 +1,36 @@
 /**
- *\file cfg_file.c
+ *\file     cfg_file.c
  * \ingroup Misc
  * \brief   Config-file handling.
  */
-#define INSIDE_CFG_FILE_C
 #include "cfg_file.h"
 
-#define CFG_WARN(fmt, ...)                                 \
-        do {                                               \
-           fprintf (stderr, "%s(%u): WARNING: " fmt ".\n", \
-                   ctx->current_file, ctx->current_line,   \
-                   __VA_ARGS__);                           \
+/**
+ * \def CFG_WARN()
+ * Warn about unknown keys etc.
+ */
+#define CFG_WARN(fmt, ...)                                    \
+        do {                                                  \
+           fprintf (stderr, "%s(%u): WARNING: " fmt ".\n",    \
+                    g_ctx->current_file, g_ctx->current_line, \
+                    __VA_ARGS__);                             \
         } while (0)
 
-#define CTX_CLONE()          \
-        cfg_context new_ctx; \
-        memcpy (&new_ctx, ctx, sizeof(new_ctx))
+/**
+ * \def CTX_CLONE()
+ * Clone current context to an new context (`new_ctx`) before
+ * parsing internal keywords or an included .cfg-file.
+ */
+#define CTX_CLONE()                              \
+        cfg_context new_ctx;                     \
+        g_ctx = &new_ctx;                        \
+        memcpy (&new_ctx, ctx, sizeof(new_ctx)); \
+        new_ctx.internal = true
 
+/**
+ * \def TRACE()
+ * A local debug and trace macro.
+ */
 #undef  TRACE
 #define TRACE(level, fmt, ...)                         \
         do {                                           \
@@ -25,7 +39,8 @@
                      __FILE__, __LINE__, __VA_ARGS__); \
         } while (0)
 
-/*
+/**
+ * \def MAX_VALUE_LEN
  * Max length of an `ARG_STRCPY` parameter.
  */
 #ifndef MAX_VALUE_LEN
@@ -34,14 +49,29 @@
 
 static_assert (MAX_VALUE_LEN >= sizeof(mg_file_path), "MAX_VALUE_LEN too small");
 
-/*
- * According to:
- *  https://devblogs.microsoft.com/oldnewthing/20100203-00/?p=15083
- *  https://learn.microsoft.com/en-gb/windows/win32/api/processenv/nf-processenv-getenvironmentvariablea
+/**
+ * \def MAX_ENV_LEN
+ * Max length of an environment variable value. According to:
+ *  \ref https://devblogs.microsoft.com/oldnewthing/20100203-00/?p=15083
+ *  \ref https://learn.microsoft.com/en-gb/windows/win32/api/processenv/nf-processenv-getenvironmentvariablea
  */
 #define MAX_ENV_LEN  32767
 
-static mg_file_path  g_our_dir;
+/**
+ * \def MAX_LINE_LEN
+ * Max length of a line; key + value.
+ */
+#define MAX_LINE_LEN (1000 + MAX_ENV_LEN)
+
+/**
+ * The current config-file and the directory it is in.
+ */
+static mg_file_path  g_our_cfg, g_our_dir;
+
+/**
+ * The global context for `CFG_WARN()`
+ */
+static const cfg_context *g_ctx;
 
 static bool handle_include   (cfg_context *ctx, const char *key, const char *value);
 static bool handle_message   (cfg_context *ctx, const char *key, const char *value);
@@ -56,6 +86,13 @@ static cfg_table internals [] = {
     { NULL,                0,         NULL }
   };
 
+static bool is_internal_key (const char *key)
+{
+  if (!stricmp(key, "include") || !stricmp(key, "message") || !strnicmp(key, "internal.", 9))
+     return (true);
+  return (false);
+}
+
 static int   cfg_parse_file    (cfg_context *ctx);
 static bool  cfg_parse_line    (cfg_context *ctx, char **key_p, char **value_p);
 static bool  cfg_parse_table   (cfg_context *ctx, const char *key, const char *value);
@@ -65,15 +102,12 @@ bool cfg_open_and_parse (cfg_context *ctx)
 {
   int rc = 0;
 
-  if (ctx->current_level == 0)
-  {
-    mg_file_path path;
+  g_ctx = ctx;
 
-    GetModuleFileNameA (NULL, path, sizeof(path));
-    snprintf (g_our_dir, sizeof(g_our_dir), "%s\\", dirname(path));
-  }
+  strcpy_s (g_our_cfg, sizeof(g_our_cfg), ctx->fname);
+  snprintf (g_our_dir, sizeof(g_our_dir), "%s\\", dirname(g_our_cfg));
 
-  strncpy (ctx->current_file, ctx->fname, sizeof(ctx->current_file)-1);
+  strcpy_s (ctx->current_file, sizeof(ctx->current_file), ctx->fname);
   ctx->file = fopen (ctx->current_file, "rb");
   if (!ctx->file)
   {
@@ -81,20 +115,23 @@ bool cfg_open_and_parse (cfg_context *ctx)
     return (false);
   }
 
-  ctx->current_level++;
   rc = cfg_parse_file (ctx);
   fclose (ctx->file);
 
-  if (ctx->test_level >= 1)
-     printf ("rc from cfg_parse_file(): %d\n\n", rc);
+  TRACE (1, "rc from `cfg_parse_file()': %d", rc);
   return (rc > 0);
 }
 
 bool cfg_true (const char *arg)
 {
   assert (arg);
+
   if (*arg == '1' || !stricmp(arg, "true") || !stricmp(arg, "yes") || !stricmp(arg, "on"))
      return (true);
+
+  if (!(*arg == '0' || !stricmp(arg, "false") || !stricmp(arg, "no") || !stricmp(arg, "off")))
+     CFG_WARN ("failed to match '%s' as 'false'", arg);
+
   return (false);
 }
 
@@ -122,8 +159,7 @@ static int cfg_parse_file (cfg_context *ctx)
      else
      {
        CTX_CLONE();
-       new_ctx.tab      = internals;
-       new_ctx.internal = true;
+       new_ctx.tab = internals;
        rc += cfg_parse_table (&new_ctx, key, expanded ? expanded : value);
      }
      free (expanded);
@@ -142,7 +178,7 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
 
   while (1)
   {
-    char buf [1000];
+    char buf [MAX_LINE_LEN];
 
     if (!fgets(buf, sizeof(buf)-1, ctx->file))  /* EOF */
        return (false);
@@ -187,7 +223,8 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
 
 static const char *type_name (cfg_tab_types type)
 {
-  return (type == ARG_ATOI    ? "ARG_ATOI"    :
+  return (type == ARG_ATOB    ? "ARG_ATOB"    :
+          type == ARG_ATOI    ? "ARG_ATOI"    :
           type == ARG_ATO_U8  ? "ARG_ATO_U8"  :
           type == ARG_ATO_U16 ? "ARG_ATO_U16" :
           type == ARG_ATO_U32 ? "ARG_ATO_U32" :
@@ -219,9 +256,25 @@ static bool parse_and_set_value (cfg_context *ctx, const char *key, const char *
 
   TRACE (2, "parsing key: '%s', value: '%s'", key, value);
 
+  if (size == -1)  /* parse and set a `bool` */
+  {
+    if (*value == '1' || !stricmp(value, "true") || !stricmp(value, "yes") || !stricmp(value, "on"))
+    {
+      *(bool*) arg = true;
+      return (true);
+    }
+    if (*value == '0' || !stricmp(value, "false") || !stricmp(value, "no") || !stricmp(value, "off"))
+    {
+      *(bool*) arg = false;
+      return (true);
+    }
+    CFG_WARN ("failed to match '%s' as a 'bool'", value);
+    return (false);
+  }
+
   ok = (sscanf(value, "%lld", &val) == 1);
   if (!ok)
-     CFG_WARN ("failed to match '%s' as decimal in '%s'", value, key);
+     CFG_WARN ("failed to match '%s' as decimal in key '%s'", value, key);
   else
   {
     switch (size)
@@ -297,10 +350,14 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
        continue;
 
     found = true;
-    arg = tab->arg_func;   /* storage or function to call */
+    arg   = tab->arg_func;   /* storage or function to call */
 
     switch (tab->type)
     {
+      case ARG_ATOB:
+           rc = parse_and_set_value (ctx, key, value, arg, -1);
+           break;
+
       case ARG_ATOI:
            rc = parse_and_set_value (ctx, key, value, arg, sizeof(int));
            break;
@@ -345,23 +402,23 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
            break;
 
       case ARG_STRCPY:
-           strncpy ((char*)arg, value, MAX_VALUE_LEN-1);
+           strncpy ((char*)arg, value, MAX_VALUE_LEN);
            rc = true;
            break;
 
       default:
-           fprintf (stderr, "Something wrong in %s(): '%s' = '%s'. type = %s (%d).\n",
-                    __FUNCTION__, key, value, type_name(tab->type), tab->type);
-           exit (1);
+           CFG_WARN ("Unknown type = %s (%d) for '%s = %s'",
+                     type_name(tab->type), tab->type, key, value);
+           break;
     }
     TRACE (2, "%s, matched '%s' = '%s'", type_name(tab->type), key, value);
     break;
   }
 
-  /* Only warn on unknown "external" key/values
+  /* Warn only on unknown "external" key/values
    */
-  if (!found && !ctx->internal && stricmp(key, "include") && strnicmp(key, "internal.", 9))
-     fprintf (stderr, "%s(%u): Unknown key/value: '%s = %s'.\n", ctx->current_file, ctx->current_line, key, value);
+  if (!found && !ctx->internal && !is_internal_key(key))
+     CFG_WARN ("Unknown key/value: '%s = %s'.\n", key, value);
   return (rc);
 }
 
@@ -375,14 +432,21 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
 static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
 {
   const char *orig_var = variable;
-  char *p, *rc, *env = NULL;
+  char *p1, *p2, *rc, *env = NULL;
   char  buf1 [MAX_ENV_LEN];
   char  buf2 [MAX_ENV_LEN];
 
-  p = strstr (variable, "%~dp0");
-  if (p)
+  p1 = strstr (variable, "%0");
+  p2 = strstr (variable, "%~dp0");
+
+  if (p1)
   {
-    snprintf (buf1, sizeof(buf1), "%.*s%s%s", (int)(p - variable), variable, g_our_dir, p + 5);
+    snprintf (buf1, sizeof(buf1), "%.*s%s%s", (int)(p1 - variable), variable, g_our_cfg, p1 + 2);
+    env = buf1;
+  }
+  else if (p2)
+  {
+    snprintf (buf1, sizeof(buf1), "%.*s%s%s", (int)(p2 - variable), variable, g_our_dir, p2 + 5);
     env = buf1;
   }
   else
@@ -414,7 +478,7 @@ static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
 }
 
 /**
- * Functions for 'internals []' tests:
+ * Functions for `internals[]` tests:
  */
 static bool handle_ipv4_test (cfg_context *ctx, const char *key, const char *value)
 {
@@ -446,7 +510,7 @@ static bool handle_ipv6_test (cfg_context *ctx, const char *key, const char *val
 
 static bool handle_message (cfg_context *ctx, const char *key, const char *value)
 {
-  printf ("level: %u, Message: '%s'\n", ctx->current_level, value);
+  printf ("Message: '%s'\n", value);
   (void) ctx;
   (void) key;
   return (true);
@@ -480,8 +544,7 @@ static bool handle_include (cfg_context *ctx, const char *key, const char *value
   if (!ignore)
   {
     CTX_CLONE();
-    new_ctx.fname    = new_file;
-    new_ctx.internal = true;
+    new_ctx.fname = new_file;
     return cfg_open_and_parse (&new_ctx);
   }
   return (true);

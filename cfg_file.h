@@ -1,8 +1,13 @@
+/**\file    cfg_file.h
+ * \ingroup Misc
+ * \brief   Config-file handling.
+ */
 #pragma once
 
 #include "misc.h"
 
 typedef enum cfg_tab_types {
+        ARG_ATOB,          /**< convert to bool */
         ARG_ATOI,          /**< convert to int */
         ARG_ATO_U8,        /**< convert to 8-bit  'uint8_t' */
         ARG_ATO_U16,       /**< convert to 16-bit 'uint16_t */
@@ -30,7 +35,6 @@ typedef struct cfg_context {
        unsigned         test_level;
        mg_file_path     current_file;
        unsigned         current_line;
-       unsigned         current_level;
        char             current_key [256];
        char             current_val [512];
      } cfg_context;
