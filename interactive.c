@@ -24,7 +24,7 @@ typedef enum colours {
         COLOUR_RED,
         COLOUR_YELLOW,
         COLOUR_REVERSE,
-        COLOUR_MAX,
+        COLOUR_MAX
       } colours;
 
 typedef struct colour_mapping {
@@ -516,7 +516,8 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
 
 /**
  * Show the currently captured aircraft information on screen.
- * \param in now  the currect tick-timer in mill-seconds
+ *
+ * \param in now  the currect tick-timer in milli-seconds
  */
 void interactive_show_data (uint64_t now)
 {
@@ -527,8 +528,7 @@ void interactive_show_data (uint64_t now)
 
   no_clear |= (Modes.raw > 0);
 
-  /*
-   * If `--debug X` and `--raw` mode is not active, clear the screen to remove old info.
+  /* If `--debug X` and `--raw` mode is not active, clear the screen to remove old info.
    * But only if current number of aircrafts is less than last time. This is to
    * avoid an annoying blinking of the console.
    */
