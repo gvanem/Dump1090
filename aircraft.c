@@ -1611,7 +1611,9 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   cpos.c_x += delta_X;
   cpos.c_y += delta_Y;
 
-  cartesian_to_spherical (&cpos, &a->EST_position, heading);
+  if (!cartesian_to_spherical (&cpos, &a->EST_position, heading))
+     return;
+
   ASSERT_POS (a->EST_position);
 
   gc_distance     = great_circle_dist (a->EST_position, Modes.home_pos);

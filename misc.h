@@ -629,7 +629,7 @@ int         unload_dynamic_table (struct dyn_struct *tab, int tab_size);
 void        puts_long_line (const char *start, size_t indent);
 void        show_version_info (bool verbose);
 void        spherical_to_cartesian (const pos_t *pos, cartesian_t *cart);
-void        cartesian_to_spherical (const cartesian_t *cart, pos_t *pos, double heading);
+bool        cartesian_to_spherical (const cartesian_t *cart, pos_t *pos, double heading);
 double      cartesian_distance (const cartesian_t *a, const cartesian_t *b);
 double      great_circle_dist (pos_t pos1, pos_t pos2);
 double      closest_to (double val, double val1, double val2);

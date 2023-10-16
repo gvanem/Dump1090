@@ -1526,7 +1526,7 @@ void spherical_to_cartesian (const pos_t *pos, cartesian_t *cart)
 /**
  * \ref https://keisan.casio.com/exec/system/1359533867
  */
-void cartesian_to_spherical (const cartesian_t *cart, pos_t *pos_out, double heading)
+bool cartesian_to_spherical (const cartesian_t *cart, pos_t *pos_out, double heading)
 {
   pos_t pos;
 
@@ -1539,8 +1539,11 @@ void cartesian_to_spherical (const cartesian_t *cart, pos_t *pos_out, double hea
   pos.lon = 360.0 * atan2 (cart->c_y, cart->c_x) / TWO_PI;
   pos.lat = 360.0 * atan2 (hypot(cart->c_x, cart->c_y), cart->c_z) / TWO_PI;
 
-  ASSERT_POS (pos);
+  if (!VALID_POS(pos))
+     return (false);
+
   *pos_out = pos;
+  return (true);
 }
 
 /**
