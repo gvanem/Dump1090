@@ -65,7 +65,7 @@ typedef struct aircraft {
         char      call_sign [9];          /**< call-sign / flight number */
         int       altitude;               /**< Altitude */
         uint32_t  speed;                  /**< Velocity computed from EW and NS components. In Knots */
-        uint32_t  speed_last;             /**< speed when used in `aircraft_set_est_home_distance()` last time. In Km/h */
+        uint32_t  speed_last;             /**< Speed when used in `aircraft_set_est_home_distance()` last time. In Km/h */
         int       heading;                /**< Horizontal angle of flight */
         bool      heading_is_valid;       /**< It has a valid heading */
         bool      is_helicopter;          /**< It is a helicopter */
