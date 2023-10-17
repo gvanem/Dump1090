@@ -1538,12 +1538,8 @@ bool cartesian_to_spherical (const cartesian_t *cart, pos_t *pos_out, double hea
    */
   pos.lon = 360.0 * atan2 (cart->c_y, cart->c_x) / TWO_PI;
   pos.lat = 360.0 * atan2 (hypot(cart->c_x, cart->c_y), cart->c_z) / TWO_PI;
-
-  if (!VALID_POS(pos))
-     return (false);
-
   *pos_out = pos;
-  return (true);
+  return (VALID_POS(pos));
 }
 
 /**

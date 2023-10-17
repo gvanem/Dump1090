@@ -1575,6 +1575,7 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   double      heading, distance, gc_distance, cart_distance;
   double      delta_X, delta_Y;
   cartesian_t cpos = { 0.0, 0.0, 0.0 };
+  pos_t       epos;
   uint32_t    speed = round ((double)a->speed * 1.852);  /* Km/h */
 
   if (!Modes.home_pos_ok || speed == 0 || !a->heading_is_valid)
@@ -1591,7 +1592,8 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   if (a->speed_last && abs((int)speed - (int)a->speed_last) > 20)
      speed = a->speed_last;
 
-  spherical_to_cartesian (&a->EST_position, &cpos);
+  epos = a->EST_position;
+  spherical_to_cartesian (&epos, &cpos);
 
   /* Ensure heading is in range '[-Phi .. +Phi]'
    */
@@ -1604,16 +1606,21 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
    */
   distance = 0.001852 * (double)speed * (now - a->EST_seen_last);
-  a->EST_seen_last = now;
 
   delta_X = distance * sin (heading);
   delta_Y = distance * cos (heading);
   cpos.c_x += delta_X;
   cpos.c_y += delta_Y;
 
-  if (!cartesian_to_spherical (&cpos, &a->EST_position, heading))
-     return;
+  if (!cartesian_to_spherical(&cpos, &epos, heading))
+  {
+    LOG_FILEONLY ("addr %04X: Invalid epos: %+7.03f lon, %+8.03f lat from heading: %+7.1lf. delta_X: %+8.3lf, delta_Y: %+8.3lf.\n",
+                  a->addr, epos.lon, epos.lat, 360.0*heading/TWO_PI, delta_X, delta_Y);
+    return;
+  }
 
+  a->EST_seen_last = now;
+  a->EST_position  = epos;
   ASSERT_POS (a->EST_position);
 
   gc_distance     = great_circle_dist (a->EST_position, Modes.home_pos);
