@@ -513,7 +513,6 @@ static bool modeS_init (void)
   signal (SIGINT, modeS_signal_handler);
   signal (SIGBREAK, modeS_signal_handler);
   signal (SIGABRT, modeS_signal_handler);
-  SetConsoleCtrlHandler (modeS_logoff_handler, TRUE);
 
   /* We add a full message minus a final bit to the length, so that we
    * can carry the remaining part of the buffer that we can't process
@@ -3066,37 +3065,6 @@ void modeS_signal_handler (int sig)
 }
 
 /*
- * Return the name for the console-events we might receive.
- */
-static const char *event_name (DWORD event)
-{
-  return (event == CTRL_C_EVENT ? "CTRL_C_EVENT" :
-          event == CTRL_BREAK_EVENT ? "CTRL_BREAK_EVENT" :
-          event == CTRL_CLOSE_EVENT ? "CTRL_CLOSE_EVENT" :
-          event == CTRL_LOGOFF_EVENT ? "CTRL_LOGOFF_EVENT" :
-          event == CTRL_SHUTDOWN_EVENT ? "CTRL_SHUTDOWN_EVENT" :
-          "UNKNOWN EVENT");
-}
-
-/**
- * The handler called for OS shutdown events.
- * Exit the program ASAP.
- */
-BOOL WINAPI modeS_logoff_handler (DWORD event)
-{
-  if (event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT)
-  {
-    /* Ignore; these are handled by sigint() handler */
-    return (FALSE);
-  }
-
-  MessageBeep (MB_OK);
-  Modes.exit = true;
-  LOG_STDOUT ("Caught %s. Shutting down ...\n", event_name(event));
-  return (TRUE);
-}
-
-/*
  * Show decoder statistics for a RTLSDR / SDRPlay device.
  */
 static void show_decoder_stats (void)
@@ -3222,8 +3190,6 @@ static void modeS_exit (void)
     fclose (Modes.log);
     Modes.log = NULL;
   }
-
-  SetConsoleCtrlHandler (modeS_logoff_handler, FALSE);
 
 #if defined(_DEBUG)
   crtdbug_exit();

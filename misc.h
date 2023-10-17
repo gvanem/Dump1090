@@ -593,7 +593,6 @@ char       *modeS_SYSTEMTIME_to_str (const SYSTEMTIME *st, bool show_YMD);
 char       *modeS_FILETIME_to_str (const FILETIME *ft, bool show_YMD);
 char       *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD);
 void        modeS_signal_handler (int sig);
-BOOL WINAPI modeS_logoff_handler (DWORD event);
 bool        decode_RAW_message (mg_iobuf *msg, int loop_cnt);  /* in 'dump1090.c' */
 bool        decode_SBS_message (mg_iobuf *msg, int loop_cnt);  /* in 'dump1090.c' */
 uint32_t    ato_hertz (const char *Hertz);
