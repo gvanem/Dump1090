@@ -13,7 +13,7 @@ MAKEFLAGS += --warn-undefined-variables
 #
 # Choose your weapons:
 #
-USE_CFG_FILE ?= 1
+USE_CFG_FILE ?= 0
 
 #
 # Use CRT debug-mode.
@@ -32,7 +32,7 @@ USE_NET_POLLER ?= SELECT
 # Enable bundling *all* web_root pages inside 'web-pages.dll' as
 # multiple resources.
 #
-USE_PACKED_DLL ?= 1
+USE_PACKED_DLL ?= 0
 
 #
 # Pack 'web-pages.dll' using UPX.EXE? Needs an up-to-date version.
@@ -456,7 +456,8 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
                       $(TARGETS:.exe=.pdb) \
                       $(TARGETS:.exe=.exp) \
                       $(TARGETS:.exe=.lib) \
-                      web-pages.{dll,map,pdb})
+                      sqlite3.{map,pdb}    \
+                      web-pages.{map,pdb})
 
 OTHER_JUNK = vc1*.pdb link.tmp link.args
 
@@ -466,7 +467,7 @@ clean: docs_clean
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
 vclean realclean: clean
-	rm -f $(TARGETS) dump1090.chm sqlite3.{exe,map,pdb} .depend.Windows
+	rm -f $(TARGETS) dump1090.chm sqlite3.exe web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
 #
