@@ -540,7 +540,9 @@ bool aircraft_CSV_update (const char *db_file, const char *url)
     if (st.st_mtime > expiry)
     {
       when = now + 10 * 24 * 3600;  /* 10 days into the future */
-      LOG_STDERR ("\nUpdate of '%s' not needed before %.24s.\n", zip_file, ctime(&when));
+
+      if (Modes.update)
+         LOG_STDERR ("\nUpdate of '%s' not needed before %.24s.\n", zip_file, ctime(&when));
       return (true);
     }
   }
@@ -607,19 +609,19 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
   }
   else if (ctx->field_num == 1)   /* "registration" field */
   {
-    strcpy_s (rec.reg_num, sizeof(rec.reg_num), value);
+    strncpy (rec.reg_num, value, sizeof(rec.reg_num)-1);
   }
   else if (ctx->field_num == 3)   /* "manufacturername" field */
   {
-    strcpy_s (rec.manufact, sizeof(rec.manufact), value);
+    strncpy (rec.manufact, value, sizeof(rec.manufact)-1);
   }
   else if (ctx->field_num == 8)  /* "icaoaircrafttype" field */
   {
-    strcpy_s (rec.type, sizeof(rec.type), value);
+    strncpy (rec.type, value, sizeof(rec.type)-1);
   }
   else if (ctx->field_num == 10)  /* "operatorcallsign" field */
   {
-    strcpy_s (rec.call_sign, sizeof(rec.call_sign), value);
+    strncpy (rec.call_sign, value, sizeof(rec.call_sign)-1);
   }
   else if (ctx->field_num == ctx->num_fields - 1)  /* we got the last field */
   {
@@ -641,7 +643,7 @@ bool aircraft_SQL_set_name (void)
     memset (&st, '\0', sizeof(st));
     snprintf (aircraft_sql, sizeof(aircraft_sql), "%s.sqlite", Modes.aircraft_db);
     have_sql_file = (stat (aircraft_sql, &st) == 0) && (st.st_size > 8*1024);
-    TRACE ("Aircraft Sqlite database \"%s\", size: %ld.\n", aircraft_sql, have_sql_file ? st.st_size : 0);
+    TRACE ("Aircraft Sqlite database \"%s\", size: %ld", aircraft_sql, have_sql_file ? st.st_size : 0);
 
     if (!have_sql_file)
        DeleteFileA (aircraft_sql);
@@ -717,7 +719,9 @@ bool aircraft_CSV_load (void)
 
   if (stat(Modes.aircraft_db, &st_csv) != 0)
   {
-    LOG_STDERR ("Aircraft database \"%s\" does not exist.\n", Modes.aircraft_db);
+    LOG_STDERR ("Aircraft database \"%s\" does not exist.\n"
+                "Do a \"%s --update\" to download and generate it.\n",
+                Modes.aircraft_db, Modes.who_am_I);
     return (false);
   }
 
