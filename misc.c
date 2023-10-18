@@ -701,19 +701,6 @@ uint64_t mg_millis (void)
 }
 #endif
 
-/**
- * Test what an `assert(0)` does in `Release` vs. `Debug` mode.
- */
-void test_assert (void)
-{
-#ifdef _DEBUG
-  puts ("Expecting an 'assert(0)' to be catched by us.");
-#else
-  puts ("Expecting an 'assert(0)' to be trapped by Dr. Watson.");
-#endif
-  assert (0);
-}
-
 #if defined(_DEBUG)
 /**
  * Check for memory-leaks in `_DEBUG` mode.
