@@ -32,32 +32,39 @@ and added some more references and screen-shots. But in the source-code I've don
 * Decode raw IQ samples from file (using the `--infile bin-file` command line option).
 * Interactive command-line-interface mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives. Planes that haven't been seen
-  last 60 seconds are removed from the list (option `--interactive-ttl sec` to change).
+  last 60 seconds are removed from the list (key/value `interactive-ttl = sec` to change).
 * *CPR* (**Compact Position Reporting**) coordinates decoding and track calculation from velocity.
 * TCP server streaming and receiving raw data to/from connected clients <br>
   (options `--net` or `--net-only`).
-
-While from time to time I still add / fix stuff in my fork, I target
-minimalism in this implementation. <br>
-However there is a [much more feature complete fork](https://github.com/MalcolmRobb/dump1090)
-available, developed by **Malcolm Robb**.
+* Many command-line options are now in the `dump1090.cfg` file. See below.
 
 ## Building
 
-  Assuming you have downloaded this package to `c:\dev\Dump1090`, then do:
+  Assuming you have downloaded this package to `c:\dev\Dump1090`, then `cd c:\dev\Dump1090` and do:
 
   * Using GNU-make, type:
     * `c:\dev\Dump1090> make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
   * Or using Visual Studio tools:
     * `c:\dev\Dump1090> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
-    * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`.
+    * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`. <br>
+      The project may have to be retargeted. *Devenv* would do this automatically and print <br>
+      `Configuration 'Release|x64': changing Platform Toolset to 'v143' (was 'v142')` when finished.
 
 ## Normal usage
 
-Since the uncompressed `aircraftDatabase.csv` file is too big to be allowed on Github, first
-uncompress `aircraftDatabase.csv.gz` (listed above) into `aircraftDatabase.csv` using:
+Since the uncompressed `aircraft-database.csv` file is too big to be allowed here on Github, it will
+automatically be downloaded and unzipped from [**OpenSky**](https://opensky-network.org/datasets/metadata/).
+On first run of `dump1090.exe`, this will print:
  ```
-  c:\dev\Dump1090> gzip -d aircraftDatabase.csv.gz
+  Force updating 'c:\dev\Dump1090\aircraft-database.csv' since it does not exist.
+  Force updating 'c:\temp\dump1090\aircraft-database-temp.zip' from 'https://opensky-network.org/datasets/metadata/aircraftDatabase.zip'
+  Got 24162 kB.
+  Copied 'c:\temp\dump1090\aircraft-database-temp.csv' -> 'c:\dev\Dump1090\aircraft-database.csv'
+  Deleting 'c:\dev\Dump1090\aircraft-database.csv.sqlite' to force a rebuild in 'aircraft_CSV_load()'
+  using Sqlite file: "c:\dev\Dump1090\aircraft-database.csv.sqlite".
+  Loading 'c:\dev\Dump1090\aircraft-database.csv' could take some time.
+  Creating SQL-database 'c:\dev\Dump1090\aircraft-database.csv.sqlite'... 518999
+  Created 519998 records
  ```
 
 To capture traffic directly from your RTL-SDR device and show the captured traffic
@@ -122,7 +129,8 @@ to your browser to **http://localhost:8080**, use this command:
   and the *Windows Legacy Console*:
   **![console output](dump1090-win.png)**
 
-  or if started as `c:\dev\Dump1090> dump1090 --interactive --tui curses`, inside [**Windows Terminal**](https://github.com/microsoft/terminal) and a suitable background image: **![curses WinTerm](dump1090-wt-1.png)**
+  or with `tui = curses` in the `dump1090.cfg` file and started as `c:\dev\Dump1090> dump1090 --interactive` inside
+  [**Windows Terminal**](https://github.com/microsoft/terminal) and a suitable background image: **![curses WinTerm](dump1090-wt-1.png)**
 
 In this interactive mode there is a more compact output. Where the screen is refreshed
 up to 4 times per second displaying all the recently seen aircrafts with some additional
@@ -136,11 +144,13 @@ If a `DUMP1090_HOME_POS` environment variable is defined, the distance to the pl
 calculated. I.e. the `Dist` column above. E.g. a `set DUMP1090_HOMEPOS=60.3016821,5.3208769`
 for Bergen/Norway. Find your location on [**FreeMapTools**](https://www.freemaptools.com/elevation-finder.htm).
 
-Otherwise the `--location` option will try to get this position from the [**Windows Location API**](https://learn.microsoft.com/en-us/windows/win32/api/locationapi/nn-locationapi-ilocation).
+Otherwise a `location = true` setting will try to get this position from the
+[**Windows Location API**](https://learn.microsoft.com/en-us/windows/win32/api/locationapi/nn-locationapi-ilocation).
 
-The program supports another Web-root implementation (than the default `./web_root/gmap.html`) using the `--web-page <HTML-file>` option. Running it like:
+The program supports another Web-root implementation (than the default `./web_root/gmap.html`) using the `web-page = <HTML-file>` key/value.
+Running with `web-page = %~dp0\web_root-Tar1090\index.html` in the `dump1090.cfg` file and starting:
   ```
-  c:\dev\Dump1090> dump1090 --interactive --web-page c:\dev\Dump1090\web_root-Tar1090\index.html
+  c:\dev\Dump1090> dump1090 --interactive
   ```
 
 will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/) and data from [**Tar1090-DB**](https://github.com/wiedehopf/tar1090-db/):
@@ -155,7 +165,7 @@ Ref. `USE_PACKED_WEB = 1` in [**Makefile.Windows**](https://github.com/gvanem/Du
 And when using the excellent *[RTL1090](https://rtl1090.com/) V3 Scope* program by [**JetVision**](https://jetvision.de/) as
 the collector and generator of **RAW-IN** messages, and Dump1090 starting like:
  ```
- dump1090.exe --net-active --interactive --tui curses --metric --host-raw localhost:31001
+ dump1090.exe --net-active --interactive --config host-raw.cfg
  ```
 
  both programs in combination may look like this: ![rtl1090 output](rtl1090.jpg).
@@ -163,7 +173,7 @@ the collector and generator of **RAW-IN** messages, and Dump1090 starting like:
  (the 2 lower screens above are the [Beta3](https://www.jetvision.de/manuals/rtl1090.beta3.zip) version).
 
 
-And in non-interactive mode, `dump1090.exe --net-active --metric --host-raw localhost:31001`
+And in non-interactive mode, `dump1090.exe --net-active --config host-raw.cfg`
 shows it like:
  ```
 *8d479e84580fd03d66d139c1cd17;
@@ -192,14 +202,14 @@ program that is able to output 8-bit unsigned IQ samples at 2 MHz sample rate):
 
 In the above example, `rtl_sdr` with AUTO gain is used. Use `rtl_sdr -g 50` for a 50 dB gain.
 A need to experiment with the gain depends on the tuner. But in my experience, AUTO gain
-works best (`--gain 0`).
+works best (`gain = 0` in the `--config` file).
 
 This is not needed when calling *Dump1090* itself.
 
 It is possible to feed the program with data via *standard input* using
 the `--infile` option with `-` as argument.
 
-When a `aircraftDatabase.csv` is present and used with a `.bin`-file, it can show output like:
+When a `aircraft-database.csv` is present and used with a `.bin`-file, it can show output like:
   ```
   c:\dev\Dump1090> dump1090 --infile testfiles\modes1.bin
   ...
@@ -219,28 +229,23 @@ When a `aircraftDatabase.csv` is present and used with a `.bin`-file, it can sho
     ICAO Address   : 4d2023 (reg-num: 9H-AEM, manuf: Airbus)
   ```
 
-Use option `--database NUL` (or  `--database -` etc.) to avoid loading this huge (approx. 82 MByte)
-`.CSV` file. Or run the program like:
-```
-  c:\dev\Dump1090> dump1090 --database-sql <other options>
-```
-to load the 5 times smaller `aircraftDatabase.csv-sqlite` file.
-
-The latest version is available from:
+Use key/value `aircrafts = NUL` to avoid loading this huge (approx. 82 MByte)
+`.CSV` file. The latest version of this file is available from:
   **https://opensky-network.org/datasets/metadata/**
 
-The option `--database-update` will check and download <br>
+The option `--update` will check and download <br>
 **https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and
-extract using an external [**unzip**](https://sourceforge.net/projects/gnuwin32/files/unzip/5.51-1/) program.
-And with option `--database-sql`, also rebuild the `aircraftDatabase.csv.sqlite` file.
+extract using the internal [**zip**](https://github.com/kuba--/zip) functions.
+And also rebuild the `aircraft-database.csv.sqlite` file using [**sqlite3.c**](externals/sqlite3.c).
 
 ## Additional options
 
-*Dump1090* can be used with other command line options to set a different
-gain, frequency, and so forth. <br>
+*Dump1090* now has limited command line options. Seldom used settings are now
+in the default [**config-file**](dump1090.cfg). This can select gain, frequency, and so forth. <br>
+The option `--config <file>` can select another custom `.cfg` file.
 Full list of options use is shown using `dump1090 --help` or `dump1090 -h`.
 
-A syntax like `dump1090 --freq 1090.001M` is possible for cheap RTL-SDR devices with
+A setting like `freq = 1090.001M` is possible for cheap RTL-SDR devices with
 high frequency drift. But for most devices, this is not needed (due to the
 *capture effect* of the signal itself?).
 
@@ -255,7 +260,7 @@ the checksum of the resulting message matches.
 
 This is indeed able to fix errors and works reliably in my experience,
 however if you are interested in very reliable data, I suggest to use
-the `--no-fix` command line switch in order to disable error fixing.
+the `crc-check = false` setting to disable error fixing.
 
 ## Performances and detection
 
@@ -272,7 +277,7 @@ my free time (this is just an hobby project).
 
 By enabling the networking support with `--net`, `dump1090` starts listening
 for clients connections on port 30002 and 30001 (you can change both ports
-`--net-X-port Y`. See `--help` or `-h` for details).
+`net-X-port = Y`. Look in `dump1090.cfg` for details).
 
   * **Port 30002** connected clients are served with data ASAP as they arrive from the device
     (or from file if `--infile` is used) in the raw format similar to the following: <br>
@@ -328,7 +333,7 @@ If you are interested in a more serious antenna or ADS-B equipment, check the fo
 
 ## Aggressive mode
 
-With `--aggressive` it is possible to activate the *aggressive mode* that is a
+With `error-correct2 = true` it is possible to activate the *aggressive mode* that is a
 modified version of the *Mode S* packet detection and decoding. The aggressive mode uses
 more CPU usually (especially if there are many planes sending *DF17* packets), but
 can detect a few more messages.

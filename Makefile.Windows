@@ -13,9 +13,6 @@ MAKEFLAGS += --warn-undefined-variables
 #
 # Choose your weapons:
 #
-USE_CFG_FILE ?= 0
-
-#
 # Use CRT debug-mode.
 #
 USE_CRT_DEBUG ?= 0
@@ -142,7 +139,7 @@ vpath %.rc $(OBJ_DIR)
 
 CFLAGS = -nologo -c -Zi -W4        \
          -FI./dump1090_config.h    \
-         -fp:precise               \
+         -fp:strict                \
          -I.                       \
          -I./externals             \
          -I./externals/Curses      \
@@ -154,10 +151,6 @@ LDFLAGS = -nologo -map -debug -verbose -incremental:no \
           -nodefaultlib:oldnames.lib -machine:$(CPU)
 
 RCFLAGS = -nologo
-
-ifeq ($(USE_CFG_FILE),1)
-  CFLAGS += -DUSE_CFG_FILE
-endif
 
 ifeq ($(USE_CRT_DEBUG),1)
   CFLAGS  += -MDd -GS -Oy- -RTCu -RTCs
@@ -199,6 +192,10 @@ ifeq ($(USE_ASAN),1)
   CFLAGS += -fsanitize=address -DUSE_ASAN
 
   ifeq ($(CC),clang-cl)
+    CFLAGS += -fsanitize-stats                          \
+              -fsanitize-address-globals-dead-stripping \
+              -fsanitize-address-use-after-scope
+
     LDFLAGS += -inferasanlibs:no \
                -libpath:$(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
 

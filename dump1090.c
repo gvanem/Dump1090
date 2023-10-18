@@ -100,7 +100,7 @@ static bool      set_home_pos (const char *arg);
 static bool      set_home_pos_from_location_API (const char *arg);
 static bool      set_host_port_raw_in (const char *arg);
 static bool      set_host_port_raw_out (const char *arg);
-static bool      set_host_port_sbs (const char *arg);
+static bool      set_host_port_sbs_in (const char *arg);
 static bool      set_keep_alive (const char *arg);
 static bool      set_logfile (const char *arg);
 static bool      set_loops (const char *arg);
@@ -124,48 +124,47 @@ static uint16_t *compute_magnitude_vector (const uint8_t *data);
 static void      background_tasks (void);
 static void      modeS_exit (void);
 
-#if defined(USE_CFG_FILE)
-  static const struct cfg_table config[] = {
-      { "bias-t",           ARG_FUNC1,  (void*) set_bias_tee },
-      { "calibrate",        ARG_FUNC1,  (void*) set_calibrate },
-      { "deny4",            ARG_FUNC1,  (void*) net_deny4 },
-      { "deny6",            ARG_FUNC1,  (void*) net_deny6 },
-      { "gain",             ARG_FUNC1,  (void*) set_gain },
-      { "homepos",          ARG_FUNC1,  (void*) set_home_pos },
-      { "location",         ARG_FUNC1,  (void*) set_home_pos_from_location_API },
-      { "if-mode",          ARG_FUNC1,  (void*) set_if_mode },
-      { "metric",           ARG_FUNC1,  (void*) set_metric },
-      { "web-page",         ARG_FUNC1,  (void*) set_web_page },
-      { "tui",              ARG_FUNC1,  (void*) set_tui },
-      { "airports",         ARG_STRCPY, (void*) &Modes.airport_db },
-      { "aircrafts",        ARG_STRCPY, (void*) &Modes.aircraft_db },
-      { "aircrafts-update", ARG_STRDUP, (void*) &Modes.aircraft_db_update },
-      { "bandwidth",        ARG_FUNC1,  (void*) set_bandwidth },
-      { "freq",             ARG_FUNC1,  (void*) set_frequency },
-      { "agc",              ARG_FUNC1,  (void*) set_digital_agc },
-      { "interactive-ttl",  ARG_FUNC1,  (void*) set_interactive_ttl },
-      { "keep-alive",       ARG_FUNC1,  (void*) set_keep_alive },
-      { "logfile",          ARG_FUNC1,  (void*) set_logfile },
-      { "loops",            ARG_FUNC1,  (void*) set_loops },
-      { "max-messages",     ARG_FUNC1,  (void*) set_max_messages },
-      { "net-http-port",    ARG_FUNC1,  (void*) set_port_http },
-      { "net-ri-port",      ARG_FUNC1,  (void*) set_port_raw_in },
-      { "net-ro-port",      ARG_FUNC1,  (void*) set_port_raw_out },
-      { "net-sbs-port",     ARG_FUNC1,  (void*) set_port_sbs },
-      { "samplerate",       ARG_FUNC1,  (void*) set_sample_rate },
-      { "silent",           ARG_FUNC1,  (void*) set_silent },
-      { "ppm",              ARG_FUNC1,  (void*) set_ppm },
-      { "host-raw",         ARG_FUNC1,  (void*) set_host_port_raw_in },
-      { "host-sbs",         ARG_FUNC1,  (void*) set_host_port_sbs },
+static const struct cfg_table config[] = {
+    { "bias-t",           ARG_FUNC1,  (void*) set_bias_tee },
+    { "calibrate",        ARG_FUNC1,  (void*) set_calibrate },
+    { "deny4",            ARG_FUNC1,  (void*) net_deny4 },
+    { "deny6",            ARG_FUNC1,  (void*) net_deny6 },
+    { "gain",             ARG_FUNC1,  (void*) set_gain },
+    { "homepos",          ARG_FUNC1,  (void*) set_home_pos },
+    { "location",         ARG_FUNC1,  (void*) set_home_pos_from_location_API },
+    { "if-mode",          ARG_FUNC1,  (void*) set_if_mode },
+    { "metric",           ARG_FUNC1,  (void*) set_metric },
+    { "web-page",         ARG_FUNC1,  (void*) set_web_page },
+    { "web-touch",        ARG_ATOB,   (void*) &Modes.web_root_touch },
+    { "tui",              ARG_FUNC1,  (void*) set_tui },
+    { "airports",         ARG_STRCPY, (void*) &Modes.airport_db },
+    { "aircrafts",        ARG_STRCPY, (void*) &Modes.aircraft_db },
+    { "aircrafts-url",    ARG_STRDUP, (void*) &Modes.aircraft_db_url },
+    { "bandwidth",        ARG_FUNC1,  (void*) set_bandwidth },
+    { "freq",             ARG_FUNC1,  (void*) set_frequency },
+    { "agc",              ARG_FUNC1,  (void*) set_digital_agc },
+    { "interactive-ttl",  ARG_FUNC1,  (void*) set_interactive_ttl },
+    { "keep-alive",       ARG_FUNC1,  (void*) set_keep_alive },
+    { "logfile",          ARG_FUNC1,  (void*) set_logfile },
+    { "loops",            ARG_FUNC1,  (void*) set_loops },
+    { "max-messages",     ARG_FUNC1,  (void*) set_max_messages },
+    { "net-http-port",    ARG_FUNC1,  (void*) set_port_http },
+    { "net-ri-port",      ARG_FUNC1,  (void*) set_port_raw_in },
+    { "net-ro-port",      ARG_FUNC1,  (void*) set_port_raw_out },
+    { "net-sbs-port",     ARG_FUNC1,  (void*) set_port_sbs },
+    { "samplerate",       ARG_FUNC1,  (void*) set_sample_rate },
+    { "silent",           ARG_FUNC1,  (void*) set_silent },
+    { "ppm",              ARG_FUNC1,  (void*) set_ppm },
+    { "host-raw-in",      ARG_FUNC1,  (void*) set_host_port_raw_in },
+    { "host-raw-out",     ARG_FUNC1,  (void*) set_host_port_raw_out },
+    { "host-sbs-in",      ARG_FUNC1,  (void*) set_host_port_sbs_in },
 #if 0
-      { "crc-check",        ARG_FUNC1,  (void*) set_check_crc      &Modes.check_crc },
-      { "error-correct1",   ARG_FUNC1,  (void*) set_error_correct1 &Modes.error_correct_1 },
-      { "error-correct2",   ARG_FUNC1,  (void*) set_error_correct2 &Modes.error_correct_2 },
+    { "crc-check",        ARG_FUNC1,  (void*) set_check_crc      &Modes.check_crc },
+    { "error-correct1",   ARG_FUNC1,  (void*) set_error_correct1 &Modes.error_correct_1 },
+    { "error-correct2",   ARG_FUNC1,  (void*) set_error_correct2 &Modes.error_correct_2 },
 #endif
-      { NULL,       0,        NULL }
-    };
-  static cfg_context cfg_ctx;
-#endif
+    { NULL,       0,        NULL }
+  };
 
 /**
  * Set the RTLSDR manual gain verbosively.
@@ -388,10 +387,6 @@ static void modeS_init_config (void)
   Modes.error_correct_1 = true;
   Modes.error_correct_2 = false;
 
-#if !defined(USE_CFG_FILE)
-  Modes.keep_alive = 1;
-#endif
-
   InitializeCriticalSection (&Modes.data_mutex);
   InitializeCriticalSection (&Modes.print_mutex);
 }
@@ -446,7 +441,7 @@ static void modeS_init_log (void)
 /**
  * Step 2:
  *  \li Initialize the timezone and DST-adjust value in 'misc.c'.
- *  \li If `USE_CFG_FILE` is defined, open and parse `Modes.cfg_file`.
+ *  \li Open and parse `Modes.cfg_file`.
  *  \li Open and append to the `--logfile` if specified.
  *  \li Set the Mongoose log-level based on `--debug m|M`.
  *  \li Check if we have the Aircrafts SQL file.
@@ -462,14 +457,13 @@ static bool modeS_init (void)
 
   modeS_FILETIME_to_loc_str (&ft, true);
 
-#if defined(USE_CFG_FILE)
-  memset (&cfg_ctx, '\0', sizeof(cfg_ctx));
-  cfg_ctx.tab        = config;
-  cfg_ctx.fname      = Modes.cfg_file;
-  cfg_ctx.test_level = Modes.tests;
-  if (!cfg_open_and_parse(&cfg_ctx) || Modes.tests)
+  memset (&Modes.cfg_ctx, '\0', sizeof(Modes.cfg_ctx));
+  Modes.cfg_ctx.tab        = config;
+  Modes.cfg_ctx.fname      = Modes.cfg_file;
+  Modes.cfg_ctx.test_level = (Modes.debug & DEBUG_GENERAL) ? 1 : (Modes.debug & DEBUG_GENERAL2) ? 2 : 0;
+
+  if (!cfg_open_and_parse(&Modes.cfg_ctx))
      return (false);
-#endif
 
   if (Modes.logfile[0])
      modeS_init_log();
@@ -477,11 +471,11 @@ static bool modeS_init (void)
   modeS_set_log();
   aircraft_SQL_set_name();
 
-  if (strcmp(Modes.aircraft_db, "NUL") && Modes.aircraft_db_update)
+  if (strcmp(Modes.aircraft_db, "NUL") && (Modes.aircraft_db_url || Modes.update))
   {
-    aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_update);
-    aircraft_CSV_load();
-    return (false);
+    aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_url);
+    if (!aircraft_CSV_load())
+       return (false);
   }
 
 #if 0
@@ -494,20 +488,12 @@ static bool modeS_init (void)
    * ```
    * (and convert it to `airport-database.csv.sqlite` ?)
    */
-  if (Modes.airport_db_update && strcmp(Modes.airport_db, "NUL"))
+  if (strcmp(Modes.airport_db, "NUL") && (Modes.airport_db_url || Modes.update))
   {
     airports_update_CSV (Modes.airport_db);
     airports_init_CSV();
     return (false);
   }
-#endif
-
-#if !defined(USE_CFG_FILE)
-  if (!set_home_pos (getenv("DUMP1090_HOMEPOS")))
-     return (false);
-
-  if (!set_home_pos_from_location_API (Modes.win_location ? "1" : "0"))
-     return (false);
 #endif
 
   signal (SIGINT, modeS_signal_handler);
@@ -540,20 +526,9 @@ static bool modeS_init (void)
   memset (Modes.data, 127, Modes.data_len);
   Modes.magnitude_lut = gen_magnitude_lut();
 
-  if (!aircraft_CSV_load())
-     return (false);
-
   if (Modes.tests)
   {
     airports_init();
-
-#if defined(_DEBUG) && 0
-    if (Modes.tests >= 2)
-    {
-      test_assert();     /* does it return? */
-      puts ("If we catch this, we will leak.\n");
-    }
-#endif
     net_init();          /* Call `net_tests()` too */
     return (false);
   }
@@ -1158,7 +1133,7 @@ static int fix_single_bit_errors (uint8_t *msg, int bits)
  * Similar to `fix_single_bit_errors()` but try every possible two bit combination.
  *
  * This is very slow and should be tried only against DF17 messages that
- * don't pass the checksum, and only in Aggressive Mode.
+ * don't pass the checksum, and only with `Modes.error_correct_2` setting.
  */
 static int fix_two_bits_errors (uint8_t *msg, int bits)
 {
@@ -1569,7 +1544,7 @@ static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
       mm->CRC = modeS_checksum (msg, mm->msg_bits);
       mm->CRC_ok = true;
     }
-    else if (Modes.aggressive && mm->msg_type == 17 && (mm->error_bit = fix_two_bits_errors(msg, mm->msg_bits)) != -1)
+    else if (Modes.error_correct_2 && mm->msg_type == 17 && (mm->error_bit = fix_two_bits_errors(msg, mm->msg_bits)) != -1)
     {
       mm->CRC = modeS_checksum (msg, mm->msg_bits);
       mm->CRC_ok = true;
@@ -2333,7 +2308,7 @@ good_preamble:
      * with a Mode S message in our hands, but it may still be broken
      * and CRC may not be correct. This is handled by the next layer.
      */
-    if (errors == 0 || (Modes.aggressive && errors <= 2))
+    if (errors == 0 || (Modes.error_correct_2 && errors <= 2))
     {
       modeS_message mm;
       double        signal_power = 0.0;
@@ -2796,64 +2771,6 @@ bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
   return (true);
 }
 
-static void show_help_general (void)
-{
-  printf ("A 1090 MHz receiver, decoder and web-server for ADS-B (Automatic Dependent Surveillance - Broadcast).\n"
-          "Usage: %s [options]\n"
-          "  General options:\n", Modes.who_am_I);
-
-#if defined(USE_CFG_FILE)
-  printf ("    --config <file>          Select config-file (default: `%s')\n"
-          "    --debug <flags>          Debug mode; see below for details.\n"
-          "    --infile <filename>      Read data from file (use `-' for stdin).\n"
-          "    --test<=arg>             Perform some test of internal functions.\n\n", Modes.cfg_file);
-#else
-  printf ("    --airports <file>        The CSV file for the airports database\n"
-          "                             (default: `%s').\n"
-          "    --aircrafts <file>       The CSV file for the aircrafts database. A `<file>.sqlite' is used if it exists.\n"
-          "                             (default: `%s').\n"
-          "    --aircrafts-update<=url> Redownload the above .csv-file if older than 10 days,\n"
-          "                             recreate the `<file>.sqlite' and exit the program.\n"
-          "                             (default URL: `%s').\n"
-          "    --debug <flags>          Debug mode; see below for details.\n"
-          "    --infile <filename>      Read data from file (use `-' for stdin).\n"
-          "    --interactive            Interactive mode with a smimple TUI.\n"
-          "    --interactive-ttl <sec>  Remove aircraft if not seen for <sec> (default: %u).\n"
-          "    --location               Use `Windows Location API' to get the `DUMP1090_HOMEPOS'.\n"
-          "    --logfile <file>         Enable logging to file (default: off)\n"
-          "    --loops <N>              With `--infile', read the file in a loop <N> times (default: 2^63).\n"
-          "    --metric                 Use metric units (meters, km/h, ...).\n"
-          "    --silent                 Silent mode for testing network I/O (together with `--debug n').\n"
-          "    --test<=arg>             Perform some test of internal functions.\n"
-          "    --tui <wincon|curses>    Select 'Windows-Console' or 'PCurses' interface.\n",
-          Modes.airport_db, Modes.aircraft_db, AIRCRAFT_DATABASE_URL,
-          MODES_INTERACTIVE_TTL/1000);
-#endif
-  printf ("     -V, -VV                 Show version info. `-VV' for details.\n"
-          "     -h, --help              Show this help.\n\n");
-}
-
-static void show_help_decoder (void)
-{
-#if defined(USE_CFG_FILE)
-#else
-#endif
-}
-
-static void show_help_network (void)
-{
-#if defined(USE_CFG_FILE)
-#else
-#endif
-}
-
-static void show_help_sdr_devices (void)
-{
-#if defined(USE_CFG_FILE)
-#else
-#endif
-}
-
 /**
  * Show the program usage
  */
@@ -2869,72 +2786,42 @@ static void show_help (const char *fmt, ...)
   }
   else
   {
-    show_help_general();
+    printf ("A 1090 MHz receiver, decoder and web-server for ADS-B (Automatic Dependent Surveillance - Broadcast).\n"
+            "Usage: %s [options]:\n"
+            "  --config <file>       Select config-file (default: `%s')\n"
+            "  --debug <flags>       A = Log the the ADSB-LOL details to log-file.\n"
+            "                        c = Log frames with bad CRC.\n"
+            "                        C = Log frames with good CRC.\n"
+            "                        D = Log frames decoded with 0 errors.\n"
+            "                        E = Log frames decoded with errors.\n"
+            "                        g = Log general debugging info.\n"
+            "                        G = A bit more general debug info than flag `g'.\n"
+            "                        j = Log frames to `frames.js', loadable by `tools/debug.html'.\n"
+            "                        m = Log activity in `externals/mongoose.c'.\n"
+            "                        M = Log more activity in `externals/mongoose.c'.\n"
+            "                        n = Log network debugging information.\n"
+            "                        N = A bit more network information than flag `n'.\n"
+            "                        p = Log frames with bad preamble.\n"
+            "  --device <N / name>   Select RTL/SDRPlay device (default: 0; first found).\n"
+            "                        e.g. `--device 0'              - select first RTLSDR device found.\n"
+            "                             `--device RTL2838-silver' - select on RTLSDR name.\n"
+            "                             `--device sdrplay'        - select first SDRPlay device found.\n"
+            "                             `--device sdrplay1'       - select on SDRPlay index.\n"
+            "                             `--device sdrplayRSP1A'   - select on SDRPlay name.\n"
+            "  --infile <filename>   Read data from file (use `-' for stdin).\n"
+            "  --interactive         Enable interactive mode.\n"
+            "  --net                 Enable network listening services.\n"
+            "  --net-active          Enable network active services.\n"
+            "  --net-only            Enable only networking, no physical device or file.\n"
+            "  --raw                 Output hexadecimal messages.\n"
+            "  --strip <level>       Output missing the I/Q parts that are below the specified level.\n"
+            "  --test<=arg>          Perform some test of internal functions.\n"
+            "  --update              Update missing or old \"*.csv\" files.\n"
+            "  --version, -V, -VV    Show version info. `-VV' for details.\n"
+            "  --help, -h            Show this help.\n\n",
+            Modes.who_am_I, Modes.cfg_file);
 
-    printf ("  Mode-S decoder options:\n"
-            "    --aggressive             Use a more aggressive CRC check (two bits fixes, ...).\n"
-            "    --max-messages <N>       Max number of messages to process (default: Infinite).\n"
-            "    --no-fix                 Disable single-bits error correction using CRC.\n"
-            "    --no-crc-check           Disable checking CRC of messages (discouraged).\n"
-            "    --only-addr              Show only ICAO addresses (for testing).\n"
-            "    --raw                    Show only the raw Mode-S hex message.\n"
-            "    --strip <level>          Strip IQ file removing samples below `level'.\n\n");
-
-    printf ("  Network options:\n"
-            "    --net                    Enable network listening services.\n"
-            "    --net-active             Enable network active services.\n"
-            "    --net-only               Enable only networking, no physical device or file.\n"
-            "    --net-http-port <port>   TCP listening port for HTTP server (default: %u).\n"
-            "    --net-ri-port <port>     TCP listening port for raw input   (default: %u).\n"
-            "    --net-ro-port <port>     TCP listening port for raw output  (default: %u).\n"
-            "    --net-sbs-port <port>    TCP listening port for SBS output  (default: %u).\n"
-            "    --no-keep-alive          Ignore `Connection: keep-alive' from HTTP clients.\n"
-            "    --host-raw <addr:port>   Remote host/port for RAW input with `--net-active'.\n"
-            "    --host-sbs <addr:port>   Remote host/port for SBS input with `--net-active'.\n"
-            "    --touch                  Touch all files in Web-page first.\n"
-            "    --web-page <file>        The Web-page to serve for HTTP clients\n"
-            "                             (default: `%s\\%s').\n\n",
-            MODES_NET_PORT_HTTP, MODES_NET_PORT_RAW_IN, MODES_NET_PORT_RAW_OUT, MODES_NET_PORT_SBS,
-            Modes.web_root, Modes.web_page);
-
-    printf ("  RTLSDR / SDRplay options:\n"
-            "    --agc                    Enable Digital AGC              (default: off).\n"
-            "    --bandwidth <Hz>         Enable narrower bandwidth       (default: off).\n"
-            "    --bias-t                 Enable Bias-T output            (default: off).\n"
-            "    --calibrate              Enable calibrating R820 devices (default: off).\n"
-            "    --device <N / name>      Select device                   (default: 0; first found).\n"
-            "                             e.g. `--device 0'              - select first RTLSDR device found.\n"
-            "                                  `--device RTL2838-silver' - select on RTLSDR name.\n"
-            "                                  `--device sdrplay'        - select first SDRPlay device found.\n"
-            "                                  `--device sdrplay1'       - select on SDRPlay index.\n"
-            "                                  `--device sdrplayRSP1A'   - select on SDRPlay name.\n"
-            "    --freq <Hz>              Set frequency                   (default: %.0f MHz).\n"
-            "    --gain <dB>              Set gain                        (default: AUTO).\n"
-            "    --if-mode <ZIF | LIF>    Intermediate Frequency mode     (default: ZIF).\n"
-            "    --ppm <correction>       Set frequency correction        (default: 0).\n"
-            "    --samplerate <Hz>        Set sample-rate                 (default: %.0f MS/s).\n\n",
-            MODES_DEFAULT_FREQ / 1E6, MODES_DEFAULT_RATE/1E6);
-
-    printf ("  --debug <flags>: A = Log the the ADSB-LOL details to log-file.\n"
-            "                   c = Log frames with bad CRC.\n"
-            "                   C = Log frames with good CRC.\n"
-            "                   D = Log frames decoded with 0 errors.\n"
-            "                   E = Log frames decoded with errors.\n"
-            "                   g = Log general debugging info.\n"
-            "                   G = A bit more general debug info than flag `g'.\n"
-            "                   j = Log frames to `frames.js', loadable by `debug.html'.\n"
-            "                   m = Log activity in `externals/mongoose.c'.\n"
-            "                   M = Log more activity in `externals/mongoose.c'.\n"
-            "                   n = Log network debugging information.\n"
-            "                   N = A bit more network information than flag `n'.\n"
-            "                   p = Log frames with bad preamble.\n\n");
-
-#if defined(USE_CFG_FILE)
     printf ("  Refer the `%s` file for other settings.\n", Modes.cfg_file);
-#else
-    printf ("  If the `--location' option is not used, your home-position for distance calculation can be set like:\n"
-            "  `c:\\> set DUMP1090_HOMEPOS=51.5285578,-0.2420247' for London.\n");
-#endif
   }
 
   modeS_exit();
@@ -2972,15 +2859,9 @@ static void background_tasks (void)
     location_exit();
     Modes.home_pos = pos;
 
-#if defined(USE_CFG_FILE)
-  #define HOMEPOS_MSG "Ignoring the 'HOMEPOS' config value"
-#else
-  #define HOMEPOS_MSG "Ignoring the 'DUMP1090_HOMEPOS' env-var"
-#endif
-
     spherical_to_cartesian (&Modes.home_pos, &Modes.home_pos_cart);
     if (Modes.home_pos_ok)
-       LOG_FILEONLY (HOMEPOS_MSG " since we use the 'Windows Location API':"
+       LOG_FILEONLY ("Ignoring the 'homepos' config value since we use the 'Windows Location API':"
                      " Latitude: %.6f, Longitude: %.6f.\n",
                      Modes.home_pos.lat, Modes.home_pos.lon);
     Modes.home_pos_ok = true;
@@ -3168,7 +3049,7 @@ static void modeS_exit (void)
   free (Modes.selected_dev);
   free (Modes.rtlsdr.name);
   free (Modes.sdrplay.name);
-  free (Modes.aircraft_db_update);
+  free (Modes.aircraft_db_url);
 
   DeleteCriticalSection (&Modes.data_mutex);
   DeleteCriticalSection (&Modes.print_mutex);
@@ -3266,7 +3147,7 @@ static void set_tui (const char *arg)
        Modes.tui_interface = TUI_WINCON;
   else if (!stricmp(arg, "curses"))
        Modes.tui_interface = TUI_CURSES;
-  else show_help ("Unknown `--tui %s' mode.\n", arg);
+  else show_help ("Unknown `tui %s' mode.\n", arg);
 }
 
 static void set_debug_bits (const char *flags)
@@ -3388,14 +3269,7 @@ static bool set_if_mode (const char *arg)
        Modes.sdrplay.if_mode = false;
   else if (!stricmp(arg, "lif"))
        Modes.sdrplay.if_mode = true;
-  else
-  {
-#if defined(USE_CFG_FILE)
-    printf ("%s(%u): Ignoring illegal '--if-mode': '%s'.\n", cfg_ctx.current_file, cfg_ctx.current_line, arg);
-#else
-    show_help ("Illegal '--if-mode': %s.\n", arg);
-#endif
-  }
+  else printf ("%s(%u): Ignoring illegal '--if-mode': '%s'.\n", Modes.cfg_ctx.current_file, Modes.cfg_ctx.current_line, arg);
   return (true);
 }
 
@@ -3443,30 +3317,35 @@ static bool set_max_messages (const char *arg)
 
 static bool set_port_http (const char *arg)
 {
+  TRACE ("arg: '%s'", arg);
   modeS_net_services [MODES_NET_SERVICE_HTTP].port = (uint16_t) atoi (arg);
   return (true);
 }
 
 static bool set_port_raw_in (const char *arg)
 {
+  TRACE ("arg: '%s'", arg);
   modeS_net_services [MODES_NET_SERVICE_RAW_IN].port = (uint16_t) atoi (arg);
   return (true);
 }
 
 static bool set_port_raw_out (const char *arg)
 {
+  TRACE ("arg: '%s'", arg);
   modeS_net_services [MODES_NET_SERVICE_RAW_OUT].port = (uint16_t) atoi (arg);
   return (true);
 }
 
 static bool set_port_sbs (const char *arg)
 {
+  TRACE ("arg: '%s'", arg);
   modeS_net_services [MODES_NET_SERVICE_SBS_OUT].port = (uint16_t) atoi (arg);
   return (true);
 }
 
 static bool set_host_port_raw_in (const char *arg)
 {
+  TRACE ("arg: '%s'", arg);
   if (!net_set_host_port(arg, &modeS_net_services [MODES_NET_SERVICE_RAW_IN], MODES_NET_PORT_RAW_IN))
      return (false);
   return (true);
@@ -3474,13 +3353,15 @@ static bool set_host_port_raw_in (const char *arg)
 
 static bool set_host_port_raw_out (const char *arg)
 {
+  TRACE ("arg: '%s'", arg);
   if (!net_set_host_port(arg, &modeS_net_services [MODES_NET_SERVICE_RAW_OUT], MODES_NET_PORT_RAW_OUT))
      return (false);
   return (true);
 }
 
-static bool set_host_port_sbs (const char *arg)
+static bool set_host_port_sbs_in (const char *arg)
 {
+  TRACE ("arg: '%s'", arg);
   if (!net_set_host_port(arg, &modeS_net_services [MODES_NET_SERVICE_SBS_IN], MODES_NET_PORT_SBS))
      return (false);
   return (true);
@@ -3512,63 +3393,27 @@ static bool set_silent (const char *arg)
 
 static bool set_web_page (const char *arg)
 {
-#if defined(USE_CFG_FILE)
   strcpy_s (Modes.web_root, sizeof(Modes.web_root), dirname(arg));
   strcpy_s (Modes.web_page, sizeof(Modes.web_page), basename(arg));
-#else
-  (void) arg;
-#endif
   return (true);
 }
 
 static struct option long_options[] = {
-#if defined(USE_CFG_FILE)
-  { "config",           required_argument,  NULL,                     'c' },
-#else
-  { "agc",              no_argument,        &Modes.dig_agc,            1  },
-  { "aggressive",       no_argument,        &Modes.aggressive,         1  },
-  { "airports",         required_argument,  NULL,                     'a' },
-  { "aircrafts",        required_argument,  NULL,                     'b' },
-  { "aircrafts-update", optional_argument,  NULL,                     'u' },
-  { "bandwidth",        required_argument,  NULL,                     'B' },
-  { "bias-t",           no_argument,        &Modes.bias_tee,           1  },
-  { "calibrate",        no_argument,        &Modes.rtlsdr.calibrate,   1  },
-  { "freq",             required_argument,  NULL,                     'f' },
-  { "gain",             required_argument,  NULL,                     'g' },
-  { "if-mode",          required_argument,  NULL,                     'I' },
-  { "interactive-ttl",  required_argument,  NULL,                     't' },
-  { "location",         no_argument,        &Modes.win_location,       1  },
-  { "logfile",          required_argument,  NULL,                     'L' },
-  { "loop",             optional_argument,  NULL,                     'l' },
-  { "max-messages",     required_argument,  NULL,                     'm' },
-  { "metric",           no_argument,        &Modes.metric,             1  },
-  { "net-http-port",    required_argument,  NULL,                     'y' + MODES_NET_SERVICE_HTTP },
-  { "net-ri-port",      required_argument,  NULL,                     'y' + MODES_NET_SERVICE_RAW_IN },
-  { "net-ro-port",      required_argument,  NULL,                     'y' + MODES_NET_SERVICE_RAW_OUT },
-  { "net-sbs-port",     required_argument,  NULL,                     'y' + MODES_NET_SERVICE_SBS_OUT },
-  { "host-raw",         required_argument,  NULL,                     'Z' + MODES_NET_SERVICE_RAW_IN },
-  { "host-sbs",         required_argument,  NULL,                     'Z' + MODES_NET_SERVICE_SBS_IN },
-  { "no-keep-alive",    no_argument,        &Modes.keep_alive,         0  },
-  { "only-addr",        no_argument,        &Modes.only_addr,          1  },
-  { "ppm",              required_argument,  NULL,                     'p' },
-  { "samplerate",       required_argument,  NULL,                     's' },
-  { "silent",           no_argument,        &Modes.silent,             1  },
-  { "web-page",         required_argument,  NULL,                     'w' },
-#endif
-  { "debug",            required_argument,  NULL,                     'd' },
-  { "device",           required_argument,  NULL,                     'D' },
-  { "help",             no_argument,        NULL,                     'h' },
-  { "infile",           required_argument,  NULL,                     'i' },
-  { "interactive",      no_argument,        &Modes.interactive,        1  },
-  { "net",              no_argument,        &Modes.net,                1  },
-  { "net-active",       no_argument,        &Modes.net_active,         1  },
-  { "net-only",         no_argument,        &Modes.net_only,           1  },
-  { "raw",              no_argument,        &Modes.raw,                1  },
-  { "strip",            required_argument,  NULL,                     'S' },
-  { "test",             optional_argument,  NULL,                     'T' },
-  { "touch",            no_argument,        &Modes.web_root_touch,     1  },
-  { "tui",              required_argument,  NULL,                     'A' },
-  { NULL,               no_argument,        NULL,                      0  }
+  { "config",      required_argument,  NULL,                  'c' },
+  { "debug",       required_argument,  NULL,                  'd' },
+  { "device",      required_argument,  NULL,                  'D' },
+  { "help",        no_argument,        NULL,                  'h' },
+  { "infile",      required_argument,  NULL,                  'i' },
+  { "interactive", no_argument,        &Modes.interactive,     1  },
+  { "net",         no_argument,        &Modes.net,             1  },
+  { "net-active",  no_argument,        &Modes.net_active,     'N' },
+  { "net-only",    no_argument,        &Modes.net_only,       'n' },
+  { "raw",         no_argument,        &Modes.raw,             1  },
+  { "strip",       required_argument,  NULL,                  'S' },
+  { "test",        optional_argument,  NULL,                  'T' },
+  { "update",      no_argument,        NULL,                  'u' },
+  { "version",     no_argument,        NULL,                  'V' },
+  { NULL,          no_argument,        NULL,                   0  }
 };
 
 static bool parse_cmd_line (int argc, char **argv)
@@ -3580,122 +3425,33 @@ static bool parse_cmd_line (int argc, char **argv)
   {
     switch (c)
     {
-#if defined(USE_CFG_FILE)
       case 'c':
            strcpy_s (Modes.cfg_file, sizeof(Modes.cfg_file), optarg);
-           break;
-#else
-      case 'a':
-           strcpy_s (Modes.airport_db, sizeof(Modes.airport_db), optarg);
-           break;
-
-      case 'b':
-           strcpy_s (Modes.aircraft_db, sizeof(Modes.aircraft_db), optarg);
-           break;
-
-      case 'B':
-           set_bandwidth (optarg);
-           break;
-
-      case 'f':
-           set_frequency (optarg);
-           break;
-
-      case 'g':
-           set_gain (optarg);
-           break;
-
-      case 'I':
-           set_if_mode (optarg);
-           break;
-
-      case 'l':
-           set_loops (optarg);
-           break;
-
-      case 'L':
-           set_logfile (optarg);
-           break;
-
-      case 'm':
-           set_max_messages (optarg);
-           break;
-
-      case 'u':
-           Modes.aircraft_db_update = strdup (optarg ? optarg : AIRCRAFT_DATABASE_URL);
-           break;
-
-      case 'y' + MODES_NET_SERVICE_RAW_OUT:
-           set_port_raw_out (optarg);
-           break;
-
-      case 'y' + MODES_NET_SERVICE_RAW_IN:
-           set_port_raw_in (optarg);
-           break;
-
-      case 'y' + MODES_NET_SERVICE_HTTP:
-           set_port_http (optarg);
-           break;
-
-      case 'y' + MODES_NET_SERVICE_SBS_OUT:
-           set_port_sbs (optarg);
-           break;
-
-      case 'Z' + MODES_NET_SERVICE_RAW_OUT:
-           if (!set_host_port_raw_out(optarg))
-              rc = false;
-           break;
-
-      case 'Z' + MODES_NET_SERVICE_RAW_IN:
-           if (!set_host_port_raw_in(optarg))
-              rc = false;
-           break;
-
-      case 'Z' + MODES_NET_SERVICE_SBS_IN:
-           if (!set_host_port_sbs(optarg))
-              rc = false;
-           break;
-
-      case 'p':
-           set_ppm (optarg);
-           break;
-
-      case 's':
-           set_sample_rate (optarg);
-           break;
-
-      case 't':
-           set_interactive_ttl (optarg);
-           break;
-
-      case 'w':
-           strcpy_s (Modes.web_root, sizeof(Modes.web_root), dirname(optarg));
-           strcpy_s (Modes.web_page, sizeof(Modes.web_page), basename(optarg));
-           break;
-
-      case 'A':        /* option `--tui wincon|curses' */
-           set_tui (optarg);
-           break;
-#endif
-
-      case 'D':
-           set_device (optarg);
            break;
 
       case 'd':
            set_debug_bits (optarg);
            break;
 
+      case 'D':
+           set_device (optarg);
+           break;
+
+      case 'h':
+      case '?':
+           show_help (NULL);
+           break;
+
       case 'i':
            set_infile (optarg);
            break;
 
-      case 'n':
-           Modes.net_only = Modes.net = true;
-           break;
-
       case 'N':
            Modes.net_active = Modes.net = true;
+           break;
+
+      case 'n':
+           Modes.net_only = Modes.net = true;
            break;
 
       case 'S':
@@ -3709,13 +3465,12 @@ static bool parse_cmd_line (int argc, char **argv)
            Modes.tests_arg = optarg ? atoi (optarg) : 0;
            break;
 
-      case 'V':
-           show_ver++;
+      case 'u':
+           Modes.update = true;
            break;
 
-      case 'h':
-      case '?':
-           show_help (NULL);
+      case 'V':
+           show_ver++;
            break;
     }
   }
@@ -3743,7 +3498,7 @@ int main (int argc, char **argv)
 
   modeS_init_config();  /* Set sane defaults */
 
-  if (!parse_cmd_line (argc, argv))
+  if (!parse_cmd_line(argc, argv))
      goto quit;
 
   rc = modeS_init();    /* Initialization based on cmd-line options */
@@ -3752,7 +3507,12 @@ int main (int argc, char **argv)
 
   if (Modes.net_only)
   {
-    LOG_STDERR ("Net-only mode, no physical device or file open.\n");
+    char notice [100] = "";
+
+    if (Modes.rtlsdr.name  || Modes.rtlsdr.index > -1 ||
+        Modes.sdrplay.name || Modes.sdrplay.index > -1)
+       strcpy (notice, " The `--device x' option has no effect now.");
+    LOG_STDERR ("Net-only mode, no physical device or file open.%s\n", notice);
   }
   else if (Modes.strip_level)
   {
