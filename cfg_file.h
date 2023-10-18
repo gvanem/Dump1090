@@ -4,7 +4,8 @@
  */
 #pragma once
 
-#include "misc.h"
+#include <stdio.h>
+#include <stdbool.h>
 
 typedef enum cfg_tab_types {
         ARG_ATOB,          /**< convert to bool */
@@ -33,7 +34,7 @@ typedef struct cfg_context {
        FILE            *file;
        bool             internal;
        unsigned         test_level;
-       mg_file_path     current_file;
+       char             current_file [FILENAME_MAX];
        unsigned         current_line;
        char             current_key [256];
        char             current_val [512];

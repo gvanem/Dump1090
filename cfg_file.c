@@ -3,6 +3,7 @@
  * \ingroup Misc
  * \brief   Config-file handling.
  */
+#include "misc.h"
 #include "cfg_file.h"
 
 /**
@@ -105,7 +106,7 @@ bool cfg_open_and_parse (cfg_context *ctx)
   g_ctx = ctx;
 
   strcpy_s (g_our_cfg, sizeof(g_our_cfg), ctx->fname);
-  snprintf (g_our_dir, sizeof(g_our_dir), "%s\\", dirname(g_our_cfg));
+  strcpy_s (g_our_dir, sizeof(g_our_dir), dirname(g_our_cfg));
 
   strcpy_s (ctx->current_file, sizeof(ctx->current_file), ctx->fname);
   ctx->file = fopen (ctx->current_file, "rb");
