@@ -23,7 +23,7 @@
 * Pack several web-roots into an .DLL. Thus allowing to select a
   web-root at runtime. Use option:
    * `--web-page some.dll;1` for the 1st resource. :heavy_check_mark: *Done*
-   * `--web-page some.dll;2` for the 2nd resource etc. :red: *Done*
+   * `--web-page some.dll;2` for the 2nd resource etc. :heavy_check_mark: *Done*
 
 * *SQLite3* features:
    * store `airport-codes.csv` into `airport-codes.csv.sqlite`.
@@ -47,10 +47,9 @@
    * `python modeslive --source net --connect 127.0.0.1 30005 beast`
    using simple C-embedding.
 
-* *Airports API*:
-  * expire cached records after a configurable time (not 10 min as iut is now).
-  * regenerate `airport-codes.csv` automatically after certain number of days using
-    `tools/gen_airport_codes_csv.py`.
+* *Airports API* Add some config-settings to:
+  * expire cached records (not 10 min as it is now).
+  * regenerate `airport-codes.csv` automatically in backgound using `tools/gen_airport_codes_csv.py`.
 
 * *Curses interface* (`--interactive` mode), add:
   * a statistics *sub-window* with accumulated statistics:
@@ -58,15 +57,15 @@
     * Number of network clients, bytes transferred etc.
   * a tool-tip handler; show more flight-details when mouse is over a specific call-sign.
 
-* Add *config file*. Move some command-line options into `dump1090.cfg`. Like:
+* Add *config file*. Move some command-line options into `dump1090.cfg`. :heavy_check_mark: *Done*. Like:
   * `aircrafts = my-own-aircrafts.csv` (do not use the default `aircraft-database.csv` file).
   * `aircrafts-sql = yes` (enable the SQL-version of the above instead).
   * `metric = 1` (always show metric units).
 
-* *IP Access List* for controlling who is allowed to connect to a service; use the new [*mg_check_ip_acl()*](https://mongoose.ws/documentation/#mg_check_ip_acl) function.
+* *IP Access List*. Control who is allowed to connect to a service; use [*mg_check_ip_acl()*](https://mongoose.ws/documentation/#mg_check_ip_acl) function.
   * E.g. in `dump1090.cfg` add a `[raw_in]` section with:
-    * `deny = 113.30.148.*`  (a Spanish network).
-    * `deny = 91.224.92.0/24` (a Lithuanian network).
+    * `deny4 = 113.30.148.*  ` (a Spanish network).
+    * `deny4 = 91.224.92.0/24` (a Lithuanian network).
 
 
 
