@@ -113,7 +113,6 @@ bool        aircraft_is_helicopter (uint32_t addr, const char **code);
 void        aircraft_set_est_home_distance (aircraft *a, uint64_t now);
 char       *aircraft_make_json (bool extended_client);
 void        aircraft_remove_stale (uint64_t now);
-void        aircraft_tests (void);
 void        aircraft_show_stats (void);
 void        aircraft_exit (bool free_aircrafts);
 

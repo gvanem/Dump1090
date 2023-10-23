@@ -166,7 +166,7 @@ typedef struct airports_priv {
          */
      }  airports_priv;
 
-static void         airport_CSV_test_1 (int test_lvl);
+static void         airport_CSV_test_1 (void);
 static void         airport_CSV_test_2 (void);
 static void         airport_CSV_test_3 (void);
 static void         airport_CSV_test_4 (void);
@@ -605,8 +605,7 @@ static void API_trace (unsigned line, const char *fmt, ...)
   EnterCriticalSection (&Modes.print_mutex);
 
   len = snprintf (ptr, left, "%s(%u, %s): ",
-                  Modes.tests ? "" : "airports.c",
-                  line, GetCurrentThreadId() == g_data.thread_id ?
+                  __FILE__, line, GetCurrentThreadId() == g_data.thread_id ?
                   "API-thread" : "main-thread");
   ptr  += len;
   left -= len;
@@ -796,7 +795,7 @@ static void airports_API_show_stats (void)
 {
   flight_info_stats fs;
 
-  if (Modes.tests || Modes.debug || Modes.raw)
+  if (test_contains(Modes.tests, "airport") || Modes.debug || Modes.raw)
   {
     flight_stats_now (&fs);
     API_TRACE ("stats now: total=%u, live=%u, pending=%u, dead=%u, unknown=%u",
@@ -891,7 +890,7 @@ static void airports_cache_write (void)
          API_TRACE ("\"%s\": %u bytes written.", Modes.airport_cache, st.st_size);
     else API_TRACE ("\"%s\": errno: %d/%s.", Modes.airport_cache, errno, strerror(errno));
   }
-  if (!f && Modes.tests > 0)
+  if (!f && test_contains(Modes.tests, "airport"))
      printf ("No need to rewrite the %s cache.\n", Modes.airport_cache);
 }
 
@@ -989,7 +988,7 @@ static bool airports_init_API (void)
     TRACE ("Parsed %u/%u/%u records from: \"%s\"",
            fs.cached, fs.expired, g_data.ap_stats.API_added_CSV, Modes.airport_cache);
 
-    if (Modes.tests)
+    if (test_contains(Modes.tests, "airport"))
        assert (fs.cached + fs.expired == g_data.ap_stats.API_added_CSV);
   }
   return (true);
@@ -1004,7 +1003,6 @@ static bool airports_init_API (void)
  */
 uint32_t airports_init (void)
 {
-  int  test_lvl = (Modes.tests_arg ? Modes.tests_arg : 1);
   bool rc;
 
   assert (g_data.airports == NULL);
@@ -1013,14 +1011,8 @@ uint32_t airports_init (void)
 
   g_data.do_trace_LOL = (Modes.debug & DEBUG_ADSB_LOL);
 
-  if ((Modes.tests || Modes.debug > 0) && !g_data.do_trace_LOL)
+  if (Modes.debug > 0 && !g_data.do_trace_LOL)
      g_data.do_trace = true;
-
-  if (Modes.tests)
-  {
-    Modes.debug |= DEBUG_GENERAL;
-    TRACE ("test_lvl: %d", test_lvl);
-  }
 
   Modes.airports_priv = &g_data;
 
@@ -1028,11 +1020,11 @@ uint32_t airports_init (void)
         airports_init_freq_CSV() &&
         airports_init_API());
 
-  if (Modes.tests)
+  if (test_contains(Modes.tests, "airport"))
   {
     SetConsoleOutputCP (CP_UTF8);
 
-    airport_CSV_test_1 (test_lvl);
+    airport_CSV_test_1();
     airport_CSV_test_2();
     airport_CSV_test_3();
     airport_CSV_test_4();
@@ -1041,12 +1033,15 @@ uint32_t airports_init (void)
     airport_API_test_1();
     airport_API_test_2();
     airports_show_stats();
-
-    if (test_lvl >= 2)
-       locale_test();
-
     rc = false;        /* Just force an exit */
   }
+
+  if (test_contains(Modes.tests, "locale"))
+  {
+    locale_test();
+    rc = false;        /* Just force an exit */
+  }
+
 
   /*
    * On success, return the number of airport CSV records.
@@ -1200,10 +1195,10 @@ static void airport_print_rec (const airport *a, const char *ICAO, size_t idx, d
 /**
  * Do some simple tests on the `g_data.airport_CSV`.
  */
-static void airport_CSV_test_1 (int test_lvl)
+static void airport_CSV_test_1 (void)
 {
   const  airport *a;
-  size_t i, i_max = (test_lvl >= 2 ? g_data.ap_stats.CSV_numbers : 10);
+  size_t i, i_max = 10;
 
   printf ("%s():\n Dumping %zu airport records: ", __FUNCTION__, i_max);
   AIRPORT_PRINT_HEADER (false);
@@ -1261,12 +1256,7 @@ static void airport_CSV_test_2 (void)
 
 static void airport_CSV_test_3 (void)
 {
-  size_t i, num;
-
-  if (Modes.tests_arg)
-       num = Modes.tests_arg;
-  else num = 10;
-  num = min (num, g_data.ap_stats.CSV_numbers);
+  size_t i, num = min (10, g_data.ap_stats.CSV_numbers);
 
   printf ("%s():\n  Checking %zu random records. ", __FUNCTION__, num);
   AIRPORT_PRINT_HEADER (true);

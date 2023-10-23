@@ -434,7 +434,7 @@ static void aircraft_dump_json (char *data, const char *filename)
  */
 static void aircraft_test_3 (void)
 {
-  int i, num;
+  int i, num = 50;
 
   LOG_STDOUT ("\n%s(): Generate and check JSON-data:\n", __FUNCTION__);
 
@@ -446,10 +446,6 @@ static void aircraft_test_3 (void)
 
   /* Create a list of aircrafts with a position around our home-position
    */
-  if (Modes.tests_arg)
-       num = Modes.tests_arg;
-  else num = 50;
-
   for (i = 0; i < num; i++)
   {
     aircraft *a = aircraft_find_or_create (0x470000 + i, MSEC_TIME());
@@ -477,11 +473,12 @@ static void aircraft_test_3 (void)
   aircraft_dump_json (aircraft_make_json(true), "json-4.txt");
 }
 
-void aircraft_tests (void)
+static bool aircraft_tests (void)
 {
   aircraft_test_1();
   aircraft_test_2();
   aircraft_test_3();
+  return (false);
 }
 
 /**
@@ -725,9 +722,6 @@ bool aircraft_CSV_load (void)
     return (false);
   }
 
-  if (Modes.tests > 0)
-     Modes.debug |= DEBUG_GENERAL;
-
   get_usec_now(); /* calls 'QueryPerformanceFrequency()' */
 
   sql_load_t = aircraft_SQL_load (&sql_created, &sql_opened, &st_csv);
@@ -735,10 +729,10 @@ bool aircraft_CSV_load (void)
   if (aircraft_sql[0])
      LOG_STDERR ("%susing Sqlite file: \"%s\".\n", have_sql_file ? "" : "Not ", aircraft_sql);
 
-  /* If `Modes.tests > 0`, open and parse the .CSV-file to compare speed
+  /* If `Modes.tests`, open and parse the .CSV-file to compare speed
    * of 'Modes.aircraft_list_CSV' lookup vs. `SQL_lookup_entry()` lookup.
    */
-  if (!sql_opened || sql_created || Modes.tests)
+  if (!sql_opened || sql_created || test_contains(Modes.tests, "aircraft"))
   {
     memset (&Modes.csv_ctx, '\0', sizeof(Modes.csv_ctx));
     Modes.csv_ctx.file_name = Modes.aircraft_db;
@@ -786,14 +780,14 @@ bool aircraft_CSV_load (void)
     else LOG_STDOUT ("\nCreated %u records\n", i);
   }
 
-  if (Modes.tests > 0)
+  if (test_contains(Modes.tests, "aircraft"))
   {
     TRACE ("CSV loaded and parsed in %.3f ms", csv_load_t/1E3);
     if (sql_create_t > 0.0)
          TRACE ("SQL created in %.3f ms", sql_create_t/1E3);
     else TRACE ("SQL loaded in %.3f ms", sql_load_t/1E3);
 
-    aircraft_tests();
+    return aircraft_tests();
   }
   return (true);
 }
