@@ -51,7 +51,7 @@ DEFINE_GUID (IID_ILocation,       0xab2ece69, 0x56d9, 0x4f28, 0xb5, 0x25, 0xde, 
 DEFINE_GUID (IID_ILocationEvents, 0xcae02bbf, 0x798b, 0x4508, 0xa2, 0x07, 0x35, 0xa7, 0x90, 0x6d, 0xc7, 0x3d);
 DEFINE_GUID (CLSID_Location,      0xe5b8e079, 0xee6d, 0x4e33, 0xa4, 0x38, 0xc8, 0x7f, 0x2e, 0x95, 0x92, 0x54);
 
-static struct pos_t            g_pos;
+static pos_t                   g_pos;
 static bool                    g_CoInitializeEx_done;
 static struct ILocation       *g_location;
 static struct ILocationEvents *g_location_events;
@@ -234,7 +234,7 @@ void location_exit (void)
 /**
  * Poll the asynchronous lookup for a good position.
  */
-bool location_poll (struct pos_t *pos)
+bool location_poll (pos_t *pos)
 {
   bool got_pos;
 
