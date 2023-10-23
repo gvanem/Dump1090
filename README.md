@@ -117,7 +117,7 @@ To run the program in interactive mode:
     c:\dev\Dump1090> dump1090 --interactive
     ```
 
-To run the program in interactive mode, with networking support and connecting
+To run the program in interactive mode, with network support and connecting
 to your browser to **http://localhost:8080**, use this command:
   ```
   c:\dev\Dump1090> dump1090 --interactive --net
@@ -140,8 +140,8 @@ Except for:
  * *Cntry* (2 letter ISO3166) taken from the *official* range of ICAO address/country mapping.
  * *RSSI* (logarithmic *Received Signal Strength Indicator*) is calculated from the 4 last messages.
 
-If a `DUMP1090_HOME_POS` environment variable is defined, the distance to the place gets
-calculated. I.e. the `Dist` column above. E.g. a `set DUMP1090_HOMEPOS=60.3016821,5.3208769`
+If a config-setting `homepos = longitude,latitude` setting is defined, the distance to the place gets
+calculated. I.e. the `Dist` column above. E.g. a `homepos = 60.3016821,5.3208769`
 for Bergen/Norway. Find your location on [**FreeMapTools**](https://www.freemaptools.com/elevation-finder.htm).
 
 Otherwise a `location = true` setting will try to get this position from the
@@ -236,13 +236,14 @@ Use key/value `aircrafts = NUL` to avoid loading this huge (approx. 82 MByte)
 The option `--update` will check and download <br>
 **https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and
 extract using the internal [**zip**](https://github.com/kuba--/zip) functions.
-And also rebuild the `aircraft-database.csv.sqlite` file using [**sqlite3.c**](externals/sqlite3.c).
+And also rebuild the `aircraft-database.csv.sqlite` file using the internal bundled
+[**sqlite3.c**](externals/sqlite3.c).
 
 ## Additional options
 
-*Dump1090* now has limited command line options. Seldom used settings are now
-in the default [**config-file**](dump1090.cfg). This can select gain, frequency, and so forth. <br>
-The option `--config <file>` can select another custom `.cfg` file.
+*Dump1090* now has limited command line options. Seldom used settings are now in the default [**config-file**](dump1090.cfg). <br>
+This can select gain, frequency, and so forth. <br>
+The option `--config <file>` can select another custom `.cfg` file. <br>
 Full list of options use is shown using `dump1090 --help` or `dump1090 -h`.
 
 A setting like `freq = 1090.001M` is possible for cheap RTL-SDR devices with
@@ -275,7 +276,7 @@ my free time (this is just an hobby project).
 
 ## Network server features
 
-By enabling the networking support with `--net`, `dump1090` starts listening
+By enabling the network support with `--net`, `dump1090` starts listening
 for clients connections on port 30002 and 30001 (you can change both ports
 `net-X-port = Y`. Look in `dump1090.cfg` for details).
 

@@ -57,6 +57,10 @@
     * Number of network clients, bytes transferred etc.
   * a tool-tip handler; show more flight-details when mouse is over a specific call-sign.
 
+* Add a *WebUI* Interface for `--interactive` mode (`tui = webui`).
+  * Add some features from above *Curses interface* (in JavaScript).
+  * Ref: https://github.com/webui-dev/webui.git
+
 * Add *config file*. Move some command-line options into `dump1090.cfg`. :heavy_check_mark: *Done*. Like:
   * `aircrafts = my-own-aircrafts.csv` (do not use the default `aircraft-database.csv` file).
   * `aircrafts-sql = yes` (enable the SQL-version of the above instead).
