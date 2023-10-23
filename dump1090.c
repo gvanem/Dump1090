@@ -125,45 +125,42 @@ static void      background_tasks (void);
 static void      modeS_exit (void);
 
 static const struct cfg_table config[] = {
-    { "bias-t",           ARG_FUNC1,  (void*) set_bias_tee },
-    { "calibrate",        ARG_FUNC1,  (void*) set_calibrate },
-    { "deny4",            ARG_FUNC1,  (void*) net_deny4 },
-    { "deny6",            ARG_FUNC1,  (void*) net_deny6 },
-    { "gain",             ARG_FUNC1,  (void*) set_gain },
-    { "homepos",          ARG_FUNC1,  (void*) set_home_pos },
-    { "location",         ARG_FUNC1,  (void*) set_home_pos_from_location_API },
-    { "if-mode",          ARG_FUNC1,  (void*) set_if_mode },
-    { "metric",           ARG_FUNC1,  (void*) set_metric },
-    { "web-page",         ARG_FUNC1,  (void*) set_web_page },
+    { "bias-t",           ARG_FUNC,   (void*) set_bias_tee },
+    { "calibrate",        ARG_FUNC,   (void*) set_calibrate },
+    { "deny4",            ARG_FUNC,   (void*) net_deny4 },
+    { "deny6",            ARG_FUNC,   (void*) net_deny6 },
+    { "gain",             ARG_FUNC,   (void*) set_gain },
+    { "homepos",          ARG_FUNC,   (void*) set_home_pos },
+    { "location",         ARG_FUNC,   (void*) set_home_pos_from_location_API },
+    { "if-mode",          ARG_FUNC,   (void*) set_if_mode },
+    { "metric",           ARG_FUNC,   (void*) set_metric },
+    { "web-page",         ARG_FUNC,   (void*) set_web_page },
     { "web-touch",        ARG_ATOB,   (void*) &Modes.web_root_touch },
-    { "tui",              ARG_FUNC1,  (void*) set_tui },
+    { "tui",              ARG_FUNC,   (void*) set_tui },
     { "airports",         ARG_STRCPY, (void*) &Modes.airport_db },
     { "aircrafts",        ARG_STRCPY, (void*) &Modes.aircraft_db },
     { "aircrafts-url",    ARG_STRDUP, (void*) &Modes.aircraft_db_url },
-    { "bandwidth",        ARG_FUNC1,  (void*) set_bandwidth },
-    { "freq",             ARG_FUNC1,  (void*) set_frequency },
-    { "agc",              ARG_FUNC1,  (void*) set_digital_agc },
-    { "interactive-ttl",  ARG_FUNC1,  (void*) set_interactive_ttl },
-    { "keep-alive",       ARG_FUNC1,  (void*) set_keep_alive },
-    { "logfile",          ARG_FUNC1,  (void*) set_logfile },
-    { "loops",            ARG_FUNC1,  (void*) set_loops },
-    { "max-messages",     ARG_FUNC1,  (void*) set_max_messages },
-    { "net-http-port",    ARG_FUNC1,  (void*) set_port_http },
-    { "net-ri-port",      ARG_FUNC1,  (void*) set_port_raw_in },
-    { "net-ro-port",      ARG_FUNC1,  (void*) set_port_raw_out },
-    { "net-sbs-port",     ARG_FUNC1,  (void*) set_port_sbs },
-    { "samplerate",       ARG_FUNC1,  (void*) set_sample_rate },
-    { "silent",           ARG_FUNC1,  (void*) set_silent },
-    { "ppm",              ARG_FUNC1,  (void*) set_ppm },
-    { "host-raw-in",      ARG_FUNC1,  (void*) set_host_port_raw_in },
-    { "host-raw-out",     ARG_FUNC1,  (void*) set_host_port_raw_out },
-    { "host-sbs-in",      ARG_FUNC1,  (void*) set_host_port_sbs_in },
-#if 0
-    { "crc-check",        ARG_FUNC1,  (void*) set_check_crc      &Modes.check_crc },
-    { "error-correct1",   ARG_FUNC1,  (void*) set_error_correct1 &Modes.error_correct_1 },
-    { "error-correct2",   ARG_FUNC1,  (void*) set_error_correct2 &Modes.error_correct_2 },
-#endif
-    { NULL,       0,        NULL }
+    { "bandwidth",        ARG_FUNC,   (void*) set_bandwidth },
+    { "freq",             ARG_FUNC,   (void*) set_frequency },
+    { "agc",              ARG_FUNC,   (void*) set_digital_agc },
+    { "interactive-ttl",  ARG_FUNC,   (void*) set_interactive_ttl },
+    { "keep-alive",       ARG_FUNC,   (void*) set_keep_alive },
+    { "logfile",          ARG_FUNC,   (void*) set_logfile },
+    { "loops",            ARG_FUNC,   (void*) set_loops },
+    { "max-messages",     ARG_FUNC,   (void*) set_max_messages },
+    { "net-http-port",    ARG_FUNC,   (void*) set_port_http },
+    { "net-ri-port",      ARG_FUNC,   (void*) set_port_raw_in },
+    { "net-ro-port",      ARG_FUNC,   (void*) set_port_raw_out },
+    { "net-sbs-port",     ARG_FUNC,   (void*) set_port_sbs },
+    { "samplerate",       ARG_FUNC,   (void*) set_sample_rate },
+    { "silent",           ARG_FUNC,   (void*) set_silent },
+    { "ppm",              ARG_FUNC,   (void*) set_ppm },
+    { "host-raw-in",      ARG_FUNC,   (void*) set_host_port_raw_in },
+    { "host-raw-out",     ARG_FUNC,   (void*) set_host_port_raw_out },
+    { "host-sbs-in",      ARG_FUNC,   (void*) set_host_port_sbs_in },
+    { "error-correct1",   ARG_ATOB,   (void*) &Modes.error_correct_1 },
+    { "error-correct2",   ARG_ATOB,   (void*) &Modes.error_correct_2 },
+    { NULL,               0,          NULL }
   };
 
 /**
@@ -383,7 +380,6 @@ static void modeS_init_config (void)
   Modes.json_interval   = 1000;
   Modes.tui_interface   = TUI_WINCON;
 
-  Modes.check_crc       = true;
   Modes.error_correct_1 = true;
   Modes.error_correct_2 = false;
 
@@ -454,15 +450,15 @@ static void modeS_init_log (void)
 static bool modeS_init (void)
 {
   FILETIME ft;
+  bool     rc = true;
+  bool     cfg_test = false;
 
   modeS_FILETIME_to_loc_str (&ft, true);
 
-  memset (&Modes.cfg_ctx, '\0', sizeof(Modes.cfg_ctx));
-  Modes.cfg_ctx.tab        = config;
-  Modes.cfg_ctx.fname      = Modes.cfg_file;
-  Modes.cfg_ctx.test_level = (Modes.debug & DEBUG_GENERAL) ? 1 : (Modes.debug & DEBUG_GENERAL2) ? 2 : 0;
+  if (test_contains(Modes.tests, "config"))
+     cfg_test = true;
 
-  if (!cfg_open_and_parse(&Modes.cfg_ctx))
+  if (!cfg_open_and_parse(Modes.cfg_file, config) || cfg_test)
      return (false);
 
   if (Modes.logfile[0])
@@ -526,12 +522,19 @@ static bool modeS_init (void)
   memset (Modes.data, 127, Modes.data_len);
   Modes.magnitude_lut = gen_magnitude_lut();
 
-  if (Modes.tests)
+  if (test_contains(Modes.tests, "airport"))
   {
     airports_init();
-    net_init();          /* Call `net_tests()` too */
-    return (false);
+    rc = false;
   }
+  if (test_contains(Modes.tests, "net"))
+  {
+    net_init();          /* Call `net_tests()` too */
+    rc = false;
+  }
+
+  if (!rc)
+     return (false);
 
   if (Modes.interactive)
      return interactive_init();
@@ -605,7 +608,7 @@ static bool modeS_init_RTLSDR (void)
     return (false);
   }
 
-  /* Set gain, frequency, sample rate, and reset the device.
+  /* Set gain, AGC, frequency correction, Bias-T, frequency, sample rate, and reset the buffers.
    */
   gain_ok = nearest_gain (Modes.rtlsdr.device, Modes.gain_auto ? NULL : &Modes.gain);
   if (gain_ok)
@@ -1020,6 +1023,18 @@ static void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m
   LeaveCriticalSection (&Modes.print_mutex);
 }
 
+/*
+ * Return the CRC in a message.
+ * CRC is always the last three bytes.
+ */
+static __inline uint32_t CRC_get (const uint8_t *msg, int bits)
+{
+  uint32_t CRC = ((uint32_t) msg [(bits / 8) - 3] << 16) |
+                 ((uint32_t) msg [(bits / 8) - 2] << 8) |
+                  (uint32_t) msg [(bits / 8) - 1];
+  return (CRC);
+}
+
 /**
  * Parity table for MODE S Messages.
  *
@@ -1041,7 +1056,7 @@ static void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m
  * the CRC *XOR-ed* with the sender address as they are replies to interrogations,
  * but a casual listener can't split the address from the checksum.
  */
-static const uint32_t modeS_checksum_table [MODES_LONG_MSG_BITS] = {
+static const uint32_t checksum_table [MODES_LONG_MSG_BITS] = {
              0x3935EA, 0x1C9AF5, 0xF1B77E, 0x78DBBF, 0xC397DB, 0x9E31E9, 0xB0E2F0, 0x587178,
              0x2C38BC, 0x161C5E, 0x0B0E2F, 0xFA7D13, 0x82C48D, 0xBE9842, 0x5F4C21, 0xD05C14,
              0x682E0A, 0x341705, 0xE5F186, 0x72F8C3, 0xC68665, 0x9CB936, 0x4E5C9B, 0xD8D449,
@@ -1058,7 +1073,7 @@ static const uint32_t modeS_checksum_table [MODES_LONG_MSG_BITS] = {
              0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
            };
 
-static uint32_t modeS_checksum (const uint8_t *msg, int bits)
+static uint32_t CRC_check (const uint8_t *msg, int bits)
 {
   uint32_t crc = 0;
   int      offset = 0;
@@ -1071,19 +1086,19 @@ static uint32_t modeS_checksum (const uint8_t *msg, int bits)
   {
     int byte = j / 8;
     int bit  = j % 8;
-    int bitmask = 1 << (7 - bit);
+    int mask = 1 << (7 - bit);
 
     /* If bit is set, XOR with corresponding table entry.
      */
-    if (msg[byte] & bitmask)
-       crc ^= modeS_checksum_table [j + offset];
+    if (msg[byte] & mask)
+       crc ^= checksum_table [j + offset];
   }
   return (crc); /* 24 bit checksum. */
 }
 
 /**
- * Given the Downlink Format (DF) of the message, return the message length
- * in bits.
+ * Given the Downlink Format (DF) of the message, return the
+ * message length in bits.
  */
 static int modeS_message_len_by_type (int type)
 {
@@ -1105,16 +1120,14 @@ static int fix_single_bit_errors (uint8_t *msg, int bits)
   for (i = 0; i < bits; i++)
   {
     int      byte = i / 8;
-    int      bitmask = 1 << (7-(i % 8));
+    int      mask = 1 << (7-(i % 8));
     uint32_t crc1, crc2;
 
     memcpy (aux, msg, bits/8);
-    aux[byte] ^= bitmask;   /* Flip j-th bit. */
+    aux [byte] ^= mask;   /* Flip j-th bit. */
 
-    crc1 = ((uint32_t)aux [(bits/8)-3] << 16) |
-           ((uint32_t)aux [(bits/8)-2] << 8) |
-            (uint32_t)aux [(bits/8)-1];
-    crc2 = modeS_checksum (aux, bits);
+    crc1 = CRC_get (aux, bits);
+    crc2 = CRC_check (aux, bits);
 
     if (crc1 == crc2)
     {
@@ -1143,24 +1156,22 @@ static int fix_two_bits_errors (uint8_t *msg, int bits)
   for (j = 0; j < bits; j++)
   {
     int byte1 = j / 8;
-    int bitmask1 = 1 << (7-(j % 8));
+    int mask1 = 1 << (7-(j % 8));
 
     /* Don't check the same pairs multiple times, so i starts from j+1 */
     for (i = j+1; i < bits; i++)
     {
       int      byte2 = i / 8;
-      int      bitmask2 = 1 << (7-(i % 8));
+      int      mask2 = 1 << (7 - (i % 8));
       uint32_t crc1, crc2;
 
       memcpy (aux, msg, bits/8);
 
-      aux [byte1] ^= bitmask1; /* Flip j-th bit. */
-      aux [byte2] ^= bitmask2; /* Flip i-th bit. */
+      aux [byte1] ^= mask1;  /* Flip j-th bit. */
+      aux [byte2] ^= mask2;  /* Flip i-th bit. */
 
-      crc1 = ((uint32_t) aux [(bits/8)-3] << 16) |
-             ((uint32_t) aux [(bits/8)-2] << 8) |
-              (uint32_t) aux [(bits/8)-1];
-      crc2 = modeS_checksum (aux, bits);
+      crc1 = CRC_get (aux, bits);
+      crc2 = CRC_check (aux, bits);
 
       if (crc1 == crc2)
       {
@@ -1193,7 +1204,7 @@ static uint32_t ICAO_cache_hash_address (uint32_t a)
   a = ((a >> 16) ^ a) * 0x45D9F3B;
   a = ((a >> 16) ^ a) * 0x45D9F3B;
   a = ((a >> 16) ^ a);
-  return (a & (MODES_ICAO_CACHE_LEN-1));
+  return (a & (MODES_ICAO_CACHE_LEN - 1));
 }
 
 /**
@@ -1206,16 +1217,17 @@ static void ICAO_cache_add_address (uint32_t addr)
 {
   uint32_t h = ICAO_cache_hash_address (addr);
 
-  Modes.ICAO_cache [h*2] = addr;
+  Modes.ICAO_cache [h*2]   = addr;
   Modes.ICAO_cache [h*2+1] = (uint32_t) time (NULL);
 }
 
 /**
- * Returns 1 if the specified ICAO address was seen in a DF format with
+ * Returns true if the specified ICAO address was seen in a DF format with
  * proper checksum (not XORed with address) no more than
- * `MODES_ICAO_CACHE_TTL` seconds ago. Otherwise returns 0.
+ * `MODES_ICAO_CACHE_TTL` seconds ago.
+ * Otherwise returns false.
  */
-static int ICAO_address_recently_seen (uint32_t addr)
+static bool ICAO_address_recently_seen (uint32_t addr)
 {
   uint32_t h_idx = ICAO_cache_hash_address (addr);
   uint32_t _addr = Modes.ICAO_cache [2*h_idx];
@@ -1238,10 +1250,10 @@ static int ICAO_address_recently_seen (uint32_t addr)
  * On success the correct ICAO address is stored in the `modeS_message`
  * structure in the `AA [0..2]` fields.
  *
- * \retval 1 successfully recovered a message with a correct checksum.
- * \retval 0 failed to recover a message with a correct checksum.
+ * \retval true   successfully recovered a message with a correct checksum.
+ * \retval false  failed to recover a message with a correct checksum.
  */
-static int brute_force_AP (uint8_t *msg, modeS_message *mm)
+static bool brute_force_AP (const uint8_t *msg, modeS_message *mm)
 {
   uint8_t aux [MODES_LONG_MSG_BYTES];
   int     msg_type = mm->msg_type;
@@ -1256,7 +1268,7 @@ static int brute_force_AP (uint8_t *msg, modeS_message *mm)
       msg_type == 24)          /* Comm-C ELM */
   {
     uint32_t addr;
-    uint32_t crc;
+    uint32_t CRC;
     int      last_byte = (msg_bits / 8) - 1;
 
     /* Work on a copy. */
@@ -1267,10 +1279,10 @@ static int brute_force_AP (uint8_t *msg, modeS_message *mm)
      *
      * (ADDR xor CRC) xor CRC = ADDR.
      */
-    crc = modeS_checksum (aux, msg_bits);
-    aux [last_byte]   ^= crc & 0xFF;
-    aux [last_byte-1] ^= (crc >> 8) & 0xFF;
-    aux [last_byte-2] ^= (crc >> 16) & 0xFF;
+    CRC = CRC_check (aux, msg_bits);
+    aux [last_byte]   ^= CRC & 0xFF;
+    aux [last_byte-1] ^= (CRC >> 8) & 0xFF;
+    aux [last_byte-2] ^= (CRC >> 16) & 0xFF;
 
     /* If the obtained address exists in our cache we consider
      * the message valid.
@@ -1281,10 +1293,10 @@ static int brute_force_AP (uint8_t *msg, modeS_message *mm)
       mm->AA [0] = aux [last_byte-2];
       mm->AA [1] = aux [last_byte-1];
       mm->AA [2] = aux [last_byte];
-      return (1);
+      return (true);
     }
   }
-  return (0);
+  return (false);
 }
 
 /**
@@ -1506,7 +1518,7 @@ static void decode_ES_surface_position (struct modeS_message *mm, bool check_imf
  */
 static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
 {
-  uint32_t    crc2;   /* Computed CRC, used to verify the message CRC. */
+  uint32_t    CRC;   /* Computed CRC, used to verify the message CRC. */
   const char *AIS_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
   uint8_t    *msg;
   bool        check_imf = false;
@@ -1522,32 +1534,29 @@ static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
    */
   mm->msg_type = msg[0] >> 3;    /* Downlink Format */
   mm->msg_bits = modeS_message_len_by_type (mm->msg_type);
-
-  /* CRC is always the last three bytes.
-   */
-  mm->CRC = ((uint32_t)msg[(mm->msg_bits/8)-3] << 16) |
-            ((uint32_t)msg[(mm->msg_bits/8)-2] << 8) |
-             (uint32_t)msg[(mm->msg_bits/8)-1];
-  crc2 = modeS_checksum (msg, mm->msg_bits);
+  mm->CRC      = CRC_get (msg, mm->msg_bits);
+  CRC = CRC_check (msg, mm->msg_bits);
 
   /* Check CRC and fix single bit errors using the CRC when
    * possible (DF 11 and 17).
    */
   mm->error_bit = -1;    /* No error */
-  mm->CRC_ok = (mm->CRC == crc2);
+  mm->CRC_ok = (mm->CRC == CRC);
 
-  if (!mm->CRC_ok && (mm->msg_type == 11 || mm->msg_type == 17))
+  if (!mm->CRC_ok && Modes.error_correct_1 && (mm->msg_type == 11 || mm->msg_type == 17))
   {
     mm->error_bit = fix_single_bit_errors (msg, mm->msg_bits);
     if (mm->error_bit != -1)
     {
-      mm->CRC = modeS_checksum (msg, mm->msg_bits);
+      mm->CRC    = CRC_check (msg, mm->msg_bits);
       mm->CRC_ok = true;
+      Modes.stat.single_bit_fix++;
     }
     else if (Modes.error_correct_2 && mm->msg_type == 17 && (mm->error_bit = fix_two_bits_errors(msg, mm->msg_bits)) != -1)
     {
-      mm->CRC = modeS_checksum (msg, mm->msg_bits);
+      mm->CRC    = CRC_check (msg, mm->msg_bits);
       mm->CRC_ok = true;
+      Modes.stat.two_bits_fix++;
     }
   }
 
@@ -1564,7 +1573,7 @@ static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
 
   /* DF17 type (assuming this is a DF17, otherwise not used)
    */
-  mm->ME_type = msg[4] >> 3;         /* Extended squitter message type. */
+  mm->ME_type    = msg[4] >> 3;      /* Extended squitter message type. */
   mm->ME_subtype = msg[4] & 7;       /* Extended squitter message subtype. */
 
   /* Fields for DF4,5,20,21
@@ -1626,8 +1635,8 @@ static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
   }
   else
   {
-    /* If this is DF 11 or DF 17 and the checksum was ok, we can add this address to the list
-     * of recently seen addresses.
+    /* If this is DF 11 or DF 17 and the checksum was ok, we can add this address
+     * to the list of recently seen addresses.
      */
     if (mm->CRC_ok && mm->error_bit == -1)
        ICAO_cache_add_address (aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]));
@@ -1778,7 +1787,10 @@ static void print_unrecognized_ME (void)
 
   LOG_STDOUT (" %8llu unrecognized ME types:", totals);
   if (totals == 0ULL)
-     return;
+  {
+    LOG_STDOUT ("! \n");
+    return;
+  }
 
   for (t = 0; t < MAX_ME_TYPE; t++)
   {
@@ -2344,9 +2356,11 @@ good_preamble:
         {
           Modes.stat.bad_CRC++;
           Modes.stat.fixed++;
+#if 0
           if (mm.error_bit < MODES_LONG_MSG_BITS)
                Modes.stat.single_bit_fix++;
           else Modes.stat.two_bits_fix++;
+#endif
         }
       }
 
@@ -2743,8 +2757,8 @@ bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
   modeS_message mm;
   uint8_t      *end;
 
-  TRACE ("SBS(%d), len: %zu\n", loop_cnt, msg->len);
-  if (Modes.debug & DEBUG_NET)
+  TRACE ("SBS(%d), len: %zu", loop_cnt, msg->len);
+  if (Modes.debug & DEBUG_NET2)
      mg_hexdump (msg->buf, msg->len);
 
   if (msg->len == 0)  /* all was consumed */
@@ -2813,9 +2827,9 @@ static void show_help (const char *fmt, ...)
             "  --net                 Enable network listening services.\n"
             "  --net-active          Enable network active services.\n"
             "  --net-only            Enable only networking, no physical device or file.\n"
-            "  --raw                 Output hexadecimal messages.\n"
+            "  --raw                 Output raw hexadecimal messages only.\n"
             "  --strip <level>       Output missing the I/Q parts that are below the specified level.\n"
-            "  --test<=arg>          Perform some test of internal functions.\n"
+            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `config', `locale', `net' or `*')\n"
             "  --update              Update missing or old \"*.csv\" files.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
@@ -2833,7 +2847,7 @@ static void show_help (const char *fmt, ...)
  * It performs:
  *  \li Removes inactive aircrafts from the list.
  *  \li Polls the network for events blocking less than 125 msec.
- *  \li Polls the `Windows Location API` for a location.
+ *  \li Polls the `Windows Location API` for a location every 250 msec.
  *  \li Refreshes interactive data every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`).
  *  \li Refreshes the console-title with some statistics (also 4 times per second).
  */
@@ -2848,6 +2862,14 @@ static void background_tasks (void)
 
   if (Modes.exit)
      return;
+
+  now = MSEC_TIME();
+
+  refresh = (now - Modes.last_update_ms) >= MODES_INTERACTIVE_REFRESH_TIME;
+  if (!refresh)
+     return;
+
+  Modes.last_update_ms = now;
 
   /* Check the asynchronous result from `Location API`.
    */
@@ -2867,14 +2889,6 @@ static void background_tasks (void)
     Modes.home_pos_ok = true;
   }
 
-  now = MSEC_TIME();
-
-  refresh = (now - Modes.last_update_ms) >= MODES_INTERACTIVE_REFRESH_TIME;
-  if (!refresh)
-     return;
-
-  Modes.last_update_ms = now;
-
   aircraft_remove_stale (now);
   airports_background (now);
 
@@ -2887,7 +2901,7 @@ static void background_tasks (void)
   {
     interactive_title_stats();
     interactive_update_gain();
-    interactive_other_stats();  /* Only effective if '--tui curses' was used */
+    interactive_other_stats();  /* Only effective if 'tui = curses' was used */
   }
 #if 0
   else
@@ -2987,7 +3001,7 @@ static void show_decoder_stats (void)
 }
 
 /**
- * Show some statistrics at program exit function.
+ * Show some statistics at program exit.
  */
 static void show_statistics (bool show_dev_stats)
 {
@@ -3050,6 +3064,7 @@ static void modeS_exit (void)
   free (Modes.rtlsdr.name);
   free (Modes.sdrplay.name);
   free (Modes.aircraft_db_url);
+  free (Modes.tests);
 
   DeleteCriticalSection (&Modes.data_mutex);
   DeleteCriticalSection (&Modes.print_mutex);
@@ -3060,6 +3075,7 @@ static void modeS_exit (void)
   Modes.magnitude_lut = NULL;
   Modes.ICAO_cache    = NULL;
   Modes.selected_dev  = NULL;
+  Modes.tests         = NULL;
 
   if (Modes.win_location)
      location_exit();
@@ -3269,7 +3285,7 @@ static bool set_if_mode (const char *arg)
        Modes.sdrplay.if_mode = false;
   else if (!stricmp(arg, "lif"))
        Modes.sdrplay.if_mode = true;
-  else printf ("%s(%u): Ignoring illegal '--if-mode': '%s'.\n", Modes.cfg_ctx.current_file, Modes.cfg_ctx.current_line, arg);
+  else printf ("%s(%u): Ignoring illegal '--if-mode': '%s'.\n",  cfg_current_file(), cfg_current_line(), arg);
   return (true);
 }
 
@@ -3317,35 +3333,30 @@ static bool set_max_messages (const char *arg)
 
 static bool set_port_http (const char *arg)
 {
-  TRACE ("arg: '%s'", arg);
   modeS_net_services [MODES_NET_SERVICE_HTTP].port = (uint16_t) atoi (arg);
   return (true);
 }
 
 static bool set_port_raw_in (const char *arg)
 {
-  TRACE ("arg: '%s'", arg);
   modeS_net_services [MODES_NET_SERVICE_RAW_IN].port = (uint16_t) atoi (arg);
   return (true);
 }
 
 static bool set_port_raw_out (const char *arg)
 {
-  TRACE ("arg: '%s'", arg);
   modeS_net_services [MODES_NET_SERVICE_RAW_OUT].port = (uint16_t) atoi (arg);
   return (true);
 }
 
 static bool set_port_sbs (const char *arg)
 {
-  TRACE ("arg: '%s'", arg);
   modeS_net_services [MODES_NET_SERVICE_SBS_OUT].port = (uint16_t) atoi (arg);
   return (true);
 }
 
 static bool set_host_port_raw_in (const char *arg)
 {
-  TRACE ("arg: '%s'", arg);
   if (!net_set_host_port(arg, &modeS_net_services [MODES_NET_SERVICE_RAW_IN], MODES_NET_PORT_RAW_IN))
      return (false);
   return (true);
@@ -3353,7 +3364,6 @@ static bool set_host_port_raw_in (const char *arg)
 
 static bool set_host_port_raw_out (const char *arg)
 {
-  TRACE ("arg: '%s'", arg);
   if (!net_set_host_port(arg, &modeS_net_services [MODES_NET_SERVICE_RAW_OUT], MODES_NET_PORT_RAW_OUT))
      return (false);
   return (true);
@@ -3361,7 +3371,6 @@ static bool set_host_port_raw_out (const char *arg)
 
 static bool set_host_port_sbs_in (const char *arg)
 {
-  TRACE ("arg: '%s'", arg);
   if (!net_set_host_port(arg, &modeS_net_services [MODES_NET_SERVICE_SBS_IN], MODES_NET_PORT_SBS))
      return (false);
   return (true);
@@ -3410,7 +3419,7 @@ static struct option long_options[] = {
   { "net-only",    no_argument,        &Modes.net_only,       'n' },
   { "raw",         no_argument,        &Modes.raw,             1  },
   { "strip",       required_argument,  NULL,                  'S' },
-  { "test",        optional_argument,  NULL,                  'T' },
+  { "test",        required_argument,  NULL,                  'T' },
   { "update",      no_argument,        NULL,                  'u' },
   { "version",     no_argument,        NULL,                  'V' },
   { NULL,          no_argument,        NULL,                   0  }
@@ -3461,8 +3470,7 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 'T':
-           Modes.tests++;
-           Modes.tests_arg = optarg ? atoi (optarg) : 0;
+           test_add (&Modes.tests, optarg);
            break;
 
       case 'u':
