@@ -407,9 +407,8 @@ typedef struct global_data {
         int          win_location;               /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
         int          only_addr;                  /**< Print only ICAO addresses. */
         int          metric;                     /**< Use metric units. */
-        bool         error_correct_2;            /**< Aggressive detection algorithm. */
-        bool         error_correct_1;            /**< Fix 1 bit errors      (default: true). */
-        bool         check_crc;                  /**< Fix 1 or 2 bit errors (default: true). */
+        bool         error_correct_1;            /**< Fix 1 bit errors (default: true). */
+        bool         error_correct_2;            /**< Fix 2 bit errors (default: false). */
         int          keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
         mg_file_path web_page;                   /**< The base-name of the web-page to server for HTTP clients. */
         mg_file_path web_root;                   /**< And it's directory. */
@@ -421,14 +420,9 @@ typedef struct global_data {
         cartesian_t  home_pos_cart;              /**< Coordinates of home position (cartesian). */
         bool         home_pos_ok;                /**< We have a good home position. */
         const char  *wininet_last_error;         /**< Last error from WinInet API. */
-        int          tests;                      /**< Perform some tests. */
-        int          tests_arg;                  /**< With optional tests-count. */
+        char        *tests;                      /**< Perform tests specified by pattern. */
         int          tui_interface;              /**< Selected `--tui` interface. */
         bool         update;                     /**< Option `--update' was used to update missing .csv-files */
-
-        /** For handling a config-file.
-         */
-        cfg_context cfg_ctx;
 
         /** For handling a `Modes.aircraft_db` file:
          */
@@ -624,6 +618,8 @@ uint32_t    download_to_file (const char *url, const char *file);
 char       *download_to_buf  (const char *url);
 int         load_dynamic_table (struct dyn_struct *tab, int tab_size);
 int         unload_dynamic_table (struct dyn_struct *tab, int tab_size);
+bool        test_add (char **pattern, const char *what);
+bool        test_contains (const char *pattern, const char *what);
 void        puts_long_line (const char *start, size_t indent);
 void        show_version_info (bool verbose);
 void        spherical_to_cartesian (const pos_t *pos, cartesian_t *cart);

@@ -510,6 +510,55 @@ char *slashify (char *fname)
 }
 
 /**
+ * Add or initialize a test `which` to the test-list at `*spec`.
+ */
+bool test_add (char **spec, const char *which)
+{
+  char *s;
+
+  assert (spec);
+  assert (which);
+
+  if (!*spec)
+       s = mg_mprintf ("%s", which);
+  else s = mg_mprintf ("%s,%s", *spec, which);
+
+  free (*spec);
+  *spec = s;
+  return (s ? true : false);
+}
+
+/**
+ * Check if a test `which` is in the test-list at `spec`.
+ */
+bool test_contains (const char *spec, const char *which)
+{
+  bool rc = false;
+
+  if (!spec)             /* no test-spec disables all */
+     rc = false;
+  else if (!strcmp(spec, "*"))
+     rc = true;          /* a '*' test-spec enables all */
+  else
+  {
+    mg_str s, k, v;
+
+    s = mg_str (spec);
+    assert (which);
+
+    while (mg_commalist(&s, &k, &v))
+    {
+      if (!strnicmp(which, k.ptr, k.len))
+      {
+        rc = true;
+        break;
+      }
+    }
+  }
+  return (rc);
+}
+
+/**
  * Touch a file to current time.
  */
 int touch_file (const char *file)
@@ -1598,18 +1647,19 @@ double great_circle_dist (pos_t pos1, pos_t pos2)
  */
 static void set_home_distance (aircraft *a)
 {
-  if (VALID_POS(Modes.home_pos) && VALID_POS(a->position))
-  {
-    double distance = great_circle_dist (a->position, Modes.home_pos);
+  double distance;
 
-    if (distance != 0.0)
-       a->distance = distance;
+  if (!(VALID_POS(Modes.home_pos) && VALID_POS(a->position)))
+     return;
 
-    a->EST_position = a->position;
+  distance = great_circle_dist (a->position, Modes.home_pos);
+  if (distance != 0.0)
+     a->distance = distance;
 
-    if (a->even_CPR_time > 0 && a->odd_CPR_time > 0)
-       a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
-  }
+  a->EST_position = a->position;
+
+  if (a->even_CPR_time > 0 && a->odd_CPR_time > 0)
+     a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
 }
 
 /**
@@ -1745,10 +1795,10 @@ void decode_CPR (struct aircraft *a)
 {
   const double air_dlat0 = 360.0 / 60;
   const double air_dlat1 = 360.0 / 59;
-  double lat0 = a->even_CPR_lat;
-  double lat1 = a->odd_CPR_lat;
-  double lon0 = a->even_CPR_lon;
-  double lon1 = a->odd_CPR_lon;
+  double       lat0      = a->even_CPR_lat;
+  double       lat1      = a->odd_CPR_lat;
+  double       lon0      = a->even_CPR_lon;
+  double       lon1      = a->odd_CPR_lon;
 
   /* Compute the Latitude Index "j"
    */
@@ -1788,12 +1838,12 @@ void decode_CPR (struct aircraft *a)
     a->position.lat = rlat0;
   }
 
+  /* Normalize to -180 .. +180
+   */
 #if 0
   if (a->position.lon > 180)
      a->position.lon -= 360;
 #else
-  /* Renormalize to -180 .. +180
-   */
   a->position.lon -= floor ((a->position.lon + 180) / 360) * 360;
 #endif
 
