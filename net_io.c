@@ -1143,7 +1143,7 @@ static bool client_is_unique (const mg_addr *addr, intptr_t service)
   bool         unique = _client_is_unique (addr, service);
   mg_host_name name;
 
-  if (Modes.tests)
+  if (test_contains(Modes.tests, "net"))
   {
     mg_snprintf (name, sizeof(name), "%M", mg_print_ip, addr);
     printf ("  unique: %d, ip: %s\n", unique, name);
@@ -1202,10 +1202,10 @@ static bool client_is_extern (const mg_addr *addr)
   uint32_t ip4;
 
   if (addr->is_ip6)
-     return (false);             /**\todo fix this */
+     return (IN6_IS_ADDR_LOOPBACK ((const IN6_ADDR*)&addr->ip) == false);
 
-  ip4 = *(const uint32_t*) &addr->ip;
-  return (ip4 != 0x0100007F);    /* ip4 !== 127.0.0.1 */
+  ip4 = ntohl (*(const uint32_t*) &addr->ip);
+  return (ip4 != 0x7F000001);    /* ip4 !== 127.0.0.1 */
 }
 
 static bool client_handler (const mg_connection *c, intptr_t service, int ev)
@@ -1877,7 +1877,7 @@ bool net_init (void)
   if (Modes.http_out && !check_packed_web_page() && !check_web_page())
      return (false);
 
-  if (Modes.tests >= 2)
+  if (test_contains(Modes.tests, "net"))
      net_tests();
 
   return (true);
