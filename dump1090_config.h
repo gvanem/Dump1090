@@ -168,7 +168,8 @@
 
   #include <wepoll.h>
 
-  #define close(fd) epoll_close (fd)
+  #define close(fd)      epoll_close (fd)
+  #define EPOLL_CLOEXEC  0  /* For 'epoll_create1(flags)' */
 
   #if defined(__clang__)
     #pragma clang diagnostic ignored "-Wint-to-void-pointer-cast"
