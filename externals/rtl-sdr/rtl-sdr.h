@@ -192,15 +192,6 @@ RTLSDR_API int rtlsdr_set_freq_correction(rtlsdr_dev_t *dev, int ppm);
  * Set the frequency correction value for the device.
  *
  * \param dev the device handle given by rtlsdr_open()
- * \param ppm correction value in parts per 100 million (ppm)
- * \return 0 on success
- */
-RTLSDR_API int rtlsdr_set_freq_correction_100ppm(rtlsdr_dev_t *dev, int ppm);
-
-/*!
- * Set the frequency correction value for the device.
- *
- * \param dev the device handle given by rtlsdr_open()
  * \param ppb correction value in parts per billion (ppb)
  * \return 0 on success
  */
@@ -213,14 +204,6 @@ RTLSDR_API int rtlsdr_set_freq_correction_ppb(rtlsdr_dev_t *dev, int ppb);
  * \return correction value in parts per million (ppm)
  */
 RTLSDR_API int rtlsdr_get_freq_correction(rtlsdr_dev_t *dev);
-
-/*!
- * Get actual frequency correction value of the device.
- *
- * \param dev the device handle given by rtlsdr_open()
- * \return correction value in parts per 100 million (ppm)
- */
-RTLSDR_API int rtlsdr_get_freq_correction_100ppm(rtlsdr_dev_t *dev);
 
 /*!
  * Get actual frequency correction value of the device.
@@ -522,19 +505,6 @@ RTLSDR_API int rtlsdr_read_async(rtlsdr_dev_t *dev,
  * \return 0 on success
  */
 RTLSDR_API int rtlsdr_cancel_async(rtlsdr_dev_t *dev);
-
-/*!
- * Read samples from the device asynchronously. This function will block until
- * it is being canceled using rtlsdr_cancel_async()
- *
- * NOTE: This function is deprecated and is subject for removal.
- *
- * \param dev the device handle given by rtlsdr_open()
- * \param cb callback function to return received samples
- * \param ctx user specific context to pass via the callback function
- * \return 0 on success
- */
-RTLSDR_API int rtlsdr_wait_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx);
 
 /*!
  * Read from the remote control (RC) infrared (IR) sensor
