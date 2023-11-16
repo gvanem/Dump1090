@@ -344,7 +344,7 @@ $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c
 	$(call C_compile, $@, -DCOMPILING_SQLITE3_SHELL $<)
 
 web-pages.dll: $(WEB_OBJ) $(OBJ_DIR)/web-pages.res
-	$(call link_web_DLL, $@, $^ $(ASAN_LIBS), $(WEB_SUFFIXES))
+	$(call link_web_DLL, $@, -noentry $^ $(ASAN_LIBS), $(WEB_SUFFIXES))
 ifeq ($(USE_UPX),1)
 	$(call red_msg, Compressing $@ will take some time...)
 	upx -v $@
@@ -504,7 +504,7 @@ define link_EXE
   $(call create_resp_file, link.args, $(LDFLAGS) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.exe=.map)
-  @rm -f $(1:.exe=.exp)
+  @rm -f $(1:.exe=.exp) $(1:.exe=.lib)
   @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
 endef
 
