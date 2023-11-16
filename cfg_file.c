@@ -272,7 +272,6 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
 static bool parse_and_set_value (const char *key, const char *value, void *arg, int size)
 {
   uint64_t val = 0;
-  bool     ok;
 
   TRACE ("parsing key: '%s', value: '%s'", key, value);
 
