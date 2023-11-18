@@ -968,6 +968,16 @@ static const char *compiler_info (void)
   return (buf);
 }
 
+#if defined(MG_ENABLE_SELECT)
+  #define NETPOLLER  "select()"
+#elif defined(MG_ENABLE_EPOLL)
+  #define NETPOLLER  "epoll"
+#elif defined(MG_ENABLE_POLL)
+  #define NETPOLLER "WSAPoll()"
+#else
+  #error "Cannot define 'NETPOLLER'?!"
+#endif
+
 static const char *build_features (void)
 {
   static char        buf [150];
@@ -988,16 +998,10 @@ static const char *build_features (void)
   #if defined(USE_PACKED_DLL)
     "Packed-Web",
   #endif
-  #if defined(MG_ENABLE_EPOLL)
-    "NETPOLLER=epoll",
-  #elif defined(MG_ENABLE_POLL)
-    "NETPOLLER=WSAPoll()",
-  #elif defined(MG_ENABLE_SELECT)
-    "NETPOLLER=select()",
-  #endif
   #if defined(USE_READSB_DEMOD)
     "readsb-demod",
   #endif
+  "NETPOLLER=" NETPOLLER ,
     NULL
   };
   const char *f;
