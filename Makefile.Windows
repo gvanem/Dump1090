@@ -110,9 +110,6 @@ OBJ_DIR = objects
 
 c_to_obj = $(addprefix $(OBJ_DIR)/, $(notdir $(1:.c=.obj)))
 
-OS_LIBS   = advapi32.lib iphlpapi.lib ole32.lib setupapi.lib user32.lib winusb.lib
-ASAN_LIBS =
-
 ifneq ($(CC),cl)
   ifneq ($(CC),clang-cl)
     $(error $(Usage))
@@ -176,6 +173,9 @@ else ifeq ($(CPU),x86)
 else
   $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
 endif
+
+OS_LIBS   = advapi32.lib iphlpapi.lib ole32.lib setupapi.lib user32.lib winusb.lib
+ASAN_LIBS =
 
 #
 # ASAN build settings:
