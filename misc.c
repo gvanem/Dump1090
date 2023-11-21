@@ -911,6 +911,15 @@ const char *dword_str (DWORD val)
   return qword_str ((uint64_t)val);
 }
 
+void *memdup (const void *from, size_t size)
+{
+  void *ret = malloc (size);
+
+  if (ret)
+     return memcpy (ret, from, size);
+  return (NULL);
+}
+
 /**
  * Print some details about the Sqlite3 package.
  */
