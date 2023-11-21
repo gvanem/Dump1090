@@ -243,7 +243,7 @@ static void mg_flash_sector_cleanup(char *sector) {
   MG_DEBUG(("Cleaning up sector %p", sector));
   while ((n = mg_flash_next(sector + ofs, sector + ss, &key, &size)) > 0) {
     // Delete an old copy of this object in the cache
-    for (size_t o = 0; o < io.len; o += size2 + hs) { 
+    for (size_t o = 0; o < io.len; o += size2 + hs) {
       uint32_t k = *(uint32_t *) (io.buf + o + sizeof(uint32_t));
       size2 = *(uint32_t *) (io.buf + o);
       if (k == key) {
@@ -252,7 +252,7 @@ static void mg_flash_sector_cleanup(char *sector) {
       }
     }
     // And add the new copy
-    mg_iobuf_add(&io, io.len, sector + ofs, size + hs);  
+    mg_iobuf_add(&io, io.len, sector + ofs, size + hs);
     ofs += n;
   }
   // All objects are cached in RAM now
