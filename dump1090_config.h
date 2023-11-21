@@ -21,6 +21,7 @@
   #pragma clang diagnostic ignored "-Wunused-value"
   #pragma clang diagnostic ignored "-Wunused-variable"
   #pragma clang diagnostic ignored "-Wunused-function"
+  #pragma clang diagnostic ignored "-Wpragma-pack"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
 
   #ifdef COMPILING_SQLITE3_SHELL
