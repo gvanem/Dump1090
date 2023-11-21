@@ -1523,7 +1523,7 @@ char *aircraft_make_json (bool extended_client)
   }
   *p = '\0';
 
-  if (Modes.log && (Modes.debug & DEBUG_GENERAL))
+  if (Modes.log && (Modes.debug & DEBUG_GENERAL2))
      fprintf (Modes.log, "\nJSON dump of file-number %u for %u aircrafts, extended_client: %d:\n%s\n\n",
               json_file_num++, aircrafts, extended_client, buf);
   return (buf);
