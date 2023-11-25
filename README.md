@@ -78,7 +78,16 @@ To use a SDRplay device, the option `--device` must be used. Like:
   c:\dev\Dump1090> dump1090 --device sdrplay0
   ```
 
-  But these devices does not work correctly yet.
+To use a remote RTLTCP device (defaults to port 1234), use:
+  ```
+  c:\dev\Dump1090> dump1090 --device tcp://host1
+  ```
+or:
+  ```
+  c:\dev\Dump1090> dump1090 --device tcp://host2:2345
+  ```
+
+But these devices does not work correctly yet.
 
   Example output:
   ```
