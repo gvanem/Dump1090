@@ -69,6 +69,7 @@ typedef struct aircraft {
         int       heading;                /**< Horizontal angle of flight */
         bool      heading_is_valid;       /**< It has a valid heading */
         bool      is_helicopter;          /**< It is a helicopter */
+        bool      done_flight_info;       /**< Have we shown the flight-info? */
         uint64_t  seen_first;             /**< Tick-time (in milli-sec) at which the first packet was received */
         uint64_t  seen_last;              /**< Tick-time (in milli-sec) at which the last packet was received */
         uint64_t  EST_seen_last;          /**< Tick-time (in milli-sec) at which the last estimated position was done */
