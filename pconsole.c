@@ -147,7 +147,7 @@ bool pconsole_create (struct pconsole_t *pty, const char *cmd_path, const char *
   STARTUPINFOEX       si;
   PROCESS_INFORMATION pi;
   HRESULT             ret;
-  size_t              list_size;
+  SIZE_T              list_size;
   char               *cmd_line;
 
   memset (pty, '\0', sizeof(*pty));
