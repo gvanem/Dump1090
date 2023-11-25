@@ -592,11 +592,47 @@ static flight_info *routes_find_by_callsign (const char *call_sign)
    */
   memset (&f, '\0', sizeof(f));
   f.type = AIRPORT_API_CACHED;
+  strncpy (f.call_sign, r->call_sign, sizeof(f.call_sign)-1);
   strncpy (f.departure, r->departure, sizeof(f.departure)-1);
   strncpy (f.destination, r->destination, sizeof(f.destination)-1);
   return (&f);
 }
-#endif
+#endif /* USE_GEN_ROUTES */
+
+static void routes_find_test_1 (void)
+{
+#if !defined(USE_GEN_ROUTES)
+  printf ("%s(): '-DUSE_GEN_ROUTEST' not defined.\n\n", __FUNCTION__);
+
+#else
+  size_t num = min (10, route_records_num-1);
+  size_t i, rec_num;
+
+  printf ("%s():\n  Checking %zu random records among %zu records.\n", __FUNCTION__, num, route_records_num);
+  printf ("  Record  call-sign  DEP     DEST    (departure    -> destination)\n"
+          "  ---------------------------------------------------------------------------------\n");
+
+  for (i = 0; i < num; i++)
+  {
+    const flight_info *f;
+    const airport     *a_dep, *a_dest;
+    const char        *call_sign;
+
+    rec_num   = (size_t) random_range (0, route_records_num - 1);
+    call_sign = route_records [rec_num].call_sign;
+    f = routes_find_by_callsign (call_sign);
+    a_dep  = CSV_lookup_ICAO (f->departure);
+    a_dest = CSV_lookup_ICAO (f->destination);
+
+    printf ("  %6zu  %-7s    %-7s %-7s (%-12s -> %s)\n",
+            rec_num, f->call_sign,
+            f->departure, f->destination,
+            a_dep  ? a_dep->location  : "?",
+            a_dest ? a_dest->location : "?");
+  }
+  puts ("");
+#endif /* USE_GEN_ROUTES */
+}
 
 /**
  * Add a cached flight-info record to `g_data.flight_info`.
@@ -1135,6 +1171,7 @@ uint32_t airports_init (void)
     airport_loc_test_2();
     airport_API_test_1();
     airport_API_test_2();
+    routes_find_test_1();
     airports_show_stats();
     rc = false;        /* Just force an exit */
   }
