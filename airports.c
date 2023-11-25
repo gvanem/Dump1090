@@ -631,9 +631,6 @@ static void API_trace_LOL (const char *req_resp, uint32_t num, const char *str, 
 {
   char http_status [20] = "";
 
-  if (!Modes.log)
-     return;
-
   EnterCriticalSection (&Modes.print_mutex);
 
   if (!strcmp(req_resp, "response") && f->http_status > 0)
