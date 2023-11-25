@@ -10,6 +10,7 @@
 #include "misc.h"
 #include "aircraft.h"
 #include "net_io.h"
+#include "rtl_tcp.h"
 
 /**
  * Handlers for the network services.
@@ -17,14 +18,15 @@
  * We use Mongoose for handling all the server and low-level network I/O. <br>
  * We register event-handlers that gets called on important network events.
  *
- * Keep the data for our 5 network services in this structure.
+ * Keep the data for all our 6 network services in this structure.
  */
 net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
-          { &Modes.raw_out,  "Raw TCP output", "tcp", MODES_NET_PORT_RAW_OUT }, // MODES_NET_SERVICE_RAW_OUT
-          { &Modes.raw_in,   "Raw TCP input",  "tcp", MODES_NET_PORT_RAW_IN },  // MODES_NET_SERVICE_RAW_IN
-          { &Modes.sbs_out,  "SBS TCP output", "tcp", MODES_NET_PORT_SBS },     // MODES_NET_SERVICE_SBS_OUT
-          { &Modes.sbs_in,   "SBS TCP input",  "tcp", MODES_NET_PORT_SBS },     // MODES_NET_SERVICE_SBS_IN
-          { &Modes.http_out, "HTTP server",    "tcp", MODES_NET_PORT_HTTP }     // MODES_NET_SERVICE_HTTP
+          { &Modes.raw_out,    "Raw TCP output", "tcp", MODES_NET_PORT_RAW_OUT },  // MODES_NET_SERVICE_RAW_OUT
+          { &Modes.raw_in,     "Raw TCP input",  "tcp", MODES_NET_PORT_RAW_IN  },  // MODES_NET_SERVICE_RAW_IN
+          { &Modes.sbs_out,    "SBS TCP output", "tcp", MODES_NET_PORT_SBS     },  // MODES_NET_SERVICE_SBS_OUT
+          { &Modes.sbs_in,     "SBS TCP input",  "tcp", MODES_NET_PORT_SBS     },  // MODES_NET_SERVICE_SBS_IN
+          { &Modes.http_out,   "HTTP server",    "tcp", MODES_NET_PORT_HTTP    },  // MODES_NET_SERVICE_HTTP
+          { &Modes.rtl_tcp_in, "RTL-TCP input",  "tcp", MODES_NET_PORT_RTL_TCP }   // MODES_NET_SERVICE_RTL_TCP
         };
 
 /**
@@ -49,6 +51,17 @@ DEF_FUNC (const char *, mg_unlist, (size_t i));
 DEF_FUNC (const char *, mg_spec,   (void));
 
 /**
+ * For handling denial of clients in `client_handler (.., MG_EV_ACCEPT)` .
+ */
+typedef struct deny_element {
+        char                 acl [MAX_ADDRESS];
+        bool                 is_ip6;
+        struct deny_element *next;
+      } deny_element;
+
+static deny_element *g_deny_list = NULL;
+
+/**
  * For handling a list of unique network clients.
  * A list of address, service and time first seen.
  */
@@ -57,13 +70,26 @@ typedef struct unique_IP {
         intptr_t          service;   /**< unique in service */
         FILETIME          seen;      /**< time when this address was created */
         uint32_t          accepted;  /**< number of times for `accept()` */
+        uint32_t          denied;    /**< number of times denied */
         struct unique_IP *next;
       } unique_IP;
 
 static unique_IP *g_unique_ips = NULL;
 
+/**
+ * For handling timers in each network service.
+ */
+typedef struct timeout_data {
+        mg_timer *timer;
+        intptr_t  service;
+        int32_t   id;
+      } timeout_data;
+
+static timeout_data service_timers [MODES_NET_SERVICES_NUM];
+
 static void        net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data);
-static void        net_timeout (void *fn_data);
+static void        net_timer_add (intptr_t service, int timeout_ms, int flag);
+static void        net_timer_del (intptr_t service);
 static void        net_conn_free (connection *conn, intptr_t service);
 static char       *net_store_error (intptr_t service, const char *err);
 static char       *net_error_details (mg_connection *c, const char *in_out, const void *ev_data);
@@ -74,8 +100,13 @@ static const char *net_service_descr (intptr_t service);
 static char       *net_service_error (intptr_t service);
 static char       *net_service_url (intptr_t service);
 static bool        client_handler (const mg_connection *c, intptr_t service, int ev);
-static bool        client_deny (const mg_addr *addr, intptr_t service);
 const char        *mg_unpack (const char *path, size_t *size, time_t *mtime);
+
+/**
+ * Remote RTL_TCP server functions.
+ */
+static bool rtl_tcp_connect (mg_connection *c);
+static bool rtl_tcp_decode (mg_iobuf *msg, int loop_cnt);
 
 /**
  * \def ASSERT_SERVICE(s)
@@ -93,6 +124,12 @@ const char        *mg_unpack (const char *path, size_t *size, time_t *mtime);
           if (Modes.debug & DEBUG_MONGOOSE2) \
              mg_hexdump (data, len);         \
         } while (0)
+
+/**
+ * For 'deny_lists_test()' and 'unique_ip_tests()'
+ */
+#define HOSTILE_IP_1  "45.128.232.127"
+#define HOSTILE_IP_2  "80.94.95.226"
 
 /**
  * Mongoose event names.
@@ -130,14 +167,15 @@ static const char *event_name (int ev)
 /**
  * Setup a connection for a service.
  * Active or passive (`listen == true`).
- * If it's active, we could use udp.
+ * If it's active, we could use UDP.
  */
 static mg_connection *connection_setup (intptr_t service, bool listen, bool sending)
 {
   mg_connection *c = NULL;
-  bool           allow_udp = (service == MODES_NET_SERVICE_RAW_IN);
-  bool           use_udp   = (modeS_net_services[service].is_udp && !modeS_net_services[service].is_ip6);
-  char           url [sizeof(mg_host_name)+6];
+  bool           allow_udp = (service == MODES_NET_SERVICE_RAW_IN ||
+                              service == MODES_NET_SERVICE_RTL_TCP);
+  bool           use_udp = (modeS_net_services[service].is_udp && !modeS_net_services[service].is_ip6);
+  char          *url;
 
   /* Temporary enable important errors to go to `stderr` only.
    * For both an active and listen (passive) coonection we handle
@@ -161,11 +199,10 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
 
   if (listen)
   {
-    snprintf (url, sizeof(url), "%s://0.0.0.0:%u",
-              modeS_net_services[service].protocol,
-              modeS_net_services[service].port);
-
-    modeS_net_services [service].url = strdup (url);
+    url = mg_mprintf ("%s://0.0.0.0:%u",
+                      modeS_net_services[service].protocol,
+                      modeS_net_services[service].port);
+    modeS_net_services [service].url = url;
 
     if (service == MODES_NET_SERVICE_HTTP)
          c = mg_http_listen (&Modes.mgr, url, net_handler, (void*)service);
@@ -183,21 +220,18 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     if (modeS_net_services[service].is_udp)
        timeout = -1;      /* Should UDP expire? */
 
-    snprintf (url, sizeof(url), "%s://%s:%u",
-              modeS_net_services[service].protocol,
-              modeS_net_services[service].host,
-              modeS_net_services[service].port);
+    url = mg_mprintf ("%s://%s:%u",
+                      modeS_net_services[service].protocol,
+                      modeS_net_services[service].host,
+                      modeS_net_services[service].port);
+    modeS_net_services[service].url = url;
 
-    modeS_net_services[service].url = strdup (url);
+    DEBUG (DEBUG_NET, "Connecting to '%s' (service \"%s\").\n",
+           url, net_service_descr(service));
 
-    if (timeout > 0)
-       mg_timer_init (&Modes.mgr.timers, &modeS_net_services[service].timer,
-                      timeout, MG_TIMER_ONCE, net_timeout, (void*)service);
+    net_timer_add (service, timeout, MG_TIMER_ONCE);
 
-    DEBUG (DEBUG_NET, "Connecting to '%s' (service \"%s\", timeout: %d).\n",
-           url, net_service_descr(service), timeout);
-
-    c = mg_connect (&Modes.mgr, url, net_handler, (void*) service);
+    c = mg_connect (&Modes.mgr, url, net_handler, (void*)service);
   }
 
   if (c && (Modes.debug & DEBUG_MONGOOSE2))
@@ -230,7 +264,7 @@ quit:
  *
  * This message shows up as ICAO "4B9696" and Reg-num "TC-ETV" in `--interactive` mode.
  */
-void net_connection_recv (connection *conn, net_msg_handler handler, bool is_server)
+static void net_connection_recv (connection *conn, net_msg_handler handler, bool is_server)
 {
   mg_iobuf *msg;
   int       loops;
@@ -597,17 +631,69 @@ static int net_handler_websocket (mg_connection *c, const mg_ws_message *ws, int
 
 /**
  * The timer callback for an active `connect()`.
+ * Or for data-timeout in `MODES_NET_SERVICE_RTL_TCP` service.
  */
-static void net_timeout (void *fn_data)
+static void net_timeout (const timeout_data *td)
 {
-  INT_PTR service = (int)(INT_PTR) fn_data;
-  char    err [200];
+  char        err [200];
+  const char *what = "connection";
 
-  snprintf (err, sizeof(err), "Timeout in connection to host %s (service: \"%s\")",
-            net_service_url(service), net_service_descr(service));
-  net_store_error (service, err);
+  if (td->service == MODES_NET_SERVICE_RTL_TCP)
+     what = "data";
+
+  snprintf (err, sizeof(err), "Timeout in %s to host %s (service: \"%s\", tid: %u)",
+            what, net_service_url(td->service), net_service_descr(td->service), td->id);
+  net_store_error (td->service, err);
 
   modeS_signal_handler (0);  /* break out of main_data_loop()  */
+}
+
+static void net_timer_add (intptr_t service, int timeout_ms, int flag)
+{
+  ASSERT_SERVICE (service);
+  assert (flag == MG_TIMER_ONCE || flag == MG_TIMER_REPEAT);
+
+  if (timeout_ms > 0)
+  {
+    mg_timer *t = mg_timer_add (&Modes.mgr, timeout_ms, flag,
+                                (void (*)(void*)) net_timeout,
+                                &service_timers [service]);
+
+    service_timers [service].service = service;
+    service_timers [service].id      = (int32_t) t->id;
+    service_timers [service].timer   = t;
+    DEBUG (DEBUG_NET, "Added timer-id: %ld, %d msec, %s.\n",
+           t->id, timeout_ms, flag == MG_TIMER_ONCE ? "MG_TIMER_ONCE" : "MG_TIMER_REPEAT");
+  }
+  else
+  {
+    service_timers [service].id      = -1;
+    service_timers [service].timer   = NULL;
+  }
+}
+
+static void net_timer_del (intptr_t service)
+{
+  mg_timer *t;
+
+  ASSERT_SERVICE (service);
+  t = service_timers [service].timer;
+  if (t)
+  {
+    timeout_data *td = service_timers + service;
+
+    DEBUG (DEBUG_NET, "Stopping timer-id: %d\n", td->id);
+    mg_timer_free (&Modes.mgr.timers, t);
+    FREE (service_timers [service].timer);
+  }
+}
+
+static void net_timer_del_all (void)
+{
+  intptr_t service;
+
+  for (service = MODES_NET_SERVICE_FIRST; service <= MODES_NET_SERVICE_LAST; service++)
+      net_timer_del (service);
 }
 
 static char *net_error_details (mg_connection *c, const char *in_out, const void *ev_data)
@@ -767,7 +853,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
       else if (remote)
       {
         connection_failed_active (c, service, ev_data);
-        mg_timer_free (&Modes.mgr.timers, &modeS_net_services[service].timer);
+        net_timer_del (service);
         modeS_signal_handler (0);   /* break out of main_data_loop()  */
       }
     }
@@ -784,9 +870,6 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
 
   if (ev == MG_EV_CONNECT)
   {
-    DEBUG (DEBUG_NET, "Stopping timer for host %s (service \"%s\").\n", remote, net_service_descr(service));
-    mg_timer_free (&Modes.mgr.timers, &modeS_net_services[service].timer);
-
     conn = calloc (sizeof(*conn), 1);
     if (!conn)
     {
@@ -800,13 +883,17 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
     conn->service = service;
     strcpy (conn->rem_buf, remote_buf);
 
-    LIST_ADD_TAIL (connection, &Modes.connections[service], conn);
+    DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\")\n", remote, net_service_descr(service));
+    net_timer_del (service);
+
+    if (service == MODES_NET_SERVICE_RTL_TCP && !rtl_tcp_connect(c))
+       return;
+
+    LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
     ++ (*net_num_connections (service));  /* should never go above 1 */
     net_mem_allocated (service, sizeof(*conn));
 
     Modes.stat.srv_connected [service]++;
-
-    DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\")\n", remote, net_service_descr(service));
     return;
   }
 
@@ -832,7 +919,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
     conn->service = service;
     strcpy (conn->rem_buf, remote_buf);
 
-    LIST_ADD_TAIL (connection, &Modes.connections[service], conn);
+    LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
     ++ (*net_num_connections (service));
     net_mem_allocated (service, (int)sizeof(*conn));
 
@@ -860,6 +947,11 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
     {
       conn = connection_get (c, service, true);
       net_connection_recv (conn, decode_SBS_message, true);
+    }
+    else if (service == MODES_NET_SERVICE_RTL_TCP)
+    {
+      conn = connection_get (c, service, false);
+      net_connection_recv (conn, rtl_tcp_decode, false);
     }
     return;
   }
@@ -902,7 +994,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
     {
       status = net_handler_http (c, hm, request_uri);
 
-      DEBUG (DEBUG_NET, "HTTP %d for '%.*s' (conn-id: %lu)\n",
+      DEBUG (DEBUG_NET2, "HTTP %d for '%.*s' (conn-id: %lu)\n",
              status, (int)hm->uri.len, hm->uri.ptr, c->id);
     }
     else
@@ -1079,14 +1171,22 @@ bool net_handler_sending (intptr_t service)
   return (modeS_net_services [service].active_send);
 }
 
-static void net_flushall (void)
+static void net_flush_all (void)
 {
   mg_connection *c;
+  mg_timer      *t = Modes.mgr.timers;
   uint32_t       num_active  = 0;
   uint32_t       num_passive = 0;
   uint32_t       num_unknown = 0;
+  uint32_t       num_timers  = 0;
   size_t         total_rx = 0;
   size_t         total_tx = 0;
+
+  while (t)
+  {
+    num_timers++;
+    t = t->next;
+  }
 
   for (c = Modes.mgr.conns; c; c = c->next)
   {
@@ -1103,16 +1203,18 @@ static void net_flushall (void)
     else num_unknown++;
   }
   DEBUG (DEBUG_NET,
-         "Flushed %u active connections, %u passive, %u unknown. Remaining bytes: %zu Rx, %zu Tx.\n",
-         num_active, num_passive, num_unknown, total_rx, total_tx);
+         "Flushed %u active connections, %u passive, %u unknown. Remaining bytes: %zu Rx, %zu Tx. %u timers.\n",
+         num_active, num_passive, num_unknown, total_rx, total_tx, num_timers);
 }
 
 /**
  * Check if the client `*addr` is unique.
  */
-static bool _client_is_unique (const mg_addr *addr, intptr_t service)
+static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP **ipp)
 {
   unique_IP *ip;
+
+  *ipp = NULL;
 
   if (addr->is_ip6)  /* check only IPv4 addresses */
      return (true);
@@ -1122,44 +1224,51 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service)
     if (ip->service == service && *(uint32_t*)&ip->addr.ip == *(uint32_t*)&addr->ip)
     {
       ip->accepted++;  /* accept() counter */
+      *ipp = ip;
       return (false);
     }
   }
 
-  ip = calloc (sizeof(*ip), 1);  /* Assign a new element for this `*addr` */
-  if (ip)
-  {
-    ip->addr     = *addr;
-    ip->service  = service;
-    ip->accepted = 1;
-    get_FILETIME_now (&ip->seen);
-    LIST_ADD_TAIL (unique_IP, &g_unique_ips, ip);
-  }
+  ip = calloc (sizeof(*ip), 1);  /* assign a new element for this `*addr` */
+  if (!ip)
+     return (false);             /* cannot tell */
+
+  ip->addr     = *addr;
+  ip->service  = service;
+  ip->accepted = 1;
+  get_FILETIME_now (&ip->seen);
+  LIST_ADD_TAIL (unique_IP, &g_unique_ips, ip);
+  *ipp = ip;
   return (true);
 }
 
-static bool client_is_unique (const mg_addr *addr, intptr_t service)
+static bool client_is_unique (const mg_addr *addr, intptr_t service, unique_IP **ipp)
 {
-  bool         unique = _client_is_unique (addr, service);
-  mg_host_name name;
+  bool unique = _client_is_unique (addr, service, ipp);
 
   if (test_contains(Modes.tests, "net"))
   {
-    mg_snprintf (name, sizeof(name), "%M", mg_print_ip, addr);
-    printf ("  unique: %d, ip: %s\n", unique, name);
+    char ip_addr [MAX_ADDRESS];
+
+    mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, addr);
+
+    if (*ipp && (*ipp)->denied > 0)
+         printf ("  unique: %d, ip: %-15s denied: %u\n", unique, ip_addr, (*ipp)->denied);
+    else printf ("  unique: %d, ip: %s\n", unique, ip_addr);
   }
   return (unique);
 }
 
 /*
  * Print number of unique clients and their addresses.
+ *
+ * If an IP was denied N times, print as e.g. "a.b.c.d (N)"
  */
 static void unique_ips_print (intptr_t service)
 {
   const unique_IP *ip;
-  mg_host_name     addr;
+  char             addr [MAX_ADDRESS];
   size_t           num = 0;
-  bool             has_next;
 
   LOG_STDOUT ("    %8llu unique client(s):\n", Modes.stat.unique_clients[service]);
   if (!Modes.log)
@@ -1167,17 +1276,20 @@ static void unique_ips_print (intptr_t service)
 
   for (ip = g_unique_ips; ip; ip = ip->next)
   {
+    char denied [20] = "";
+
     if (ip->service != service)
        continue;
 
     mg_snprintf (addr, sizeof(addr), "%M", mg_print_ip, ip->addr);
+    if (ip->denied > 0)
+       snprintf (denied, sizeof(denied), " (%u)", ip->denied);
     if (num == 0)
        fprintf (Modes.log, "%27s", " ");
     else if (num % 7 == 0)
        fprintf (Modes.log, "\n%27s", " ");
 
-    has_next = (ip->next && ip->next->service == service);
-    fprintf (Modes.log, "%s%s", addr, has_next ? ", " : "");
+    fprintf (Modes.log, "%s%s%s", addr, denied, ip->next ? ", " : "");
     num++;
   }
   if (num == 0)
@@ -1197,6 +1309,134 @@ static void unique_ips_free (void)
   g_unique_ips = NULL;
 }
 
+static bool add_deny (const char *val, bool is_ip6)
+{
+  deny_element *deny = calloc (sizeof(*deny), 1);
+
+  if (deny)
+  {
+    strncpy (deny->acl, val, sizeof(deny->acl)-1);
+    deny->is_ip6 = is_ip6;
+    LIST_ADD_TAIL (deny_element, &g_deny_list, deny);
+  }
+  return (true);
+}
+
+/**
+ * Callbacks from cfg_file.c
+ */
+bool net_deny4 (const char *val)
+{
+  return add_deny (val, false);
+}
+
+bool net_deny6 (const char *val)
+{
+  return add_deny (val, true);
+}
+
+/**
+ * Loop over `g_deny_list` to check if client `addr` should be denied.
+ * `mg_check_ip_acl()` accepts netmasks.
+ */
+static bool client_deny (const mg_addr *addr, int *rc)
+{
+  const deny_element *d;
+
+  *rc = -3;      /* unknown */
+
+  for (d = g_deny_list; d; d = d->next)
+  {
+    if (d->is_ip6)    /* Mongoose does not support IPv6 here yet */
+       continue;
+
+    *rc = mg_check_ip_acl (mg_str(d->acl), (struct mg_addr*)addr);
+    if (*rc == 1)
+       return (true);
+  }
+  return (false);
+}
+
+static size_t deny_list_dump (bool is_ip6)
+{
+  const deny_element *d;
+  size_t              num = 0;
+
+  for (d = g_deny_list; d; d = d->next)
+  {
+    if (d->is_ip6 == is_ip6)
+    {
+      printf ("  Added deny ACL: %s.\n", d->acl);
+      num++;
+    }
+  }
+  return (num);
+}
+
+static void deny_lists_dump (void)
+{
+  size_t num4, num6;
+
+  printf ("\n%s():\n", __FUNCTION__);
+  num4 = deny_list_dump (false);
+  num6 = deny_list_dump (true);
+  printf ("  num4 ACL: %zu, num6 ACL: %zu.\n", num4, num6);
+}
+
+static void deny_lists_test (void)
+{
+  mg_addr *a, addr [7];
+  mg_str   str;
+  size_t   i;
+
+  printf ("\n%s():\n", __FUNCTION__);
+
+#define DENY_LIST_ADD(dest, value) \
+        str = mg_str (value);      \
+        mg_aton (str, dest);       \
+        net_deny4 (value)
+
+  memset (&addr, '\0', sizeof(addr));
+
+  DENY_LIST_ADD (addr+0, "127.0.0.1");
+  DENY_LIST_ADD (addr+1, "127.0.0.2");
+  DENY_LIST_ADD (addr+2, "127.0.1.0");
+  DENY_LIST_ADD (addr+3, "127.0.1.1");
+  DENY_LIST_ADD (addr+4, "127.0.1.2");
+  DENY_LIST_ADD (addr+5, HOSTILE_IP_1);
+  DENY_LIST_ADD (addr+6, HOSTILE_IP_2);
+
+  a = addr + 0;
+  for (i = 0; i < DIM(addr); i++, a++)
+  {
+    char abuf [30];
+    int  rc;
+    bool deny = client_deny (a, &rc);
+
+    mg_snprintf (abuf, sizeof(abuf), "%M", mg_print_ip, a);
+    printf ("  rc: %d, addr[%zu]: %s -> %s\n",
+            rc, i, abuf, deny ? "denied" : "accepted");
+  }
+}
+
+static void deny_lists_tests (void)
+{
+  deny_lists_dump();
+  deny_lists_test();
+}
+
+static void deny_list_free (void)
+{
+  deny_element *d, *d_next;
+
+  for (d = g_deny_list; d; d = d_next)
+  {
+    d_next = d->next;
+    free (d);
+  }
+  g_deny_list = NULL;
+}
+
 static bool client_is_extern (const mg_addr *addr)
 {
   uint32_t ip4;
@@ -1205,76 +1445,47 @@ static bool client_is_extern (const mg_addr *addr)
      return (IN6_IS_ADDR_LOOPBACK ((const IN6_ADDR*)&addr->ip) == false);
 
   ip4 = ntohl (*(const uint32_t*) &addr->ip);
-  return (ip4 != 0x7F000001);    /* ip4 !== 127.0.0.1 */
+  return (ip4 != INADDR_LOOPBACK);    /* ip4 !== 127.0.0.1 */
 }
 
 static bool client_handler (const mg_connection *c, intptr_t service, int ev)
 {
   const mg_addr *addr = &c->rem;
   mg_host_name   addr_buf;
-  bool           deny = false;
+  unique_IP     *unique;
 
   assert (ev == MG_EV_ACCEPT || ev == MG_EV_CLOSE);
 
   if (ev == MG_EV_ACCEPT)
   {
-    if (client_is_unique(addr, service))  /* Have we seen this IPv4-address before? */
+    if (client_is_unique(addr, service, &unique))  /* Have we seen this IPv4-address before? */
        Modes.stat.unique_clients [service]++;
 
     if (client_is_extern(addr))           /* Not from 127.0.0.1 */
     {
-      if (client_deny(addr, service))
-         deny = true;
+      int  rc;
+      bool deny = client_deny (addr, &rc);
+
+      if (deny && unique)  /* increment deny-counter for this `addr` */
+         unique->denied++;
 
       if (Modes.debug & DEBUG_NET)
          Beep (deny ? 1200 : 800, 20);
 
-      LOG_FILEONLY ("Opening connection: %s %s (conn-id: %lu, service: \"%s\").\n",
+      LOG_FILEONLY ("%s connection: %s (conn-id: %lu, service: \"%s\").\n",
+                    deny ? "Denied" : "Accepted",
                     net_str_addr(addr, addr_buf, sizeof(addr_buf)),
-                    deny ? "denied" : "accepted", c->id, net_service_descr(service));
+                    c->id, net_service_descr(service));
+      return (!deny);
     }
   }
-  else if (client_is_extern(addr))
+
+  if (client_is_extern(addr))
   {
     LOG_FILEONLY ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
                   net_str_addr(addr, addr_buf, sizeof(addr_buf)), c->id, net_service_descr(service));
   }
-  return (!deny);
-}
-
-/**
- * \todo
- * Callbacks from cfg_file.c
- */
-bool net_deny4 (const char *val)
-{
-  (void) val;
-  return (true);
-}
-
-bool net_deny6 (const char *val)
-{
-  (void) val;
-  return (true);
-}
-
-/**
- * \todo
- * Loop over `modeS_net_services [service].deny_list4/6` to find a match
- * using `mg_check_ip_acl()`.
- */
-static bool client_deny (const mg_addr *addr, intptr_t service)
-{
-#if 0
-  // test: deny all '1-126.*' networks
-  if (!addr->is_ip6 && addr->ip[0] >= 1 && addr->ip[0] <= 126)
-     return (true);
-#else
-  (void) addr;
-#endif
-
-  (void) service;
-  return (false);
+  return (true); /* ret-val ignore for MG_EV_CLOSE */
 }
 
 /**
@@ -1612,7 +1823,7 @@ static bool show_raw_common (int s)
     LOG_STDOUT ("    nothing.\n");
     return (false);
   }
-  LOG_STDOUT ("  %8llu bytes.\n", Modes.stat.bytes_recv[s]);
+  LOG_STDOUT ("    %s bytes.\n", qword_str(Modes.stat.bytes_recv[s]));
   return (true);
 }
 
@@ -1640,6 +1851,14 @@ static void show_raw_SBS_IN_stats (void)
   }
 }
 
+static void show_rtl_tcp_IN_stats (void)
+{
+  if (show_raw_common(MODES_NET_SERVICE_RTL_TCP))
+  {
+//  LOG_STDOUT ("  %8llu packets.\n", Modes.stat.rtltcp.packets);
+  }
+}
+
 void net_show_stats (void)
 {
   int s;
@@ -1652,7 +1871,8 @@ void net_show_stats (void)
     uint64_t    sum;
 
     if (s == MODES_NET_SERVICE_RAW_IN ||  /* These are printed separately */
-        s == MODES_NET_SERVICE_SBS_IN)
+        s == MODES_NET_SERVICE_SBS_IN ||
+        s == MODES_NET_SERVICE_RTL_TCP)
        continue;
 
     LOG_STDOUT ("  %s (%s):\n", net_service_descr(s), url ? url : "none");
@@ -1700,16 +1920,32 @@ void net_show_stats (void)
 
   show_raw_SBS_IN_stats();
   show_raw_RAW_IN_stats();
+  show_rtl_tcp_IN_stats();
 
   net_show_server_errors();
 }
 
+static void unique_ip_add_hostile (const char *ip_str, int service)
+{
+  mg_addr    addr;
+  unique_IP *ip;
+  mg_str     str;
+
+  DENY_LIST_ADD (&addr, ip_str);
+
+  if (client_is_unique(&addr, service, &ip))
+     Modes.stat.unique_clients [service]++;
+  ip->denied++;
+}
+
 /**
- * Test `g_unique_ips` by filling it with 50 random IPv4 addresses.
+ * Test `g_unique_ips` by filling it with 2 hostile and
+ * 50 random IPv4 addresses.
  */
-static void net_tests (void)
+static void unique_ip_tests (void)
 {
   const unique_IP *ip;
+  unique_IP       *ip2;
   int              i, service = MODES_NET_SERVICE_HTTP;
   uint64_t         num;
   mg_addr          addr;
@@ -1717,33 +1953,36 @@ static void net_tests (void)
   printf ("\n%s():\n", __FUNCTION__);
   memset (&addr, '\0', sizeof(addr));
 
-  *(uint32_t*) &addr.ip = 0x0100007F; /* == 127.0.0.1 */
-  if (client_is_unique(&addr, service))
+  unique_ip_add_hostile (HOSTILE_IP_1, service);
+  unique_ip_add_hostile (HOSTILE_IP_2, service);
+
+  *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK);   /* == 127.0.0.1 */
+  if (client_is_unique(&addr, service, &ip2))
      Modes.stat.unique_clients [service]++;
 
-  *(uint32_t*) &addr.ip = 0x0200007F; /* == 127.0.0.2 */
-  if (client_is_unique(&addr, service))
+  *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK+1); /* == 127.0.0.2 */
+  if (client_is_unique(&addr, service, &ip2))
      Modes.stat.unique_clients [service]++;
 
   for (i = 0; i < 50; i++)
   {
     mg_random (&addr.ip, sizeof(addr.ip));
-    if (client_is_unique(&addr, service))
+    if (client_is_unique(&addr, service, &ip2))
        Modes.stat.unique_clients [service]++;
     Modes.stat.bytes_recv [service] += 10;
   }
 
-  *(uint32_t*) &addr.ip = 0x0100007F; /* == 127.0.0.1 */
-  if (client_is_unique(&addr, service))
+  *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK);    /* == 127.0.0.1 */
+  if (client_is_unique(&addr, service, &ip2))
      Modes.stat.unique_clients [service]++;
 
-  *(uint32_t*) &addr.ip = 0x0200007F; /* == 127.0.0.2 */
-  if (client_is_unique(&addr, service))
+  *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK+1);  /* == 127.0.0.2 */
+  if (client_is_unique(&addr, service, &ip2))
      Modes.stat.unique_clients [service]++;
 
   for (num = 0, ip = g_unique_ips; ip; ip = ip->next)
       num++;
-  assert (num == Modes.stat.unique_clients[service]);
+  assert (num == Modes.stat.unique_clients [service]);
 }
 
 /**
@@ -1793,6 +2032,7 @@ static char *net_init_dns (void)
  *  \li Load and check the `web-pages.dll`.
  *  \li Initialize the Mongoose network manager.
  *  \li Set the default DNSv4 server address from Windows' IPHelper API.
+ *  \li Start the active service RTL_TCP (or rename it to "RTL-UDP").
  *  \li Start the 2 active network services (RAW_IN + SBS_IN).
  *  \li Or start the 4 listening (passive) network services.
  *  \li If HTTP-server is enabled, check the precence of the Web-page.
@@ -1833,6 +2073,20 @@ bool net_init (void)
   Modes.dns = net_init_dns();
   if (Modes.dns)
      Modes.mgr.dns4.url = Modes.dns;
+
+  /* Setup the RTL_TCP service and possibly rename if '--device udp://host:port' was used.
+   */
+  if (modeS_net_services[MODES_NET_SERVICE_RTL_TCP].host[0])
+  {
+    if (!connection_setup_active(MODES_NET_SERVICE_RTL_TCP, &Modes.rtl_tcp_in))
+        return (false);
+
+    if (modeS_net_services[MODES_NET_SERVICE_RTL_TCP].is_udp)
+    {
+      strcpy (modeS_net_services[MODES_NET_SERVICE_RTL_TCP].descr, "RTL-UDP input");
+      strcpy (modeS_net_services[MODES_NET_SERVICE_RTL_TCP].protocol, "udp");
+    }
+  }
 
   /* If RAW-IN is UDP, rename description and protocol.
    */
@@ -1878,7 +2132,10 @@ bool net_init (void)
      return (false);
 
   if (test_contains(Modes.tests, "net"))
-     net_tests();
+  {
+    unique_ip_tests();
+    deny_lists_tests();
+  }
 
   return (true);
 }
@@ -1887,17 +2144,23 @@ bool net_exit (void)
 {
   uint32_t num = net_conn_free_all();
 
+  net_timer_del_all();
   unique_ips_free();
+  deny_list_free();
 
 #ifdef USE_PACKED_DLL
   unload_web_dll();
   free (lookup_table);
 #endif
 
-  net_flushall();
-  mg_mgr_free (&Modes.mgr);
+  net_flush_all();
+  mg_mgr_free (&Modes.mgr); /* This calls free() on all timers */
+
   if (Modes.dns)
      free (Modes.dns);
+
+  if (Modes.rtltcp.info)
+     free (Modes.rtltcp.info);
 
   Modes.mgr.conns = NULL;
   Modes.dns = NULL;
@@ -1909,19 +2172,160 @@ bool net_exit (void)
 
 void net_poll (void)
 {
-  static uint32_t net_stat_count = 0;
+  static uint64_t tc_last = 0;
+  uint64_t        tc_now;
 
   /* Poll Mongoose for network events
    */
-  mg_mgr_poll (&Modes.mgr, MODES_INTERACTIVE_REFRESH_TIME / 2);   /* == 125 msec */
+  mg_mgr_poll (&Modes.mgr, MODES_INTERACTIVE_REFRESH_TIME / 2);   /* == 125 msec max */
 
-  if ((++net_stat_count % 100) == 0)  /* approx. every 30 sec */
+  /* If the RTL_TCP server went away, that's fatal
+   */
+  if (Modes.stat.srv_removed [MODES_NET_SERVICE_RTL_TCP] > 0)
   {
+    LOG_STDERR ("RTL_TCP-server at '%s' vanished!\n", net_service_url (MODES_NET_SERVICE_RTL_TCP));
+    Modes.exit = true;
+  }
+
+  tc_now = GetTickCount64();
+  if (tc_now - tc_last >= 30000)  /* approx. every 30 sec */
+  {
+    tc_last = tc_now;
     if (Modes.debug & DEBUG_NET)
-       LOG_FILEONLY ("mem_alloc: %llu\n", modeS_net_services [MODES_NET_SERVICE_HTTP].mem_allocated);
+       LOG_FILEONLY ("mem_alloc: %llu\n", net_mem_allocated (MODES_NET_SERVICE_HTTP, 0));
 
     if (Modes.log)
        fflush (Modes.log);
   }
+}
+
+/**
+ * Network functions for communicating with
+ * a remote RTLSDR device.
+ */
+static const char *get_tuner_type (int type)
+{
+  type = ntohl (type);
+
+ return (type == RTLSDR_TUNER_UNKNOWN ? "Unknown" :
+         type == RTLSDR_TUNER_E4000   ? "E4000"   :
+         type == RTLSDR_TUNER_FC0012  ? "FC0012"  :
+         type == RTLSDR_TUNER_FC0013  ? "FC09013" :
+         type == RTLSDR_TUNER_FC2580  ? "FC2580"  :
+         type == RTLSDR_TUNER_R820T   ? "R820T"   :
+         type == RTLSDR_TUNER_R828D   ? "R828D"   : "?");
+}
+
+/**
+ * The read event handler expecting the RTL_TCP welcome-message.
+ */
+void rtl_tcp_recv_info (mg_iobuf *msg)
+{
+  RTL_TCP_info *info;
+
+  if (msg->len >= sizeof(*info) && !memcmp(msg->buf, RTL_TCP_MAGIC, sizeof(RTL_TCP_MAGIC)-1))
+  {
+    info = memdup (msg->buf, sizeof(*info));
+    Modes.rtltcp.info = info;
+
+    DEBUG (DEBUG_NET, "tuner_type: \"%s\", gain_count: %lu.\n",
+           get_tuner_type(info->tuner_type), ntohl(info->tuner_gain_count));
+    net_timer_del (MODES_NET_SERVICE_RTL_TCP);
+    mg_iobuf_del (msg, 0, sizeof(*info));
+  }
+}
+
+/**
+ * The read event handler for the RTL_TCP raw IQ data.
+ */
+void rtl_tcp_recv_data (mg_iobuf *msg)
+{
+  rx_callback (msg->buf, msg->len, (void*)&Modes.exit);
+  mg_iobuf_del (msg, 0, msg->len);
+}
+
+/**
+ * The read event handler for RTL_TCP messages.
+ */
+static bool rtl_tcp_decode (mg_iobuf *msg, int loop_cnt)
+{
+  if (msg->len == 0)  /* all was consumed */
+     return (false);
+
+  if (!Modes.rtltcp.info)
+       rtl_tcp_recv_info (msg);
+  else rtl_tcp_recv_data (msg);
+
+  (void) loop_cnt;
+  return (true);
+}
+
+/**
+ * Send a single command to the RTL_TCP service.
+ */
+static bool rtl_tcp_command (mg_connection *c, uint8_t command, uint32_t param)
+{
+  RTL_TCP_cmd cmd;
+
+  cmd.cmd   = command;
+  cmd.param = htonl (param);
+  return mg_send (c, &cmd, sizeof(cmd));
+}
+
+/**
+ * The `MG_EV_CONNECT` handler for the RTL_TCP service.
+ * Send the setup parameters to the remote RTL_TCP server.
+ */
+static bool rtl_tcp_connect (mg_connection *c)
+{
+  /* How to get these from the RTLSDR server?
+   * Just copied from 'r82xx_get_gains[]'
+   */
+  static int fixed_gains[] = {
+               0,  34,  68, 102, 137, 171, 207, 240,
+             278, 312, 346, 382, 416, 453, 488, 527
+           };
+  INT_PTR service = MODES_NET_SERVICE_RTL_TCP;
+
+  Modes.gain_auto         = false;
+  Modes.gain              = fixed_gains [DIM(fixed_gains) / 2];
+  Modes.rtltcp.gains      = memdup (&fixed_gains, sizeof(fixed_gains));
+  Modes.rtltcp.gain_count = DIM(fixed_gains);
+
+  DEBUG (DEBUG_NET, "Setting sample-rate: %.2f MS/s.\n", (double)Modes.sample_rate/1E6);
+  if (!rtl_tcp_command (c, RTL_SET_SAMPLE_RATE, Modes.sample_rate))
+     goto failed;
+
+  DEBUG (DEBUG_NET, "Setting frequency: %.2f MHz.\n", (double)Modes.freq/1E6);
+  if (!rtl_tcp_command (c, RTL_SET_FREQUENCY, Modes.freq))
+     goto failed;
+
+  DEBUG (DEBUG_NET, "Setting autogain: %d, gain: %d, PPM: %d.\n",
+         Modes.gain_auto, Modes.gain, Modes.rtlsdr.ppm_error);
+
+  if (!rtl_tcp_command (c, RTL_SET_GAIN_MODE, Modes.gain_auto) ||
+      !rtl_tcp_command (c, RTL_SET_GAIN, Modes.gain) ||
+      !rtl_tcp_command (c, RTL_SET_FREQ_CORRECTION, Modes.rtlsdr.ppm_error))
+    goto failed;
+
+  /* If we do not get the `RTL_TCP_MAGIC` welcome message.
+   * Or if we stop getting data, add a timer to detect it.
+   */
+  net_timer_add (service, MODES_DATA_TIMEOUT, MG_TIMER_REPEAT);
+  return (true);
+
+failed:
+  c->is_closing = 1;
+  return (false);
+}
+
+bool rtl_tcp_set_gain (mg_connection *c, int16_t gain)
+{
+  return rtl_tcp_command (c, RTL_SET_GAIN, gain);
+}
+
+bool rtl_tcp_set_gain_mode (mg_connection *c, bool autogain)
+{
+  return rtl_tcp_command (c, RTL_SET_GAIN_MODE, autogain);
 }
 

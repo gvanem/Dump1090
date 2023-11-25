@@ -38,10 +38,11 @@
 #define MODES_NET_SERVICE_SBS_OUT   2
 #define MODES_NET_SERVICE_SBS_IN    3
 #define MODES_NET_SERVICE_HTTP      4
-#define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_HTTP + 1)
+#define MODES_NET_SERVICE_RTL_TCP   5
+#define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_RTL_TCP + 1)
 
 #define MODES_NET_SERVICE_FIRST     0
-#define MODES_NET_SERVICE_LAST      MODES_NET_SERVICE_HTTP
+#define MODES_NET_SERVICE_LAST      MODES_NET_SERVICE_RTL_TCP
 
 /**
  * \def SAFE_COND_SIGNAL(cond, mutex)
@@ -144,7 +145,7 @@ typedef struct connection {
         mg_addr            rem;               /**< copy of `mg_connection::rem` */
         mg_host_name       rem_buf;           /**< address-string of `mg_connection::rem` */
         ULONG              id;                /**< copy of `mg_connection::id` */
-        bool               keep_alive;        /**< glient request contains "Connection: keep-alive" */
+        bool               keep_alive;        /**< client request contains "Connection: keep-alive" */
         bool               encoding_gzip;     /**< gzip compressed client data (not yet) */
         struct connection *next;              /**< next connection in this list for this service */
       } connection;
@@ -165,9 +166,6 @@ typedef struct net_service {
         bool             is_udp;           /**< The above `host` address was prefixed with `udp://` */
         char            *url;              /**< The allocated url for `mg_listen()` or `mg_connect()` */
         char            *last_err;         /**< Last error from a `MG_EV_ERROR` event */
-        char            *deny_list4;       /**< List of IPv4 address/networks to deny on `MG_EV_ACCEPT` */
-        char            *deny_list6;       /**< List of IPv4 address/networks to deny on `MG_EV_ACCEPT` */
-        mg_timer         timer;            /**< Timer for a `mg_connect()` */
       } net_service;
 
 typedef enum metric_unit_t {
@@ -281,17 +279,29 @@ typedef struct statistics {
       } statistics;
 
 /**
- * The device configuration for a RTLSDR device.
+ * The device configuration for a local RTLSDR device.
+ * NOT used for a RTL_TCP connection.
  */
 typedef struct rtlsdr_conf {
-        char         *name;            /**< The manufacturer name of the RTLSDR device to use. As in e.g. `"--device silver"` */
-        int           index;           /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"` */
-        rtlsdr_dev_t *device;          /**< The RTLSDR handle from `rtlsdr_open()` */
-        int           ppm_error;       /**< Set RTLSDR frequency correction */
-        int           calibrate;       /**< Enable calibration for R820T/R828D type devices */
-        int          *gains;           /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
-        int           gain_count;      /**< Number of gain values in above array */
+        char         *name;              /**< The manufacturer name of the RTLSDR device to use. As in e.g. `"--device silver"` */
+        int           index;             /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"` */
+        rtlsdr_dev_t *device;            /**< The RTLSDR handle from `rtlsdr_open()` */
+        int           ppm_error;         /**< Set RTLSDR frequency correction */
+        int           calibrate;         /**< Enable calibration for R820T/R828D type devices */
+        int          *gains;             /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
+        int           gain_count;        /**< Number of gain values in above array */
       } rtlsdr_conf;
+
+/**
+ * The device configuration for a remote RTLSDR device.
+ */
+typedef struct rtltcp_conf {
+        void         *info;              /**< The "RTL0" info message is here if we've got it (\ref RTL_TCP_info) */
+        int           ppm_error;         /**< Set RTLSDR frequency correction */
+        int           calibrate;         /**< Enable calibration for R820T/R828D type devices */
+        int          *gains;             /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
+        int           gain_count;        /**< Number of gain values in above array */
+      } rtltcp_conf;
 
 /**
  * The private data for a SDRplay device.
@@ -362,17 +372,17 @@ typedef struct global_data {
         int               bias_tee;                 /**< Enable bias-T voltage on coax input. */
         int               gain_auto;                /**< Use auto-gain. */
         uint32_t          band_width;               /**< The wanted bandwidth. Default is 0. */
-        uint16_t          gain;                     /**< The gain setting for this device. Default is MODES_AUTO_GAIN. */
+        uint16_t          gain;                     /**< The gain setting for the active device (local or remote). Default is MODES_AUTO_GAIN. */
         uint32_t          freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
         uint32_t          sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE.
                                                       *  \note This cannot be used yet since the code assumes a
                                                       *        pulse-width of 0.5 usec based on a fixed rate of 2 MS/s.
                                                       */
-        rtlsdr_conf  rtlsdr;                        /**< RTLSDR specific settings. */
+        rtlsdr_conf  rtlsdr;                        /**< RTLSDR local specific settings. */
+        rtltcp_conf  rtltcp;                        /**< RTLSDR remote specific settings. */
         sdrplay_conf sdrplay;                       /**< SDRplay specific settings. */
-        bool         emul_loaded;                   /**< RTLSDR-emul.dll loaded. */
 
-        /** Lists of clients for each network service:
+        /** Lists of connections for each network service:
          */
         connection    *connections [MODES_NET_SERVICES_NUM];
         mg_connection *sbs_out;                     /**< SBS output listening connection. */
@@ -380,6 +390,7 @@ typedef struct global_data {
         mg_connection *raw_out;                     /**< Raw output active/listening connection. */
         mg_connection *raw_in;                      /**< Raw input listening connection. */
         mg_connection *http_out;                    /**< HTTP listening connection. */
+        mg_connection *rtl_tcp_in;                  /**< RTL_TCP active connection. */
         mg_mgr         mgr;                         /**< Only one Mongoose connection manager. */
         char          *dns;                         /**< Use default Windows DNS server (not 8.8.8.8) */
 
@@ -446,16 +457,16 @@ extern global_data Modes;
 
 #if defined(USE_READSB_DEMOD)
   typedef struct mag_buf {
-          uint16_t *data;            /**< Magnitude data, starting with overlap from the previous block. */
-          unsigned  length;          /**< Number of valid samples _after_ overlap. */
-          unsigned  overlap;         /**< Number of leading overlap samples at the start of "data". */
-                                     /**< also the number of trailing samples that will be preserved for next time. */
-          uint64_t sampleTimestamp;  /**< Clock timestamp of the start of this block, 12MHz clock. */
-          uint64_t sysTimestamp;     /**< Estimated system time at start of block. */
-          double   mean_level;       /**< Mean of normalized (0..1) signal level. */
-          double   mean_power;       /**< Mean of normalized (0..1) power level. */
-          unsigned dropped;          /**< (approx) number of dropped samples. */
-          struct mag_buf *next;      /**< linked list forward link */
+          uint16_t *data;             /**< Magnitude data, starting with overlap from the previous block. */
+          unsigned  length;           /**< Number of valid samples _after_ overlap. */
+          unsigned  overlap;          /**< Number of leading overlap samples at the start of "data". */
+                                      /**< also the number of trailing samples that will be preserved for next time. */
+          uint64_t  sampleTimestamp;  /**< Clock timestamp of the start of this block, 12MHz clock. */
+          uint64_t  sysTimestamp;     /**< Estimated system time at start of block. */
+          double    mean_level;       /**< Mean of normalized (0..1) signal level. */
+          double    mean_power;       /**< Mean of normalized (0..1) power level. */
+          unsigned  dropped;          /**< (approx) number of dropped samples. */
+          struct mag_buf *next;       /**< linked list forward link */
         } mag_buf;
 
   void demodulate2400 (struct mag_buf *mag);
@@ -609,6 +620,7 @@ const char *win_strerror (DWORD err);
 const char *get_rtlsdr_error (void);
 const char *qword_str (uint64_t val);
 const char *dword_str (DWORD val);
+void       *memdup (const void *from, size_t size);
 uint32_t    random_range (uint32_t min, uint32_t max);
 int32_t     random_range2 (int32_t min, int32_t max);
 int         touch_file (const char *file);
@@ -616,6 +628,7 @@ int         touch_dir (const char *dir, bool recurse);
 FILE       *fopen_excl (const char *file, const char *mode);
 uint32_t    download_to_file (const char *url, const char *file);
 char       *download_to_buf  (const char *url);
+int         download_status (void);
 int         load_dynamic_table (struct dyn_struct *tab, int tab_size);
 int         unload_dynamic_table (struct dyn_struct *tab, int tab_size);
 bool        test_add (char **pattern, const char *what);
@@ -629,6 +642,13 @@ double      great_circle_dist (pos_t pos1, pos_t pos2);
 double      closest_to (double val, double val1, double val2);
 void        decode_CPR (struct aircraft *a);
 const char *mz_version (void);                 /* in 'externals/zip.c' */
+void        rx_callback (uint8_t *buf, uint32_t len, void *ctx);
+
+/*
+ * in 'pconsole.c'. Not used yet.
+ */
+struct pconsole_t;
+bool pconsole_create (struct pconsole_t *pty, const char *cmd_path, const char **cmd_argv);
 
 #if 0
   /*

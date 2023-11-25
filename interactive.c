@@ -12,6 +12,7 @@
 #include "aircraft.h"
 #include "airports.h"
 #include "sdrplay.h"
+#include "net_io.h"
 #include "misc.h"
 
 #undef MOUSE_MOVED
@@ -285,6 +286,12 @@ static int gain_increase (int gain_idx)
     rtlsdr_set_tuner_gain (Modes.rtlsdr.device, Modes.gain);
     LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
+  else if (Modes.rtl_tcp_in && gain_idx < Modes.rtltcp.gain_count-1)
+  {
+    Modes.gain = Modes.rtltcp.gains [++gain_idx];
+    rtl_tcp_set_gain (Modes.rtl_tcp_in, Modes.gain);
+    LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
+  }
   else if (Modes.sdrplay.device && gain_idx < Modes.sdrplay.gain_count-1)
   {
     Modes.gain = Modes.sdrplay.gains [++gain_idx];
@@ -300,6 +307,12 @@ static int gain_decrease (int gain_idx)
   {
     Modes.gain = Modes.rtlsdr.gains [--gain_idx];
     rtlsdr_set_tuner_gain (Modes.rtlsdr.device, Modes.gain);
+    LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
+  }
+  else if (Modes.rtl_tcp_in && gain_idx > 0)
+  {
+    Modes.gain = Modes.rtltcp.gains [--gain_idx];
+    rtl_tcp_set_gain (Modes.rtl_tcp_in, Modes.gain);
     LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
   else if (Modes.sdrplay.device && gain_idx > 0)
@@ -349,6 +362,11 @@ void interactive_update_gain (void)
       rtlsdr_set_tuner_gain_mode (Modes.rtlsdr.device, 1);
       gain_idx = Modes.rtlsdr.gain_count / 2;
     }
+    else if (Modes.rtl_tcp_in)
+    {
+      rtl_tcp_set_gain_mode (Modes.rtl_tcp_in, 1);
+      gain_idx = Modes.rtltcp.gain_count / 2;
+    }
     else if (Modes.sdrplay.device)
     {
       sdrplay_set_gain (Modes.sdrplay.device, 0);
@@ -360,21 +378,23 @@ void interactive_update_gain (void)
      gain_idx = gain_increase (gain_idx);
   else if (ch == '-')
      gain_idx = gain_decrease (gain_idx);
-#if 0
-  else if (ch == 'g' || ch == 'G')
+  else if (ch == 'g' || ch == 'G')  /* toggle gain-mode */
   {
     if (Modes.gain_auto)
     {
-      gain_manual();
+      Modes.gain_auto = false;
+      Modes.gain = Modes.rtlsdr.gains [gain_idx];
+      rtlsdr_set_tuner_gain_mode (Modes.rtlsdr.device, 1);
+      rtlsdr_set_tuner_gain (Modes.rtlsdr.device, Modes.gain);
       LOG_FILEONLY ("Gain: AUTO -> manual.\n");
     }
     else
     {
-      gain_auto();
+      Modes.gain_auto = true;
+      rtlsdr_set_tuner_gain_mode (Modes.rtlsdr.device, 0);
       LOG_FILEONLY ("Gain: manual -> AUTO.\n");
     }
   }
-#endif
 }
 
 /**
@@ -483,8 +503,8 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   }
   else if (a->show == A_SHOW_NORMAL)
   {
-    if (!a->is_helicopter)
-       airports_API_flight_log_resolved (a);
+    if (!a->is_helicopter && !a->done_flight_info)
+       a->done_flight_info = airports_API_flight_log_resolved (a);
   }
   else if (a->show == A_SHOW_LAST_TIME)
   {

@@ -529,6 +529,7 @@ static bool modeS_init (void)
   }
   if (test_contains(Modes.tests, "net"))
   {
+    Modes.net = true;
     net_init();          /* Call `net_tests()` too */
     rc = false;
   }
@@ -554,6 +555,8 @@ static bool modeS_init (void)
  *   product: RTL2838-Silver, serial: 00000001
  *   product: RTL2838-Blue,   serial: 00000001
  *  ```
+ *
+ * \note Not called for a remote RTL_TCP device.
  */
 static bool modeS_init_RTLSDR (void)
 {
@@ -672,12 +675,12 @@ static bool modeS_init_RTLSDR (void)
 }
 
 /**
- * This reading callback gets data from the RTLSDR or
- * SDRplay API asynchronously. We then populate the data buffer.
+ * This reading callback gets data from the local or remote RTLSDR
+ * or SDRplay API asynchronously. We then populate the data buffer.
  *
  * A Mutex is used to avoid race-condition with the decoding thread.
  */
-static void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
+void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
 {
   volatile bool exit = *(volatile bool*) ctx;
 
@@ -771,8 +774,8 @@ static int read_from_data_file (void)
 }
 
 /**
- * We read RTLSDR or SDRplay data using a separate thread, so the main thread
- * only handles decoding without caring about data acquisition.
+ * We read RTLSDR or SDRplay data using a separate thread, so the main
+ * thread only handles decoding without caring about data acquisition.
  * Ref. `main_data_loop()` below.
  */
 static unsigned int __stdcall data_thread_fn (void *arg)
@@ -856,7 +859,7 @@ static void main_data_loop (void)
 
     LeaveCriticalSection (&Modes.data_mutex);
 
-    if (/* rc > 0 && */ Modes.max_messages > 0)
+    if (Modes.max_messages > 0)
     {
       if (--Modes.max_messages == 0)
       {
@@ -2817,23 +2820,26 @@ static void show_help (const char *fmt, ...)
             "                        N = A bit more network information than flag `n'.\n"
             "                        p = Log frames with bad preamble.\n"
             "  --device <N / name>   Select RTL/SDRPlay device (default: 0; first found).\n"
-            "                        e.g. `--device 0'              - select first RTLSDR device found.\n"
-            "                             `--device RTL2838-silver' - select on RTLSDR name.\n"
-            "                             `--device sdrplay'        - select first SDRPlay device found.\n"
-            "                             `--device sdrplay1'       - select on SDRPlay index.\n"
-            "                             `--device sdrplayRSP1A'   - select on SDRPlay name.\n"
+            "                        e.g. `--device 0'               - select first RTLSDR device found.\n"
+            "                             `--device RTL2838-silver'  - select on RTLSDR name.\n"
+            "                             `--device tcp://host:port' - select a remote RTLSDR tcp service (default port=%u).\n"
+            "                             `--device udp://host:port' - select a remote RTLSDR udp service (default port=%u).\n"
+            "                             `--device sdrplay'         - select first SDRPlay device found.\n"
+            "                             `--device sdrplay1'        - select on SDRPlay index.\n"
+            "                             `--device sdrplayRSP1A'    - select on SDRPlay name.\n"
             "  --infile <filename>   Read data from file (use `-' for stdin).\n"
             "  --interactive         Enable interactive mode.\n"
             "  --net                 Enable network listening services.\n"
             "  --net-active          Enable network active services.\n"
             "  --net-only            Enable only networking, no physical device or file.\n"
+            "  --only-addr           Show only ICAO addresses.\n"
             "  --raw                 Output raw hexadecimal messages only.\n"
             "  --strip <level>       Output missing the I/Q parts that are below the specified level.\n"
             "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `config', `locale', `net' or `*')\n"
             "  --update              Update missing or old \"*.csv\" files.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
-            Modes.who_am_I, Modes.cfg_file);
+            Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP);
 
     printf ("  Refer the `%s` file for other settings.\n", Modes.cfg_file);
   }
@@ -2897,7 +2903,7 @@ static void background_tasks (void)
   if (Modes.interactive)
      interactive_show_data (now);
 
-  if (Modes.rtlsdr.device || Modes.sdrplay.device)
+  if (Modes.rtlsdr.device || Modes.rtl_tcp_in || Modes.sdrplay.device)
   {
     interactive_title_stats();
     interactive_update_gain();
@@ -3022,8 +3028,7 @@ static void modeS_exit (void)
 {
   int rc;
 
-  if (Modes.net)
-     net_exit();
+  net_exit();
 
   if (Modes.rtlsdr.device)
   {
@@ -3035,6 +3040,11 @@ static void modeS_exit (void)
     free (Modes.rtlsdr.gains);
     Modes.rtlsdr.device = NULL;
     DEBUG (DEBUG_GENERAL2, "rtlsdr_close(), rc: %d.\n", rc);
+  }
+  else if (Modes.rtl_tcp_in)
+  {
+    free (Modes.rtltcp.gains);
+    Modes.rtl_tcp_in = NULL;
   }
   else if (Modes.sdrplay.device)
   {
@@ -3101,7 +3111,16 @@ static void set_device (const char *arg)
      show_help ("Option '--device' already done.\n\n");
 
   if (isdigit(arg[0]))
-     Modes.rtlsdr.index = atoi (arg);
+  {
+    Modes.rtlsdr.index = atoi (arg);
+  }
+  else if (!strnicmp(arg, "tcp://", 6) || !strnicmp(arg, "udp://", 6))
+  {
+    net_set_host_port (arg, &modeS_net_services [MODES_NET_SERVICE_RTL_TCP], MODES_NET_PORT_RTL_TCP);
+    Modes.selected_dev = mg_mprintf ("%s", modeS_net_services [MODES_NET_SERVICE_RTL_TCP].descr);
+    Modes.rtlsdr.index = -1;  /* select on host+port only */
+    Modes.net = true;
+  }
   else
   {
     Modes.rtlsdr.name  = strdup (arg);
@@ -3417,6 +3436,7 @@ static struct option long_options[] = {
   { "net",         no_argument,        &Modes.net,             1  },
   { "net-active",  no_argument,        &Modes.net_active,     'N' },
   { "net-only",    no_argument,        &Modes.net_only,       'n' },
+  { "only-addr",   no_argument,        &Modes.only_addr,       1 },
   { "raw",         no_argument,        &Modes.raw,             1  },
   { "strip",       required_argument,  NULL,                  'S' },
   { "test",        required_argument,  NULL,                  'T' },
@@ -3548,7 +3568,7 @@ int main (int argc, char **argv)
       if (rc)
          goto quit;
     }
-    else
+    else if (!modeS_net_services[MODES_NET_SERVICE_RTL_TCP].host[0])
     {
       rc = modeS_init_RTLSDR();
       DEBUG (DEBUG_GENERAL, "modeS_init_RTLSDR(): rc: %d.\n", rc);
@@ -3560,6 +3580,8 @@ int main (int argc, char **argv)
 
   if (Modes.net)
   {
+    /* This will also setup a service for the remote RTL_TCP device.
+     */
     rc = net_init();
     DEBUG (DEBUG_GENERAL, "net_init(): rc: %d.\n", rc);
     if (!rc)
@@ -3575,9 +3597,10 @@ int main (int argc, char **argv)
     if (read_from_data_file() == 0)
        LOG_STDERR ("No good messages found in '%s'.\n", Modes.infile);
   }
-  else if (Modes.strip_level == 0)
+  else if (Modes.strip_level == 0 || !Modes.rtl_tcp_in)
   {
-    /* Create the thread that will read the data from the RTLSDR or SDRplay device.
+    /* Create the thread that will read the data from a physical RTLSDR or SDRplay device.
+     * No need for a data-thread with RTL_TCP.
      */
     Modes.reader_thread = _beginthreadex (NULL, 0, data_thread_fn, NULL, 0, NULL);
     if (!Modes.reader_thread)
