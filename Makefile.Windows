@@ -257,8 +257,6 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_r82xx.c)
 
 ifeq ($(USE_GEN_ROUTES),1)
-  vpath %.c $(OBJ_DIR)
-
   SOURCES += $(OBJ_DIR)/routes.c
   CFLAGS += -DUSE_GEN_ROUTES
 endif
@@ -417,6 +415,9 @@ $(OBJ_DIR)/routes.c: tools/gen_routes_data.py routes.csv $(THIS_FILE)
 	$(call green_msg, Generating $@)
 	$(PYTHON) tools/gen_routes_data.py routes.csv > $@
 	@echo
+
+$(OBJ_DIR)/routes.obj: $(OBJ_DIR)/routes.c
+	$(call C_compile_web_page, $@, $<)
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.
