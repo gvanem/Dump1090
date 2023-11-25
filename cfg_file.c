@@ -66,12 +66,14 @@ static bool handle_include   (const char *value);
 static bool handle_message   (const char *value);
 static bool handle_ipv4_test (const char *value);
 static bool handle_ipv6_test (const char *value);
+static bool handle_deny4_test(const char *value);
 
 static cfg_table internals [] = {
     { "include",           ARG_FUNC, (void*) handle_include },
     { "message",           ARG_FUNC, (void*) handle_message },
     { "internal.ip4_test", ARG_FUNC, (void*) handle_ipv4_test },
     { "internal.ip6_test", ARG_FUNC, (void*) handle_ipv6_test },
+    { "internal.deny4",    ARG_FUNC, (void*) handle_deny4_test },
     { NULL,                0,        NULL }
   };
 
@@ -533,11 +535,14 @@ static bool handle_ipv4_test (const char *value)
   mg_addr      ip;
   bool         rc;
 
+  if (!test_contains(Modes.tests, "net"))
+     return (true);
+
   memset (&ip, '\0', sizeof(ip));
   rc = parse_and_set_ip (value, &ip, false);
   if (rc)
      mg_snprintf (addr, sizeof(addr), "%M", mg_print_ip, &ip);
-  printf ("internal.ip4_test1: %s\n", rc ? addr : "??");
+  printf ("internal.ip4_test: %s\n", rc ? addr : "??");
   return (true);
 }
 
@@ -547,12 +552,75 @@ static bool handle_ipv6_test (const char *value)
   mg_addr      ip;
   bool         rc;
 
+  if (!test_contains(Modes.tests, "net"))
+     return (true);
+
   memset (&ip, '\0', sizeof(ip));
   rc = parse_and_set_ip (value, &ip, true);
   if (rc)
      mg_snprintf (addr, sizeof(addr), "%M", mg_print_ip, &ip);
-  printf ("internal.ip6_test1: %s\n", rc ? addr : "??");
+  printf ("internal.ip6_test: %s\n", rc ? addr : "??");
   return (true);
+}
+
+static bool _handle_deny4_test (const char *value)
+{
+  char     str   [MAX_VALUE_LEN];
+  char     spec2 [MAX_VALUE_LEN] = "-";
+  mg_addr  ip;
+  char    *ip_str, *spec, *slash;
+  int      a, b, c, d, rc;
+
+  memset (&ip, '\0', sizeof(ip));
+  strncpy (str, value, sizeof(str)-1);
+  ip_str = strtok (str, ", ");
+  if (!ip_str || !mg_aton(mg_str(ip_str), &ip))
+  {
+    printf ("internal.deny4_test: use 'ip, [+-]spec'. str: '%s', ip_str: '%s'\n", str, ip_str);
+    return (true);
+  }
+
+  spec = strtok (NULL, ", ");
+  if (!spec)
+  {
+    printf ("internal.deny4_test: use 'ip, [+-]spec'. str: '%s', ip_str: '%s'\n", str, ip_str);
+    return (true);
+  }
+
+  slash = strrchr (spec, '/');
+  b = c = d = 0;
+
+  /* A hack for Mongoose' parse_net() that does not handle CIDR addresses
+   */
+  if (slash && (rc = sscanf(spec, "%d.%d.%d.%d", &a, &b, &c, &d)) < 4)
+  {
+    if (rc == 1)
+       snprintf (spec2, sizeof(spec2), "%.*s.0.0.0/%s", (int)(slash - spec), spec, slash+1);
+    else if (rc == 2)
+       snprintf (spec2, sizeof(spec2), "%.*s.0.0/%s", (int)(slash - spec), spec, slash+1);
+    else if (rc == 3)
+       snprintf (spec2, sizeof(spec2), "%.*s.0/%s", (int)(slash - spec), spec, slash+1);
+    spec = spec2;
+  }
+
+  rc = mg_check_ip_acl (mg_str(spec), &ip);
+  printf ("internal.deny4_test: ip_str: '%-15s', spec: '%-15s', spec2: '%-15s', rc: %d\n",
+         ip_str, spec, spec2, rc);
+  return (true);
+}
+
+static bool handle_deny4_test (const char *value)
+{
+  int  save = Modes.debug;
+  bool rc;
+
+  if (!test_contains(Modes.tests, "net"))
+     return (true);
+
+  Modes.debug |= DEBUG_GENERAL;
+  rc = _handle_deny4_test (value);
+  Modes.debug = save;
+  return (rc);
 }
 
 /**
