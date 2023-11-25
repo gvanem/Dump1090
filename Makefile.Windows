@@ -18,6 +18,11 @@ MAKEFLAGS += --warn-undefined-variables
 USE_CRT_DEBUG ?= 0
 
 #
+# Use 'tools/gen_routes_data.py' to generate '$(OBJDIR)/routes.c' from 'routes.csv'?
+#
+USE_GEN_ROUTES ?= 1
+
+#
 # Option for polling of network events in 'externals/mongoose.c':
 #   USE_NET_POLLER=EPOLL:   use a Windows version of 'epoll()' from https://github.com/piscisaureus/wepoll
 #   USE_NET_POLLER=WSAPOLL: use 'WSAPoll()'
@@ -251,6 +256,13 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_fc2580.c                \
              tuner_r82xx.c)
 
+ifeq ($(USE_GEN_ROUTES),1)
+  vpath %.c $(OBJ_DIR)
+
+  SOURCES += $(OBJ_DIR)/routes.c
+  CFLAGS += -DUSE_GEN_ROUTES
+endif
+
 #
 # For 'web-pages.dll':
 #
@@ -400,6 +412,11 @@ $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c
 
 packed_test.exe: $(OBJ_DIR)/packed_webfs_main.obj $(OBJ_DIR)/packed_webfs_1.obj $(OBJ_DIR)/packed_webfs_2.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj
 	$(call link_EXE, $@, -nodefaultlib:uuid.lib $^)
+
+$(OBJ_DIR)/routes.c: tools/gen_routes_data.py routes.csv $(THIS_FILE)
+	$(call green_msg, Generating $@)
+	$(PYTHON) tools/gen_routes_data.py routes.csv > $@
+	@echo
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.

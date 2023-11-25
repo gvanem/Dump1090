@@ -13,6 +13,7 @@
 
 #include "misc.h"
 #include "interactive.h"
+#include "routes.h"
 #include "airports.h"
 
 #define API_SERVICE_URL_OLD   "https://api.adsb.lol/api/0/route/%s"
@@ -191,6 +192,7 @@ static airports_priv g_data;
  * Used in `airport_API_test_1()` and `airport_API_test_2()`.
  *
  * \todo These are terribly outdated. Take some random routes from 'routes.csv'.
+ * Download from 'https://vrs-standing-data.adsb.lol/routes.csv.gz' as needed.
  */
 static const char *call_signs_tests[] = {
                   "AAL292",  "SK293",
@@ -545,6 +547,56 @@ static bool airports_init_freq_CSV (void)
 static void airports_exit_freq_CSV (void)
 {
 }
+
+/**
+ * \todo
+ * Look in `route_records[]` before posting a requst to the ADSB-LOL API.
+ */
+static bool airports_init_routes (void)
+{
+  return (true);
+}
+
+static void airports_exit_routes (void)
+{
+}
+
+#if defined(USE_GEN_ROUTES)
+static int route_compare_on_ICAO (const void *_a, const void *_b)
+{
+  const route_record *a = (const route_record*) _a;
+  const route_record *b = (const route_record*) _b;
+
+  return stricmp (a->call_sign, b->call_sign);
+}
+
+/**
+ * Use `bsearch("call_sign")` on `route_records[]`.
+ */
+static flight_info *routes_find_by_callsign (const char *call_sign)
+{
+  static flight_info f;
+  route_record       key;
+  route_record      *r = NULL;
+
+  if (route_records_num > 0)
+  {
+    strncpy (key.call_sign, call_sign, sizeof(key.call_sign)-1);
+    r = bsearch (&key, route_records, route_records_num, sizeof(route_records[0]), route_compare_on_ICAO);
+  }
+  if (!r)
+     return (NULL);
+
+  /* Rewrite 'r' into a 'f' record.
+   * Ignoring the 5 possible stop-over airports
+   */
+  memset (&f, '\0', sizeof(f));
+  f.type = AIRPORT_API_CACHED;
+  strncpy (f.departure, r->departure, sizeof(f.departure)-1);
+  strncpy (f.destination, r->destination, sizeof(f.destination)-1);
+  return (&f);
+}
+#endif
 
 /**
  * Add a cached flight-info record to `g_data.flight_info`.
@@ -1068,6 +1120,7 @@ uint32_t airports_init (void)
 
   rc = (airports_init_CSV() &&
         airports_init_freq_CSV() &&
+        airports_init_routes() &&
         airports_init_API());
 
   if (test_contains(Modes.tests, "airport"))
@@ -1137,6 +1190,7 @@ void airports_exit (bool free_airports)
     airports_exit_API();
     airports_exit_CSV();
     airports_exit_freq_CSV();
+    airports_exit_routes();
   }
   /* Otherwise at least try to save the cache.
    */
@@ -1769,7 +1823,12 @@ bool airports_API_get_flight_info (const char  *call_sign,
   end = strrchr (call_sign, '\0');
   assert (end[-1] != ' ');
 
-  f = flight_info_find_by_callsign (call_sign);
+#if defined(USE_GEN_ROUTES)
+  f = routes_find_by_callsign (call_sign);
+  if (!f)
+#endif
+     f = flight_info_find_by_callsign (call_sign);
+
   if (!f)
   {
     flight_info_create (call_sign, addr, AIRPORT_API_PENDING);
