@@ -152,6 +152,7 @@
     <ClCompile Include="location.c" />
     <ClCompile Include="misc.c" />
     <ClCompile Include="net_io.c" />
+    <ClCompile Include="pconsole.c" />
     <ClCompile Include="sdrplay.c" />
     <ClCompile Include="externals\mongoose.c" />
     <ClCompile Include="externals\Curses\amalgamation.c" />
