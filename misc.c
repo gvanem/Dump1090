@@ -46,7 +46,7 @@ void modeS_log (const char *buf)
 
     GetLocalTime (&now);
     time = modeS_SYSTEMTIME_to_str (&now, false);
-    if (now.wDay != day) /* show the date once per day */
+    if (now.wDay != day)    /* show the date once per day */
     {
       snprintf (day_change, sizeof(day_change), "%02u/%02u/%02u:\n", now.wYear, now.wMonth, now.wDay);
       day = now.wDay;
@@ -185,7 +185,7 @@ char *modeS_FILETIME_to_str (const FILETIME *ft, bool show_YMD)
 char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD)
 {
   static TIME_ZONE_INFORMATION tz_info;
-  static LONG  timezone = 0, dst_adjust = 0;   /* minutes */
+  static LONG  timezone = 0;   /* minutes */
   static bool  done = false;
   ULONGLONG    ul = *(ULONGLONG*) ft;
 
@@ -193,6 +193,7 @@ char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD)
   {
     FILETIME ft2;
     DWORD    rc = GetTimeZoneInformation (&tz_info);
+    LONG     dst_adjust = 0;
 
     if (rc == TIME_ZONE_ID_UNKNOWN || rc == TIME_ZONE_ID_STANDARD || rc == TIME_ZONE_ID_DAYLIGHT)
     {
@@ -208,7 +209,7 @@ char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD)
 
   /* From minutes to 100 nsec units
    */
-  ul -= 600000000ULL * (ULONGLONG) (timezone - dst_adjust);
+  ul -= 600000000ULL * (ULONGLONG) timezone;
   return modeS_FILETIME_to_str ((const FILETIME*)&ul, show_YMD);
 }
 
@@ -535,17 +536,20 @@ bool test_contains (const char *spec, const char *which)
 {
   bool rc = false;
 
+  assert (which);
+
   if (!spec)             /* no test-spec disables all */
      rc = false;
   else if (!strcmp(spec, "*"))
-     rc = true;          /* a '*' test-spec enables all */
+  {
+    rc = true;          /* a '*' test-spec enables all */
+    printf ("spec='*', which='%s'\n", which);
+  }
   else
   {
     mg_str s, k, v;
 
     s = mg_str (spec);
-    assert (which);
-
     while (mg_commalist(&s, &k, &v))
     {
       if (!strnicmp(which, k.ptr, k.len))
@@ -1188,11 +1192,18 @@ DEF_FUNC (BOOL, InternetGetLastResponseInfoA, (DWORD *err_code,
 
 DEF_FUNC (BOOL, InternetCloseHandle, (HINTERNET handle));
 
+DEF_FUNC (BOOL, HttpQueryInfoA, (HINTERNET handle,
+                                 DWORD     info_level,
+                                 void    *buf,
+                                 DWORD   *buf_len,
+                                 DWORD   *index));
+
 /**
  * \def BUF_INCREMENT
- * Initial and incremental buffer size of `download_to_buf()`
+ * Initial and incremental buffer size of `download_to_buf()`.
+ * Also the size for `download_to_file()` buffer.
  */
-#define BUF_INCREMENT (10*1024)
+#define BUF_INCREMENT (50*1024)
 
 /**
  * Handles dynamic loading and unloading of DLLs and their functions.
@@ -1336,7 +1347,8 @@ static struct dyn_struct wininet_funcs[] = {
                          ADD_VALUE (InternetOpenUrlA),
                          ADD_VALUE (InternetGetLastResponseInfoA),
                          ADD_VALUE (InternetReadFile),
-                         ADD_VALUE (InternetCloseHandle)
+                         ADD_VALUE (InternetCloseHandle),
+                         ADD_VALUE (HttpQueryInfoA)
                        };
 
 typedef struct download_ctx {
@@ -1346,7 +1358,7 @@ typedef struct download_ctx {
         HINTERNET   h2;
         FILE       *f;
         BOOL        wininet_rc;          /* last 'InternetReadFile()' result */
-        char        file_buf [200*1024]; /* for `download_to_file()` only */
+        char        file_buf [BUF_INCREMENT];
         char       *dl_buf;
         size_t      dl_buf_sz;
         size_t      dl_buf_pos;
@@ -1356,13 +1368,28 @@ typedef struct download_ctx {
         bool        got_last_chunk;
       } download_ctx;
 
+static int http_status = -1;
+
+int download_status (void)
+{
+  return (http_status);
+}
+
 static bool download_exit (download_ctx *ctx, bool rc)
 {
   if (ctx->f)
      fclose (ctx->f);
 
   if (ctx->h2)
+  {
+    char  buf [100];
+    DWORD len = sizeof(buf);
+
+    if ((*p_HttpQueryInfoA) (ctx->h2, HTTP_QUERY_STATUS_CODE, buf, &len, NULL))
+       http_status = atoi (buf);
+
     (*p_InternetCloseHandle) (ctx->h2);
+  }
 
   if (ctx->h1)
     (*p_InternetCloseHandle) (ctx->h1);
@@ -1427,11 +1454,12 @@ static bool download_common (download_ctx *ctx,
   memset (ctx, '\0', sizeof(*ctx));
   ctx->url  = url;
   ctx->file = file;
+  http_status = -1; /* unknown now */
 
   if (ctx->file)
   {
     ctx->dl_buf    = ctx->file_buf;
-    ctx->dl_buf_sz = sizeof(ctx->file_buf);
+    ctx->dl_buf_sz = sizeof (ctx->file_buf);
     ctx->f = fopen (ctx->file, "w+b");
     if (!ctx->f)
     {
