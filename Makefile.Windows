@@ -236,6 +236,7 @@ SOURCES = aircraft.c           \
           misc.c               \
           net_io.c             \
           location.c           \
+          pconsole.c           \
           sdrplay.c            \
           externals/mongoose.c \
           externals/sqlite3.c  \
@@ -584,19 +585,20 @@ define C_preprocess
 endef
 
 doxy_SOURCES = $(addprefix ../, $(SOURCES))
-doxy_HEADERS = ../aircraft.h                \
-               ../airports.h                \
-               ../cfg_file.h                \
-               ../csv.h                     \
-               ../dump1090_config.h         \
-               ../interactive.h             \
-               ../location.h                \
-               ../misc.h                    \
-               ../net_io.h                  \
-               ../sdrplay.h                 \
-               ../externals/Curses/curses.h \
-               ../externals/miniz.h         \
-               ../externals/sqlite3.h       \
+doxy_HEADERS = ../aircraft.h                  \
+               ../airports.h                  \
+               ../cfg_file.h                  \
+               ../csv.h                       \
+               ../dump1090_config.h           \
+               ../interactive.h               \
+               ../location.h                  \
+               ../misc.h                      \
+               ../net_io.h                    \
+               ../sdrplay.h                   \
+               ../externals/Curses/curses.h   \
+               ../externals/rtl-sdr/rtl_tcp.h \
+               ../externals/miniz.h           \
+               ../externals/sqlite3.h         \
                ../externals/zip.h
 
 define dump1090_Doxyfile
