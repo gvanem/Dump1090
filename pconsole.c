@@ -142,7 +142,7 @@ static void pconsole_exit (pconsole_t *pty)
      TerminateThread (pty->read_thrd, 0);
 }
 
-bool pconsole_create (pconsole_t *pty, const char *cmd_path, const char **cmd_argv)
+bool pconsole_create (struct pconsole_t *pty, const char *cmd_path, const char **cmd_argv)
 {
   STARTUPINFOEX       si;
   PROCESS_INFORMATION pi;
