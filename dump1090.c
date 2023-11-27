@@ -436,7 +436,7 @@ static void modeS_init_log (void)
 
 /**
  * Step 2:
- *  \li Initialize the timezone and DST-adjust value in 'misc.c'.
+ *  \li Initialize the start_time, timezone and DST-adjust value in 'misc.c'.
  *  \li Open and parse `Modes.cfg_file`.
  *  \li Open and append to the `--logfile` if specified.
  *  \li Set the Mongoose log-level based on `--debug m|M`.
@@ -449,11 +449,11 @@ static void modeS_init_log (void)
  */
 static bool modeS_init (void)
 {
-  FILETIME ft;
-  bool     rc = true;
-  bool     cfg_test = false;
+  bool rc = true;
+  bool cfg_test = false;
 
-  modeS_FILETIME_to_loc_str (&ft, true);
+  get_FILETIME_now (&Modes.start_time);
+  modeS_FILETIME_to_loc_str (&Modes.start_time, true);
 
   if (test_contains(Modes.tests, "config"))
      cfg_test = true;
@@ -2851,9 +2851,9 @@ static void show_help (const char *fmt, ...)
 /**
  * This background function is called continously by `main_data_loop()`.
  * It performs:
- *  \li Removes inactive aircrafts from the list.
  *  \li Polls the network for events blocking less than 125 msec.
  *  \li Polls the `Windows Location API` for a location every 250 msec.
+ *  \li Removes inactive aircrafts from the list.
  *  \li Refreshes interactive data every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`).
  *  \li Refreshes the console-title with some statistics (also 4 times per second).
  */

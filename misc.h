@@ -349,6 +349,7 @@ typedef struct global_data {
         mg_file_path      where_am_I;               /**< The directory of this program. */
         mg_file_path      tmp_dir;                  /**< The `%TEMP%\\dump1090` directory. (no trailing `\\`). */
         mg_file_path      cfg_file;                 /**< The config-file (default: "where_am_I\\dump1090.cfg") */
+        FILETIME          start_time;               /**< The start-time */
         uintptr_t         reader_thread;            /**< Device reader thread ID. */
         CRITICAL_SECTION  data_mutex;               /**< Mutex to synchronize buffer access. */
         CRITICAL_SECTION  print_mutex;              /**< Mutex to synchronize printouts. */
