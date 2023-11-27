@@ -1,7 +1,8 @@
 #!/usr/env python
 """
 A tool to generate a 'routes.c' file from
-https://vrs-standing-data.adsb.lol/routes.csv.gz
+  https://vrs-standing-data.adsb.lol/routes.csv
+  https://vrs-standing-data.adsb.lol/routes.csv.gz
 
 """
 import os, sys, csv, time, operator
@@ -25,11 +26,11 @@ C_BOTTOM = "size_t route_records_num = %d;\n"
 def split_airports (airports):
   #
   # Split an airport string like "KBUR-KSTS" into departure == "KBUR", and
-  # destination == "KSTS". Handle 5 possible stop-overs. Like:
+  # destination == "KSTS". Handle max 5 possible stop-overs. Like:
   # "PANC-PASI-PABE-KSEA-PABE-PACV-PAJN"
-  #  ^    ^    ^                   ^
-  #  |    |    |_s[1]              |_ a[-1]
-  #  a[0] |_s[0]
+  #  ^    ^    ^              ^    ^
+  #  |    |    |_s[1]         |    |_ a[-1]
+  #  a[0] |_s[0]              |_ s[4]
   #
   a = airports.split ("-")
   s = a [1:-1]
@@ -46,7 +47,6 @@ def split_airports (airports):
   if len(s) == 1:
      return dep_dest + r'"%s", "", "", "", ""' % (s[0])
   return dep_dest + r'"", "", "", "", ""'
-
 
 #
 # Dump all 'route_records' in 'data' to 'out'

@@ -710,8 +710,8 @@ int get_timespec_UTC (struct timespec *ts)
  * is *only* defined here.
  *
  * From: https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsystemtimepreciseasfiletime
- *   retrieves the current system date and time with the highest possible level of
- *   precision (<1us). The retrieved information is in
+ *   retrieves the current system date and time with the highest possible
+ *   level of precision (<1us). The retrieved information is in
  *   Coordinated Universal Time (UTC) format.
  */
 void get_FILETIME_now (FILETIME *ft)
@@ -1008,6 +1008,9 @@ static const char *build_features (void)
   #if defined(USE_ASAN)
     "ASAN",
   #endif
+  #if defined(USE_GEN_ROUTES)
+    "Generated-routes",
+  #endif
   #if defined(USE_PACKED_DLL)
     "Packed-Web",
   #endif
@@ -1194,9 +1197,9 @@ DEF_FUNC (BOOL, InternetCloseHandle, (HINTERNET handle));
 
 DEF_FUNC (BOOL, HttpQueryInfoA, (HINTERNET handle,
                                  DWORD     info_level,
-                                 void    *buf,
-                                 DWORD   *buf_len,
-                                 DWORD   *index));
+                                 void     *buf,
+                                 DWORD    *buf_len,
+                                 DWORD    *index));
 
 /**
  * \def BUF_INCREMENT
