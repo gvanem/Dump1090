@@ -1216,7 +1216,8 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
 
   *ipp = NULL;
 
-  if (addr->is_ip6)  /* check only IPv4 addresses */
+  if (addr->is_ip6 ||               /* check only IPv4 addresses */
+      *(uint32_t*) &addr->ip == 0)  /* Ignore 0.0.0.0 */
      return (true);
 
   for (ip = g_unique_ips; ip; ip = ip->next)
@@ -1435,6 +1436,28 @@ static void deny_list_free (void)
     free (d);
   }
   g_deny_list = NULL;
+}
+
+static size_t deny_list_num4 (void)
+{
+  const deny_element *d;
+  size_t              num = 0;
+
+  for (d = g_deny_list; d; d = d->next)
+      if (!d->is_ip6)
+         num++;
+  return (num);
+}
+
+static size_t deny_list_num6 (void)
+{
+  const deny_element *d;
+  size_t              num = 0;
+
+  for (d = g_deny_list; d; d = d->next)
+      if (d->is_ip6)
+         num++;
+  return (num);
 }
 
 static bool client_is_extern (const mg_addr *addr)
@@ -2073,6 +2096,9 @@ bool net_init (void)
   Modes.dns = net_init_dns();
   if (Modes.dns)
      Modes.mgr.dns4.url = Modes.dns;
+
+  LOG_FILEONLY ("Added %zu IPv4 and %zu IPv6 addresses to deny.\n",
+               deny_list_num4(), deny_list_num6());
 
   /* Setup the RTL_TCP service and possibly rename if '--device udp://host:port' was used.
    */
