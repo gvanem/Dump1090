@@ -722,8 +722,6 @@ bool aircraft_CSV_load (void)
     return (false);
   }
 
-  get_usec_now(); /* calls 'QueryPerformanceFrequency()' */
-
   sql_load_t = aircraft_SQL_load (&sql_created, &sql_opened, &st_csv);
 
   if (aircraft_sql[0])

@@ -331,7 +331,7 @@ static uint16_t *gen_magnitude_lut (void)
 }
 
 /**
- * Initialize the temporary directory
+ * Initialize our temporary directory: == `%TEMP%\\dump1090`.
  */
 static void modeS_init_temp (void)
 {
@@ -343,11 +343,12 @@ static void modeS_init_temp (void)
 
   if (!have_temp)
   {
-    LOG_STDERR ("'have_temp' failed!\n");
-    strcpy (Modes.tmp_dir, "\\dump1090");   /* use root on current-drive as '%TEMP%'! */
+    LOG_STDERR ("have_temp == false!\n");
+    strcpy (Modes.tmp_dir, "c:\\dump1090");   /* use this as '%TEMP%'! */
   }
+  else
+    strcat_s (Modes.tmp_dir, sizeof(Modes.tmp_dir), "dump1090");
 
-  strcat_s (Modes.tmp_dir, sizeof(Modes.tmp_dir), "dump1090");
   if (!CreateDirectory(Modes.tmp_dir, 0) && GetLastError() != ERROR_ALREADY_EXISTS)
      LOG_STDERR ("'CreateDirectory(\"%s\")' failed; %s.\n", Modes.tmp_dir, win_strerror(GetLastError()));
 }
@@ -436,29 +437,24 @@ static void modeS_init_log (void)
 
 /**
  * Step 2:
- *  \li Initialize the start_time, timezone and DST-adjust value in 'misc.c'.
+ *  \li Initialize the start_time, timezone, DST-adjust and QueryPerformanceFrequency() values.
  *  \li Open and parse `Modes.cfg_file`.
  *  \li Open and append to the `--logfile` if specified.
  *  \li Set the Mongoose log-level based on `--debug m|M`.
  *  \li Check if we have the Aircrafts SQL file.
  *  \li Set our home position from the env-var `%DUMP1090_HOMEPOS%`.
- *  \li Initialize the `Modes.data_mutex`.
+ *  \li Initialize (and update) the aircrafts structures / files.
+ *  \li Initialize (and update) the airports structures / files.
  *  \li Setup a SIGINT/SIGBREAK handler for a clean exit.
  *  \li Allocate and initialize the needed buffers.
- *  \li Open and parse the `Modes.aircraft_db` file (unless `NUL`).
  */
 static bool modeS_init (void)
 {
   bool rc = true;
-  bool cfg_test = false;
 
-  get_FILETIME_now (&Modes.start_time);
-  modeS_FILETIME_to_loc_str (&Modes.start_time, true);
+  init_timings();
 
-  if (test_contains(Modes.tests, "config"))
-     cfg_test = true;
-
-  if (!cfg_open_and_parse(Modes.cfg_file, config) || cfg_test)
+  if (strcmp(Modes.cfg_file, "NUL") && !cfg_open_and_parse(Modes.cfg_file, config))
      return (false);
 
   if (Modes.logfile[0])
@@ -473,6 +469,8 @@ static bool modeS_init (void)
     if (!aircraft_CSV_load())
        return (false);
   }
+
+  airports_init();
 
 #if 0
   /**
@@ -509,9 +507,9 @@ static bool modeS_init (void)
    * Allocate the ICAO address cache. We use two uint32_t for every
    * entry because it's a addr / timestamp pair for every entry.
    */
-  Modes.ICAO_cache    = calloc (2 * sizeof(uint32_t) * MODES_ICAO_CACHE_LEN, 1);
-  Modes.data          = malloc (Modes.data_len);
-  Modes.magnitude     = malloc (2 * Modes.data_len);
+  Modes.ICAO_cache = calloc (2 * sizeof(uint32_t) * MODES_ICAO_CACHE_LEN, 1);
+  Modes.data       = malloc (Modes.data_len);
+  Modes.magnitude  = malloc (2 * Modes.data_len);
 
   if (!Modes.ICAO_cache || !Modes.data || !Modes.magnitude)
   {
@@ -522,17 +520,8 @@ static bool modeS_init (void)
   memset (Modes.data, 127, Modes.data_len);
   Modes.magnitude_lut = gen_magnitude_lut();
 
-  if (test_contains(Modes.tests, "airport"))
-  {
-    airports_init();
-    rc = false;
-  }
   if (test_contains(Modes.tests, "net"))
-  {
-    Modes.net = true;
-    net_init();          /* Call `net_tests()` too */
-    rc = false;
-  }
+     Modes.net = true;    /* Will force `net_init()` and it's tests to be called */
 
   if (!rc)
      return (false);
@@ -3587,6 +3576,9 @@ int main (int argc, char **argv)
     if (!rc)
        goto quit;
   }
+
+  if (Modes.tests)
+     goto quit;
 
   /**
    * \todo Move processing of `Modes.infile` to the same thread
