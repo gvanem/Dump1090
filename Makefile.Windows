@@ -258,7 +258,7 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
 
 ifeq ($(USE_GEN_ROUTES),1)
   SOURCES += $(OBJ_DIR)/routes.c
-  CFLAGS += -DUSE_GEN_ROUTES
+  CFLAGS  += -DUSE_GEN_ROUTES
 endif
 
 #
@@ -374,6 +374,12 @@ ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
 	$(call C_compile, $(OBJ_DIR)\\, -MP $(SOURCES))
 
 else
+  $(OBJ_DIR)/routes.obj: $(OBJ_DIR)/routes.c
+	$(call C_compile_long_time, $@, $<)
+
+  $(OBJ_DIR)/sqlite3.obj: externals/sqlite3.c
+	$(call C_compile_long_time, $@, $<)
+
   $(OBJ_DIR)/%.obj: %.c
 	$(call C_compile, $@, $<)
 endif
@@ -394,7 +400,7 @@ $(OBJ_DIR)/web-page-5.c: tools/gen_packed_fs.py
 	$(call generate_web_page, $@, web_root-Tar1090, 5,)
 
 $(OBJ_DIR)/web-page-%.obj: $(OBJ_DIR)/web-page-%.c
-	$(call C_compile_web_page, $@, $<)
+	$(call C_compile_long_time, $@, $<)
 
 $(OBJ_DIR)/packed_webfs_1.c: tools/gen_packed_fs.py
 	$(call generate_web_page, $@, web_root-OpenLayers3, 1, --ignore "web_root-OpenLayers3/3d/*" --ignore "web_root-OpenLayers3/sql/*")
@@ -406,18 +412,15 @@ $(OBJ_DIR)/packed_webfs_2.c: tools/gen_packed_fs.py
 # Test the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
 #
 $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c
-	$(call C_compile_web_page, $@, $<)
+	$(call C_compile_long_time, $@, $<)
 
 packed_test.exe: $(OBJ_DIR)/packed_webfs_main.obj $(OBJ_DIR)/packed_webfs_1.obj $(OBJ_DIR)/packed_webfs_2.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj
 	$(call link_EXE, $@, -nodefaultlib:uuid.lib $^)
 
-$(OBJ_DIR)/routes.c: tools/gen_routes_data.py routes.csv $(THIS_FILE)
+$(OBJ_DIR)/routes.c: tools/gen_routes_data.py routes.csv
 	$(call green_msg, Generating $@)
 	$(PYTHON) tools/gen_routes_data.py routes.csv > $@
 	@echo
-
-$(OBJ_DIR)/routes.obj: $(OBJ_DIR)/routes.c
-	$(call C_compile_web_page, $@, $<)
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.
@@ -502,7 +505,7 @@ define C_compile
   @echo
 endef
 
-define C_compile_web_page
+define C_compile_long_time
   $(call red_msg, Compiling $(1) will take some time...)
   $(_CC) $(CFLAGS) -Fo./$(strip $(1) $(2))
   @echo
@@ -778,8 +781,7 @@ DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.obj: @'
 #
 # Fixed dependencies:
 #
-$(OBJ_DIR)/dump1090.obj \
-$(OBJ_DIR)/misc.obj:    dump1090_config.h $(OBJ_DIR)/cflags_$(CC).h $(OBJ_DIR)/ldflags_$(CC).h
+$(OBJ_DIR)/misc.obj: dump1090_config.h $(OBJ_DIR)/cflags_$(CC).h $(OBJ_DIR)/ldflags_$(CC).h
 
 CURSES_SRC = $(addprefix externals/Curses/, \
                addch.c                      \
