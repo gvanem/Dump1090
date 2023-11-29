@@ -71,5 +71,10 @@
     * `deny4 = 113.30.148.*  ` (a Spanish network).
     * `deny4 = 91.224.92.0/24` (a Lithuanian network).
 
-
+* Download Aircraft and Airport data from [Github](https://github.com/vradarserver/standing-data/archive/refs/heads/main.zip)
+  or use git (assume everybody has it):
+    * First time:   `git clone https://github.com/vradarserver/standing-data.git %TEMP%\dump1090\standing-data`.
+    * Periodically: `git -C %TEMP% pull`.
+  And use a Python-script to regenerate these files into some suitable .BIN-files.
+  Use them as memory-mapped files?
 
