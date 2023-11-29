@@ -236,19 +236,18 @@ void location_exit (void)
  */
 bool location_poll (pos_t *pos)
 {
-  bool got_pos;
-
   if (!g_location)
      return (false);  /* polled before or after 'location_exit()'! */
 
-  got_pos = (VALID_POS(g_pos));
-  TRACE ("got_pos: %d", got_pos);
-  if (got_pos)
+  if (!VALID_POS(g_pos))
   {
-    pos->lat = g_pos.lat;
-    pos->lon = g_pos.lon;
+    TRACE ("VALID_POS()=0");
+    return (false);
   }
-  return (got_pos);
+  pos->lat = g_pos.lat;
+  pos->lon = g_pos.lon;
+  TRACE ("VALID_POS()=1: Latitude: %.6f, Longitude: %.6f", pos->lat, pos->lon);
+  return (true);
 }
 
 /**
