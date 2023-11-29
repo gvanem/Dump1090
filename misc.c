@@ -178,6 +178,7 @@ char *modeS_SYSTEMTIME_to_str (const SYSTEMTIME *st, bool show_YMD)
 char *modeS_FILETIME_to_str (const FILETIME *ft, bool show_YMD)
 {
   SYSTEMTIME st;
+
   FileTimeToSystemTime (ft, &st);
   return modeS_strftime (&st, show_YMD);
 }
@@ -534,32 +535,26 @@ bool test_add (char **spec, const char *which)
  */
 bool test_contains (const char *spec, const char *which)
 {
-  bool rc = false;
+  mg_str s, k, v;
 
   assert (which);
 
   if (!spec)             /* no test-spec disables all */
-     rc = false;
-  else if (!strcmp(spec, "*"))
-  {
-    rc = true;          /* a '*' test-spec enables all */
-    printf ("spec='*', which='%s'\n", which);
-  }
-  else
-  {
-    mg_str s, k, v;
+     return (false);
 
-    s = mg_str (spec);
-    while (mg_commalist(&s, &k, &v))
-    {
-      if (!strnicmp(which, k.ptr, k.len))
-      {
-        rc = true;
-        break;
-      }
-    }
+  if (!strcmp(spec, "*"))
+  {
+    printf ("spec='*', which='%s'\n", which);
+    return (true);      /* a '*' test-spec enables all */
   }
-  return (rc);
+
+  s = mg_str (spec);
+  while (mg_commalist(&s, &k, &v))
+  {
+    if (!strnicmp(which, k.ptr, k.len))
+       return (true);
+  }
+  return (false);
 }
 
 /**
@@ -742,6 +737,16 @@ double get_usec_now (void)
   QueryPerformanceCounter (&ticks);
   usec = 1E6 * ((double)ticks.QuadPart / (double)frequency);
   return (usec);
+}
+
+/**
+ * Initialize the above timing-values.
+ */
+void init_timings (void)
+{
+  get_usec_now();
+  get_FILETIME_now (&Modes.start_time);
+  modeS_FILETIME_to_loc_str (&Modes.start_time, true);
 }
 
 /**
@@ -1009,7 +1014,7 @@ static const char *build_features (void)
     "ASAN",
   #endif
   #if defined(USE_GEN_ROUTES)
-    "Generated-routes",
+    "GEN_ROUTES",
   #endif
   #if defined(USE_PACKED_DLL)
     "Packed-Web",

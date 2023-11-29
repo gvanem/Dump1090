@@ -615,6 +615,7 @@ int        _gettimeofday (struct timeval *tv, void *timezone);
 int         get_timespec_UTC (struct timespec *ts);
 double      get_usec_now (void);
 void        get_FILETIME_now (FILETIME *ft);
+void        init_timings (void);
 void        crtdbug_init (void);
 void        crtdbug_exit (void);
 const char *win_strerror (DWORD err);
