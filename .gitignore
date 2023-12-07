@@ -1,15 +1,13 @@
 *.map
 *.pdb
-web-pages.*
+*.bat
+*.i
 link.args
 link.tmp
 objects
-run*.bat
 t
 ASAN-report.txt
 MLAT-ADS-B-Reference-Guide.pdf
-go.bat
-run.bat
 PlanePlotter
 doxy-docs
 NOTES
@@ -26,7 +24,4 @@ doc8643Manufacturers.csv
 favicon.ico
 favicon.png
 testfiles/modes1.bin.png
-cpp-filter.py
-check-for-unused-libs.py
-*.i
 waterfall/
