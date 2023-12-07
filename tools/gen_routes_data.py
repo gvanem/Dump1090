@@ -1,4 +1,4 @@
-#!/usr/env python
+#!/usr/bin/env python3
 """
 A tool to generate a 'routes.c' file from
   https://vrs-standing-data.adsb.lol/routes.csv

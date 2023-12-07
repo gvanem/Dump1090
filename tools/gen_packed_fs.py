@@ -1,4 +1,4 @@
-#!/usr/env python
+#!/usr/bin/env python3
 """
 A tool to generate a .c-file for a built-in "Packed FileSystem".
 Inspired by Mongoose' 'test/pack.c' program.
