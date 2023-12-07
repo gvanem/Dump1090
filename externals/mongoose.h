@@ -27,21 +27,21 @@ extern "C" {
 #endif
 
 
-#define MG_ARCH_CUSTOM 0       // User creates its own mongoose_custom.h
-#define MG_ARCH_UNIX 1         // Linux, BSD, Mac, ...
-#define MG_ARCH_WIN32 2        // Windows
-#define MG_ARCH_ESP32 3        // ESP32
-#define MG_ARCH_ESP8266 4      // ESP8266
-#define MG_ARCH_FREERTOS 5     // FreeRTOS
-#define MG_ARCH_AZURERTOS 6    // MS Azure RTOS
-#define MG_ARCH_ZEPHYR 7       // Zephyr RTOS
-#define MG_ARCH_NEWLIB 8       // Bare metal ARM
-#define MG_ARCH_CMSIS_RTOS1 9  // CMSIS-RTOS API v1 (Keil RTX)
-#define MG_ARCH_TIRTOS 10      // Texas Semi TI-RTOS
-#define MG_ARCH_RP2040 11      // Raspberry Pi RP2040
-#define MG_ARCH_ARMCC 12       // Keil MDK-Core with Configuration Wizard
-#define MG_ARCH_CMSIS_RTOS2 13 // CMSIS-RTOS API v2 (Keil RTX5, FreeRTOS)
-#define MG_ARCH_RTTHREAD 14    // RT-Thread RTOS
+#define MG_ARCH_CUSTOM 0        // User creates its own mongoose_custom.h
+#define MG_ARCH_UNIX 1          // Linux, BSD, Mac, ...
+#define MG_ARCH_WIN32 2         // Windows
+#define MG_ARCH_ESP32 3         // ESP32
+#define MG_ARCH_ESP8266 4       // ESP8266
+#define MG_ARCH_FREERTOS 5      // FreeRTOS
+#define MG_ARCH_AZURERTOS 6     // MS Azure RTOS
+#define MG_ARCH_ZEPHYR 7        // Zephyr RTOS
+#define MG_ARCH_NEWLIB 8        // Bare metal ARM
+#define MG_ARCH_CMSIS_RTOS1 9   // CMSIS-RTOS API v1 (Keil RTX)
+#define MG_ARCH_TIRTOS 10       // Texas Semi TI-RTOS
+#define MG_ARCH_RP2040 11       // Raspberry Pi RP2040
+#define MG_ARCH_ARMCC 12        // Keil MDK-Core with Configuration Wizard
+#define MG_ARCH_CMSIS_RTOS2 13  // CMSIS-RTOS API v2 (Keil RTX5, FreeRTOS)
+#define MG_ARCH_RTTHREAD 14     // RT-Thread RTOS
 
 #if !defined(MG_ARCH)
 #if defined(__unix__) || defined(__APPLE__)
@@ -497,6 +497,7 @@ typedef int socklen_t;
 #define realpath(a, b) _fullpath((b), (a), MG_PATH_MAX)
 #define sleep(x) Sleep((x) *1000)
 #define mkdir(a, b) _mkdir(a)
+#define timegm(x) _mkgmtime(x)
 
 #ifndef S_ISDIR
 #define S_ISDIR(x) (((x) &_S_IFMT) == _S_IFDIR)
@@ -919,16 +920,23 @@ void mg_pfn_stdout(char c, void *param);  // param: ignored
 
 
 enum { MG_LL_NONE, MG_LL_ERROR, MG_LL_INFO, MG_LL_DEBUG, MG_LL_VERBOSE };
+extern int mg_log_level;  // Current log level, one of MG_LL_*
+
 void mg_log(const char *fmt, ...);
-bool mg_log_prefix(int ll, const char *file, int line, const char *fname);
-void mg_log_set(int log_level);
+void mg_log_prefix(int ll, const char *file, int line, const char *fname);
+// bool mg_log2(int ll, const char *file, int line, const char *fmt, ...);
 void mg_hexdump(const void *buf, size_t len);
 void mg_log_set_fn(mg_pfn_t fn, void *param);
 
+#define mg_log_set(level_) mg_log_level = (level_)
+
 #if MG_ENABLE_LOG
-#define MG_LOG(level, args)                                                \
-  do {                                                                     \
-    if (mg_log_prefix((level), __FILE__, __LINE__, __func__)) mg_log args; \
+#define MG_LOG(level, args)                                 \
+  do {                                                      \
+    if ((level) <= mg_log_level) {                          \
+      mg_log_prefix((level), __FILE__, __LINE__, __func__); \
+      mg_log args;                                          \
+    }                                                       \
   } while (0)
 #else
 #define MG_LOG(level, args) \
@@ -980,7 +988,9 @@ enum { MG_FS_READ = 1, MG_FS_WRITE = 2, MG_FS_DIR = 4 };
 // stat(), write(), read() calls.
 struct mg_fs {
   int (*st)(const char *path, size_t *size, time_t *mtime);  // stat file
-  void (*ls)(const char *path, void (*fn)(const char *, void *), void *);
+  void (*ls)(const char *path, void (*fn)(const char *, void *),
+             void *);  // List directory entries: call fn(file_name, fn_data)
+                       // for each directory entry
   void *(*op)(const char *path, int flags);             // Open file
   void (*cl)(void *fd);                                 // Close file
   size_t (*rd)(void *fd, void *buf, size_t len);        // Read file
@@ -1053,11 +1063,23 @@ uint64_t mg_now(void);     // Return milliseconds since Epoch
 #define MG_ROUND_DOWN(x, a) ((a) == 0 ? (x) : (((x) / (a)) * (a)))
 
 #ifdef __GNUC__
-#define MG_ARM_DISABLE_IRQ() asm volatile ("cpsid i" : : : "memory")
-#define MG_ARM_ENABLE_IRQ() asm volatile ("cpsie i" : : : "memory")
+#define MG_ARM_DISABLE_IRQ() asm volatile("cpsid i" : : : "memory")
+#define MG_ARM_ENABLE_IRQ() asm volatile("cpsie i" : : : "memory")
 #else
 #define MG_ARM_DISABLE_IRQ()
 #define MG_ARM_ENABLE_IRQ()
+#endif
+
+#if defined(__CC_ARM)
+#define MG_DSB() __dsb(0xf)
+#elif defined(__ARMCC_VERSION)
+#define MG_DSB() __builtin_arm_dsb(0xf)
+#elif defined(__GNUC__) && defined(__arm__) && defined(__thumb__)
+#define MG_DSB() asm("DSB 0xf")
+#elif defined(__ICCARM__)
+#define MG_DSB() __iar_builtin_DSB()
+#else
+#define MG_DSB()
 #endif
 
 struct mg_addr;
@@ -1678,6 +1700,12 @@ void mg_rpc_list(struct mg_rpc_req *r);
 #define MG_OTA MG_OTA_NONE
 #endif
 
+#if defined(__GNUC__) && !defined(__APPLE__)
+#define MG_IRAM __attribute__((section(".iram")))
+#else
+#define MG_IRAM
+#endif
+
 // Firmware update API
 bool mg_ota_begin(size_t new_firmware_size);     // Start writing
 bool mg_ota_write(const void *buf, size_t len);  // Write chunk, aligned to 1k
@@ -1696,8 +1724,9 @@ uint32_t mg_ota_crc32(int firmware);      // Return firmware checksum
 uint32_t mg_ota_timestamp(int firmware);  // Firmware timestamp, UNIX UTC epoch
 size_t mg_ota_size(int firmware);         // Firmware size
 
-bool mg_ota_commit(void);    // Commit current firmware
-bool mg_ota_rollback(void);  // Rollback to the previous firmware
+bool mg_ota_commit(void);        // Commit current firmware
+bool mg_ota_rollback(void);      // Rollback to the previous firmware
+MG_IRAM void mg_ota_boot(void);  // Bootloader function
 // Copyright (c) 2023 Cesanta Software Limited
 // All rights reserved
 
@@ -1705,10 +1734,11 @@ bool mg_ota_rollback(void);  // Rollback to the previous firmware
 
 
 
-#define MG_DEVICE_NONE 0      // Dummy system
-#define MG_DEVICE_STM32H5 1   // STM32 H5
-#define MG_DEVICE_STM32H7 2   // STM32 H7
-#define MG_DEVICE_CUSTOM 100  // Custom implementation
+#define MG_DEVICE_NONE 0        // Dummy system
+#define MG_DEVICE_STM32H5 1     // STM32 H5
+#define MG_DEVICE_STM32H7 2     // STM32 H7
+#define MG_DEVICE_CH32V307 100  // WCH CH32V307
+#define MG_DEVICE_CUSTOM 1000   // Custom implementation
 
 #ifndef MG_DEVICE
 #define MG_DEVICE MG_DEVICE_NONE
@@ -1723,7 +1753,7 @@ int mg_flash_bank(void);            // 0: not dual bank, 1: bank1, 2: bank2
 
 // Write, erase, swap bank
 bool mg_flash_write(void *addr, const void *buf, size_t len);
-bool mg_flash_erase(void *addr);  // Must be at sector boundary
+bool mg_flash_erase(void *sector);
 bool mg_flash_swap_bank(void);
 
 // Convenience functions to store data on a flash sector with wear levelling
@@ -1789,8 +1819,9 @@ extern struct mg_tcpip_driver mg_tcpip_driver_stm32;
 extern struct mg_tcpip_driver mg_tcpip_driver_w5500;
 extern struct mg_tcpip_driver mg_tcpip_driver_tm4c;
 extern struct mg_tcpip_driver mg_tcpip_driver_stm32h;
-extern struct mg_tcpip_driver mg_tcpip_driver_imxrt1020;
+extern struct mg_tcpip_driver mg_tcpip_driver_imxrt;
 extern struct mg_tcpip_driver mg_tcpip_driver_same54;
+extern struct mg_tcpip_driver mg_tcpip_driver_cmsis;
 
 // Drivers that require SPI, can use this SPI abstraction
 struct mg_tcpip_spi {
@@ -1802,7 +1833,15 @@ struct mg_tcpip_spi {
 #endif
 
 
-struct mg_tcpip_driver_imxrt1020_data {
+#if MG_ENABLE_TCPIP && defined(MG_ENABLE_DRIVER_CMSIS) && MG_ENABLE_DRIVER_CMSIS
+
+#include "Driver_ETH_MAC.h"  // keep this include
+#include "Driver_ETH_PHY.h"  // keep this include
+
+#endif
+
+
+struct mg_tcpip_driver_imxrt_data {
   // MDC clock divider. MDC clock is derived from IPS Bus clock (ipg_clk),
   // must not exceed 2.5MHz. Configuration for clock range 2.36~2.50 MHz
   // 37.5.1.8.2, Table 37-46 : f = ipg_clk / (2(mdc_cr + 1))
@@ -1815,16 +1854,14 @@ struct mg_tcpip_driver_imxrt1020_data {
   //    50 MHz         9
   //    66 MHz        13
   int mdc_cr;  // Valid values: -1 to 63
+
+  uint8_t phy_addr;  // PHY address
 };
 
-
-#if MG_ENABLE_TCPIP && defined(MG_ENABLE_DRIVER_SAME54) && MG_ENABLE_DRIVER_SAME54
 
 struct mg_tcpip_driver_same54_data {
     int mdc_cr;
 };
-
-#endif
 
 
 struct mg_tcpip_driver_stm32_data {

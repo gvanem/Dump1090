@@ -113,6 +113,88 @@ size_t mg_base64_decode(const char *src, size_t n, char *dst, size_t dl) {
 }
 
 #ifdef MG_ENABLE_LINES
+#line 1 "src/device_ch32v307.c"
+#endif
+
+
+
+#if MG_DEVICE == MG_DEVICE_CH32V307
+// RM: https://www.wch-ic.com/downloads/CH32FV2x_V3xRM_PDF.html
+
+#define FLASH_BASE 0x40022000
+#define FLASH_ACTLR (FLASH_BASE + 0)
+#define FLASH_KEYR (FLASH_BASE + 4)
+#define FLASH_OBKEYR (FLASH_BASE + 8)
+#define FLASH_STATR (FLASH_BASE + 12)
+#define FLASH_CTLR (FLASH_BASE + 16)
+#define FLASH_ADDR (FLASH_BASE + 20)
+#define FLASH_OBR (FLASH_BASE + 28)
+#define FLASH_WPR (FLASH_BASE + 32)
+
+void *mg_flash_start(void) {
+  return (void *) 0x08000000;
+}
+size_t mg_flash_size(void) {
+  return 480 * 1024;  // First 320k is 0-wait
+}
+size_t mg_flash_sector_size(void) {
+  return 4096;
+}
+size_t mg_flash_write_align(void) {
+  return 4;
+}
+int mg_flash_bank(void) {
+  return 0;
+}
+void mg_device_reset(void) {
+  *((volatile uint32_t *) 0xbeef0000) |= 1U << 7;  // NVIC_SystemReset()
+}
+static void flash_unlock(void) {
+  static bool unlocked;
+  if (unlocked == false) {
+    MG_REG(FLASH_KEYR) = 0x45670123;
+    MG_REG(FLASH_KEYR) = 0xcdef89ab;
+    unlocked = true;
+  }
+}
+static void flash_wait(void) {
+  while (MG_REG(FLASH_STATR) & MG_BIT(0)) (void) 0;
+}
+
+bool mg_flash_erase(void *addr) {
+  //MG_INFO(("%p", addr));
+  flash_unlock();
+  flash_wait();
+  MG_REG(FLASH_ADDR) = (uint32_t) addr;
+  MG_REG(FLASH_CTLR) |= MG_BIT(1) | MG_BIT(6);  // PER | STRT;
+  flash_wait();
+  return true;
+}
+
+static bool is_page_boundary(const void *addr) {
+  uint32_t val = (uint32_t) addr;
+  return (val & (mg_flash_sector_size() - 1)) == 0;
+}
+
+bool mg_flash_write(void *addr, const void *buf, size_t len) {
+  //MG_INFO(("%p %p %lu", addr, buf, len));
+  //mg_hexdump(buf, len);
+  flash_unlock();
+  const uint16_t *src = (uint16_t *) buf, *end = &src[len / 2];
+  uint16_t *dst = (uint16_t *) addr;
+  MG_REG(FLASH_CTLR) |= MG_BIT(0);  // Set PG
+  //MG_INFO(("CTLR: %#lx", MG_REG(FLASH_CTLR)));
+  while (src < end) {
+    if (is_page_boundary(dst)) mg_flash_erase(dst);
+    *dst++ = *src++;
+    flash_wait();
+  }
+  MG_REG(FLASH_CTLR) &= ~MG_BIT(0);  // Clear PG
+  return true;
+}
+#endif
+
+#ifdef MG_ENABLE_LINES
 #line 1 "src/device_dummy.c"
 #endif
 
@@ -211,26 +293,6 @@ bool mg_flash_load(void *sector, uint32_t key, void *buf, size_t len) {
   return ok;
 }
 
-static bool mg_flash_writev(char *location, struct mg_str *strings, size_t n) {
-  size_t align = mg_flash_write_align(), i, j, k = 0, nwritten = 0;
-  char buf[align];
-  bool ok = true;
-  for (i = 0; ok && i < n; i++) {
-    for (j = 0; ok && j < strings[i].len; j++) {
-      buf[k++] = strings[i].ptr[j];
-      if (k >= sizeof(buf)) {
-        ok = mg_flash_write(location + nwritten, buf, sizeof(buf));
-        k = 0, nwritten += sizeof(buf);
-      }
-    }
-  }
-  if (k > 0) {
-    while (k < sizeof(buf)) buf[k++] = 0xff;
-    ok = mg_flash_write(location + nwritten, buf, sizeof(buf));
-  }
-  return ok;
-}
-
 // For all saved objects in the sector, delete old versions of objects
 static void mg_flash_sector_cleanup(char *sector) {
   // Buffer all saved objects into an IO buffer (backed by RAM)
@@ -277,8 +339,10 @@ bool mg_flash_save(void *sector, uint32_t key, const void *buf, size_t len) {
   } else if (((s - base) % ss) != 0) {
     MG_ERROR(("%p is not a sector boundary", sector));
   } else {
-    size_t needed = sizeof(uint32_t) * 2 + len;
-    size_t needed_aligned = MG_ROUND_UP(needed, mg_flash_write_align());
+    char ab[mg_flash_write_align()];  // Aligned write block
+    uint32_t hdr[2] = {(uint32_t) len, key};
+    size_t needed = sizeof(hdr) + len;
+    size_t needed_aligned = MG_ROUND_UP(needed, sizeof(ab));
     while ((n = mg_flash_next(s + ofs, s + ss, NULL, NULL)) > 0) ofs += n;
 
     // If there is not enough space left, cleanup sector and re-eval ofs
@@ -290,11 +354,39 @@ bool mg_flash_save(void *sector, uint32_t key, const void *buf, size_t len) {
 
     if (ofs + needed_aligned <= ss) {
       // Enough space to save this object
-      uint32_t hdr[2] = {(uint32_t) len, key};
-      struct mg_str data[] = {mg_str_n((char *) hdr, sizeof(hdr)),
-                              mg_str_n(buf, len)};
-      ok = mg_flash_writev(s + ofs, data, 2);
-      MG_DEBUG(("Saving %lu bytes @ %p, key %x: %d", len, s + ofs, key, ok));
+      if (sizeof(ab) < sizeof(hdr)) {
+        // Flash write granularity is 32 bit or less, write with no buffering
+        ok = mg_flash_write(s + ofs, hdr, sizeof(hdr));
+        if (ok) mg_flash_write(s + ofs + sizeof(hdr), buf, len);
+      } else {
+        // Flash granularity is sizeof(hdr) or more. We need to save in
+        // 3 chunks: initial block, bulk, rest. This is because we have
+        // two memory chunks to write: hdr and buf, on aligned boundaries.
+        n = sizeof(ab) - sizeof(hdr);      // Initial chunk that we write
+        if (n > len) n = len;              // is
+        memset(ab, 0xff, sizeof(ab));      // initialized to all-one
+        memcpy(ab, hdr, sizeof(hdr));      // contains the header (key + size)
+        memcpy(ab + sizeof(hdr), buf, n);  // and an initial part of buf
+        MG_INFO(("saving initial block of %lu", sizeof(ab)));
+        ok = mg_flash_write(s + ofs, ab, sizeof(ab));
+        if (ok && len > n) {
+          size_t n2 = MG_ROUND_DOWN(len - n, sizeof(ab));
+          if (n2 > 0) {
+            MG_INFO(("saving bulk, %lu", n2));
+            ok = mg_flash_write(s + ofs + sizeof(ab), (char *) buf + n, n2);
+          }
+          if (ok && len > n) {
+            size_t n3 = len - n - n2;
+            if (n3 > sizeof(ab)) n3 = sizeof(ab);
+            memset(ab, 0xff, sizeof(ab));
+            memcpy(ab, (char *) buf + n + n2, n3);
+            MG_INFO(("saving rest, %lu", n3));
+            ok = mg_flash_write(s + ofs + sizeof(ab) + n2, ab, sizeof(ab));
+          }
+        }
+      }
+      MG_DEBUG(("Saved %lu/%lu bytes @ %p, key %x: %d", len, needed_aligned,
+                s + ofs, key, ok));
       MG_DEBUG(("Sector space left: %lu bytes", ss - ofs - needed_aligned));
     } else {
       MG_ERROR(("Sector is full"));
@@ -391,6 +483,7 @@ bool mg_flash_erase(void *location) {
   } else {
     uintptr_t diff = (char *) location - (char *) mg_flash_start();
     uint32_t sector = diff / mg_flash_sector_size();
+    uint32_t saved_cr = MG_REG(FLASH_NSCR); // Save CR value
     flash_unlock();
     flash_clear_err();
     MG_REG(FLASH_NSCR) = 0;
@@ -406,6 +499,7 @@ bool mg_flash_erase(void *location) {
     MG_DEBUG(("Erase sector %lu @ %p: %s. CR %#lx SR %#lx", sector, location,
               ok ? "ok" : "fail", MG_REG(FLASH_NSCR), MG_REG(FLASH_NSSR)));
     // mg_hexdump(location, 32);
+    MG_REG(FLASH_NSCR) = saved_cr; // Restore saved CR
   }
   return ok;
 }
@@ -435,21 +529,18 @@ bool mg_flash_write(void *addr, const void *buf, size_t len) {
   flash_clear_err();
   MG_ARM_DISABLE_IRQ();
   // MG_DEBUG(("Starting flash write %lu bytes @ %p", len, addr));
+  MG_REG(FLASH_NSCR) = MG_BIT(1);  // Set programming flag
   while (ok && src < end) {
     if (flash_page_start(dst) && mg_flash_erase(dst) == false) break;
-    MG_REG(FLASH_NSCR) = MG_BIT(1);  // Set programming flag
     *(volatile uint32_t *) dst++ = *src++;
     flash_wait();
     if (flash_is_err()) ok = false;
   }
+  MG_ARM_ENABLE_IRQ();
   MG_DEBUG(("Flash write %lu bytes @ %p: %s. CR %#lx SR %#lx", len, dst,
             flash_is_err() ? "fail" : "ok", MG_REG(FLASH_NSCR),
             MG_REG(FLASH_NSSR)));
-  if (flash_is_err()) ok = false;
-  // mg_hexdump(addr, len > 32 ? 32 : len);
-  //  MG_REG(FLASH_NSCR) &= ~MG_BIT(1);  // Set programming flag
   MG_REG(FLASH_NSCR) = 0;  // Clear flags
-  MG_ARM_ENABLE_IRQ();
   return ok;
 }
 
@@ -477,66 +568,71 @@ void mg_device_reset(void) {
 #define FLASH_CCR 0x14
 #define FLASH_OPTSR_CUR 0x1c
 #define FLASH_OPTSR_PRG 0x20
+#define FLASH_SIZE_REG 0x1ff1e880
 
-void *mg_flash_start(void) {
+MG_IRAM void *mg_flash_start(void) {
   return (void *) 0x08000000;
 }
-size_t mg_flash_size(void) {
-  return 2 * 1024 * 1024;  // 2Mb
+MG_IRAM size_t mg_flash_size(void) {
+  return MG_REG(FLASH_SIZE_REG) * 1024;
 }
-size_t mg_flash_sector_size(void) {
+MG_IRAM size_t mg_flash_sector_size(void) {
   return 128 * 1024;  // 128k
 }
-size_t mg_flash_write_align(void) {
+MG_IRAM size_t mg_flash_write_align(void) {
   return 32;  // 256 bit
 }
-int mg_flash_bank(void) {
+MG_IRAM int mg_flash_bank(void) {
+  if (mg_flash_size() < 2 * 1024 * 1024) return 0;  // No dual bank support
   return MG_REG(FLASH_BASE1 + FLASH_OPTCR) & MG_BIT(31) ? 2 : 1;
 }
 
-static void flash_unlock(void) {
+MG_IRAM static void flash_unlock(void) {
   static bool unlocked = false;
   if (unlocked == false) {
     MG_REG(FLASH_BASE1 + FLASH_KEYR) = 0x45670123;
     MG_REG(FLASH_BASE1 + FLASH_KEYR) = 0xcdef89ab;
-    MG_REG(FLASH_BASE2 + FLASH_KEYR) = 0x45670123;
-    MG_REG(FLASH_BASE2 + FLASH_KEYR) = 0xcdef89ab;
+    if (mg_flash_bank() > 0) {
+      MG_REG(FLASH_BASE2 + FLASH_KEYR) = 0x45670123;
+      MG_REG(FLASH_BASE2 + FLASH_KEYR) = 0xcdef89ab;
+    }
     MG_REG(FLASH_BASE1 + FLASH_OPTKEYR) = 0x08192a3b;  // opt reg is "shared"
     MG_REG(FLASH_BASE1 + FLASH_OPTKEYR) = 0x4c5d6e7f;  // thus unlock once
     unlocked = true;
   }
 }
 
-static bool flash_page_start(volatile uint32_t *dst) {
+MG_IRAM static bool flash_page_start(volatile uint32_t *dst) {
   char *base = (char *) mg_flash_start(), *end = base + mg_flash_size();
   volatile char *p = (char *) dst;
   return p >= base && p < end && ((p - base) % mg_flash_sector_size()) == 0;
 }
 
-static bool flash_is_err(uint32_t bank) {
+MG_IRAM static bool flash_is_err(uint32_t bank) {
   return MG_REG(bank + FLASH_SR) & ((MG_BIT(11) - 1) << 17);  // RM0433 4.9.5
 }
 
-static void flash_wait(uint32_t bank) {
+MG_IRAM static void flash_wait(uint32_t bank) {
   while (MG_REG(bank + FLASH_SR) & (MG_BIT(0) | MG_BIT(2))) (void) 0;
 }
 
-static void flash_clear_err(uint32_t bank) {
+MG_IRAM static void flash_clear_err(uint32_t bank) {
   flash_wait(bank);                                      // Wait until ready
   MG_REG(bank + FLASH_CCR) = ((MG_BIT(11) - 1) << 16U);  // Clear all errors
 }
 
-static bool flash_bank_is_swapped(uint32_t bank) {
+MG_IRAM static bool flash_bank_is_swapped(uint32_t bank) {
   return MG_REG(bank + FLASH_OPTCR) & MG_BIT(31);  // RM0433 4.9.7
 }
 
 // Figure out flash bank based on the address
-static uint32_t flash_bank(void *addr) {
+MG_IRAM static uint32_t flash_bank(void *addr) {
   size_t ofs = (char *) addr - (char *) mg_flash_start();
+  if (mg_flash_bank() == 0) return FLASH_BASE1;
   return ofs < mg_flash_size() / 2 ? FLASH_BASE1 : FLASH_BASE2;
 }
 
-bool mg_flash_erase(void *addr) {
+MG_IRAM bool mg_flash_erase(void *addr) {
   bool ok = false;
   if (flash_page_start(addr) == false) {
     MG_ERROR(("%p is not on a sector boundary", addr));
@@ -544,12 +640,13 @@ bool mg_flash_erase(void *addr) {
     uintptr_t diff = (char *) addr - (char *) mg_flash_start();
     uint32_t sector = diff / mg_flash_sector_size();
     uint32_t bank = flash_bank(addr);
+    uint32_t saved_cr = MG_REG(bank + FLASH_CR);  // Save CR value
 
     flash_unlock();
     if (sector > 7) sector -= 8;
-    // MG_INFO(("Erasing @ %p, sector %lu, bank %#x", addr, sector, bank));
 
     flash_clear_err(bank);
+    MG_REG(bank + FLASH_CR) = MG_BIT(5);             // 32-bit write parallelism
     MG_REG(bank + FLASH_CR) |= (sector & 7U) << 8U;  // Sector to erase
     MG_REG(bank + FLASH_CR) |= MG_BIT(2);            // Sector erase bit
     MG_REG(bank + FLASH_CR) |= MG_BIT(7);            // Start erasing
@@ -557,12 +654,13 @@ bool mg_flash_erase(void *addr) {
     MG_DEBUG(("Erase sector %lu @ %p %s. CR %#lx SR %#lx", sector, addr,
               ok ? "ok" : "fail", MG_REG(bank + FLASH_CR),
               MG_REG(bank + FLASH_SR)));
-    // mg_hexdump(addr, 32);
+    MG_REG(bank + FLASH_CR) = saved_cr;  // Restore CR
   }
   return ok;
 }
 
-bool mg_flash_swap_bank() {
+MG_IRAM bool mg_flash_swap_bank() {
+  if (mg_flash_bank() == 0) return true;
   uint32_t bank = FLASH_BASE1;
   uint32_t desired = flash_bank_is_swapped(bank) ? 0 : MG_BIT(31);
   flash_unlock();
@@ -575,7 +673,7 @@ bool mg_flash_swap_bank() {
   return true;
 }
 
-bool mg_flash_write(void *addr, const void *buf, size_t len) {
+MG_IRAM bool mg_flash_write(void *addr, const void *buf, size_t len) {
   if ((len % mg_flash_write_align()) != 0) {
     MG_ERROR(("%lu is not aligned to %lu", len, mg_flash_write_align()));
     return false;
@@ -587,25 +685,25 @@ bool mg_flash_write(void *addr, const void *buf, size_t len) {
   bool ok = true;
   flash_unlock();
   flash_clear_err(bank);
+  MG_REG(bank + FLASH_CR) = MG_BIT(1);   // Set programming flag
+  MG_REG(bank + FLASH_CR) |= MG_BIT(5);  // 32-bit write parallelism
+  MG_DEBUG(("Writing flash @ %p, %lu bytes", addr, len));
   MG_ARM_DISABLE_IRQ();
-  MG_REG(bank + FLASH_CR) = MG_BIT(1);  // Set programming flag
-  // MG_INFO(("Writing flash @ %p, %lu bytes", addr, len));
   while (ok && src < end) {
     if (flash_page_start(dst) && mg_flash_erase(dst) == false) break;
     *(volatile uint32_t *) dst++ = *src++;
     flash_wait(bank);
     if (flash_is_err(bank)) ok = false;
   }
+  MG_ARM_ENABLE_IRQ();
   MG_DEBUG(("Flash write %lu bytes @ %p: %s. CR %#lx SR %#lx", len, dst,
             ok ? "ok" : "fail", MG_REG(bank + FLASH_CR),
             MG_REG(bank + FLASH_SR)));
-  // mg_hexdump(addr, len > 32 ? 32 : len);
   MG_REG(bank + FLASH_CR) &= ~MG_BIT(1);  // Clear programming flag
-  MG_ARM_ENABLE_IRQ();
   return ok;
 }
 
-void mg_device_reset(void) {
+MG_IRAM void mg_device_reset(void) {
   // SCB->AIRCR = ((0x5fa << SCB_AIRCR_VECTKEY_Pos)|SCB_AIRCR_SYSRESETREQ_Msk);
   *(volatile unsigned long *) 0xe000ed0c = 0x5fa0004;
 }
@@ -1932,13 +2030,20 @@ struct mg_str *mg_http_get_header(struct mg_http_message *h, const char *name) {
   return NULL;
 }
 
-// Get character length. Used to parse method, URI, headers
-static size_t clen(const char *s) {
-  uint8_t c = *(uint8_t *) s;
+// Is it a valid utf-8 continuation byte
+static bool vcb(uint8_t c) {
+  return (c & 0xc0) == 0x80;
+}
+
+// Get character length (valid utf-8). Used to parse method, URI, headers
+static size_t clen(const char *s, const char *end) {
+  const unsigned char *u = (unsigned char *) s, c = *u;
+  long n = end - s;
   if (c > ' ' && c < '~') return 1;  // Usual ascii printed char
-  if ((c & 0xe0) == 0xc0) return 2;  // 2-byte UTF8
-  if ((c & 0xf0) == 0xe0) return 3;  // 3-byte UTF8
-  if ((c & 0xf8) == 0xf0) return 4;  // 4-byte UTF8
+  if ((c & 0xe0) == 0xc0 && n > 1 && vcb(u[1])) return 2;  // 2-byte UTF8
+  if ((c & 0xf0) == 0xe0 && n > 2 && vcb(u[1]) && vcb(u[2])) return 3;
+  if ((c & 0xf8) == 0xf0 && n > 3 && vcb(u[1]) && vcb(u[2]) && vcb(u[3]))
+    return 4;
   return 0;
 }
 
@@ -1960,10 +2065,12 @@ static bool mg_http_parse_headers(const char *s, const char *end,
     if (s >= end) return false;
     if (s[0] == '\n' || (s[0] == '\r' && s[1] == '\n')) break;
     k.ptr = s;
-    while (s < end && s[0] != ':' && (n = clen(s)) > 0) s += n, k.len += n;
-    if (k.len == 0) return false;               // Empty name
-    if (s >= end || *s++ != ':') return false;  // Invalid, not followed by :
-    while (s < end && s[0] == ' ') s++;         // Skip spaces
+    while (s < end && s[0] != ':' && (n = clen(s, end)) > 0) s += n, k.len += n;
+    if (k.len == 0) return false;                     // Empty name
+    if (s >= end || clen(s, end) == 0) return false;  // Invalid UTF-8
+    if (*s++ != ':') return false;  // Invalid, not followed by :
+    // if (clen(s, end) == 0) return false;        // Invalid UTF-8
+    while (s < end && s[0] == ' ') s++;  // Skip spaces
     if ((s = skiptorn(s, end, &v)) == NULL) return false;
     while (v.len > 0 && v.ptr[v.len - 1] == ' ') v.len--;  // Trim spaces
     // MG_INFO(("--HH [%.*s] [%.*s]", (int) k.len, k.ptr, (int) v.len, v.ptr));
@@ -1988,10 +2095,10 @@ int mg_http_parse(const char *s, size_t len, struct mg_http_message *hm) {
 
   // Parse request line
   hm->method.ptr = s;
-  while (s < end && (n = clen(s)) > 0) s += n, hm->method.len += n;
+  while (s < end && (n = clen(s, end)) > 0) s += n, hm->method.len += n;
   while (s < end && s[0] == ' ') s++;  // Skip spaces
   hm->uri.ptr = s;
-  while (s < end && (n = clen(s)) > 0) s += n, hm->uri.len += n;
+  while (s < end && (n = clen(s, end)) > 0) s += n, hm->uri.len += n;
   while (s < end && s[0] == ' ') s++;  // Skip spaces
   if ((s = skiptorn(s, end, &hm->proto)) == NULL) return false;
 
@@ -2702,12 +2809,6 @@ static int skip_chunk(const char *buf, int len, int *pl, int *dl) {
   return i + 2 + n + 2;
 }
 
-static bool is_chunked(struct mg_http_message *hm) {
-  const char *needle = "chunked";
-  struct mg_str *te = mg_http_get_header(hm, "Transfer-Encoding");
-  return te != NULL && mg_vcasecmp(te, needle) == 0;
-}
-
 static void http_cb(struct mg_connection *c, int ev, void *evd, void *fnd) {
   if (ev == MG_EV_READ || ev == MG_EV_CLOSE) {
     struct mg_http_message hm;
@@ -2716,6 +2817,8 @@ static void http_cb(struct mg_connection *c, int ev, void *evd, void *fnd) {
     while (c->is_resp == 0 && ofs < c->recv.len) {
       const char *buf = (char *) c->recv.buf + ofs;
       int n = mg_http_parse(buf, c->recv.len - ofs, &hm);
+      struct mg_str *te;  // Transfer - encoding header
+      bool is_chunked = false;
       if (n < 0) {
         mg_error(c, "HTTP parse");
         return;
@@ -2725,8 +2828,16 @@ static void http_cb(struct mg_connection *c, int ev, void *evd, void *fnd) {
         hm.message.len = c->recv.len - ofs;  // and closes now, deliver MSG
         hm.body.len = hm.message.len - (size_t) (hm.body.ptr - hm.message.ptr);
       }
+      if ((te = mg_http_get_header(&hm, "Transfer-Encoding")) != NULL) {
+        if (mg_vcasecmp(te, "chunked") == 0) {
+          is_chunked = true;
+        } else {
+          mg_error(c, "Invalid Transfer-Encoding"); // See #2460
+          return;
+        }
+      }
 
-      if (is_chunked(&hm)) {
+      if (is_chunked) {
         // For chunked data, strip off prefixes and suffixes from chunks
         // and relocate them right after the headers, then report a message
         char *s = (char *) c->recv.buf + ofs + n;
@@ -2748,7 +2859,7 @@ static void http_cb(struct mg_connection *c, int ev, void *evd, void *fnd) {
           if (dl == 0) break;
         }
         ofs += (size_t) (n + o);
-      } else { // Normal, non-chunked data
+      } else {  // Normal, non-chunked data
         size_t len = c->recv.len - ofs - (size_t) n;
         if (hm.body.len > len) break;  // Buffer more data
         ofs += (size_t) n + hm.body.len;
@@ -3243,7 +3354,7 @@ long mg_json_get_long(struct mg_str json, const char *path, long dflt) {
 
 
 
-static int s_level = MG_LL_INFO;
+int mg_log_level = MG_LL_INFO;
 static mg_pfn_t s_log_func = mg_pfn_stdout;
 static void *s_log_func_param = NULL;
 
@@ -3261,29 +3372,19 @@ static void logs(const char *buf, size_t len) {
   for (i = 0; i < len; i++) logc(((unsigned char *) buf)[i]);
 }
 
-void mg_log_set(int log_level) {
-  MG_DEBUG(("Setting log level to %d", log_level));
-  s_level = log_level;
-}
-
 #if MG_ENABLE_CUSTOM_LOG
 // Let user define their own mg_log_prefix() and mg_log()
 #else
-bool mg_log_prefix(int level, const char *file, int line, const char *fname) {
-  if (level <= s_level) {
-    const char *p = strrchr(file, '/');
-    char buf[41];
-    size_t n;
-    if (p == NULL) p = strrchr(file, '\\');
-    n = mg_snprintf(buf, sizeof(buf), "%-6llx %d %s:%d:%s", mg_millis(), level,
-                    p == NULL ? file : p + 1, line, fname);
-    if (n > sizeof(buf) - 2) n = sizeof(buf) - 2;
-    while (n < sizeof(buf)) buf[n++] = ' ';
-    logs(buf, n - 1);
-    return true;
-  } else {
-    return false;
-  }
+void mg_log_prefix(int level, const char *file, int line, const char *fname) {
+  const char *p = strrchr(file, '/');
+  char buf[41];
+  size_t n;
+  if (p == NULL) p = strrchr(file, '\\');
+  n = mg_snprintf(buf, sizeof(buf), "%-6llx %d %s:%d:%s", mg_millis(), level,
+                  p == NULL ? file : p + 1, line, fname);
+  if (n > sizeof(buf) - 2) n = sizeof(buf) - 2;
+  while (n < sizeof(buf)) buf[n++] = ' ';
+  logs(buf, n - 1);
 }
 
 void mg_log(const char *fmt, ...) {
@@ -3982,8 +4083,8 @@ static void mqtt_cb(struct mg_connection *c, int ev, void *ev_data,
             }
             break;
           case MQTT_CMD_PUBLISH: {
-            MG_DEBUG(("%lu [%.*s] -> [%.*s]", c->id, (int) mm.topic.len,
-                      mm.topic.ptr, (int) mm.data.len, mm.data.ptr));
+            /*MG_DEBUG(("%lu [%.*s] -> [%.*s]", c->id, (int) mm.topic.len,
+                      mm.topic.ptr, (int) mm.data.len, mm.data.ptr));*/
             if (mm.qos > 0) {
               uint16_t id = mg_ntohs(mm.id);
               uint32_t remaining_len = sizeof(id);
@@ -4514,9 +4615,6 @@ static void settmout(struct mg_connection *c, uint8_t type) {
 }
 
 static size_t ether_output(struct mg_tcpip_if *ifp, size_t len) {
-  // size_t min = 64;  // Pad short frames to 64 bytes (minimum Ethernet size)
-  // if (len < min) memset(ifp->tx.ptr + len, 0, min - len), len = min;
-  // mg_hexdump(ifp->tx.ptr, len);
   size_t n = ifp->driver->tx(ifp->tx.ptr, len, ifp);
   if (n == len) ifp->nsent++;
   return n;
@@ -4892,8 +4990,8 @@ static struct mg_connection *accept_conn(struct mg_connection *lsn,
 static size_t trim_len(struct mg_connection *c, size_t len) {
   struct mg_tcpip_if *ifp = (struct mg_tcpip_if *) c->mgr->priv;
   size_t eth_h_len = 14, ip_max_h_len = 24, tcp_max_h_len = 60, udp_h_len = 8;
-  size_t max_headers_len = eth_h_len + ip_max_h_len +
-                          (c->is_udp ? udp_h_len : tcp_max_h_len);
+  size_t max_headers_len =
+      eth_h_len + ip_max_h_len + (c->is_udp ? udp_h_len : tcp_max_h_len);
   size_t min_mtu = c->is_udp ? 68 /* RFC-791 */ : max_headers_len - eth_h_len;
 
   // If the frame exceeds the available buffer, trim the length
@@ -4920,18 +5018,21 @@ static size_t trim_len(struct mg_connection *c, size_t len) {
 long mg_io_send(struct mg_connection *c, const void *buf, size_t len) {
   struct mg_tcpip_if *ifp = (struct mg_tcpip_if *) c->mgr->priv;
   struct connstate *s = (struct connstate *) (c + 1);
-  uint32_t rem_ip;
-  memcpy(&rem_ip, c->rem.ip, sizeof(uint32_t));
+  uint32_t dst_ip = *(uint32_t *) c->rem.ip;
   len = trim_len(c, len);
   if (c->is_udp) {
-    tx_udp(ifp, s->mac, ifp->ip, c->loc.port, rem_ip, c->rem.port, buf, len);
+    tx_udp(ifp, s->mac, ifp->ip, c->loc.port, dst_ip, c->rem.port, buf, len);
   } else {
-    if (tx_tcp(ifp, s->mac, rem_ip, TH_PUSH | TH_ACK, c->loc.port, c->rem.port,
-               mg_htonl(s->seq), mg_htonl(s->ack), buf, len) > 0) {
+    size_t sent =
+        tx_tcp(ifp, s->mac, dst_ip, TH_PUSH | TH_ACK, c->loc.port, c->rem.port,
+               mg_htonl(s->seq), mg_htonl(s->ack), buf, len);
+    if (sent == 0) {
+      return MG_IO_WAIT;
+    } else if (sent == (size_t) -1) {
+      return MG_IO_ERR;
+    } else {
       s->seq += (uint32_t) len;
       if (s->ttype == MIP_TTYPE_ACK) settmout(c, MIP_TTYPE_KEEPALIVE);
-    } else {
-      return MG_IO_ERR;
     }
   }
   return (long) len;
@@ -5086,12 +5187,11 @@ static void rx_tcp(struct mg_tcpip_if *ifp, struct pkt *pkt) {
 }
 
 static void rx_ip(struct mg_tcpip_if *ifp, struct pkt *pkt) {
-  if (pkt->ip->frag & IP_MORE_FRAGS_MSK ||
-        pkt->ip->frag & IP_FRAG_OFFSET_MSK) {
+  if (pkt->ip->frag & IP_MORE_FRAGS_MSK || pkt->ip->frag & IP_FRAG_OFFSET_MSK) {
     if (pkt->ip->proto == 17) pkt->udp = (struct udp *) (pkt->ip + 1);
     if (pkt->ip->proto == 6) pkt->tcp = (struct tcp *) (pkt->ip + 1);
     struct mg_connection *c = getpeer(ifp->mgr, pkt, false);
-    if (c)  mg_error(c, "Received fragmented packet");
+    if (c) mg_error(c, "Received fragmented packet");
   } else if (pkt->ip->proto == 1) {
     pkt->icmp = (struct icmp *) (pkt->ip + 1);
     if (pkt->pay.len < sizeof(*pkt->icmp)) return;
@@ -5381,7 +5481,9 @@ bool mg_open_listener(struct mg_connection *c, const char *url) {
 static void write_conn(struct mg_connection *c) {
   long len = c->is_tls ? mg_tls_send(c, c->send.buf, c->send.len)
                        : mg_io_send(c, c->send.buf, c->send.len);
-  if (len > 0) {
+  if (len == MG_IO_ERR) {
+    mg_error(c, "tx err");
+  } else if (len > 0) {
     mg_iobuf_del(&c->send, 0, (size_t) len);
     mg_call(c, MG_EV_WRITE, &len);
   }
@@ -5442,7 +5544,7 @@ bool mg_send(struct mg_connection *c, const void *buf, size_t len) {
     mg_error(c, "net down");
   } else if (c->is_udp) {
     struct connstate *s = (struct connstate *) (c + 1);
-    len = trim_len(c, len);   // Trimming length if necessary
+    len = trim_len(c, len);  // Trimming length if necessary
     tx_udp(ifp, s->mac, ifp->ip, c->loc.port, rem_ip, c->rem.port, buf, len);
     res = true;
   } else {
@@ -5492,6 +5594,8 @@ size_t mg_ota_size(int fw) {
   (void) fw;
   return 0;
 }
+MG_IRAM void mg_ota_boot(void) {
+}
 #endif
 
 #ifdef MG_ENABLE_LINES
@@ -5526,7 +5630,7 @@ bool mg_ota_begin(size_t new_firmware_size) {
     size_t half = mg_flash_size() / 2, max = half - mg_flash_sector_size();
     s_crc32 = 0;
     s_addr = (char *) mg_flash_start() + half;
-    MG_DEBUG(("Firmware %lu bytes, max %lu", s_size, max));
+    MG_DEBUG(("Firmware %lu bytes, max %lu", new_firmware_size, max));
     if (new_firmware_size < max) {
       ok = true;
       s_size = new_firmware_size;
@@ -5560,6 +5664,14 @@ bool mg_ota_write(const void *buf, size_t len) {
   return ok;
 }
 
+MG_IRAM static uint32_t mg_fwkey(int fw) {
+  uint32_t key = MG_OTADATA_KEY + fw;
+  int bank = mg_flash_bank();
+  if (bank == 2 && fw == MG_FIRMWARE_PREVIOUS) key--;
+  if (bank == 2 && fw == MG_FIRMWARE_CURRENT) key++;
+  return key;
+}
+
 bool mg_ota_end(void) {
   char *base = (char *) mg_flash_start() + mg_flash_size() / 2;
   bool ok = false;
@@ -5569,7 +5681,7 @@ bool mg_ota_end(void) {
     if (size == s_size && crc32 == s_crc32) {
       uint32_t now = (uint32_t) (mg_now() / 1000);
       struct mg_otadata od = {crc32, size, now, MG_OTA_FIRST_BOOT};
-      uint32_t key = MG_OTADATA_KEY + (mg_flash_bank() == 2 ? 1 : 2);
+      uint32_t key = mg_fwkey(MG_FIRMWARE_PREVIOUS);
       ok = mg_flash_save(NULL, key, &od, sizeof(od));
     }
     MG_DEBUG(("CRC: %x/%x, size: %lu/%lu, status: %s", s_crc32, crc32, s_size,
@@ -5581,12 +5693,10 @@ bool mg_ota_end(void) {
   return ok;
 }
 
-static struct mg_otadata mg_otadata(int fw) {
+MG_IRAM static struct mg_otadata mg_otadata(int fw) {
+  uint32_t key = mg_fwkey(fw);
   struct mg_otadata od = {};
-  int bank = mg_flash_bank();
-  uint32_t key = MG_OTADATA_KEY + 1;
-  if ((fw == MG_FIRMWARE_CURRENT && bank == 2)) key++;
-  if ((fw == MG_FIRMWARE_PREVIOUS && bank == 1)) key++;
+  MG_INFO(("Loading %s OTA data", fw == MG_FIRMWARE_CURRENT ? "curr" : "prev"));
   mg_flash_load(NULL, key, &od, sizeof(od));
   // MG_DEBUG(("Loaded OTA data. fw %d, bank %d, key %p", fw, bank, key));
   // mg_hexdump(&od, sizeof(od));
@@ -5610,16 +5720,80 @@ size_t mg_ota_size(int fw) {
   return od.size;
 }
 
-bool mg_ota_commit(void) {
+MG_IRAM bool mg_ota_commit(void) {
+  bool ok = true;
   struct mg_otadata od = mg_otadata(MG_FIRMWARE_CURRENT);
-  od.status = MG_OTA_COMMITTED;
-  uint32_t key = MG_OTADATA_KEY + mg_flash_bank();
-  return mg_flash_save(NULL, key, &od, sizeof(od));
+  if (od.status != MG_OTA_COMMITTED) {
+    od.status = MG_OTA_COMMITTED;
+    MG_INFO(("Committing current firmware, OD size %lu", sizeof(od)));
+    ok = mg_flash_save(NULL, mg_fwkey(MG_FIRMWARE_CURRENT), &od, sizeof(od));
+  }
+  return ok;
 }
 
 bool mg_ota_rollback(void) {
   MG_DEBUG(("Rolling firmware back"));
-  return mg_flash_swap_bank();
+  if (mg_flash_bank() == 0) {
+    // No dual bank support. Mark previous firmware as FIRST_BOOT
+    struct mg_otadata prev = mg_otadata(MG_FIRMWARE_PREVIOUS);
+    prev.status = MG_OTA_FIRST_BOOT;
+    return mg_flash_save(NULL, MG_OTADATA_KEY + MG_FIRMWARE_PREVIOUS, &prev,
+                         sizeof(prev));
+  } else {
+    return mg_flash_swap_bank();
+  }
+}
+
+MG_IRAM void mg_ota_boot(void) {
+  MG_INFO(("Booting. Flash bank: %d", mg_flash_bank()));
+  struct mg_otadata curr = mg_otadata(MG_FIRMWARE_CURRENT);
+  struct mg_otadata prev = mg_otadata(MG_FIRMWARE_PREVIOUS);
+
+  if (curr.status == MG_OTA_FIRST_BOOT) {
+    curr.status = MG_OTA_UNCOMMITTED;
+    MG_INFO(("First boot, setting status to UNCOMMITTED"));
+    mg_flash_save(NULL, MG_OTADATA_KEY + MG_FIRMWARE_CURRENT, &curr,
+                  sizeof(curr));
+  } else if (prev.status == MG_OTA_FIRST_BOOT && mg_flash_bank() == 0) {
+    // Swap paritions. Pray power does not disappear
+    size_t fs = mg_flash_size(), ss = mg_flash_sector_size();
+    char *partition1 = mg_flash_start();
+    char *partition2 = mg_flash_start() + fs / 2;
+    size_t ofs, max = fs / 2 - ss;  // Set swap size to the whole partition
+
+    if (curr.status != MG_OTA_UNAVAILABLE &&
+        prev.status != MG_OTA_UNAVAILABLE) {
+      // We know exact sizes of both firmwares.
+      // Shrink swap size to the MAX(firmware1, firmware2)
+      size_t sz = curr.size > prev.size ? curr.size : prev.size;
+      if (sz > 0 && sz < max) max = sz;
+    }
+
+    // MG_OTA_FIRST_BOOT -> MG_OTA_UNCOMMITTED
+    prev.status = MG_OTA_UNCOMMITTED;
+    mg_flash_save(NULL, MG_OTADATA_KEY + MG_FIRMWARE_CURRENT, &prev,
+                  sizeof(prev));
+    mg_flash_save(NULL, MG_OTADATA_KEY + MG_FIRMWARE_PREVIOUS, &curr,
+                  sizeof(curr));
+
+    MG_INFO(("Swapping partitions, size %u (%u sectors)", max, max / ss));
+    MG_INFO(("Do NOT power off..."));
+    mg_log_level = MG_LL_NONE;
+
+    // We use the last sector of partition2 for OTA data/config storage
+    // Therefore we can use last sector of partition1 for swapping
+    char *tmpsector = partition1 + fs / 2 - ss;  // Last sector of partition1
+    (void) tmpsector;
+    for (ofs = 0; ofs < max; ofs += ss) {
+      // mg_flash_erase(tmpsector);
+      mg_flash_write(tmpsector, partition1 + ofs, ss);
+      // mg_flash_erase(partition1 + ofs);
+      mg_flash_write(partition1 + ofs, partition2 + ofs, ss);
+      // mg_flash_erase(partition2 + ofs);
+      mg_flash_write(partition2 + ofs, tmpsector, ss);
+    }
+    mg_device_reset();
+  }
 }
 #endif
 
@@ -6745,6 +6919,7 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
     if (can_read(c))
       FreeRTOS_FD_SET(c->fd, mgr->ss, eSELECT_READ | eSELECT_EXCEPT);
     if (can_write(c)) FreeRTOS_FD_SET(c->fd, mgr->ss, eSELECT_WRITE);
+    if (c->is_closing) ms = 1;
   }
   FreeRTOS_select(mgr->ss, pdMS_TO_TICKS(ms));
   for (c = mgr->conns; c != NULL; c = c->next) {
@@ -6761,6 +6936,7 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
     c->is_readable = c->is_writable = 0;
     if (mg_tls_pending(c) > 0) ms = 1, c->is_readable = 1;
     if (can_write(c)) MG_EPOLL_MOD(c, 1);
+    if (c->is_closing) ms = 1;
     max++;
   }
   struct epoll_event *evs = (struct epoll_event *) alloca(max * sizeof(evs[0]));
@@ -6793,6 +6969,7 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
       fds[n].fd = FD(c);
       if (can_read(c)) fds[n].events |= POLLIN;
       if (can_write(c)) fds[n].events |= POLLOUT;
+      if (c->is_closing) ms = 1;
       n++;
     }
   }
@@ -6840,6 +7017,7 @@ static void mg_iotest(struct mg_mgr *mgr, int ms) {
     if (can_write(c)) FD_SET(FD(c), &wset);
     if (mg_tls_pending(c) > 0) tvp = &tv_zero;
     if (FD(c) > maxfd) maxfd = FD(c);
+    if (c->is_closing) ms = 1;
   }
 
   if ((rc = select((int) maxfd + 1, &rset, &wset, &eset, tvp)) < 0) {
@@ -7299,7 +7477,7 @@ static inline void add32(struct mg_iobuf *io, uint32_t data) {
   mg_iobuf_add(io, io->len, &data, sizeof(data));
 }
 
-void mg_tls_init(struct mg_connection *c, struct mg_str hostname) {
+void mg_tls_init(struct mg_connection *c, const struct mg_tls_opts *opts) {
   struct tls_data *tls = (struct tls_data *) calloc(1, sizeof(struct tls_data));
   if (tls != NULL) {
     tls->send.align = tls->recv.align = MG_IO_SIZE;
@@ -7308,7 +7486,7 @@ void mg_tls_init(struct mg_connection *c, struct mg_str hostname) {
   } else {
     mg_error(c, "tls oom");
   }
-  (void) hostname;
+  (void) opts;
 }
 void mg_tls_free(struct mg_connection *c) {
   struct tls_data *tls = c->tls;
@@ -7416,8 +7594,8 @@ void mg_tls_handshake(struct mg_connection *c) {
 void mg_tls_ctx_free(struct mg_mgr *mgr) {
   mgr->tls_ctx = NULL;
 }
-void mg_tls_ctx_init(struct mg_mgr *mgr, const struct mg_tls_opts *opts) {
-  (void) opts, (void) mgr;
+void mg_tls_ctx_init(struct mg_mgr *mgr) {
+  (void) mgr;
 }
 #endif
 
@@ -7684,7 +7862,13 @@ void mg_tls_ctx_free(struct mg_mgr *mgr) {
 
 
 #if MG_TLS == MG_TLS_OPENSSL
-static int mg_tls_err(struct mg_tls *tls, int res) {
+static int tls_err_cb(const char *s, size_t len, void *c) {
+  int n = (int) len - 1;
+  MG_ERROR(("%lu %.*s", ((struct mg_connection *) c)->id, n, s));
+  return 0; // undocumented
+}
+
+static int mg_tls_err(struct mg_connection *c, struct mg_tls *tls, int res) {
   int err = SSL_get_error(tls->ssl, res);
   // We've just fetched the last error from the queue.
   // Now we need to clear the error queue. If we do not, then the following
@@ -7695,7 +7879,7 @@ static int mg_tls_err(struct mg_tls *tls, int res) {
   //    Thus a single errored connection can close all the rest, unrelated ones.
   // Clearing the error keeps the shared SSL_CTX in an OK state.
 
-  if (err != 0) ERR_print_errors_fp(stderr);
+  if (err != 0) ERR_print_errors_cb(tls_err_cb, c);
   ERR_clear_error();
   if (err == SSL_ERROR_WANT_READ) return 0;
   if (err == SSL_ERROR_WANT_WRITE) return 0;
@@ -7789,7 +7973,7 @@ void mg_tls_init(struct mg_connection *c, const struct mg_tls_opts *opts) {
     rc = cert == NULL ? 0 : SSL_use_certificate(tls->ssl, cert);
     X509_free(cert);
     if (cert == NULL || rc != 1) {
-      mg_error(c, "CERT err %d", mg_tls_err(tls, rc));
+      mg_error(c, "CERT err %d", mg_tls_err(c, tls, rc));
       goto fail;
     }
   }
@@ -7798,7 +7982,7 @@ void mg_tls_init(struct mg_connection *c, const struct mg_tls_opts *opts) {
     rc = key == NULL ? 0 : SSL_use_PrivateKey(tls->ssl, key);
     EVP_PKEY_free(key);
     if (key == NULL || rc != 1) {
-      mg_error(c, "KEY err %d", mg_tls_err(tls, rc));
+      mg_error(c, "KEY err %d", mg_tls_err(c, tls, rc));
       goto fail;
     }
   }
@@ -7837,7 +8021,7 @@ void mg_tls_handshake(struct mg_connection *c) {
     c->is_tls_hs = 0;
     mg_call(c, MG_EV_TLS_HS, NULL);
   } else {
-    int code = mg_tls_err(tls, rc);
+    int code = mg_tls_err(c, tls, rc);
     if (code != 0) mg_error(c, "tls hs: rc %d, err %d", rc, code);
   }
 }
@@ -7859,7 +8043,7 @@ size_t mg_tls_pending(struct mg_connection *c) {
 long mg_tls_recv(struct mg_connection *c, void *buf, size_t len) {
   struct mg_tls *tls = (struct mg_tls *) c->tls;
   int n = SSL_read(tls->ssl, buf, (int) len);
-  if (n < 0 && mg_tls_err(tls, n) == 0) return MG_IO_WAIT;
+  if (n < 0 && mg_tls_err(c, tls, n) == 0) return MG_IO_WAIT;
   if (n <= 0) return MG_IO_ERR;
   return n;
 }
@@ -7867,7 +8051,7 @@ long mg_tls_recv(struct mg_connection *c, void *buf, size_t len) {
 long mg_tls_send(struct mg_connection *c, const void *buf, size_t len) {
   struct mg_tls *tls = (struct mg_tls *) c->tls;
   int n = SSL_write(tls->ssl, buf, (int) len);
-  if (n < 0 && mg_tls_err(tls, n) == 0) return MG_IO_WAIT;
+  if (n < 0 && mg_tls_err(c, tls, n) == 0) return MG_IO_WAIT;
   if (n <= 0) return MG_IO_ERR;
   return n;
 }
@@ -8434,13 +8618,130 @@ size_t mg_ws_wrap(struct mg_connection *c, size_t len, int op) {
 }
 
 #ifdef MG_ENABLE_LINES
-#line 1 "src/drivers/rt1020.c"
+#line 1 "src/drivers/cmsis.c"
+#endif
+// https://arm-software.github.io/CMSIS_5/Driver/html/index.html
+
+#if MG_ENABLE_TCPIP && defined(MG_ENABLE_DRIVER_CMSIS) && MG_ENABLE_DRIVER_CMSIS
+
+
+
+
+
+extern ARM_DRIVER_ETH_MAC Driver_ETH_MAC0;
+extern ARM_DRIVER_ETH_PHY Driver_ETH_PHY0;
+
+static struct mg_tcpip_if *s_ifp;
+
+static void mac_cb(uint32_t);
+static bool cmsis_init(struct mg_tcpip_if *);
+static bool cmsis_up(struct mg_tcpip_if *);
+static size_t cmsis_tx(const void *, size_t, struct mg_tcpip_if *);
+static size_t cmsis_rx(void *, size_t, struct mg_tcpip_if *);
+
+struct mg_tcpip_driver mg_tcpip_driver_cmsis = {cmsis_init, cmsis_tx, NULL,
+                                                cmsis_up};
+
+static bool cmsis_init(struct mg_tcpip_if *ifp) {
+  ARM_ETH_MAC_ADDR addr;
+  s_ifp = ifp;
+
+  ARM_DRIVER_ETH_MAC *mac = &Driver_ETH_MAC0;
+  ARM_DRIVER_ETH_PHY *phy = &Driver_ETH_PHY0;
+  ARM_ETH_MAC_CAPABILITIES cap = mac->GetCapabilities();
+  if (mac->Initialize(mac_cb) != ARM_DRIVER_OK) return false;
+  if (phy->Initialize(mac->PHY_Read, mac->PHY_Write) != ARM_DRIVER_OK)
+    return false;
+  if (cap.event_rx_frame == 0)  // polled mode driver
+    mg_tcpip_driver_cmsis.rx = cmsis_rx;
+  mac->PowerControl(ARM_POWER_FULL);
+  if (cap.mac_address) {  // driver provides MAC address
+    mac->GetMacAddress(&addr);
+    memcpy(ifp->mac, &addr, sizeof(ifp->mac));
+  } else {  // we provide MAC address
+    memcpy(&addr, ifp->mac, sizeof(addr));
+    mac->SetMacAddress(&addr);
+  }
+  phy->PowerControl(ARM_POWER_FULL);
+  phy->SetInterface(cap.media_interface);
+  phy->SetMode(ARM_ETH_PHY_AUTO_NEGOTIATE);
+  return true;
+}
+
+static size_t cmsis_tx(const void *buf, size_t len, struct mg_tcpip_if *ifp) {
+  ARM_DRIVER_ETH_MAC *mac = &Driver_ETH_MAC0;
+  if (mac->SendFrame(buf, (uint32_t) len, 0) != ARM_DRIVER_OK) {
+    ifp->nerr++;
+    return 0;
+  }
+  ifp->nsent++;
+  return len;
+}
+
+static bool cmsis_up(struct mg_tcpip_if *ifp) {
+  ARM_DRIVER_ETH_PHY *phy = &Driver_ETH_PHY0;
+  ARM_DRIVER_ETH_MAC *mac = &Driver_ETH_MAC0;
+  bool up = (phy->GetLinkState() == ARM_ETH_LINK_UP) ? 1 : 0;  // link state
+  if ((ifp->state == MG_TCPIP_STATE_DOWN) && up) {             // just went up
+    ARM_ETH_LINK_INFO st = phy->GetLinkInfo();
+    mac->Control(ARM_ETH_MAC_CONFIGURE,
+                 (st.speed << ARM_ETH_MAC_SPEED_Pos) |
+                     (st.duplex << ARM_ETH_MAC_DUPLEX_Pos) |
+                     ARM_ETH_MAC_ADDRESS_BROADCAST);
+    MG_DEBUG(("Link is %uM %s-duplex",
+              (st.speed == 2) ? 1000
+              : st.speed      ? 100
+                              : 10,
+              st.duplex ? "full" : "half"));
+    mac->Control(ARM_ETH_MAC_CONTROL_TX, 1);
+    mac->Control(ARM_ETH_MAC_CONTROL_RX, 1);
+  } else if ((ifp->state != MG_TCPIP_STATE_DOWN) && !up) {  // just went down
+    mac->Control(ARM_ETH_MAC_FLUSH,
+                 ARM_ETH_MAC_FLUSH_TX | ARM_ETH_MAC_FLUSH_RX);
+    mac->Control(ARM_ETH_MAC_CONTROL_TX, 0);
+    mac->Control(ARM_ETH_MAC_CONTROL_RX, 0);
+  }
+  return up;
+}
+
+static void mac_cb(uint32_t ev) {
+  if ((ev & ARM_ETH_MAC_EVENT_RX_FRAME) == 0) return;
+  ARM_DRIVER_ETH_MAC *mac = &Driver_ETH_MAC0;
+  uint32_t len = mac->GetRxFrameSize();  // CRC already stripped
+  if (len >= 60 && len <= 1518) {        // proper frame
+    char *p;
+    if (mg_queue_book(&s_ifp->recv_queue, &p, len) >= len) {  // have room
+      if ((len = mac->ReadFrame((uint8_t *) p, len)) > 0) {   // copy succeeds
+        mg_queue_add(&s_ifp->recv_queue, len);
+        s_ifp->nrecv++;
+      }
+      return;
+    }
+    s_ifp->ndrop++;
+  }
+  mac->ReadFrame(NULL, 0);  // otherwise, discard
+}
+
+static size_t cmsis_rx(void *buf, size_t buflen, struct mg_tcpip_if *ifp) {
+  ARM_DRIVER_ETH_MAC *mac = &Driver_ETH_MAC0;
+  uint32_t len = mac->GetRxFrameSize();  // CRC already stripped
+  if (len >= 60 && len <= 1518 &&
+      ((len = mac->ReadFrame(buf, (uint32_t) buflen)) > 0))
+    return len;
+  if (len > 0) mac->ReadFrame(NULL, 0);  // discard bad frames
+  (void) ifp;
+  return 0;
+}
+
+#endif
+
+#ifdef MG_ENABLE_LINES
+#line 1 "src/drivers/imxrt.c"
 #endif
 
 
-#if MG_ENABLE_TCPIP && defined(MG_ENABLE_DRIVER_IMXRT1020) && \
-    MG_ENABLE_DRIVER_IMXRT1020
-struct imx_rt1020_enet {
+#if MG_ENABLE_TCPIP && defined(MG_ENABLE_DRIVER_IMXRT) && MG_ENABLE_DRIVER_IMXRT
+struct imxrt_enet {
   volatile uint32_t RESERVED0, EIR, EIMR, RESERVED1, RDAR, TDAR, RESERVED2[3],
       ECR, RESERVED3[6], MMFR, MSCR, RESERVED4[7], MIBC, RESERVED5[7], RCR,
       RESERVED6[15], TCR, RESERVED7[7], PALR, PAUR, OPD, TXIC0, TXIC1, TXIC2,
@@ -8465,85 +8766,104 @@ struct imx_rt1020_enet {
 };
 
 #undef ENET
-#define ENET ((struct imx_rt1020_enet *) (uintptr_t) 0x402D8000u)
+#define ENET ((struct imxrt_enet *) (uintptr_t) 0x402D8000U)
 
-#undef BIT
-#define BIT(x) ((uint32_t) 1 << (x))
+#define ETH_PKT_SIZE 1536  // Max frame size, 64-bit aligned
+#define ETH_DESC_CNT 4     // Descriptors count
 
-// Max frame size, every buffer must be 64-bit aligned (1536 = 0x600)
-#define ETH_PKT_SIZE 1536
-#define ETH_DESC_CNT 4  // Descriptors count
-
-typedef struct {
+struct enet_desc {
   uint16_t length;   // Data length
   uint16_t control;  // Control and status
   uint32_t *buffer;  // Data ptr
-} enet_bd_t;
+};
 
 // TODO(): handle these in a portable compiler-independent CMSIS-friendly way
-// Descriptors: in non-cached area (TODO(scaprile)), 64-bit aligned
-enet_bd_t s_rxdesc[ETH_DESC_CNT] __attribute__((aligned((64U))));
-enet_bd_t s_txdesc[ETH_DESC_CNT] __attribute__((aligned((64U))));
-// Buffers: 64-bit aligned
-uint8_t s_rxbuf[ETH_DESC_CNT][ETH_PKT_SIZE] __attribute__((aligned((64U))));
-uint8_t s_txbuf[ETH_DESC_CNT][ETH_PKT_SIZE] __attribute__((aligned((64U))));
+#define MG_64BIT_ALIGNED __attribute__((aligned((64U))))
 
+// Descriptors: in non-cached area (TODO(scaprile)), 64-bit aligned
+// Buffers: 64-bit aligned
+static volatile struct enet_desc s_rxdesc[ETH_DESC_CNT] MG_64BIT_ALIGNED;
+static volatile struct enet_desc s_txdesc[ETH_DESC_CNT] MG_64BIT_ALIGNED;
+static uint8_t s_rxbuf[ETH_DESC_CNT][ETH_PKT_SIZE] MG_64BIT_ALIGNED;
+static uint8_t s_txbuf[ETH_DESC_CNT][ETH_PKT_SIZE] MG_64BIT_ALIGNED;
 static struct mg_tcpip_if *s_ifp;  // MIP interface
 
-enum { PHY_ADDR = 2, PHY_BCR = 0, PHY_BSR = 1, PHY_PC1R = 30, PHY_PC2R = 31 };
+enum { PHY_BCR = 0, PHY_BSR = 1, PHY_ID1 = 2, PHY_ID2 = 3 };
 
-static uint32_t eth_read_phy(uint8_t addr, uint8_t reg) {
-  ENET->EIR |= BIT(23);  // MII interrupt clear
+static uint16_t enet_phy_read(uint8_t addr, uint8_t reg) {
+  ENET->EIR |= MG_BIT(23);  // MII interrupt clear
   ENET->MMFR = (1 << 30) | (2 << 28) | (addr << 23) | (reg << 18) | (2 << 16);
-  while ((ENET->EIR & BIT(23)) == 0) (void) 0;
+  while ((ENET->EIR & MG_BIT(23)) == 0) (void) 0;
   return ENET->MMFR & 0xffff;
 }
 
-static void eth_write_phy(uint8_t addr, uint8_t reg, uint32_t val) {
-  ENET->EIR |= BIT(23);  // MII interrupt clear
+static void enet_phy_write(uint8_t addr, uint8_t reg, uint16_t val) {
+  ENET->EIR |= MG_BIT(23);  // MII interrupt clear
   ENET->MMFR =
       (1 << 30) | (1 << 28) | (addr << 23) | (reg << 18) | (2 << 16) | val;
-  while ((ENET->EIR & BIT(23)) == 0) (void) 0;
+  while ((ENET->EIR & MG_BIT(23)) == 0) (void) 0;
+}
+
+static uint32_t enet_phy_id(uint8_t addr) {
+  uint16_t phy_id1 = enet_phy_read(addr, PHY_ID1);
+  uint16_t phy_id2 = enet_phy_read(addr, PHY_ID2);
+  return (uint32_t) phy_id1 << 16 | phy_id2;
 }
 
 //  MDC clock is generated from IPS Bus clock (ipg_clk); as per 802.3,
 //  it must not exceed 2.5MHz
 // The PHY receives the PLL6-generated 50MHz clock
-static bool mg_tcpip_driver_imxrt1020_init(struct mg_tcpip_if *ifp) {
-  struct mg_tcpip_driver_imxrt1020_data *d =
-      (struct mg_tcpip_driver_imxrt1020_data *) ifp->driver_data;
+static bool mg_tcpip_driver_imxrt_init(struct mg_tcpip_if *ifp) {
+  struct mg_tcpip_driver_imxrt_data *d =
+      (struct mg_tcpip_driver_imxrt_data *) ifp->driver_data;
   s_ifp = ifp;
 
   // Init RX descriptors
   for (int i = 0; i < ETH_DESC_CNT; i++) {
-    s_rxdesc[i].control = BIT(15);                 // Own (E)
+    s_rxdesc[i].control = MG_BIT(15);              // Own (E)
     s_rxdesc[i].buffer = (uint32_t *) s_rxbuf[i];  // Point to data buffer
   }
-  s_rxdesc[ETH_DESC_CNT - 1].control |= BIT(13);  // Wrap last descriptor
+  s_rxdesc[ETH_DESC_CNT - 1].control |= MG_BIT(13);  // Wrap last descriptor
 
   // Init TX descriptors
   for (int i = 0; i < ETH_DESC_CNT; i++) {
-    s_txdesc[i].control = BIT(10);  // Own (TC)
+    // s_txdesc[i].control = MG_BIT(10);  // Own (TC)
     s_txdesc[i].buffer = (uint32_t *) s_txbuf[i];
   }
-  s_txdesc[ETH_DESC_CNT - 1].control |= BIT(13);  // Wrap last descriptor
+  s_txdesc[ETH_DESC_CNT - 1].control |= MG_BIT(13);  // Wrap last descriptor
 
-  ENET->ECR = BIT(0);                     // Software reset, disable
-  while ((ENET->ECR & BIT(0))) (void) 0;  // Wait until done
+  ENET->ECR = MG_BIT(0);                     // Software reset, disable
+  while ((ENET->ECR & MG_BIT(0))) (void) 0;  // Wait until done
 
   // Set MDC clock divider. If user told us the value, use it.
   // TODO(): Otherwise, guess (currently assuming max freq)
   int cr = (d == NULL || d->mdc_cr < 0) ? 24 : d->mdc_cr;
   ENET->MSCR = (1 << 8) | ((cr & 0x3f) << 1);  // HOLDTIME 2 clks
 
-  eth_write_phy(PHY_ADDR, PHY_BCR, BIT(15));  // Reset PHY
-  eth_write_phy(PHY_ADDR, PHY_BCR, BIT(12));  // Set autonegotiation
+  enet_phy_write(d->phy_addr, PHY_BCR, MG_BIT(15));  // Reset PHY
+  enet_phy_write(d->phy_addr, PHY_BCR, MG_BIT(12));  // Set autonegotiation
+
   // PHY: Enable 50 MHz external ref clock at XI (preserve defaults)
-  eth_write_phy(PHY_ADDR, PHY_PC2R, BIT(15) | BIT(8) | BIT(7));
+  uint32_t id = enet_phy_id(d->phy_addr);
+  MG_INFO(("PHY ID: %#04x %#04x", (uint16_t) (id >> 16), (uint16_t) id));
+  // 2000 a140 - TI DP83825I
+  // 0007 c0fx - LAN8720
+  // 0022 1561 - KSZ8081RNB
+
+  if ((id & 0xffff0000) == 0x220000) {  // KSZ8081RNB, like EVK-RTxxxx boards
+    enet_phy_write(d->phy_addr, 31,
+                   MG_BIT(15) | MG_BIT(8) | MG_BIT(7));  // PC2R
+  } else if ((id & 0xffff0000) == 0x20000000) {  // DP83825I, like Teensy4.1
+    enet_phy_write(d->phy_addr, 23, 0x81);       // 50MHz clock input
+    enet_phy_write(d->phy_addr, 24, 0x280);      // LED status, active high
+  } else {                                       // Default to LAN8720
+    MG_INFO(("Defaulting to LAN8720 PHY..."));   // TODO()
+  }
+
   // Select RMII mode, 100M, keep CRC, set max rx length, disable loop
-  ENET->RCR = (1518 << 16) | BIT(8) | BIT(2);
-  // ENET->RCR |= BIT(3);     // Receive all
-  ENET->TCR = BIT(2);  // Full-duplex
+  ENET->RCR = (1518 << 16) | MG_BIT(8) | MG_BIT(2);
+  // ENET->RCR |= MG_BIT(3);     // Receive all
+  ENET->TCR = MG_BIT(2);  // Full-duplex
   ENET->RDSR = (uint32_t) (uintptr_t) s_rxdesc;
   ENET->TDSR = (uint32_t) (uintptr_t) s_txdesc;
   ENET->MRBR[0] = ETH_PKT_SIZE;  // Same size for RX/TX buffers
@@ -8552,49 +8872,67 @@ static bool mg_tcpip_driver_imxrt1020_init(struct mg_tcpip_if *ifp) {
   ENET->PALR = (uint32_t) (ifp->mac[0] << 24U) |
                ((uint32_t) ifp->mac[1] << 16U) |
                ((uint32_t) ifp->mac[2] << 8U) | ifp->mac[3];
-  ENET->ECR = BIT(8) | BIT(1);  // Little-endian CPU, Enable
-  ENET->EIMR = BIT(25);         // Set interrupt mask
-  ENET->RDAR = BIT(24);         // Receive Descriptors have changed
+  ENET->ECR = MG_BIT(8) | MG_BIT(1);  // Little-endian CPU, Enable
+  ENET->EIMR = MG_BIT(25);            // Set interrupt mask
+  ENET->RDAR = MG_BIT(24);            // Receive Descriptors have changed
+  ENET->TDAR = MG_BIT(24);            // Transmit Descriptors have changed
+  // ENET->OPD = 0x10014;
   return true;
 }
 
 // Transmit frame
-static uint32_t s_txno;
-
-static size_t mg_tcpip_driver_imxrt1020_tx(const void *buf, size_t len,
-                                           struct mg_tcpip_if *ifp) {
+static size_t mg_tcpip_driver_imxrt_tx(const void *buf, size_t len,
+                                       struct mg_tcpip_if *ifp) {
+  static int s_txno;  // Current descriptor index
   if (len > sizeof(s_txbuf[ETH_DESC_CNT])) {
-    MG_ERROR(("Frame too big, %ld", (long) len));
-    len = 0;  // fail
-  } else if ((s_txdesc[s_txno].control & BIT(15))) {
     ifp->nerr++;
+    MG_ERROR(("Frame too big, %ld", (long) len));
+    len = (size_t) -1;  // fail
+  } else if ((s_txdesc[s_txno].control & MG_BIT(15))) {
     MG_ERROR(("No descriptors available"));
-    len = 0;  // fail
+    len = 0;  // retry later
   } else {
     memcpy(s_txbuf[s_txno], buf, len);         // Copy data
     s_txdesc[s_txno].length = (uint16_t) len;  // Set data len
     // Table 37-34, R, L, TC (Ready, last, transmit CRC after frame
-    s_txdesc[s_txno].control |= (uint16_t) (BIT(15) | BIT(11) | BIT(10));
-    ENET->TDAR = BIT(24);  // Descriptor ring updated
+    s_txdesc[s_txno].control |=
+        (uint16_t) (MG_BIT(15) | MG_BIT(11) | MG_BIT(10));
+    ENET->TDAR = MG_BIT(24);  // Descriptor ring updated
     if (++s_txno >= ETH_DESC_CNT) s_txno = 0;
   }
   (void) ifp;
   return len;
 }
 
-static bool mg_tcpip_driver_imxrt1020_up(struct mg_tcpip_if *ifp) {
-  uint32_t bsr = eth_read_phy(PHY_ADDR, PHY_BSR);
-  bool up = bsr & BIT(2) ? 1 : 0;
+static bool mg_tcpip_driver_imxrt_up(struct mg_tcpip_if *ifp) {
+  struct mg_tcpip_driver_imxrt_data *d =
+      (struct mg_tcpip_driver_imxrt_data *) ifp->driver_data;
+  uint32_t bsr = enet_phy_read(d->phy_addr, PHY_BSR);
+  bool up = bsr & MG_BIT(2) ? 1 : 0;
   if ((ifp->state == MG_TCPIP_STATE_DOWN) && up) {  // link state just went up
-    uint32_t pc1r = eth_read_phy(PHY_ADDR, PHY_PC1R);
-    uint32_t tcr = ENET->TCR |= BIT(2);        // Full-duplex
-    uint32_t rcr = ENET->RCR &= ~BIT(9);       // 100M
-    if ((pc1r & 3) == 1) rcr |= BIT(9);        // 10M
-    if ((pc1r & BIT(2)) == 0) tcr &= ~BIT(2);  // Half-duplex
+    // tmp = reg with flags set to the most likely situation: 100M full-duplex
+    // if(link is slow or half) set flags otherwise
+    // reg = tmp
+    uint32_t tcr = ENET->TCR | MG_BIT(2);   // Full-duplex
+    uint32_t rcr = ENET->RCR & ~MG_BIT(9);  // 100M
+    uint32_t phy_id = enet_phy_id(d->phy_addr);
+    if ((phy_id & 0xffff0000) == 0x220000) {             // KSZ8081RNB
+      uint16_t pc1r = enet_phy_read(d->phy_addr, 30);    // Read PC1R
+      if ((pc1r & 3) == 1) rcr |= MG_BIT(9);             // 10M
+      if ((pc1r & MG_BIT(2)) == 0) tcr &= ~MG_BIT(2);    // Half-duplex
+    } else if ((phy_id & 0xffff0000) == 0x20000000) {    // DP83825I
+      uint16_t physts = enet_phy_read(d->phy_addr, 16);  // Read PHYSTS
+      if (physts & MG_BIT(1)) rcr |= MG_BIT(9);          // 10M
+      if ((physts & MG_BIT(2)) == 0) tcr &= ~MG_BIT(2);  // Half-duplex
+    } else {                                             // Default to LAN8720
+      uint16_t scsr = enet_phy_read(d->phy_addr, 31);    // Read CSCR
+      if ((scsr & MG_BIT(3)) == 0) rcr |= MG_BIT(9);     // 10M
+      if ((scsr & MG_BIT(4)) == 0) tcr &= ~MG_BIT(2);    // Half-duplex
+    }
     ENET->TCR = tcr;  // IRQ handler does not fiddle with these registers
     ENET->RCR = rcr;
-    MG_DEBUG(("Link is %uM %s-duplex", rcr & BIT(9) ? 10 : 100,
-              tcr & BIT(2) ? "full" : "half"));
+    MG_DEBUG(("Link is %uM %s-duplex", rcr & MG_BIT(9) ? 10 : 100,
+              tcr & MG_BIT(2) ? "full" : "half"));
   }
   return up;
 }
@@ -8602,27 +8940,27 @@ static bool mg_tcpip_driver_imxrt1020_up(struct mg_tcpip_if *ifp) {
 void ENET_IRQHandler(void);
 static uint32_t s_rxno;
 void ENET_IRQHandler(void) {
-  ENET->EIR = BIT(25);  // Ack IRQ
+  ENET->EIR = MG_BIT(25);  // Ack IRQ
   // Frame received, loop
   for (uint32_t i = 0; i < 10; i++) {  // read as they arrive but not forever
-    if (s_rxdesc[s_rxno].control & BIT(15)) break;  // exit when done
+    uint32_t r = s_rxdesc[s_rxno].control;
+    if (r & MG_BIT(15)) break;  // exit when done
     // skip partial/errored frames (Table 37-32)
-    if ((s_rxdesc[s_rxno].control & BIT(11)) &&
-        !(s_rxdesc[s_rxno].control &
-          (BIT(5) | BIT(4) | BIT(2) | BIT(1) | BIT(0)))) {
-      uint32_t len = (s_rxdesc[s_rxno].length);
+    if ((r & MG_BIT(11)) &&
+        !(r & (MG_BIT(5) | MG_BIT(4) | MG_BIT(2) | MG_BIT(1) | MG_BIT(0)))) {
+      size_t len = s_rxdesc[s_rxno].length;
       mg_tcpip_qwrite(s_rxbuf[s_rxno], len > 4 ? len - 4 : len, s_ifp);
     }
-    s_rxdesc[s_rxno].control |= BIT(15);
+    s_rxdesc[s_rxno].control |= MG_BIT(15);
     if (++s_rxno >= ETH_DESC_CNT) s_rxno = 0;
   }
-  ENET->RDAR = BIT(24);  // Receive Descriptors have changed
+  ENET->RDAR = MG_BIT(24);  // Receive Descriptors have changed
   // If b24 == 0, descriptors were exhausted and probably frames were dropped
 }
 
-struct mg_tcpip_driver mg_tcpip_driver_imxrt1020 = {
-    mg_tcpip_driver_imxrt1020_init, mg_tcpip_driver_imxrt1020_tx, NULL,
-    mg_tcpip_driver_imxrt1020_up};
+struct mg_tcpip_driver mg_tcpip_driver_imxrt = {mg_tcpip_driver_imxrt_init,
+                                                mg_tcpip_driver_imxrt_tx, NULL,
+                                                mg_tcpip_driver_imxrt_up};
 
 #endif
 
@@ -8631,13 +8969,9 @@ struct mg_tcpip_driver mg_tcpip_driver_imxrt1020 = {
 #endif
 
 
-#if MG_ENABLE_TCPIP && defined(MG_ENABLE_DRIVER_SAME54) && \
-    MG_ENABLE_DRIVER_SAME54
-
+#if defined(MG_ENABLE_DRIVER_SAME54) && MG_ENABLE_DRIVER_SAME54
 #include <sam.h>
 
-#undef BIT
-#define BIT(x) ((uint32_t) 1 << (x))
 #define ETH_PKT_SIZE 1536  // Max frame size
 #define ETH_DESC_CNT 4     // Descriptors count
 #define ETH_DS 2           // Descriptor size (words)
@@ -8652,9 +8986,9 @@ static uint8_t s_rxno;                           // Current RX descriptor
 static struct mg_tcpip_if *s_ifp;  // MIP interface
 enum { PHY_ADDR = 0, PHY_BCR = 0, PHY_BSR = 1 };
 
-#define PHY_BCR_DUPLEX_MODE_Msk BIT(8)
-#define PHY_BCR_SPEED_Msk BIT(13)
-#define PHY_BSR_LINK_STATUS_Msk BIT(2)
+#define PHY_BCR_DUPLEX_MODE_Msk MG_BIT(8)
+#define PHY_BCR_SPEED_Msk MG_BIT(13)
+#define PHY_BSR_LINK_STATUS_Msk MG_BIT(2)
 
 static uint16_t eth_read_phy(uint8_t addr, uint8_t reg) {
   GMAC_REGS->GMAC_MAN = GMAC_MAN_CLTTO_Msk |
@@ -8692,12 +9026,8 @@ int get_clock_rate(struct mg_tcpip_driver_same54_data *d) {
       case GCLK_GENCTRL_SRC_XOSC1_Val:
         mclk = 32000000UL; /* 32MHz */
         break;
-      case GCLK_GENCTRL_SRC_OSCULP32K_Val:
-        mclk = 32000UL;
-        break;
-      case GCLK_GENCTRL_SRC_XOSC32K_Val:
-        mclk = 32000UL;
-        break;
+      case GCLK_GENCTRL_SRC_OSCULP32K_Val: mclk = 32000UL; break;
+      case GCLK_GENCTRL_SRC_XOSC32K_Val: mclk = 32000UL; break;
       case GCLK_GENCTRL_SRC_DFLL_Val:
         mclk = 48000000UL; /* 48MHz */
         break;
@@ -8707,13 +9037,12 @@ int get_clock_rate(struct mg_tcpip_driver_same54_data *d) {
       case GCLK_GENCTRL_SRC_DPLL1_Val:
         mclk = 200000000UL; /* 200MHz */
         break;
-      default:
-        mclk = 200000000UL; /* 200MHz */
+      default: mclk = 200000000UL; /* 200MHz */
     }
 
     mclk /= div;
-    uint8_t crs[] = {0, 1, 2, 3, 4, 5};          // GMAC->NCFGR::CLK values
-    uint8_t dividers[] = {8, 16, 32, 48, 64, 128};  // Respective CLK dividers
+    uint8_t crs[] = {0, 1, 2, 3, 4, 5};            // GMAC->NCFGR::CLK values
+    uint8_t dividers[] = {8, 16, 32, 48, 64, 96};  // Respective CLK dividers
     for (int i = 0; i < 6; i++) {
       if (mclk / dividers[i] <= 2375000UL /* 2.5MHz - 5% */) {
         return crs[i];
@@ -8732,21 +9061,23 @@ static bool mg_tcpip_driver_same54_init(struct mg_tcpip_if *ifp) {
   MCLK_REGS->MCLK_APBCMASK |= MCLK_APBCMASK_GMAC_Msk;
   MCLK_REGS->MCLK_AHBMASK |= MCLK_AHBMASK_GMAC_Msk;
   GMAC_REGS->GMAC_NCFGR = GMAC_NCFGR_CLK(get_clock_rate(d));  // Set MDC divider
-  GMAC_REGS->GMAC_NCR = 0;                            // Disable RX & TX
-  GMAC_REGS->GMAC_NCR |= GMAC_NCR_MPE_Msk;            // Enable MDC & MDIO
+  GMAC_REGS->GMAC_NCR = 0;                                    // Disable RX & TX
+  GMAC_REGS->GMAC_NCR |= GMAC_NCR_MPE_Msk;  // Enable MDC & MDIO
 
   for (int i = 0; i < ETH_DESC_CNT; i++) {   // Init TX descriptors
     s_txdesc[i][0] = (uint32_t) s_txbuf[i];  // Point to data buffer
-    s_txdesc[i][1] = BIT(31);                // OWN bit
+    s_txdesc[i][1] = MG_BIT(31);             // OWN bit
   }
-  s_txdesc[ETH_DESC_CNT - 1][1] |= BIT(30);  // Last tx descriptor - wrap
+  s_txdesc[ETH_DESC_CNT - 1][1] |= MG_BIT(30);  // Last tx descriptor - wrap
 
-  GMAC_REGS->GMAC_DCFGR = GMAC_DCFGR_DRBS(0x18);  // DMA recv buf 1536
-  for (int i = 0; i < ETH_DESC_CNT; i++) {        // Init RX descriptors
-    s_rxdesc[i][0] = (uint32_t) s_rxbuf[i];       // Address of the data buffer
-    s_rxdesc[i][1] = 0;                           // Clear status
+  GMAC_REGS->GMAC_DCFGR = GMAC_DCFGR_DRBS(0x18)  // DMA recv buf 1536
+                          | GMAC_DCFGR_RXBMS(GMAC_DCFGR_RXBMS_FULL_Val) |
+                          GMAC_DCFGR_TXPBMS(1);  // See #2487
+  for (int i = 0; i < ETH_DESC_CNT; i++) {       // Init RX descriptors
+    s_rxdesc[i][0] = (uint32_t) s_rxbuf[i];      // Address of the data buffer
+    s_rxdesc[i][1] = 0;                          // Clear status
   }
-  s_rxdesc[ETH_DESC_CNT - 1][0] |= BIT(1);  // Last rx descriptor - wrap
+  s_rxdesc[ETH_DESC_CNT - 1][0] |= MG_BIT(1);  // Last rx descriptor - wrap
 
   GMAC_REGS->GMAC_TBQB = (uint32_t) s_txdesc;  // about the descriptor addresses
   GMAC_REGS->GMAC_RBQB = (uint32_t) s_rxdesc;  // Let the controller know
@@ -8780,14 +9111,14 @@ static size_t mg_tcpip_driver_same54_tx(const void *buf, size_t len,
   if (len > sizeof(s_txbuf[s_txno])) {
     MG_ERROR(("Frame too big, %ld", (long) len));
     len = 0;  // Frame is too big
-  } else if ((s_txdesc[s_txno][1] & BIT(31)) == 0) {
+  } else if ((s_txdesc[s_txno][1] & MG_BIT(31)) == 0) {
     ifp->nerr++;
     MG_ERROR(("No free descriptors"));
     len = 0;  // All descriptors are busy, fail
   } else {
-    uint32_t status = len | BIT(15);  // Frame length, last chunk
-    if (s_txno == ETH_DESC_CNT - 1) status |= BIT(30);  // wrap
-    memcpy(s_txbuf[s_txno], buf, len);                  // Copy data
+    uint32_t status = len | MG_BIT(15);  // Frame length, last chunk
+    if (s_txno == ETH_DESC_CNT - 1) status |= MG_BIT(30);  // wrap
+    memcpy(s_txbuf[s_txno], buf, len);                     // Copy data
     s_txdesc[s_txno][1] = status;
     if (++s_txno >= ETH_DESC_CNT) s_txno = 0;
   }
@@ -8805,7 +9136,9 @@ static bool mg_tcpip_driver_same54_up(struct mg_tcpip_if *ifp) {
     uint16_t bcr = eth_read_phy(PHY_ADDR, PHY_BCR);
     bool fd = bcr & PHY_BCR_DUPLEX_MODE_Msk ? 1 : 0;
     bool spd = bcr & PHY_BCR_SPEED_Msk ? 1 : 0;
-    GMAC_REGS->GMAC_NCFGR |= GMAC_NCFGR_SPD(spd) | GMAC_NCFGR_FD(fd);
+    GMAC_REGS->GMAC_NCFGR =
+        (GMAC_REGS->GMAC_NCFGR & ~(GMAC_NCFGR_SPD_Msk | PHY_BCR_SPEED_Msk)) |
+        GMAC_NCFGR_SPD(spd) | GMAC_NCFGR_FD(fd);
   }
 
   return up;
@@ -8819,10 +9152,10 @@ void GMAC_Handler(void) {
   if (isr & GMAC_ISR_RCOMP_Msk) {
     if (rsr & GMAC_ISR_RCOMP_Msk) {
       for (uint8_t i = 0; i < ETH_DESC_CNT; i++) {
-        if ((s_rxdesc[s_rxno][0] & BIT(0)) == 0) break;
-        size_t len = s_rxdesc[s_rxno][1] & (BIT(13) - 1);
+        if ((s_rxdesc[s_rxno][0] & MG_BIT(0)) == 0) break;
+        size_t len = s_rxdesc[s_rxno][1] & (MG_BIT(13) - 1);
         mg_tcpip_qwrite(s_rxbuf[s_rxno], len, s_ifp);
-        s_rxdesc[s_rxno][0] &= ~BIT(0);  // Disown
+        s_rxdesc[s_rxno][0] &= ~MG_BIT(0);  // Disown
         if (++s_rxno >= ETH_DESC_CNT) s_rxno = 0;
       }
     }
@@ -8832,7 +9165,7 @@ void GMAC_Handler(void) {
               GMAC_TSR_TFC_Msk | GMAC_TSR_TXGO_Msk | GMAC_TSR_RLE_Msk |
               GMAC_TSR_COL_Msk | GMAC_TSR_UBR_Msk)) != 0) {
     // MG_INFO((" --> %#x %#x", s_txdesc[s_txno][1], tsr));
-    if (!(s_txdesc[s_txno][1] & BIT(31))) s_txdesc[s_txno][1] |= BIT(31);
+    if (!(s_txdesc[s_txno][1] & MG_BIT(31))) s_txdesc[s_txno][1] |= MG_BIT(31);
   }
 
   GMAC_REGS->GMAC_RSR = rsr;
@@ -8866,21 +9199,6 @@ struct stm32_eth {
 #undef ETH
 #define ETH ((struct stm32_eth *) (uintptr_t) 0x40028000)
 
-#undef DSB
-#if defined(__CC_ARM)
-#define DSB() __dsb(0xF)
-#elif defined(__ARMCC_VERSION)
-#define DSB() __builtin_arm_dsb(0xF)
-#elif defined(__GNUC__) && defined(__arm__) && defined(__thumb__)
-#define DSB() asm("DSB 0xF")
-#elif defined(__ICCARM__)
-#define DSB() __iar_builtin_DSB()
-#else
-#define DSB()
-#endif
-
-#undef BIT
-#define BIT(x) ((uint32_t) 1 << (x))
 #define ETH_PKT_SIZE 1540  // Max frame size
 #define ETH_DESC_CNT 4     // Descriptors count
 #define ETH_DS 4           // Descriptor size (words)
@@ -8898,17 +9216,17 @@ enum { PHY_ADDR = 0, PHY_BCR = 0, PHY_BSR = 1, PHY_CSCR = 31 };
 static uint32_t eth_read_phy(uint8_t addr, uint8_t reg) {
   ETH->MACMIIAR &= (7 << 2);
   ETH->MACMIIAR |= ((uint32_t) addr << 11) | ((uint32_t) reg << 6);
-  ETH->MACMIIAR |= BIT(0);
-  while (ETH->MACMIIAR & BIT(0)) (void) 0;
+  ETH->MACMIIAR |= MG_BIT(0);
+  while (ETH->MACMIIAR & MG_BIT(0)) (void) 0;
   return ETH->MACMIIDR;
 }
 
 static void eth_write_phy(uint8_t addr, uint8_t reg, uint32_t val) {
   ETH->MACMIIDR = val;
   ETH->MACMIIAR &= (7 << 2);
-  ETH->MACMIIAR |= ((uint32_t) addr << 11) | ((uint32_t) reg << 6) | BIT(1);
-  ETH->MACMIIAR |= BIT(0);
-  while (ETH->MACMIIAR & BIT(0)) (void) 0;
+  ETH->MACMIIAR |= ((uint32_t) addr << 11) | ((uint32_t) reg << 6) | MG_BIT(1);
+  ETH->MACMIIAR |= MG_BIT(0);
+  while (ETH->MACMIIAR & MG_BIT(0)) (void) 0;
 }
 
 static uint32_t get_hclk(void) {
@@ -8972,8 +9290,8 @@ static bool mg_tcpip_driver_stm32_init(struct mg_tcpip_if *ifp) {
 
   // Init RX descriptors
   for (int i = 0; i < ETH_DESC_CNT; i++) {
-    s_rxdesc[i][0] = BIT(31);                            // Own
-    s_rxdesc[i][1] = sizeof(s_rxbuf[i]) | BIT(14);       // 2nd address chained
+    s_rxdesc[i][0] = MG_BIT(31);                         // Own
+    s_rxdesc[i][1] = sizeof(s_rxbuf[i]) | MG_BIT(14);    // 2nd address chained
     s_rxdesc[i][2] = (uint32_t) (uintptr_t) s_rxbuf[i];  // Point to data buffer
     s_rxdesc[i][3] =
         (uint32_t) (uintptr_t) s_rxdesc[(i + 1) % ETH_DESC_CNT];  // Chain
@@ -8986,8 +9304,8 @@ static bool mg_tcpip_driver_stm32_init(struct mg_tcpip_if *ifp) {
         (uint32_t) (uintptr_t) s_txdesc[(i + 1) % ETH_DESC_CNT];  // Chain
   }
 
-  ETH->DMABMR |= BIT(0);                         // Software reset
-  while ((ETH->DMABMR & BIT(0)) != 0) (void) 0;  // Wait until done
+  ETH->DMABMR |= MG_BIT(0);                         // Software reset
+  while ((ETH->DMABMR & MG_BIT(0)) != 0) (void) 0;  // Wait until done
 
   // Set MDC clock divider. If user told us the value, use it. Otherwise, guess
   int cr = (d == NULL || d->mdc_cr < 0) ? guess_mdc_cr() : d->mdc_cr;
@@ -8995,17 +9313,20 @@ static bool mg_tcpip_driver_stm32_init(struct mg_tcpip_if *ifp) {
 
   // NOTE(cpq): we do not use extended descriptor bit 7, and do not use
   // hardware checksum. Therefore, descriptor size is 4, not 8
-  // ETH->DMABMR = BIT(13) | BIT(16) | BIT(22) | BIT(23) | BIT(25);
-  ETH->MACIMR = BIT(3) | BIT(9);  // Mask timestamp & PMT IT
-  ETH->MACFCR = BIT(7);           // Disable zero quarta pause
-  // ETH->MACFFR = BIT(31);                            // Receive all
-  eth_write_phy(PHY_ADDR, PHY_BCR, BIT(15));           // Reset PHY
-  eth_write_phy(PHY_ADDR, PHY_BCR, BIT(12));           // Set autonegotiation
-  ETH->DMARDLAR = (uint32_t) (uintptr_t) s_rxdesc;     // RX descriptors
-  ETH->DMATDLAR = (uint32_t) (uintptr_t) s_txdesc;     // RX descriptors
-  ETH->DMAIER = BIT(6) | BIT(16);                      // RIE, NISE
-  ETH->MACCR = BIT(2) | BIT(3) | BIT(11) | BIT(14);    // RE, TE, Duplex, Fast
-  ETH->DMAOMR = BIT(1) | BIT(13) | BIT(21) | BIT(25);  // SR, ST, TSF, RSF
+  // ETH->DMABMR = MG_BIT(13) | MG_BIT(16) | MG_BIT(22) | MG_BIT(23) |
+  // MG_BIT(25);
+  ETH->MACIMR = MG_BIT(3) | MG_BIT(9);  // Mask timestamp & PMT IT
+  ETH->MACFCR = MG_BIT(7);              // Disable zero quarta pause
+  // ETH->MACFFR = MG_BIT(31);                            // Receive all
+  eth_write_phy(PHY_ADDR, PHY_BCR, MG_BIT(15));     // Reset PHY
+  eth_write_phy(PHY_ADDR, PHY_BCR, MG_BIT(12));     // Set autonegotiation
+  ETH->DMARDLAR = (uint32_t) (uintptr_t) s_rxdesc;  // RX descriptors
+  ETH->DMATDLAR = (uint32_t) (uintptr_t) s_txdesc;  // RX descriptors
+  ETH->DMAIER = MG_BIT(6) | MG_BIT(16);             // RIE, NISE
+  ETH->MACCR =
+      MG_BIT(2) | MG_BIT(3) | MG_BIT(11) | MG_BIT(14);  // RE, TE, Duplex, Fast
+  ETH->DMAOMR =
+      MG_BIT(1) | MG_BIT(13) | MG_BIT(21) | MG_BIT(25);  // SR, ST, TSF, RSF
 
   // MAC address filtering
   ETH->MACA0HR = ((uint32_t) ifp->mac[5] << 8U) | ifp->mac[4];
@@ -9020,58 +9341,67 @@ static size_t mg_tcpip_driver_stm32_tx(const void *buf, size_t len,
   if (len > sizeof(s_txbuf[s_txno])) {
     MG_ERROR(("Frame too big, %ld", (long) len));
     len = 0;  // Frame is too big
-  } else if ((s_txdesc[s_txno][0] & BIT(31))) {
+  } else if ((s_txdesc[s_txno][0] & MG_BIT(31))) {
     ifp->nerr++;
     MG_ERROR(("No free descriptors"));
     // printf("D0 %lx SR %lx\n", (long) s_txdesc[0][0], (long) ETH->DMASR);
     len = 0;  // All descriptors are busy, fail
   } else {
-    memcpy(s_txbuf[s_txno], buf, len);     // Copy data
-    s_txdesc[s_txno][1] = (uint32_t) len;  // Set data len
-    s_txdesc[s_txno][0] = BIT(20) | BIT(28) | BIT(29);  // Chain,FS,LS
-    s_txdesc[s_txno][0] |= BIT(31);  // Set OWN bit - let DMA take over
+    memcpy(s_txbuf[s_txno], buf, len);                           // Copy data
+    s_txdesc[s_txno][1] = (uint32_t) len;                        // Set data len
+    s_txdesc[s_txno][0] = MG_BIT(20) | MG_BIT(28) | MG_BIT(29);  // Chain,FS,LS
+    s_txdesc[s_txno][0] |= MG_BIT(31);  // Set OWN bit - let DMA take over
     if (++s_txno >= ETH_DESC_CNT) s_txno = 0;
   }
-  DSB();                         // ensure descriptors have been written
-  ETH->DMASR = BIT(2) | BIT(5);  // Clear any prior TBUS/TUS
-  ETH->DMATPDR = 0;              // and resume
+  MG_DSB();                            // ensure descriptors have been written
+  ETH->DMASR = MG_BIT(2) | MG_BIT(5);  // Clear any prior TBUS/TUS
+  ETH->DMATPDR = 0;                    // and resume
   return len;
 }
 
 static bool mg_tcpip_driver_stm32_up(struct mg_tcpip_if *ifp) {
   uint32_t bsr = eth_read_phy(PHY_ADDR, PHY_BSR);
-  bool up = bsr & BIT(2) ? 1 : 0;
+  bool up = bsr & MG_BIT(2) ? 1 : 0;
   if ((ifp->state == MG_TCPIP_STATE_DOWN) && up) {  // link state just went up
     uint32_t scsr = eth_read_phy(PHY_ADDR, PHY_CSCR);
-    uint32_t maccr = ETH->MACCR | BIT(14) | BIT(11);  // 100M, Full-duplex
-    if ((scsr & BIT(3)) == 0) maccr &= ~BIT(14);      // 10M
-    if ((scsr & BIT(4)) == 0) maccr &= ~BIT(11);      // Half-duplex
+    // tmp = reg with flags set to the most likely situation: 100M full-duplex
+    // if(link is slow or half) set flags otherwise
+    // reg = tmp
+    uint32_t maccr = ETH->MACCR | MG_BIT(14) | MG_BIT(11);  // 100M, Full-duplex
+    if ((scsr & MG_BIT(3)) == 0) maccr &= ~MG_BIT(14);      // 10M
+    if ((scsr & MG_BIT(4)) == 0) maccr &= ~MG_BIT(11);      // Half-duplex
     ETH->MACCR = maccr;  // IRQ handler does not fiddle with this register
-    MG_DEBUG(("Link is %uM %s-duplex", maccr & BIT(14) ? 100 : 10,
-              maccr & BIT(11) ? "full" : "half"));
+    MG_DEBUG(("Link is %uM %s-duplex", maccr & MG_BIT(14) ? 100 : 10,
+              maccr & MG_BIT(11) ? "full" : "half"));
   }
   return up;
 }
 
+#ifdef __riscv
+__attribute__((interrupt()))  // For RISCV CH32V307, which share the same MAC
+#endif
 void ETH_IRQHandler(void);
 void ETH_IRQHandler(void) {
-  if (ETH->DMASR & BIT(6)) {             // Frame received, loop
-    ETH->DMASR = BIT(16) | BIT(6);       // Clear flag
-    for (uint32_t i = 0; i < 10; i++) {  // read as they arrive but not forever
-      if (s_rxdesc[s_rxno][0] & BIT(31)) break;  // exit when done
-      if (((s_rxdesc[s_rxno][0] & (BIT(8) | BIT(9))) == (BIT(8) | BIT(9))) &&
-          !(s_rxdesc[s_rxno][0] & BIT(15))) {  // skip partial/errored frames
-        uint32_t len = ((s_rxdesc[s_rxno][0] >> 16) & (BIT(14) - 1));
+  if (ETH->DMASR & MG_BIT(6)) {           // Frame received, loop
+    ETH->DMASR = MG_BIT(16) | MG_BIT(6);  // Clear flag
+    for (uint32_t i = 0; i < 10; i++) {   // read as they arrive but not forever
+      if (s_rxdesc[s_rxno][0] & MG_BIT(31)) break;  // exit when done
+      if (((s_rxdesc[s_rxno][0] & (MG_BIT(8) | MG_BIT(9))) ==
+           (MG_BIT(8) | MG_BIT(9))) &&
+          !(s_rxdesc[s_rxno][0] & MG_BIT(15))) {  // skip partial/errored frames
+        uint32_t len = ((s_rxdesc[s_rxno][0] >> 16) & (MG_BIT(14) - 1));
         //  printf("%lx %lu %lx %.8lx\n", s_rxno, len, s_rxdesc[s_rxno][0],
         //  ETH->DMASR);
         mg_tcpip_qwrite(s_rxbuf[s_rxno], len > 4 ? len - 4 : len, s_ifp);
       }
-      s_rxdesc[s_rxno][0] = BIT(31);
+      s_rxdesc[s_rxno][0] = MG_BIT(31);
       if (++s_rxno >= ETH_DESC_CNT) s_rxno = 0;
     }
   }
-  ETH->DMASR = BIT(7);  // Clear possible RBUS while processing
-  ETH->DMARPDR = 0;     // and resume RX
+  // Cleanup flags
+  ETH->DMASR = MG_BIT(16)    // NIS, normal interrupt summary
+               | MG_BIT(7);  // Clear possible RBUS while processing
+  ETH->DMARPDR = 0;          // and resume RX
 }
 
 struct mg_tcpip_driver mg_tcpip_driver_stm32 = {mg_tcpip_driver_stm32_init,
@@ -9120,8 +9450,6 @@ struct stm32h_eth {
 #define ETH \
   ((struct stm32h_eth *) (uintptr_t) (0x40000000UL + 0x00020000UL + 0x8000UL))
 
-#undef BIT
-#define BIT(x) ((uint32_t) 1 << (x))
 #define ETH_PKT_SIZE 1540  // Max frame size
 #define ETH_DESC_CNT 4     // Descriptors count
 #define ETH_DS 4           // Descriptor size (words)
@@ -9141,8 +9469,8 @@ enum {
 static uint32_t eth_read_phy(uint8_t addr, uint8_t reg) {
   ETH->MACMDIOAR &= (0xF << 8);
   ETH->MACMDIOAR |= ((uint32_t) addr << 21) | ((uint32_t) reg << 16) | 3 << 2;
-  ETH->MACMDIOAR |= BIT(0);
-  while (ETH->MACMDIOAR & BIT(0)) (void) 0;
+  ETH->MACMDIOAR |= MG_BIT(0);
+  while (ETH->MACMDIOAR & MG_BIT(0)) (void) 0;
   return ETH->MACMDIODR;
 }
 
@@ -9150,8 +9478,8 @@ static void eth_write_phy(uint8_t addr, uint8_t reg, uint32_t val) {
   ETH->MACMDIODR = val;
   ETH->MACMDIOAR &= (0xF << 8);
   ETH->MACMDIOAR |= ((uint32_t) addr << 21) | ((uint32_t) reg << 16) | 1 << 2;
-  ETH->MACMDIOAR |= BIT(0);
-  while (ETH->MACMDIOAR & BIT(0)) (void) 0;
+  ETH->MACMDIOAR |= MG_BIT(0);
+  while (ETH->MACMDIOAR & MG_BIT(0)) (void) 0;
 }
 
 static uint32_t get_hclk(void) {
@@ -9180,7 +9508,7 @@ static uint32_t get_hclk(void) {
     unsigned int src = (rcc->PLLCKSELR & (3 << 0)) >> 0;
     m = ((rcc->PLLCKSELR & (0x3F << 4)) >> 4);
     n = ((rcc->PLL1DIVR & (0x1FF << 0)) >> 0) + 1 +
-        ((rcc->PLLCFGR & BIT(0)) ? 1 : 0);  // round-up in fractional mode
+        ((rcc->PLLCFGR & MG_BIT(0)) ? 1 : 0);  // round-up in fractional mode
     p = ((rcc->PLL1DIVR & (0x7F << 9)) >> 9) + 1;
     if (src == 1) {
       clk = csi;
@@ -9238,7 +9566,7 @@ static bool mg_tcpip_driver_stm32h_init(struct mg_tcpip_if *ifp) {
   // Init RX descriptors
   for (int i = 0; i < ETH_DESC_CNT; i++) {
     s_rxdesc[i][0] = (uint32_t) (uintptr_t) s_rxbuf[i];  // Point to data buffer
-    s_rxdesc[i][3] = BIT(31) | BIT(30) | BIT(24);        // OWN, IOC, BUF1V
+    s_rxdesc[i][3] = MG_BIT(31) | MG_BIT(30) | MG_BIT(24);        // OWN, IOC, BUF1V
   }
 
   // Init TX descriptors
@@ -9246,8 +9574,8 @@ static bool mg_tcpip_driver_stm32h_init(struct mg_tcpip_if *ifp) {
     s_txdesc[i][0] = (uint32_t) (uintptr_t) s_txbuf[i];  // Buf pointer
   }
 
-  ETH->DMAMR |= BIT(0);                         // Software reset
-  while ((ETH->DMAMR & BIT(0)) != 0) (void) 0;  // Wait until done
+  ETH->DMAMR |= MG_BIT(0);                         // Software reset
+  while ((ETH->DMAMR & MG_BIT(0)) != 0) (void) 0;  // Wait until done
 
   // Set MDC clock divider. If user told us the value, use it. Otherwise, guess
   int cr = (d == NULL || d->mdc_cr < 0) ? guess_mdc_cr() : d->mdc_cr;
@@ -9256,12 +9584,12 @@ static bool mg_tcpip_driver_stm32h_init(struct mg_tcpip_if *ifp) {
   // NOTE(scaprile): We do not use timing facilities so the DMA engine does not
   // re-write buffer address
   ETH->DMAMR = 0 << 16;     // use interrupt mode 0 (58.8.1) (reset value)
-  ETH->DMASBMR |= BIT(12);  // AAL NOTE(scaprile): is this actually needed
+  ETH->DMASBMR |= MG_BIT(12);  // AAL NOTE(scaprile): is this actually needed
   ETH->MACIER = 0;        // Do not enable additional irq sources (reset value)
-  ETH->MACTFCR = BIT(7);  // Disable zero-quanta pause
-  // ETH->MACPFR = BIT(31);  // Receive all
-  eth_write_phy(PHY_ADDR, PHY_BCR, BIT(15));  // Reset PHY
-  eth_write_phy(PHY_ADDR, PHY_BCR, BIT(12));  // Set autonegotiation
+  ETH->MACTFCR = MG_BIT(7);  // Disable zero-quanta pause
+  // ETH->MACPFR = MG_BIT(31);  // Receive all
+  eth_write_phy(PHY_ADDR, PHY_BCR, MG_BIT(15));  // Reset PHY
+  eth_write_phy(PHY_ADDR, PHY_BCR, MG_BIT(12));  // Set autonegotiation
   ETH->DMACRDLAR =
       (uint32_t) (uintptr_t) s_rxdesc;  // RX descriptors start address
   ETH->DMACRDRLR = ETH_DESC_CNT - 1;    // ring length
@@ -9274,13 +9602,13 @@ static bool mg_tcpip_driver_stm32h_init(struct mg_tcpip_if *ifp) {
   ETH->DMACTDTPR =
       (uint32_t) (uintptr_t) s_txdesc;  // first available descriptor address
   ETH->DMACCR = 0;  // DSL = 0 (contiguous descriptor table) (reset value)
-  ETH->DMACIER = BIT(6) | BIT(15);  // RIE, NIE
-  ETH->MACCR = BIT(0) | BIT(1) | BIT(13) | BIT(14) |
-               BIT(15);     // RE, TE, Duplex, Fast, Reserved
-  ETH->MTLTQOMR |= BIT(1);  // TSF
-  ETH->MTLRQOMR |= BIT(5);  // RSF
-  ETH->DMACTCR |= BIT(0);   // ST
-  ETH->DMACRCR |= BIT(0);   // SR
+  ETH->DMACIER = MG_BIT(6) | MG_BIT(15);  // RIE, NIE
+  ETH->MACCR = MG_BIT(0) | MG_BIT(1) | MG_BIT(13) | MG_BIT(14) |
+               MG_BIT(15);     // RE, TE, Duplex, Fast, Reserved
+  ETH->MTLTQOMR |= MG_BIT(1);  // TSF
+  ETH->MTLRQOMR |= MG_BIT(5);  // RSF
+  ETH->DMACTCR |= MG_BIT(0);   // ST
+  ETH->DMACRCR |= MG_BIT(0);   // SR
 
   // MAC address filtering
   ETH->MACA0HR = ((uint32_t) ifp->mac[5] << 8U) | ifp->mac[4];
@@ -9296,7 +9624,8 @@ static size_t mg_tcpip_driver_stm32h_tx(const void *buf, size_t len,
   if (len > sizeof(s_txbuf[s_txno])) {
     MG_ERROR(("Frame too big, %ld", (long) len));
     len = 0;  // Frame is too big
-  } else if ((s_txdesc[s_txno][3] & BIT(31))) {
+  } else if ((s_txdesc[s_txno][3] & MG_BIT(31))) {
+    ifp->nerr++;
     MG_ERROR(("No free descriptors: %u %08X %08X %08X", s_txno,
               s_txdesc[s_txno][3], ETH->DMACSR, ETH->DMACTCR));
     for (int i = 0; i < ETH_DESC_CNT; i++) MG_ERROR(("%08X", s_txdesc[i][3]));
@@ -9304,11 +9633,11 @@ static size_t mg_tcpip_driver_stm32h_tx(const void *buf, size_t len,
   } else {
     memcpy(s_txbuf[s_txno], buf, len);        // Copy data
     s_txdesc[s_txno][2] = (uint32_t) len;     // Set data len
-    s_txdesc[s_txno][3] = BIT(28) | BIT(29);  // FD, LD
-    s_txdesc[s_txno][3] |= BIT(31);           // Set OWN bit - let DMA take over
+    s_txdesc[s_txno][3] = MG_BIT(28) | MG_BIT(29);  // FD, LD
+    s_txdesc[s_txno][3] |= MG_BIT(31);           // Set OWN bit - let DMA take over
     if (++s_txno >= ETH_DESC_CNT) s_txno = 0;
   }
-  ETH->DMACSR |= BIT(2) | BIT(1);  // Clear any prior TBU, TPS
+  ETH->DMACSR |= MG_BIT(2) | MG_BIT(1);  // Clear any prior TBU, TPS
   ETH->DMACTDTPR = (uint32_t) (uintptr_t) &s_txdesc[s_txno];  // and resume
   return len;
   (void) ifp;
@@ -9316,15 +9645,18 @@ static size_t mg_tcpip_driver_stm32h_tx(const void *buf, size_t len,
 
 static bool mg_tcpip_driver_stm32h_up(struct mg_tcpip_if *ifp) {
   uint32_t bsr = eth_read_phy(PHY_ADDR, PHY_BSR);
-  bool up = bsr & BIT(2) ? 1 : 0;
+  bool up = bsr & MG_BIT(2) ? 1 : 0;
   if ((ifp->state == MG_TCPIP_STATE_DOWN) && up) {  // link state just went up
     uint32_t scsr = eth_read_phy(PHY_ADDR, PHY_CSCR);
-    uint32_t maccr = ETH->MACCR | BIT(14) | BIT(13);  // 100M, Full-duplex
-    if ((scsr & BIT(3)) == 0) maccr &= ~BIT(14);      // 10M
-    if ((scsr & BIT(4)) == 0) maccr &= ~BIT(13);      // Half-duplex
+    // tmp = reg with flags set to the most likely situation: 100M full-duplex
+    // if(link is slow or half) set flags otherwise
+    // reg = tmp
+    uint32_t maccr = ETH->MACCR | MG_BIT(14) | MG_BIT(13);  // 100M, Full-duplex
+    if ((scsr & MG_BIT(3)) == 0) maccr &= ~MG_BIT(14);      // 10M
+    if ((scsr & MG_BIT(4)) == 0) maccr &= ~MG_BIT(13);      // Half-duplex
     ETH->MACCR = maccr;  // IRQ handler does not fiddle with this register
-    MG_DEBUG(("Link is %uM %s-duplex", maccr & BIT(14) ? 100 : 10,
-              maccr & BIT(13) ? "full" : "half"));
+    MG_DEBUG(("Link is %uM %s-duplex", maccr & MG_BIT(14) ? 100 : 10,
+              maccr & MG_BIT(13) ? "full" : "half"));
   }
   return up;
 }
@@ -9332,23 +9664,23 @@ static bool mg_tcpip_driver_stm32h_up(struct mg_tcpip_if *ifp) {
 void ETH_IRQHandler(void);
 static uint32_t s_rxno;
 void ETH_IRQHandler(void) {
-  if (ETH->DMACSR & BIT(6)) {            // Frame received, loop
-    ETH->DMACSR = BIT(15) | BIT(6);      // Clear flag
+  if (ETH->DMACSR & MG_BIT(6)) {            // Frame received, loop
+    ETH->DMACSR = MG_BIT(15) | MG_BIT(6);      // Clear flag
     for (uint32_t i = 0; i < 10; i++) {  // read as they arrive but not forever
-      if (s_rxdesc[s_rxno][3] & BIT(31)) break;  // exit when done
-      if (((s_rxdesc[s_rxno][3] & (BIT(28) | BIT(29))) ==
-           (BIT(28) | BIT(29))) &&
-          !(s_rxdesc[s_rxno][3] & BIT(15))) {  // skip partial/errored frames
-        uint32_t len = s_rxdesc[s_rxno][3] & (BIT(15) - 1);
+      if (s_rxdesc[s_rxno][3] & MG_BIT(31)) break;  // exit when done
+      if (((s_rxdesc[s_rxno][3] & (MG_BIT(28) | MG_BIT(29))) ==
+           (MG_BIT(28) | MG_BIT(29))) &&
+          !(s_rxdesc[s_rxno][3] & MG_BIT(15))) {  // skip partial/errored frames
+        uint32_t len = s_rxdesc[s_rxno][3] & (MG_BIT(15) - 1);
         // MG_DEBUG(("%lx %lu %lx %08lx", s_rxno, len, s_rxdesc[s_rxno][3],
         // ETH->DMACSR));
         mg_tcpip_qwrite(s_rxbuf[s_rxno], len > 4 ? len - 4 : len, s_ifp);
       }
-      s_rxdesc[s_rxno][3] = BIT(31) | BIT(30) | BIT(24);  // OWN, IOC, BUF1V
+      s_rxdesc[s_rxno][3] = MG_BIT(31) | MG_BIT(30) | MG_BIT(24);  // OWN, IOC, BUF1V
       if (++s_rxno >= ETH_DESC_CNT) s_rxno = 0;
     }
   }
-  ETH->DMACSR = BIT(7) | BIT(8);  // Clear possible RBU RPS while processing
+  ETH->DMACSR = MG_BIT(7) | MG_BIT(8);  // Clear possible RBU RPS while processing
   ETH->DMACRDTPR =
       (uint32_t) (uintptr_t) &s_rxdesc[ETH_DESC_CNT - 1];  // and resume RX
 }
@@ -9387,8 +9719,6 @@ struct tm4c_emac {
 #undef EMAC
 #define EMAC ((struct tm4c_emac *) (uintptr_t) 0x400EC000)
 
-#undef BIT
-#define BIT(x) ((uint32_t) 1 << (x))
 #define ETH_PKT_SIZE 1540  // Max frame size
 #define ETH_DESC_CNT 4     // Descriptors count
 #define ETH_DS 4           // Descriptor size (words)
@@ -9412,17 +9742,17 @@ static inline void tm4cspin(volatile uint32_t count) {
 static uint32_t emac_read_phy(uint8_t addr, uint8_t reg) {
   EMAC->EMACMIIADDR &= (0xf << 2);
   EMAC->EMACMIIADDR |= ((uint32_t) addr << 11) | ((uint32_t) reg << 6);
-  EMAC->EMACMIIADDR |= BIT(0);
-  while (EMAC->EMACMIIADDR & BIT(0)) tm4cspin(1);
+  EMAC->EMACMIIADDR |= MG_BIT(0);
+  while (EMAC->EMACMIIADDR & MG_BIT(0)) tm4cspin(1);
   return EMAC->EMACMIIDATA;
 }
 
 static void emac_write_phy(uint8_t addr, uint8_t reg, uint32_t val) {
   EMAC->EMACMIIDATA = val;
   EMAC->EMACMIIADDR &= (0xf << 2);
-  EMAC->EMACMIIADDR |= ((uint32_t) addr << 11) | ((uint32_t) reg << 6) | BIT(1);
-  EMAC->EMACMIIADDR |= BIT(0);
-  while (EMAC->EMACMIIADDR & BIT(0)) tm4cspin(1);
+  EMAC->EMACMIIADDR |= ((uint32_t) addr << 11) | ((uint32_t) reg << 6) | MG_BIT(1);
+  EMAC->EMACMIIADDR |= MG_BIT(0);
+  while (EMAC->EMACMIIADDR & MG_BIT(0)) tm4cspin(1);
 }
 
 static uint32_t get_sysclk(void) {
@@ -9498,8 +9828,8 @@ static bool mg_tcpip_driver_tm4c_init(struct mg_tcpip_if *ifp) {
 
   // Init RX descriptors
   for (int i = 0; i < ETH_DESC_CNT; i++) {
-    s_rxdesc[i][0] = BIT(31);                            // Own
-    s_rxdesc[i][1] = sizeof(s_rxbuf[i]) | BIT(14);       // 2nd address chained
+    s_rxdesc[i][0] = MG_BIT(31);                            // Own
+    s_rxdesc[i][1] = sizeof(s_rxbuf[i]) | MG_BIT(14);       // 2nd address chained
     s_rxdesc[i][2] = (uint32_t) (uintptr_t) s_rxbuf[i];  // Point to data buffer
     s_rxdesc[i][3] =
         (uint32_t) (uintptr_t) s_rxdesc[(i + 1) % ETH_DESC_CNT];  // Chain
@@ -9513,8 +9843,8 @@ static bool mg_tcpip_driver_tm4c_init(struct mg_tcpip_if *ifp) {
         (uint32_t) (uintptr_t) s_txdesc[(i + 1) % ETH_DESC_CNT];  // Chain
   }
 
-  EMAC->EMACDMABUSMOD |= BIT(0);                            // Software reset
-  while ((EMAC->EMACDMABUSMOD & BIT(0)) != 0) tm4cspin(1);  // Wait until done
+  EMAC->EMACDMABUSMOD |= MG_BIT(0);                            // Software reset
+  while ((EMAC->EMACDMABUSMOD & MG_BIT(0)) != 0) tm4cspin(1);  // Wait until done
 
   // Set MDC clock divider. If user told us the value, use it. Otherwise, guess
   int cr = (d == NULL || d->mdc_cr < 0) ? guess_mdc_cr() : d->mdc_cr;
@@ -9522,19 +9852,19 @@ static bool mg_tcpip_driver_tm4c_init(struct mg_tcpip_if *ifp) {
 
   // NOTE(cpq): we do not use extended descriptor bit 7, and do not use
   // hardware checksum. Therefore, descriptor size is 4, not 8
-  // EMAC->EMACDMABUSMOD = BIT(13) | BIT(16) | BIT(22) | BIT(23) | BIT(25);
-  EMAC->EMACIM = BIT(3) | BIT(9);  // Mask timestamp & PMT IT
-  EMAC->EMACFLOWCTL = BIT(7);      // Disable zero-quanta pause
-  // EMAC->EMACFRAMEFLTR = BIT(31);   // Receive all
+  // EMAC->EMACDMABUSMOD = MG_BIT(13) | MG_BIT(16) | MG_BIT(22) | MG_BIT(23) | MG_BIT(25);
+  EMAC->EMACIM = MG_BIT(3) | MG_BIT(9);  // Mask timestamp & PMT IT
+  EMAC->EMACFLOWCTL = MG_BIT(7);      // Disable zero-quanta pause
+  // EMAC->EMACFRAMEFLTR = MG_BIT(31);   // Receive all
   // EMAC->EMACPC defaults to internal PHY (EPHY) in MMI mode
-  emac_write_phy(EPHY_ADDR, EPHYBMCR, BIT(15));  // Reset internal PHY (EPHY)
-  emac_write_phy(EPHY_ADDR, EPHYBMCR, BIT(12));  // Set autonegotiation
+  emac_write_phy(EPHY_ADDR, EPHYBMCR, MG_BIT(15));  // Reset internal PHY (EPHY)
+  emac_write_phy(EPHY_ADDR, EPHYBMCR, MG_BIT(12));  // Set autonegotiation
   EMAC->EMACRXDLADDR = (uint32_t) (uintptr_t) s_rxdesc;  // RX descriptors
   EMAC->EMACTXDLADDR = (uint32_t) (uintptr_t) s_txdesc;  // TX descriptors
-  EMAC->EMACDMAIM = BIT(6) | BIT(16);                    // RIE, NIE
-  EMAC->EMACCFG = BIT(2) | BIT(3) | BIT(11) | BIT(14);   // RE, TE, Duplex, Fast
+  EMAC->EMACDMAIM = MG_BIT(6) | MG_BIT(16);                    // RIE, NIE
+  EMAC->EMACCFG = MG_BIT(2) | MG_BIT(3) | MG_BIT(11) | MG_BIT(14);   // RE, TE, Duplex, Fast
   EMAC->EMACDMAOPMODE =
-      BIT(1) | BIT(13) | BIT(21) | BIT(25);  // SR, ST, TSF, RSF
+      MG_BIT(1) | MG_BIT(13) | MG_BIT(21) | MG_BIT(25);  // SR, ST, TSF, RSF
   EMAC->EMACADDR0H = ((uint32_t) ifp->mac[5] << 8U) | ifp->mac[4];
   EMAC->EMACADDR0L = (uint32_t) (ifp->mac[3] << 24) |
                      ((uint32_t) ifp->mac[2] << 16) |
@@ -9550,7 +9880,8 @@ static size_t mg_tcpip_driver_tm4c_tx(const void *buf, size_t len,
   if (len > sizeof(s_txbuf[s_txno])) {
     MG_ERROR(("Frame too big, %ld", (long) len));
     len = 0;  // fail
-  } else if ((s_txdesc[s_txno][0] & BIT(31))) {
+  } else if ((s_txdesc[s_txno][0] & MG_BIT(31))) {
+    ifp->nerr++;
     MG_ERROR(("No descriptors available"));
     // printf("D0 %lx SR %lx\n", (long) s_txdesc[0][0], (long)
     // EMAC->EMACDMARIS);
@@ -9559,11 +9890,11 @@ static size_t mg_tcpip_driver_tm4c_tx(const void *buf, size_t len,
     memcpy(s_txbuf[s_txno], buf, len);     // Copy data
     s_txdesc[s_txno][1] = (uint32_t) len;  // Set data len
     s_txdesc[s_txno][0] =
-        BIT(20) | BIT(28) | BIT(29) | BIT(30);  // Chain,FS,LS,IC
-    s_txdesc[s_txno][0] |= BIT(31);  // Set OWN bit - let DMA take over
+        MG_BIT(20) | MG_BIT(28) | MG_BIT(29) | MG_BIT(30);  // Chain,FS,LS,IC
+    s_txdesc[s_txno][0] |= MG_BIT(31);  // Set OWN bit - let DMA take over
     if (++s_txno >= ETH_DESC_CNT) s_txno = 0;
   }
-  EMAC->EMACDMARIS = BIT(2) | BIT(5);  // Clear any prior TU/UNF
+  EMAC->EMACDMARIS = MG_BIT(2) | MG_BIT(5);  // Clear any prior TU/UNF
   EMAC->EMACTXPOLLD = 0;               // and resume
   return len;
   (void) ifp;
@@ -9571,15 +9902,18 @@ static size_t mg_tcpip_driver_tm4c_tx(const void *buf, size_t len,
 
 static bool mg_tcpip_driver_tm4c_up(struct mg_tcpip_if *ifp) {
   uint32_t bmsr = emac_read_phy(EPHY_ADDR, EPHYBMSR);
-  bool up = (bmsr & BIT(2)) ? 1 : 0;
+  bool up = (bmsr & MG_BIT(2)) ? 1 : 0;
   if ((ifp->state == MG_TCPIP_STATE_DOWN) && up) {  // link state just went up
     uint32_t sts = emac_read_phy(EPHY_ADDR, EPHYSTS);
-    uint32_t emaccfg = EMAC->EMACCFG | BIT(14) | BIT(11);  // 100M, Full-duplex
-    if (sts & BIT(1)) emaccfg &= ~BIT(14);                 // 10M
-    if ((sts & BIT(2)) == 0) emaccfg &= ~BIT(11);          // Half-duplex
+    // tmp = reg with flags set to the most likely situation: 100M full-duplex
+    // if(link is slow or half) set flags otherwise
+    // reg = tmp
+    uint32_t emaccfg = EMAC->EMACCFG | MG_BIT(14) | MG_BIT(11);  // 100M, Full-duplex
+    if (sts & MG_BIT(1)) emaccfg &= ~MG_BIT(14);                 // 10M
+    if ((sts & MG_BIT(2)) == 0) emaccfg &= ~MG_BIT(11);          // Half-duplex
     EMAC->EMACCFG = emaccfg;  // IRQ handler does not fiddle with this register
-    MG_DEBUG(("Link is %uM %s-duplex", emaccfg & BIT(14) ? 100 : 10,
-              emaccfg & BIT(11) ? "full" : "half"));
+    MG_DEBUG(("Link is %uM %s-duplex", emaccfg & MG_BIT(14) ? 100 : 10,
+              emaccfg & MG_BIT(11) ? "full" : "half"));
   }
   return up;
 }
@@ -9587,22 +9921,22 @@ static bool mg_tcpip_driver_tm4c_up(struct mg_tcpip_if *ifp) {
 void EMAC0_IRQHandler(void);
 static uint32_t s_rxno;
 void EMAC0_IRQHandler(void) {
-  if (EMAC->EMACDMARIS & BIT(6)) {        // Frame received, loop
-    EMAC->EMACDMARIS = BIT(16) | BIT(6);  // Clear flag
+  if (EMAC->EMACDMARIS & MG_BIT(6)) {        // Frame received, loop
+    EMAC->EMACDMARIS = MG_BIT(16) | MG_BIT(6);  // Clear flag
     for (uint32_t i = 0; i < 10; i++) {   // read as they arrive but not forever
-      if (s_rxdesc[s_rxno][0] & BIT(31)) break;  // exit when done
-      if (((s_rxdesc[s_rxno][0] & (BIT(8) | BIT(9))) == (BIT(8) | BIT(9))) &&
-          !(s_rxdesc[s_rxno][0] & BIT(15))) {  // skip partial/errored frames
-        uint32_t len = ((s_rxdesc[s_rxno][0] >> 16) & (BIT(14) - 1));
+      if (s_rxdesc[s_rxno][0] & MG_BIT(31)) break;  // exit when done
+      if (((s_rxdesc[s_rxno][0] & (MG_BIT(8) | MG_BIT(9))) == (MG_BIT(8) | MG_BIT(9))) &&
+          !(s_rxdesc[s_rxno][0] & MG_BIT(15))) {  // skip partial/errored frames
+        uint32_t len = ((s_rxdesc[s_rxno][0] >> 16) & (MG_BIT(14) - 1));
         //  printf("%lx %lu %lx %.8lx\n", s_rxno, len, s_rxdesc[s_rxno][0],
         //  EMAC->EMACDMARIS);
         mg_tcpip_qwrite(s_rxbuf[s_rxno], len > 4 ? len - 4 : len, s_ifp);
       }
-      s_rxdesc[s_rxno][0] = BIT(31);
+      s_rxdesc[s_rxno][0] = MG_BIT(31);
       if (++s_rxno >= ETH_DESC_CNT) s_rxno = 0;
     }
   }
-  EMAC->EMACDMARIS = BIT(7);  // Clear possible RU while processing
+  EMAC->EMACDMARIS = MG_BIT(7);  // Clear possible RU while processing
   EMAC->EMACRXPOLLD = 0;      // and resume RX
 }
 
