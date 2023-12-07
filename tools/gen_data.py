@@ -1,4 +1,4 @@
-#!/usr/env python
+#!/usr/bin/env python3
 """
 A rewrite of https://vrs-standing-data.adsb.lol/generate-csvs.sh
 into Python. Plus some more features.
@@ -8,22 +8,19 @@ Generate these files:
   airports.csv  + airports.bin  + airports-test.exe
   routes.csv    + routes.bin    + routes-test.exe
 
-from the GitPage 'https://github.com/vradarserver/standing-data.git'
-
-NB! It needs 'git.exe' on PATH.
+from GitHub: 'https://github.com/vradarserver/standing-data.git'
 """
 
-import os, sys, stat, struct, csv, argparse, fnmatch
+import os, sys, stat, struct, time, csv, argparse, fnmatch
 
 opt        = None
-my_name    = os.path.basename (__file__)
 temp_dir   = os.getenv ("TEMP").replace("\\", "/") + "/dump1090/standing-data"
 result_dir = temp_dir + "/results"
 git_config = temp_dir + "/.git/config"
 git_url    = "https://github.com/vradarserver/standing-data.git"
 
 bin_marker = "BIN-dump1090"   # magic marker
-bin_header = "<12sII"         # must match 'struct BIN_header'
+bin_header = "<12sqII"        # must match 'struct BIN_header'
 
 aircrafts_csv = "%s/aircrafts.csv" % result_dir
 airports_csv  = "%s/airports.csv"  % result_dir
@@ -36,9 +33,9 @@ routes_bin    = "%s/routes.bin"    % result_dir
 aircrafts_c   = "%s/aircrafts-test.c" % result_dir
 airports_c    = "%s/airports-test.c"  % result_dir
 routes_c      = "%s/routes-test.c"    % result_dir
-gen_h         = "%s/gen_data.h"       % result_dir
+gen_data_h    = "%s/gen_data.h"       % result_dir
 
-def error (s, prefix=""):
+def error (s, prefix = ""):
   if s is None:
      s = ""
   print ("%s%s\n" % (prefix, s), file=sys.stderr)
@@ -57,6 +54,16 @@ def open_file (fname, mode, encoding = None):
     return open (fname, mode)
   except (IOError, NameError):
     fatal ("Failed to open %s." % fname)
+
+def create_c_file (file):
+  f = open_file (file, "w+t")
+  print ("Creating %s" % file)
+  print ("""/*
+ * Generated at %s by:
+ * %s %s
+ * DO NOT EDIT!
+ */""" % (time.ctime(), sys.executable, __file__), file=f)
+  return f
 
 def make_dir (d):
   try:
@@ -81,7 +88,7 @@ def walk_csv_tree (top, _dict):
                         }
 
 #
-# For 'opt.test'
+# For 'opt.list'
 #
 def list_files (name, _dict):
   print ("%d %s:" % (len(_dict), name))
@@ -115,7 +122,7 @@ def append_csv_file (f, lines, header):
 
 def create_csv_file (to_file, name, _dict):
   f = open_file (to_file, "w+t")
-  print ("Processing %-*s ... " % (len("aircrafts_files"), name), end="")
+  print ("Processing %-*s ... " % (len("aircraft_files"), name), end="")
   for i, from_file in enumerate(_dict):
       lines = read_csv_file (from_file, _dict)
       if i == 0:
@@ -131,8 +138,8 @@ def create_csv_file (to_file, name, _dict):
 def to_bytes (s):
   return bytes (s, encoding = "utf-8")
 
-aircraft_format  = "<6s10s10s30s"
-aircraft_rec_len = 6 + 10 + 10 + 30  # == 56
+aircraft_format  = "<6s10s10s40s"
+aircraft_rec_len = 6 + 10 + 10 + 40  # == 66
 
 def aircraft_record (data):
   icao_addr = to_bytes (data[0])
@@ -177,7 +184,7 @@ def create_bin_file (to_file, from_file, dict_len, rec_len, rec_func):
          f_bin.write (rec_func(d))
 
   f_bin.seek (0, 0)
-  hdr = struct.pack (bin_header, to_bytes(bin_marker), rows, rec_len)
+  hdr = struct.pack (bin_header, to_bytes(bin_marker), int(time.time()), rows, rec_len)
   f_bin.write (hdr)
   f_bin.close()
   f_csv.close()
@@ -186,11 +193,10 @@ def create_bin_file (to_file, from_file, dict_len, rec_len, rec_func):
   return rows
 
 #
-# Create a .h-file for all records matching the .BIN-files.
+# Create gen_data.h-file for all records matching the .BIN-files.
 #
-def create_gen_h_file (h_file):
-  f = open_file (h_file, "w+t")
-  print ("Creating %s" % h_file)
+def create_gen_data_h():
+  f = create_c_file (gen_data_h)
   print ("""
 #ifndef GEN_DATA_H
 #define GEN_DATA_H
@@ -208,16 +214,18 @@ def create_gen_h_file (h_file):
 #include <stdint.h>
 #include <string.h>
 
-#pragma pack(1)
+#pragma pack(push, 1)
 
+/* Note: these 'char' members may NOT have be 0-terminated.
+ */
 typedef struct aircraft_record {  /* matching 'aircraft_format = "%s"' */
         char icao_addr [6];
         char regist   [10];
         char manuf    [10];
-        char model    [30];
+        char model    [40];
       } aircraft_record;
 
-typedef struct airport_record {  /* matching 'airport_format = "%s"' */
+typedef struct airport_record {   /* matching 'airport_format = "%s"' */
         char  icao_name [4];
         char  iata_name [3];
         char  full_name [40];
@@ -227,7 +235,7 @@ typedef struct airport_record {  /* matching 'airport_format = "%s"' */
         float longitude;
       } airport_record;
 
-typedef struct route_record {  /* matching 'routes_format = "%s"' */
+typedef struct route_record {     /* matching 'routes_format = "%s"' */
         char call_sign [8];
         char airports [20];
       } route_record;
@@ -236,7 +244,7 @@ extern const aircraft_record *gen_aircraft_lookup (const char *icao_addr);
 extern const airport_record  *gen_airport_lookup (const char *icao);
 extern const route_record    *gen_route_lookup (const char *call_sign);
 
-#pragma pack()
+#pragma pack(pop)
 
 #if defined(AIRCRAFT_LOOKUP)
   #define RECORD   aircraft_record
@@ -262,29 +270,29 @@ extern const route_record    *gen_route_lookup (const char *call_sign);
 
 #
 # Create a .c-file which tests the created .BIN-file.
-# Also add a function 'const RECORD *x_lookup (const char *key)'.
+# Also add a function 'const x_record *gen_x_lookup (const char *key)'.
 #
 def create_c_test_file (c_file, bin_file, rec_len, rec_num):
-  f = open_file (c_file, "w+t")
-  print ("Creating %s" % c_file)
+  f = create_c_file (c_file)
+  print ("""#include "gen_data.h"
 
-  print ("""
-#include "gen_data.h"
+#include <time.h>
 
-#pragma pack(1)
+#pragma pack(push, 1)
 
 typedef struct BIN_header {
         char     bin_marker [%d];   /* BIN-file marker == "%s" */
+        time_t   created;           /* time of creation (64-bits) */
         uint32_t rec_num;           /* number of records in .BIN-file == %u */
         uint32_t rec_len;           /* sizeof(record) in .BIN-file == %u */
       } BIN_header;
 
-#pragma pack()
+#pragma pack(pop)
 
 static const char *bin_file = "%s";
 
-static char buf [1000];  /* work buffer */
-""" % (len(bin_marker), bin_marker, rec_num, rec_len, bin_file), file=f)
+static char buf [1000];  /* work buffer */""" % \
+  (len(bin_marker), bin_marker, rec_num, rec_len, bin_file), file=f)
 
   print ("""
 #if defined(AIRCRAFT_LOOKUP)
@@ -292,7 +300,7 @@ static char buf [1000];  /* work buffer */
 
   static const char *format_rec (const aircraft_record *rec)
   {
-    snprintf (buf, sizeof(buf), "%-6.6s  %-10.10s  %-10.10s  %-30.30s",
+    snprintf (buf, sizeof(buf), "%-6.6s  %-10.10s  %-10.10s  %.40s",
               rec->icao_addr, rec->regist, rec->manuf, rec->model);
     return (buf);
   }
@@ -371,12 +379,12 @@ static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECO
 
 static void *allocate_records (const BIN_header *hdr)
 {
-  size_t sz = hdr->rec_len * hdr->rec_num;
-  void *mem = malloc (sz);
+  size_t size = hdr->rec_len * hdr->rec_num;
+  void  *mem = malloc (size);
 
   if (!mem)
   {
-    fprintf (stderr, "Failed to allocate %zu bytes for %s!\\n", sz, bin_file);
+    fprintf (stderr, "Failed to allocate %zu bytes for %s!\\n", size, bin_file);
     exit (1);
   }
   return (mem);
@@ -390,8 +398,10 @@ int main (void)
 
   fread (&hdr, 1, sizeof(hdr), f);
   printf ("bin_marker: %.*s\\n", (int)sizeof(hdr.bin_marker), hdr.bin_marker);
+  printf ("created:    %.24s\\n", ctime(&hdr.created));
   printf ("rec_len:    %u\\n", hdr.rec_len);
   printf ("rec_num:    %u\\n\\n", hdr.rec_num);
+
   start = allocate_records (&hdr);
 
   printf ("Record %s\\n-------------------------------------------------"
@@ -405,12 +415,10 @@ int main (void)
     num_rec++;
   }
 
-  free (start);
-  printf ("\\nnum_rec: %u\\n"
-             "num_err: %u\\n", num_rec, num_err);
-
   fclose (f);
-  return (0);
+  free (start);
+  printf ("\\nnum_err: %u\\n", num_err);
+  return (num_err == 0 ? 0 : 1);
 }
 #endif /* AIRCRAFT_LOOKUP || AIRPORT_LOOKUP || ROUTE_LOOKUP */
 """, file=f)
@@ -419,37 +427,48 @@ int main (void)
 #
 # Compile the above .c-file to .exe.
 #
-def compile_to_exe (c_file, define):
+def compile_to_exe (c_file, exe_file, define):
   obj_file = c_file.replace(".c", ".obj")
-  exe_file = c_file.replace(".c", ".exe")
-  cmd = "cl -nologo -MDd -W3 -Zi -I%s -Fe%s -Fo%s -D%s %s -link -nologo -incremental:no" % \
+  if opt.clang:
+    cmd = "clang-cl"
+  else:
+    cmd = "cl"
+  cmd += " -nologo -MDd -W3 -Zi -I%s -Fe%s -Fo%s -D%s %s -link -nologo -incremental:no" % \
         (result_dir, exe_file, obj_file, define, c_file)
-  print ("Compiling:\n  %s" % cmd, flush=True)
   rc = os.system (cmd)
   if rc:
-     sys.exit (rc)
+     error ("Failed to compile '%s'" % cmd)
+
+def c_to_exe (c_file):
+  exe_file = c_file.replace (".c", ".exe")
+  return exe_file.replace ("/", "\\")
 
 #
 # With 'opt.test', run the above compiled .exe
 #
 def run_exe (exe_file):
-  exe_file = exe_file.replace("/", "\\")
-  print ("\nRunning:\n  %s" % exe_file, flush=True)
-  os.system (exe_file)
+  print ("\nRunning:\n  %s" % exe_file, file=sys.stderr)
+  rc = os.system (exe_file)
+  print ("-" * 80, flush=True)
+  return rc
 
 ##############################################################################
 
 def show_help():
   print (__doc__[1:])
   print ("""Usage: %s [options]
-  -h, --help:  Show this help.
-  -t, --test:  List all .csv-file and run the test .exe-programs.""" % my_name)
+  -c, --clang:  Use 'clang-cl' to compile (not 'cl').
+  -h, --help:   Show this help.
+  -l, --list:   List all .csv-file
+  -t, --test:   Run the test .exe-programs.""" % __file__)
   sys.exit (0)
 
 def parse_cmdline():
   parser = argparse.ArgumentParser (add_help = False)
-  parser.add_argument ("-h", "--help", dest = "help", action = "store_true")
-  parser.add_argument ("-t", "--test", dest = "test", action = "store_true")
+  parser.add_argument ("-c", "--clang", dest = "clang", action = "store_true")
+  parser.add_argument ("-h", "--help",  dest = "help",  action = "store_true")
+  parser.add_argument ("-l", "--list",  dest = "list",  action = "store_true")
+  parser.add_argument ("-t", "--test",  dest = "test",  action = "store_true")
   return parser.parse_args()
 
 def main():
@@ -467,43 +486,53 @@ def main():
 
   make_dir (result_dir)
 
-  aircrafts_files = dict()
-  airports_files  = dict()
-  routes_files    = dict()
+  aircraft_files = dict()
+  airport_files  = dict()
+  route_files    = dict()
 
-  walk_csv_tree ("%s/aircraft" % temp_dir, aircrafts_files)
-  walk_csv_tree ("%s/airports" % temp_dir, airports_files)
-  walk_csv_tree ("%s/routes"   % temp_dir, routes_files)
+  walk_csv_tree ("%s/aircraft" % temp_dir, aircraft_files)
+  walk_csv_tree ("%s/airports" % temp_dir, airport_files)
+  walk_csv_tree ("%s/routes"   % temp_dir, route_files)
 
-  if opt.test:
-     total_fsize  = list_files ("aircrafts_files", aircrafts_files)
-     total_fsize += list_files ("airports_files", airports_files)
-     total_fsize += list_files ("routes_files", routes_files)
+  if opt.list:
+     total_fsize  = list_files ("aircraft_files", aircraft_files)
+     total_fsize += list_files ("airport_files", airport_files)
+     total_fsize += list_files ("route_files", route_files)
      print ("total_fsize: %.2f MB" % (float(total_fsize) / 1E6))
-     sys.stdout.flush()
+     sys.exit (0)
 
-  create_csv_file (aircrafts_csv, "aircrafts_files", aircrafts_files)
-  create_csv_file (airports_csv,  "airports_files",  airports_files)
-  create_csv_file (routes_csv,    "routes_files",    routes_files)
+  create_csv_file (aircrafts_csv, "aircraft_files", aircraft_files)
+  create_csv_file (airports_csv,  "airport_files",  airport_files)
+  create_csv_file (routes_csv,    "route_files",    route_files)
 
-  num_aircrafts = create_bin_file (aircrafts_bin, aircrafts_csv, len(aircrafts_files), aircraft_rec_len, aircraft_record)
-  num_airports  = create_bin_file (airports_bin,  airports_csv,  len(airports_files),  airport_rec_len,  airport_record)
-  num_routes    = create_bin_file (routes_bin,    routes_csv,    len(routes_files),    routes_rec_len,   routes_record)
+  num_aircrafts = create_bin_file (aircrafts_bin, aircrafts_csv, len(aircraft_files), aircraft_rec_len, aircraft_record)
+  num_airports  = create_bin_file (airports_bin,  airports_csv,  len(airport_files),  airport_rec_len,  airport_record)
+  num_routes    = create_bin_file (routes_bin,    routes_csv,    len(route_files),    routes_rec_len,   routes_record)
 
-  create_c_test_file (aircrafts_c, aircrafts_bin,  aircraft_rec_len, num_aircrafts)
-  create_c_test_file (airports_c,  airports_bin,   airport_rec_len,  num_airports)
-  create_c_test_file (routes_c,    routes_bin,     routes_rec_len,   num_routes)
-  create_gen_h_file (gen_h)
+  create_c_test_file (aircrafts_c, aircrafts_bin, aircraft_rec_len, num_aircrafts)
+  create_c_test_file (airports_c,  airports_bin,  airport_rec_len,  num_airports)
+  create_c_test_file (routes_c,    routes_bin,    routes_rec_len,   num_routes)
+  create_gen_data_h()
   sys.stdout.flush()
 
-  compile_to_exe (aircrafts_c, "AIRCRAFT_LOOKUP")
-  compile_to_exe (airports_c,  "AIRPORT_LOOKUP")
-  compile_to_exe (routes_c,    "ROUTE_LOOKUP")
+  aircrafts_exe = c_to_exe (aircrafts_c)
+  airports_exe  = c_to_exe (airports_c)
+  routes_exe    = c_to_exe (routes_c)
+
+  compile_to_exe (aircrafts_c, aircrafts_exe, "AIRCRAFT_LOOKUP")
+  compile_to_exe (airports_c,  airports_exe,  "AIRPORT_LOOKUP")
+  compile_to_exe (routes_c,    routes_exe,    "ROUTE_LOOKUP")
 
   if opt.test:
-     run_exe (aircrafts_c.replace(".c", ".exe"))
-     run_exe (airports_c.replace(".c", ".exe"))
-     run_exe (routes_c.replace(".c", ".exe"))
+     rc  = run_exe (aircrafts_exe)
+     rc += run_exe (airports_exe)
+     rc += run_exe (routes_exe)
+     if rc == 0:
+        print ("All tests succeeded!", file=sys.stderr)
+     else:
+        error ("There were some errors!")
+  else:
+     print ("Run %s, %s or %s to test them" % (aircrafts_exe, airports_exe, routes_exe))
 
 if __name__ == "__main__":
   main()
