@@ -173,7 +173,8 @@ static bool location_init (void)
   }
 
   /* Request permissions for this user account to receive location data
-   * for the '&IID_ILatLongReport'. Could return an 'Access Denied'.
+   * for the '&IID_ILatLongReport'. Could return an 'Access Denied' or
+   * 'Class not registered' etc.
    */
   hr = (*g_location->lpVtbl->RequestPermissions) (g_location,
                                                   NULL,
@@ -184,6 +185,8 @@ static bool location_init (void)
   if (!SUCCEEDED(hr))
   {
     LOG_STDOUT ("RequestPermissions() failed: %s.\n", win_strerror(hr));
+    if (hr == REGDB_E_CLASSNOTREG)
+       return (false);
     goto no_access;
   }
 
