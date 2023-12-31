@@ -212,12 +212,30 @@
     #define RC_BUILDER  "MSVC"
   #endif
 
-  #ifdef _DEBUG
+  #if defined(_DEBUG)
     #define RC_DBG_REL    " debug"
     #define RC_FILEFLAGS  1
   #else
     #define RC_DBG_REL    " release"
     #define RC_FILEFLAGS  0
+  #endif
+
+  /** \todo Add 'USE_ASAN' etc. stuff into this
+   */
+  #if defined(USE_ASAN) || defined(USE_UBSAN)
+    #define RC_FILEFLAGS2     VS_FF_SPECIALBUILD
+
+    #if defined(USE_ASAN) && defined(USE_UBSAN)
+      #define RC_BUILD_FEATURES  "ASAN, UBSAN"
+    #elif defined(USE_ASAN)
+      #define RC_BUILD_FEATURES  "ASAN"
+    #else
+      #define RC_BUILD_FEATURES  "UBSAN"
+    #endif
+
+  #else
+    #define RC_FILEFLAGS2     0
+    #define RC_BUILD_FEATURES ""
   #endif
 
   /**

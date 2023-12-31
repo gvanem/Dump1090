@@ -17,6 +17,14 @@
 #undef MOUSE_MOVED
 #include <curses.h>
 
+#if defined(USE_ASAN)
+#include <sanitizer/asan_interface.h>
+#endif
+
+#if defined(USE_UBSAN)
+#include <sanitizer/ubsan_interface.h>
+#endif
+
 #include "aircraft.h"
 #include "sqlite3.h"
 #include "trace.h"
@@ -1013,6 +1021,9 @@ static const char *build_features (void)
   #if defined(USE_ASAN)
     "ASAN",
   #endif
+  #if defined(USE_UBSAN)
+    "UBSAN",
+  #endif
   #if defined(USE_GEN_ROUTES)
     "GEN_ROUTES",
   #endif
@@ -1039,6 +1050,28 @@ static const char *build_features (void)
   p[-2] = '\0';
   return (buf);
 }
+
+#if defined(USE_ASAN)
+/*
+ * Override of the default ASAN options set by '%ASAN_OPTIONS'
+ */
+const char *__asan_default_options (void)
+{
+  printf ("%s() called\n", __func__);
+  return ("debug=1:check_initialization_order=1:debug=1:windows_hook_rtl_allocators=1:log_path=ASAN");
+}
+#endif
+
+#if defined(USE_UBSAN)
+/*
+ * Override of the default UBSAN options set by '%UBSAN_OPTIONS'
+ */
+const char *__ubsan_default_options (void)
+{
+  printf ("%s() called\n", __func__);
+  return ("print_stacktrace=1:log_path=UBSAN");
+}
+#endif
 
 /**
  * Print a long string to screen.

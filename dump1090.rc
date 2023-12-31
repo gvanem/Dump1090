@@ -10,7 +10,7 @@ VS_VERSION_INFO VERSIONINFO
   FILEOS          VOS__WINDOWS32
   FILETYPE        VFT_APP
   FILESUBTYPE     0x0L
-  FILEFLAGS       RC_FILEFLAGS
+  FILEFLAGS       (RC_FILEFLAGS | RC_FILEFLAGS2)
 
 BEGIN
   BLOCK "StringFileInfo"
@@ -21,6 +21,9 @@ BEGIN
       VALUE "FileDescription",  "A simple ADS-B receiver, decoder and web-server."
       VALUE "FileVersion",      RC_VER_STRING
       VALUE "InternalName",     "Dump1090"
+#if (RC_FILEFLAGS2)
+      VALUE "SpecialBuild",     RC_BUILD_FEATURES
+#endif
       VALUE "LegalCopyright",   "Copyright (c) 2012 Salvatore Sanfilippo;\n"
                                 "                        Copyright (c) 2021-2023 Gisle Vanem"
       VALUE "LegalTrademarks",  "MIT License "
@@ -29,10 +32,11 @@ BEGIN
       VALUE "ProductVersion",   RC_VER_STRING
     END
   END
-BLOCK "VarFileInfo"
-BEGIN
-  VALUE "Translation", 0x409, 1200
-END
+
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
 END
 
 #if defined(USE_EMBEDDED_MANIFEST)
