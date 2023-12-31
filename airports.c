@@ -115,19 +115,19 @@ typedef struct flight_info_stats {
 /**
  * \typedef airports_stats
  *
- * Statistics for airports handling.
+ * Statistics for airports + routes handling.
  */
 typedef struct airports_stats {
-        uint32_t  CSV_numbers;        /**< Count of CSV records in Modes.airport_db file */
-        uint32_t  CSV_num_ICAO;       /**< of which was ICAO records (there are most dominant) */
-        uint32_t  CSV_num_IATA;       /**< or which was IATA records */
-        uint32_t  API_requests_sent;  /**< Count of requests sent in API-thread  */
-        uint32_t  API_response_recv;  /**< Count of ANY responses received in API-thread */
-        uint32_t  API_service_404;    /**< Count of "404 Not found" responses */
-        uint32_t  API_service_503;    /**< Count of "503 Service Temporarily Unavailable" responses */
-        uint32_t  API_added_CSV;      /**< Count of cached flight-info record in `g_data.flight_info`. */
-        uint32_t  API_used_CSV;       /**< Count of cached flight-info record that was used in a lookup. */
-        uint64_t  API_empty_call_sign;
+        uint32_t  CSV_numbers;         /**< Count of CSV records in Modes.airport_db file */
+        uint32_t  CSV_num_ICAO;        /**< of which was ICAO records (there are most dominant) */
+        uint32_t  CSV_num_IATA;        /**< or which was IATA records */
+        uint32_t  API_requests_sent;   /**< Count of requests sent in API-thread  */
+        uint32_t  API_response_recv;   /**< Count of ANY responses received in API-thread */
+        uint32_t  API_service_404;     /**< Count of "404 Not found" responses */
+        uint32_t  API_service_503;     /**< Count of "503 Service Temporarily Unavailable" responses */
+        uint32_t  API_added_CSV;       /**< Count of cached flight-info record in `g_data.flight_info`. */
+        uint32_t  API_used_CSV;        /**< Count of cached flight-info record that was used in a lookup. */
+        uint32_t  routes_records_used;
       } airports_stats;
 
 /**
@@ -160,7 +160,8 @@ typedef struct airports_priv {
         bool              do_trace;       /**< Use `API_TRACE()` macro? */
         bool              do_trace_LOL;   /**< or use `API_TRACE_LOL()` macro? */
         bool              use_new_api;    /**< The ADSB API was recently changed. Use the new URL format? */
-        FILETIME          ft_now;         /**< FILETIME for startup */
+        bool              init_done;
+        uint32_t          last_rc;
 
         /**
          * \todo
@@ -185,6 +186,7 @@ static void         flight_info_exit (FILE *f);
 static flight_info *flight_info_create (const char *call_sign, uint32_t addr, airport_t type);
 static bool         flight_info_write (FILE *file, const flight_info *f);
 static void         flight_stats_now (flight_info_stats *stats);
+static const char  *find_airport_location (const char *IATA_or_ICAO);
 
 static airports_priv g_data;
 
@@ -548,53 +550,48 @@ static void airports_exit_freq_CSV (void)
 {
 }
 
-/**
- * \todo
- * Look in `route_records[]` before posting a requst to the ADSB-LOL API.
- */
-static bool airports_init_routes (void)
-{
-  return (true);
-}
-
-static void airports_exit_routes (void)
-{
-}
-
 #if defined(USE_GEN_ROUTES)
-static int route_compare_on_ICAO (const void *_a, const void *_b)
+static int routes_compare (const void *a, const void *b)
 {
-  const route_record *a = (const route_record*) _a;
-  const route_record *b = (const route_record*) _b;
-
-  return stricmp (a->call_sign, b->call_sign);
+  return stricmp ((const char*)a, (const char*)b);
 }
 
 /**
- * Use `bsearch("call_sign")` on `route_records[]`.
+ * Look in `route_records[]` before posting a requst to the ADSB-LOL API.
  */
 static flight_info *routes_find_by_callsign (const char *call_sign)
 {
-  static flight_info f;
-  route_record       key;
-  route_record      *r = NULL;
+  static flight_info  f;
+  const route_record *r = NULL;
+  const airport      *dep, *dest;
 
   if (route_records_num > 0)
-  {
-    strncpy (key.call_sign, call_sign, sizeof(key.call_sign)-1);
-    r = bsearch (&key, route_records, route_records_num, sizeof(route_records[0]), route_compare_on_ICAO);
-  }
+     r = bsearch (call_sign, route_records, route_records_num,
+                  sizeof(route_records[0]), routes_compare);
+
   if (!r)
      return (NULL);
 
   /* Rewrite 'r' into a 'f' record.
+   * Convert ICAO names to IATA if possible.
    * Ignoring the 5 possible stop-over airports
    */
   memset (&f, '\0', sizeof(f));
-  f.type = AIRPORT_API_CACHED;
   strncpy (f.call_sign, r->call_sign, sizeof(f.call_sign)-1);
-  strncpy (f.departure, r->departure, sizeof(f.departure)-1);
-  strncpy (f.destination, r->destination, sizeof(f.destination)-1);
+  f.type    = AIRPORT_API_CACHED;
+  f.created = Modes.start_time;
+  dep  = CSV_lookup_ICAO (r->departure);
+  dest = CSV_lookup_ICAO (r->destination);
+
+  strncpy (f.departure,   dep  ? dep->IATA  : r->departure, sizeof(f.departure)-1);
+  strncpy (f.destination, dest ? dest->IATA : r->destination, sizeof(f.destination)-1);
+
+#if 0
+  flight_info *f2 = memdup (&f, sizeof(f));
+  if (f2)
+     LIST_ADD_TAIL (flight_info, &g_data.flight_info, f2);
+#endif
+
   return (&f);
 }
 #endif /* USE_GEN_ROUTES */
@@ -602,36 +599,38 @@ static flight_info *routes_find_by_callsign (const char *call_sign)
 static void routes_find_test_1 (void)
 {
 #if !defined(USE_GEN_ROUTES)
-  printf ("%s(): '-DUSE_GEN_ROUTEST' not defined.\n\n", __FUNCTION__);
+  printf ("%s(): '-DUSE_GEN_ROUTEST' not defined.\n", __FUNCTION__);
 
 #else
-  size_t num = min (10, route_records_num-1);
+  size_t num = min (10, route_records_num);
   size_t i, rec_num;
 
   printf ("%s():\n  Checking %zu random records among %zu records.\n", __FUNCTION__, num, route_records_num);
-  printf ("  Record  call-sign  DEP     DEST    (departure    -> destination)\n"
+  printf ("  Record  call-sign  DEP     DEST    (departure        -> destination)\n"
           "  ---------------------------------------------------------------------------------\n");
 
   for (i = 0; i < num; i++)
   {
     const flight_info *f;
-    const airport     *a_dep, *a_dest;
+    const char        *dep, *dest;
     const char        *call_sign;
 
     rec_num   = (size_t) random_range (0, route_records_num - 1);
     call_sign = route_records [rec_num].call_sign;
-    f = routes_find_by_callsign (call_sign);
-    a_dep  = CSV_lookup_ICAO (f->departure);
-    a_dest = CSV_lookup_ICAO (f->destination);
 
-    printf ("  %6zu  %-7s    %-7s %-7s (%-12s -> %s)\n",
-            rec_num, f->call_sign,
-            f->departure, f->destination,
-            a_dep  ? a_dep->location  : "?",
-            a_dest ? a_dest->location : "?");
+    f = routes_find_by_callsign (call_sign);
+
+    /* `f` should never be NULL here
+     */
+    dep  = find_airport_location (f->departure);
+    dest = find_airport_location (f->destination);
+
+    printf ("  %6zu  %-7s    %-7s %-7s (%-16s -> %s)\n",
+            rec_num, f->call_sign, f->departure, f->destination,
+            dep ? dep : "?", dest ? dest : "?");
   }
-  puts ("");
 #endif /* USE_GEN_ROUTES */
+  puts ("");
 }
 
 /**
@@ -650,9 +649,9 @@ static int API_add_entry (const flight_info *rec)
     strcpy (f->destination, rec->destination);
     g_data.ap_stats.API_added_CSV++;
 
-    /* Check if 'g_data.ft_now - rec->created > API_MAX_AGE'.
+    /* Check if 'Modes.start_time - rec->created > API_MAX_AGE'.
      */
-    ft_diff = *(ULONGLONG*) &g_data.ft_now - *(ULONGLONG*) &rec->created;
+    ft_diff = *(ULONGLONG*) &Modes.start_time - *(ULONGLONG*) &rec->created;
     if (ft_diff > API_MAX_AGE)
        f->type = AIRPORT_API_EXPIRED;
   }
@@ -800,13 +799,21 @@ void airports_show_stats (void)
               g_data.fs_stats.live + g_data.fs_stats.cached, g_data.fs_stats.dead);
   interactive_clreol();
 
-  LOG_STDOUT ("  %6u API requests sent. %u received.\n",
-              g_data.ap_stats.API_requests_sent, g_data.ap_stats.API_response_recv);
+  LOG_STDOUT ("  %6u API requests sent. %u received (HTTP 404: %u)\n",
+              g_data.ap_stats.API_requests_sent,
+              g_data.ap_stats.API_response_recv,
+              g_data.ap_stats.API_service_404);
   interactive_clreol();
 
   LOG_STDOUT ("  %6u API records cached. Used %u times.\n",
               g_data.ap_stats.API_added_CSV, g_data.ap_stats.API_used_CSV);
   interactive_clreol();
+
+#if defined(USE_GEN_ROUTES)
+  LOG_STDOUT ("  %6zu Route records. Used %u times.\n",
+              route_records_num, g_data.ap_stats.routes_records_used);
+  interactive_clreol();
+#endif
 }
 
 /**
@@ -861,8 +868,8 @@ static bool airports_API_parse_response (flight_info *f, char *resp)
 /*
  * This function blocks the `API_thread_func()` function.
  *
- * Send one request at a time for a call-sign to be resolved into a
- * `AIRPORT_API_LIVE` flight-record.
+ * Send one request at a time for a call-sign to be resolved into
+ * a `AIRPORT_API_LIVE` flight-record.
  */
 static bool API_thread_worker (flight_info *f)
 {
@@ -1033,7 +1040,7 @@ static void airports_cache_write (void)
 
 /**
  * Called from `background_tasks()` 4 times per second.
- * Save the `%TEMP%\\dump1090\\ AIRPORT_DATABASE_CACHE` file once every 5 minutes.
+ * Save the `%TEMP%\\dump1090\\AIRPORT_DATABASE_CACHE` file once every 5 minutes.
  */
 void airports_background (uint64_t now)
 {
@@ -1043,7 +1050,7 @@ void airports_background (uint64_t now)
   FILE              *file;
   int                num;
 
-  airports_API_show_stats();
+//airports_API_show_stats();
 
   if (!do_dump)  /* problem with cache-file? */
      return;
@@ -1064,7 +1071,6 @@ void airports_background (uint64_t now)
          num++;
   fclose (file);
   LOG_FILEONLY ("dumped %d LIVE records to cache.\n", num);
-
 }
 
 /**
@@ -1132,19 +1138,23 @@ static bool airports_init_API (void)
 }
 
 /**
+ * Return ret-val from `airports_init()`
+ */
+uint32_t airports_rc (void)
+{
+  assert (g_data.init_done);
+  return (g_data.last_rc);
+}
+
+/**
  * Main init function for this module.
- *
- * Called from:
- *  \li modeS_init() for `--test` mode or from
- *  \li interactive_init() in `--interactive` mode.
  */
 uint32_t airports_init (void)
 {
   bool rc;
 
   assert (g_data.airports == NULL);
-
-  get_FILETIME_now (&g_data.ft_now); /* get FILETIME for "now" */
+  assert (g_data.init_done == false);
 
   g_data.do_trace_LOL = (Modes.debug & DEBUG_ADSB_LOL);
   g_data.use_new_api  = true;
@@ -1156,7 +1166,6 @@ uint32_t airports_init (void)
 
   rc = (airports_init_CSV() &&
         airports_init_freq_CSV() &&
-        airports_init_routes() &&
         airports_init_API());
 
   if (test_contains(Modes.tests, "airport"))
@@ -1173,14 +1182,10 @@ uint32_t airports_init (void)
     airport_API_test_2();
     routes_find_test_1();
     airports_show_stats();
-    rc = false;        /* Just force an exit */
   }
 
   if (test_contains(Modes.tests, "locale"))
-  {
-    locale_test();
-    rc = false;        /* Just force an exit */
-  }
+     locale_test();
 
   /*
    * On success, return the number of airport CSV records.
@@ -1190,7 +1195,9 @@ uint32_t airports_init (void)
    * If we have 0 airports, it's little point showing these columns
    * allthough the ADSB-LOL API does not need that information.
    */
-  return (rc ? g_data.ap_stats.CSV_numbers : 0);
+  g_data.init_done = true;
+  g_data.last_rc = rc ? g_data.ap_stats.CSV_numbers : 0;
+  return (g_data.last_rc);
 }
 
 /**
@@ -1198,13 +1205,10 @@ uint32_t airports_init (void)
  */
 static void airports_exit_API (void)
 {
-  airport *a, *a_next;
+  const airport *a;
 
-  for (a = g_data.airports; a; a = a_next)
-  {
-    a_next = a->next;
-    LIST_DELETE (airport, &g_data.airports, a);
-  }
+  for (a = g_data.airports; a; a = a->next)
+     LIST_DELETE (airport, &g_data.airports, a);
 
   g_data.airports = NULL;
 
@@ -1227,7 +1231,6 @@ void airports_exit (bool free_airports)
     airports_exit_API();
     airports_exit_CSV();
     airports_exit_freq_CSV();
-    airports_exit_routes();
   }
   /* Otherwise at least try to save the cache.
    */
@@ -1586,8 +1589,6 @@ static void airport_API_test_1 (void)
   t_elapsed = 0;
   t_max = 1000;
 
-  get_FILETIME_now (&g_data.ft_now); /* get FILETIME for "now" */
-
   for (i = 0; i < (int)DIM(call_signs_tests); i++)
   {
     airports_API_get_flight_info (call_signs_tests[i], ICAO_UNKNOWN, &departure, &destination);
@@ -1702,21 +1703,6 @@ static flight_info *flight_info_create (const char *call_sign, uint32_t addr, ai
 }
 
 /**
- * Traverse the `g_data.flight_info` list to get flight-information for this call-sign.
- */
-static flight_info *flight_info_find_by_callsign (const char *call_sign)
-{
-  flight_info *f;
-
-  for (f = g_data.flight_info; f; f = f->next)
-  {
-    if (!stricmp(f->call_sign, call_sign))
-       return (f);
-  }
-  return (NULL);
-}
-
-/**
  * As above, but for any ICAO address (or a "live" ICAO address).
  */
 static flight_info *flight_info_find_by_addr (uint32_t addr)
@@ -1725,14 +1711,34 @@ static flight_info *flight_info_find_by_addr (uint32_t addr)
 
   for (f = g_data.flight_info; f; f = f->next)
   {
-    if (f->ICAO_addr == ICAO_UNKNOWN
-#if 0
-       || f->type == AIRPORT_API_DEAD || f->type == AIRPORT_API_EXPIRED
-#endif
-       )
-       continue;
+    if (f->ICAO_addr != ICAO_UNKNOWN && addr == f->ICAO_addr)
+       return (f);
+  }
+  return (NULL);
+}
 
-    if (addr == f->ICAO_addr)
+/**
+ * Find `flight_info` for a call_sign in either
+ * `route_records[]` or `g_data.flight_info`.
+ */
+static flight_info *find_by_callsign (const char *call_sign, bool *fixed)
+{
+  flight_info *f;
+
+  *fixed = false;
+
+#if defined(USE_GEN_ROUTES)
+  f = routes_find_by_callsign (call_sign);
+  if (f)
+  {
+    *fixed = true;
+    return (f);
+  }
+#endif
+
+  for (f = g_data.flight_info; f; f = f->next)
+  {
+    if (!stricmp(f->call_sign, call_sign))
        return (f);
   }
   return (NULL);
@@ -1751,12 +1757,13 @@ static bool flight_info_write (FILE *file, const flight_info *f)
   if (!stricmp(f->destination, "unknown"))
      destination = "?";
 
-  /* Cache everything or just LIVE / CACHED records?
-   */
-#if 1
-  if (*departure == '?' || *destination == '?' || !(f->type == AIRPORT_API_LIVE || f->type == AIRPORT_API_CACHED))
+  if (*departure == '?' || *destination == '?')
      return (false);
-#endif
+
+  /* Cache only LIVE / CACHED records
+   */
+  if (f->type != AIRPORT_API_LIVE && f->type != AIRPORT_API_CACHED)
+     return (false);
 
   fprintf (file, "%d,%s,%s,%s,%06X,%llu\n",
            f->type, f->call_sign, departure, destination, f->ICAO_addr,
@@ -1836,8 +1843,9 @@ bool airports_API_get_flight_info (const char  *call_sign,
                                    const char **destination)
 {
   const char  *type;
-  flight_info *f;
   const char   *end;
+  bool          fixed;
+  flight_info *f;
 
   *departure = *destination = NULL;
 
@@ -1853,19 +1861,13 @@ bool airports_API_get_flight_info (const char  *call_sign,
   if (*call_sign == '\0')
   {
     API_TRACE ("Empty 'call_sign'!");
-    g_data.ap_stats.API_empty_call_sign++;
     return (false);
   }
 
   end = strrchr (call_sign, '\0');
   assert (end[-1] != ' ');
 
-#if defined(USE_GEN_ROUTES)
-  f = routes_find_by_callsign (call_sign);
-  if (!f)
-#endif
-     f = flight_info_find_by_callsign (call_sign);
-
+  f = find_by_callsign (call_sign, &fixed);
   if (!f)
   {
     flight_info_create (call_sign, addr, AIRPORT_API_PENDING);
@@ -1874,7 +1876,11 @@ bool airports_API_get_flight_info (const char  *call_sign,
   }
 
   if (f->type == AIRPORT_API_CACHED)
-     g_data.ap_stats.API_used_CSV++;
+  {
+    if (fixed)
+         g_data.ap_stats.routes_records_used++;
+    else g_data.ap_stats.API_used_CSV++;
+  }
 
   type = airport_t_str (f->type);
 
@@ -1899,7 +1905,7 @@ bool airports_API_get_flight_info (const char  *call_sign,
  * call-sign and ICAO-address. Like:
  *   ```
  *   20:08:34.123: plane 48AE23 entering.
- *   20:08:36.456: plane 48AE23, call-sign: SK295, "WAW -> JFK" (Warsaw -> New York, resp-time: 120.34 ms)
+ *   20:08:36.456: plane 48AE23, call-sign: SK295, "WAW -> JFK" (Warsaw -> New York, 120.34 msec)
  *   ....
  *   20:14:32.789: plane 48AE23 leaving. Active for 356.4 sec...
  *   ```
@@ -1914,11 +1920,14 @@ bool airports_API_flight_log_resolved (const aircraft *a)
 {
   char         plane_buf [100];
   char         comment [100] = "";
+  bool         fixed;
+  ULONGLONG    ft_diff;
+  double       msec;
   flight_info *f;
 
   assert (a->is_helicopter == false);
 
-  f = flight_info_find_by_callsign (a->call_sign);
+  f = find_by_callsign (a->call_sign, &fixed);
   if (!f)
      return (false);
 
@@ -1941,17 +1950,19 @@ bool airports_API_flight_log_resolved (const aircraft *a)
 
     if (f->type == AIRPORT_API_CACHED)
     {
-      const char *when = modeS_FILETIME_to_loc_str (&f->created, true);
+      const char *when;
 
-      snprintf (comment, sizeof(comment), "cached: %s local", when);
-      g_data.ap_stats.API_used_CSV++;
+      if (fixed)
+           when = "at startup";
+      else when = modeS_FILETIME_to_loc_str (&f->created, true);
+      snprintf (comment, sizeof(comment), "cached: %s", when);
     }
     else
     {
-      ULONGLONG ft_diff = *(ULONGLONG*) &f->responded - *(ULONGLONG*) &f->created;
-      double    msec    = (double)ft_diff / 1E4;   /* 100 nsec units to msec */
+      ft_diff = *(ULONGLONG*) &f->responded - *(ULONGLONG*) &f->created;
+      msec    = (double)ft_diff / 1E4;   /* 100 nsec units to msec */
 
-      snprintf (comment, sizeof(comment), "resp-time: %.3lf ms", msec);
+      snprintf (comment, sizeof(comment), "%.3lf ms", msec);
     }
     LOG_FILEONLY ("%s, \"%s -> %s\" (%S -> %S, %s).\n",
                   plane_buf, f->departure, f->destination,
@@ -1962,7 +1973,11 @@ bool airports_API_flight_log_resolved (const aircraft *a)
   if (f->type == AIRPORT_API_DEAD)
   {
     if (f->http_status > 0)
-       snprintf (comment, sizeof(comment), " (HTTP %d)", f->http_status);
+    {
+      ft_diff = *(ULONGLONG*) &f->responded - *(ULONGLONG*) &f->created;
+      msec    = (double)ft_diff / 1E4;
+      snprintf (comment, sizeof(comment), " (HTTP %d, %.3lf msec)", f->http_status, msec);
+    }
     LOG_FILEONLY ("%s, ? -> ?%s.\n", plane_buf, comment);
     return (true);
   }
@@ -1972,7 +1987,7 @@ bool airports_API_flight_log_resolved (const aircraft *a)
 
 /*
  * This function logs when an airplane leaves our list of seen aircrafts.
- * It assumes it won't reenter.
+ * But it's possible that the plane reenters.
  */
 bool airports_API_flight_log_leaving (const aircraft *a)
 {
@@ -1997,10 +2012,10 @@ bool airports_API_flight_log_leaving (const aircraft *a)
     _itoa (altitude, alt_buf, 10);
   }
 
-  if (a->is_helicopter && a->call_sign[0])
+  if (a->call_sign[0])
      call_sign = a->call_sign;
   else if (f && f->call_sign[0])
-     call_sign = f->call_sign;
+     call_sign = f->call_sign;    /* A cached plane or helicopter */
 
   LOG_FILEONLY ("%s %06X leaving. call-sign: %s, %sactive for %.1lf s, alt: %s %s, dist: %s/%s %s.\n",
                 a->is_helicopter ? "helicopter" : "plane",
