@@ -2221,7 +2221,10 @@ void net_poll (void)
        LOG_FILEONLY ("mem_alloc: %llu\n", net_mem_allocated (MODES_NET_SERVICE_HTTP, 0));
 
     if (Modes.log)
-       fflush (Modes.log);
+    {
+      fflush (Modes.log);
+      _commit (fileno(Modes.log));
+    }
   }
 }
 
@@ -2233,13 +2236,112 @@ static const char *get_tuner_type (int type)
 {
   type = ntohl (type);
 
- return (type == RTLSDR_TUNER_UNKNOWN ? "Unknown" :
-         type == RTLSDR_TUNER_E4000   ? "E4000"   :
-         type == RTLSDR_TUNER_FC0012  ? "FC0012"  :
-         type == RTLSDR_TUNER_FC0013  ? "FC09013" :
-         type == RTLSDR_TUNER_FC2580  ? "FC2580"  :
-         type == RTLSDR_TUNER_R820T   ? "R820T"   :
-         type == RTLSDR_TUNER_R828D   ? "R828D"   : "?");
+  return (type == RTLSDR_TUNER_UNKNOWN ? "Unknown" :
+          type == RTLSDR_TUNER_E4000   ? "E4000"   :
+          type == RTLSDR_TUNER_FC0012  ? "FC0012"  :
+          type == RTLSDR_TUNER_FC0013  ? "FC09013" :
+          type == RTLSDR_TUNER_FC2580  ? "FC2580"  :
+          type == RTLSDR_TUNER_R820T   ? "R820T"   :
+          type == RTLSDR_TUNER_R828D   ? "R828D"   : "?");
+}
+
+/**
+ * The gain-values depends on tuner type.
+ */
+static bool get_gain_values (const RTL_TCP_info *info, int **gains, int *gain_count)
+{
+  static int e4k_gains[]    = { -10,  15,  40,  65,  90, 115, 140,
+                                165, 190, 215, 240, 290, 340, 420
+                              };
+  static int fc0012_gains[] = { -99, -40,  71, 179, 192 };
+  static int fc0013_gains[] = { -99, -73, -65, -63, -60, -58, -54,  58,
+                                 61,  63,  65,  67,  68,  70,  71, 179,
+                                181, 182, 184, 186, 188, 191, 197
+                              };
+  static int r82xx_gains[]  = {   0,   9,  14,  27,  37,  77,  87, 125,
+                                144, 157, 166, 197, 207, 229, 254, 280,
+                                297, 328, 338, 364, 372, 386, 402, 421,
+                                434, 439, 445, 480, 496
+                              };
+  uint32_t gcount = ntohl (info->tuner_gain_count);
+
+  switch (info->tuner_type)
+  {
+    case RTLSDR_TUNER_E4000:
+         *gains      = e4k_gains;
+         *gain_count = DIM (e4k_gains);
+         break;
+
+    case RTLSDR_TUNER_FC0012:
+         *gains      = fc0012_gains;
+         *gain_count = DIM (fc0012_gains);
+         break;
+
+    case RTLSDR_TUNER_FC0013:
+         *gains      = fc0013_gains;
+         *gain_count = DIM (fc0013_gains);
+         break;
+
+    case RTLSDR_TUNER_R820T:
+    case RTLSDR_TUNER_R828D:
+         *gains      = r82xx_gains;
+         *gain_count = DIM (r82xx_gains);
+         break;
+
+    case RTLSDR_TUNER_FC2580:
+    default:
+         *gains      = NULL;
+         *gain_count = 0;
+         LOG_STDERR ("No gain values, tuner: %s\n", get_tuner_type(info->tuner_type));
+         return (false);
+  }
+
+  if (gcount != (uint32_t) *gain_count)
+  {
+    LOG_STDERR ("Unexpected number of gain values reported by server: %u vs. %d (tuner: %s)\n",
+                gcount, *gain_count, get_tuner_type(info->tuner_type));
+    return (false);
+  }
+   return (true);
+}
+
+/**
+ * Similar to `nearest_gain()` for a local RTLSDR device.
+ */
+static bool set_nearest_gain (RTL_TCP_info *info, uint16_t *target_gain)
+{
+  int      gain_in;
+  int      i, err1, err2, nearest;
+  int     *gains, gain_count;
+  char     gbuf [200], *p = gbuf;
+  size_t   left = sizeof(gbuf);
+  uint32_t gcount = ntohl (info->tuner_gain_count);
+
+  if (gcount <= 0 || !get_gain_values(info, &gains, &gain_count))
+     return (false);
+
+  Modes.rtltcp.gain_count = gain_count;
+  Modes.rtltcp.gains      = memdup ((void*)gains, sizeof(int) * gain_count);
+  nearest = Modes.rtltcp.gains [0];
+  if (!target_gain)
+     return (true);
+
+  gain_in = *target_gain;
+
+  for (i = 0; i < Modes.rtltcp.gain_count; i++)
+  {
+    err1 = abs (gain_in - nearest);
+    err2 = abs (gain_in - Modes.rtltcp.gains[i]);
+
+    p += snprintf (p, left, "%.1f, ", Modes.rtltcp.gains[i] / 10.0);
+    left = sizeof(gbuf) - (p - gbuf) - 1;
+    if (err2 < err1)
+       nearest = Modes.rtltcp.gains[i];
+  }
+  p [-2] = '\0';
+  LOG_STDOUT ("Supported gains: %s.\n", gbuf);
+  *target_gain = (uint16_t) nearest;
+  return (true);
 }
 
 /**
@@ -2247,17 +2349,24 @@ static const char *get_tuner_type (int type)
  */
 void rtl_tcp_recv_info (mg_iobuf *msg)
 {
-  RTL_TCP_info *info;
-
-  if (msg->len >= sizeof(*info) && !memcmp(msg->buf, RTL_TCP_MAGIC, sizeof(RTL_TCP_MAGIC)-1))
+  if (msg->len >= sizeof(Modes.rtltcp.info) &&
+      !memcmp(msg->buf, RTL_TCP_MAGIC, sizeof(RTL_TCP_MAGIC)-1))
   {
-    info = memdup (msg->buf, sizeof(*info));
-    Modes.rtltcp.info = info;
+    RTL_TCP_info *info = memdup (msg->buf, sizeof(*info));
+
+    Modes.rtltcp.info = info;  /* a copy */
 
     DEBUG (DEBUG_NET, "tuner_type: \"%s\", gain_count: %lu.\n",
            get_tuner_type(info->tuner_type), ntohl(info->tuner_gain_count));
+
     net_timer_del (MODES_NET_SERVICE_RTL_TCP);
     mg_iobuf_del (msg, 0, sizeof(*info));
+
+    if (set_nearest_gain (info, Modes.gain_auto ? NULL : &Modes.gain))
+    {
+      rtl_tcp_set_gain_mode (Modes.rtl_tcp_in, Modes.gain_auto);
+      rtl_tcp_set_gain (Modes.rtl_tcp_in, Modes.gain);
+    }
   }
 }
 
@@ -2271,7 +2380,7 @@ void rtl_tcp_recv_data (mg_iobuf *msg)
 }
 
 /**
- * The read event handler for RTL_TCP messages.
+ * The read event handler for all RTL_TCP messages.
  */
 static bool rtl_tcp_decode (mg_iobuf *msg, int loop_cnt)
 {
@@ -2300,23 +2409,11 @@ static bool rtl_tcp_command (mg_connection *c, uint8_t command, uint32_t param)
 
 /**
  * The `MG_EV_CONNECT` handler for the RTL_TCP service.
- * Send the setup parameters to the remote RTL_TCP server.
+ * Send the setup parameters to the remote server.
  */
 static bool rtl_tcp_connect (mg_connection *c)
 {
-  /* How to get these from the RTLSDR server?
-   * Just copied from 'r82xx_get_gains[]'
-   */
-  static int fixed_gains[] = {
-               0,  34,  68, 102, 137, 171, 207, 240,
-             278, 312, 346, 382, 416, 453, 488, 527
-           };
   INT_PTR service = MODES_NET_SERVICE_RTL_TCP;
-
-  Modes.gain_auto         = false;
-  Modes.gain              = fixed_gains [DIM(fixed_gains) / 2];
-  Modes.rtltcp.gains      = memdup (&fixed_gains, sizeof(fixed_gains));
-  Modes.rtltcp.gain_count = DIM(fixed_gains);
 
   DEBUG (DEBUG_NET, "Setting sample-rate: %.2f MS/s.\n", (double)Modes.sample_rate/1E6);
   if (!rtl_tcp_command (c, RTL_SET_SAMPLE_RATE, Modes.sample_rate))
@@ -2326,13 +2423,9 @@ static bool rtl_tcp_connect (mg_connection *c)
   if (!rtl_tcp_command (c, RTL_SET_FREQUENCY, Modes.freq))
      goto failed;
 
-  DEBUG (DEBUG_NET, "Setting autogain: %d, gain: %d, PPM: %d.\n",
-         Modes.gain_auto, Modes.gain, Modes.rtlsdr.ppm_error);
-
-  if (!rtl_tcp_command (c, RTL_SET_GAIN_MODE, Modes.gain_auto) ||
-      !rtl_tcp_command (c, RTL_SET_GAIN, Modes.gain) ||
-      !rtl_tcp_command (c, RTL_SET_FREQ_CORRECTION, Modes.rtlsdr.ppm_error))
-    goto failed;
+  DEBUG (DEBUG_NET, "Setting PPM: %d.\n", Modes.rtltcp.ppm_error);
+  if (!rtl_tcp_command (c, RTL_SET_FREQ_CORRECTION, Modes.rtltcp.ppm_error))
+     goto failed;
 
   /* If we do not get the `RTL_TCP_MAGIC` welcome message.
    * Or if we stop getting data, add a timer to detect it.
