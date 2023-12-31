@@ -84,6 +84,7 @@
 #define DEBUG_NET        0x0400
 #define DEBUG_NET2       0x0800
 #define DEBUG_ADSB_LOL   0x1000
+#define DEBUG_CFG_FILE   0x2000
 
 /**
  * \def DEBUG(bit, fmt, ...)

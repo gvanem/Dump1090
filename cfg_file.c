@@ -26,6 +26,10 @@
 #define MAX_VALUE_LEN 300
 #endif
 
+#undef  TRACE
+#define TRACE(fmt, ...) DEBUG (DEBUG_CFG_FILE, fmt ".\n", __VA_ARGS__)
+
+
 static_assert (MAX_VALUE_LEN >= sizeof(mg_file_path), "MAX_VALUE_LEN too small");
 
 /**
