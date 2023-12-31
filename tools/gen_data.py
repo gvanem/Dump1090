@@ -180,9 +180,12 @@ def create_bin_file (to_file, from_file, dict_len, rec_len, rec_func):
   f_bin.seek (struct.calcsize(bin_header), 0)
 
   for rows, d in enumerate(data):
-      if rows > 0:
+      if rows > 0:      # ignore the CSV header row
          f_bin.write (rec_func(d))
 
+  #
+  # Seek to start of .BIN file and write the header
+  #
   f_bin.seek (0, 0)
   hdr = struct.pack (bin_header, to_bytes(bin_marker), int(time.time()), rows, rec_len)
   f_bin.write (hdr)
@@ -430,11 +433,12 @@ int main (void)
 def compile_to_exe (c_file, exe_file, define):
   obj_file = c_file.replace(".c", ".obj")
   if opt.clang:
-    cmd = "clang-cl"
+     cmd = "clang-cl"
   else:
-    cmd = "cl"
+     cmd = "cl"
+
   cmd += " -nologo -MDd -W3 -Zi -I%s -Fe%s -Fo%s -D%s %s -link -nologo -incremental:no" % \
-        (result_dir, exe_file, obj_file, define, c_file)
+          (result_dir, exe_file, obj_file, define, c_file)
   rc = os.system (cmd)
   if rc:
      error ("Failed to compile '%s'" % cmd)
