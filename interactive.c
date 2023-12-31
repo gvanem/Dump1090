@@ -140,7 +140,7 @@ bool interactive_init (void)
        api = &curses_api;
   else api = &wincon_api;
 
-  if (airports_init() > 0)
+  if (airports_rc() > 0)
      show_dep_dst = true;
 
   return ((*api->init)() == 0);
@@ -378,8 +378,11 @@ void interactive_update_gain (void)
      gain_idx = gain_increase (gain_idx);
   else if (ch == '-')
      gain_idx = gain_decrease (gain_idx);
-  else if (ch == 'g' || ch == 'G')  /* toggle gain-mode */
+  else if (ch == 'g' || ch == 'G')   /* toggle gain-mode for a local RTLSDR */
   {
+    if (!Modes.rtlsdr.gains)
+       return;
+
     if (Modes.gain_auto)
     {
       Modes.gain_auto = false;
@@ -505,6 +508,8 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   {
     if (!a->is_helicopter && !a->done_flight_info)
        a->done_flight_info = airports_API_flight_log_resolved (a);
+    if (a->is_helicopter)
+       ; /**< \todo print reg_num in dark RED colour */
   }
   else if (a->show == A_SHOW_LAST_TIME)
   {
