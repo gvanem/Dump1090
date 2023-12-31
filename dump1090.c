@@ -113,7 +113,7 @@ static bool      set_port_sbs (const char *arg);
 static bool      set_ppm (const char *arg);
 static bool      set_sample_rate (const char *arg);
 static bool      set_silent (const char *arg);
-static void      set_tui (const char *arg);
+static bool      set_tui (const char *arg);
 static bool      set_web_page (const char *arg);
 
 static int       fix_single_bit_errors (uint8_t *msg, int bits);
@@ -466,7 +466,7 @@ static bool modeS_init (void)
   if (strcmp(Modes.aircraft_db, "NUL") && (Modes.aircraft_db_url || Modes.update))
   {
     aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_url);
-    if (!aircraft_CSV_load())
+    if (!aircraft_CSV_load() || Modes.update)
        return (false);
   }
 
@@ -2800,6 +2800,7 @@ static void show_help (const char *fmt, ...)
             "                        C = Log frames with good CRC.\n"
             "                        D = Log frames decoded with 0 errors.\n"
             "                        E = Log frames decoded with errors.\n"
+            "                        f = Log actions in `cfg_file.c'.\n"
             "                        g = Log general debugging info.\n"
             "                        G = A bit more general debug info than flag `g'.\n"
             "                        j = Log frames to `frames.js', loadable by `tools/debug.html'.\n"
@@ -2825,7 +2826,7 @@ static void show_help (const char *fmt, ...)
             "  --raw                 Output raw hexadecimal messages only.\n"
             "  --strip <level>       Output missing the I/Q parts that are below the specified level.\n"
             "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `config', `locale', `net' or `*')\n"
-            "  --update              Update missing or old \"*.csv\" files.\n"
+            "  --update              Update missing or old \"*.csv\" files and exit.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
             Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP);
@@ -3165,13 +3166,20 @@ static bool set_sample_rate (const char *arg)
   return (true);
 }
 
-static void set_tui (const char *arg)
+static bool set_tui (const char *arg)
 {
   if (!stricmp(arg, "wincon"))
-       Modes.tui_interface = TUI_WINCON;
-  else if (!stricmp(arg, "curses"))
-       Modes.tui_interface = TUI_CURSES;
-  else show_help ("Unknown `tui %s' mode.\n", arg);
+  {
+    Modes.tui_interface = TUI_WINCON;
+    return (true);
+  }
+  if (!stricmp(arg, "curses"))
+  {
+    Modes.tui_interface = TUI_CURSES;
+    return (true);
+  }
+  show_help ("Unknown `tui %s' mode.\n", arg);
+  return (false);
 }
 
 static void set_debug_bits (const char *flags)
@@ -3194,6 +3202,9 @@ static void set_debug_bits (const char *flags)
            break;
       case 'E':
            Modes.debug |= DEBUG_DEMODERR;
+           break;
+      case 'f':
+           Modes.debug |= DEBUG_CFG_FILE;
            break;
       case 'g':
            Modes.debug |= DEBUG_GENERAL;
@@ -3387,6 +3398,7 @@ static bool set_host_port_sbs_in (const char *arg)
 static bool set_ppm (const char *arg)
 {
   Modes.rtlsdr.ppm_error = atoi (arg);
+  Modes.rtltcp.ppm_error = Modes.rtlsdr.ppm_error;
   return (true);
 }
 
