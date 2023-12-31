@@ -58,6 +58,12 @@ USE_READSB_DEMOD ?= 0
 USE_ASAN ?= 0
 
 #
+# Use "Undefined Behavior Sanitizer (UBSan)"?
+# Currently only 'clang-cl' supports this.
+#
+USE_UBSAN ?= 0
+
+#
 # Compile using 'cl -MP ...'. For MSVC only.
 #
 USE_MP_COMPILE ?= 0
@@ -181,6 +187,13 @@ endif
 
 OS_LIBS   = advapi32.lib iphlpapi.lib ole32.lib setupapi.lib user32.lib winusb.lib
 ASAN_LIBS =
+COPY_DLLs =
+
+ifneq ($(CC),clang-cl)
+  ifeq ($(USE_UBSAN),1)
+    $(error 'USE_UBSAN' is for 'clang-cl' only)
+  endif
+endif
 
 #
 # ASAN build settings:
@@ -188,21 +201,23 @@ ASAN_LIBS =
 # This works best:
 #   c:\> set ASAN_OPTIONS=print_stats=1:windows_hook_legacy_allocators=1:color=always:halt_on_error=0
 #
+# A ':log_path=c:/temp/dump1090/ASAN.log' too could be useful.
+#
 # Refs:
 #   https://docs.microsoft.com/en-us/cpp/sanitizers/asan?view=msvc-160
 #   https://github.com/google/sanitizers/wiki/AddressSanitizer
 #   https://github.com/google/sanitizers/wiki/AddressSanitizerFlags
 #
+# A 'USE_ASAN = 1' can be used with 'USE_UBSAN = 1' too.
+#
 ifeq ($(USE_ASAN),1)
-  CFLAGS += -fsanitize=address -DUSE_ASAN
+  CFLAGS  += -DUSE_ASAN -fsanitize=address
+  RCFLAGS += -DUSE_ASAN
 
   ifeq ($(CC),clang-cl)
     CFLAGS += -fsanitize-stats                          \
               -fsanitize-address-globals-dead-stripping \
               -fsanitize-address-use-after-scope
-
-    LDFLAGS += -inferasanlibs:no \
-               -libpath:$(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
 
     ifeq ($(CPU),x86)
       ASAN_LIBS = clang_rt.asan_dynamic-i386.lib \
@@ -212,9 +227,63 @@ ifeq ($(USE_ASAN),1)
                   clang_rt.asan_dynamic_runtime_thunk-x86_64.lib
     endif
   endif
+endif
 
-  ifeq ($(CC),clang-cl)
-    $(info Detected 'CLANG_ROOT=$(realpath $(CLANG_$(BITS)))' for 'USE_ASAN=$(USE_ASAN)'.)
+#
+# UBSAN build settings:
+#
+# Add a 'set UBSAN_OPTIONS=print_stacktrace=1:log_path=c:/temp/dump1090/UBSAN.log'
+# to your environment to make sense of the UBSAN check output.
+#
+# The list of UBSAN checks for Clang:
+#   https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html#ubsan-checks
+#
+ifeq ($(USE_UBSAN),1)
+  RCFLAGS += -DUSE_UBSAN
+  CFLAGS  += -DUSE_UBSAN -fsanitize=undefined
+
+  #
+  # Turn some checks off?
+  #
+  # CFLAGS += -fno-sanitize=alignment
+  # CFLAGS += -fno-sanitize=object-size
+  # CFLAGS += -fno-sanitize=function
+
+  #
+  # This causes Undefined Behavior to cause an Illegal Instruction.
+  # Turn on/off at own will.
+  #
+  # CFLAGS += -fsanitize-trap=undefined
+endif
+
+#
+# ASAN / UBSAN with clang-cl is a bit tricky with regard to linking;
+# Use an explicit '-libpath:' for it.
+#
+# Besides a Visual-Studio .DLL for ASAN could have missing imports needed
+# by 'USE_UBSAN=1'. Hence copy the needed .DLL over to current directory.
+# (and remove it on a 'make clean').
+#
+ifeq ($(CC),clang-cl)
+  ifneq ($(USE_ASAN)$(USE_UBSAN),00)
+    ifeq ($(CLANG_MAJOR_VER),)
+      $(error 'CLANG_MAJOR_VER' must be set in your environment.)
+    endif
+
+    $(info Detected 'CLANG_ROOT=$(realpath $(CLANG_$(BITS)))' for 'USE_ASAN=$(USE_ASAN)' and 'USE_UBSAN=$(USE_UBSAN)'.)
+
+    #
+    # The default for 'x86 / Release' is 'clang_rt.asan_dynamic_runtime_thunk-i386.lib'
+    # (and clang_rt.asan_dbg_dynamic_runtime_thunk-i386.lib for 'x86 / Debug')
+    #
+    LDFLAGS += -inferasanlibs:no \
+               -libpath:$(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
+
+    ifeq ($(CPU),x86)
+      COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-i386.dll
+    else
+      COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-x86_64.dll
+    endif
   endif
 endif
 
@@ -339,7 +408,7 @@ LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/um/$(CPU)
 #
 LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/ucrt/$(CPU)
 
-all: $(GENERATED) $(TARGETS)
+all: $(GENERATED) $(TARGETS) DLL_copy
 	$(call green_msg, Welcome to Dump1090.)
 
 $(OBJ_DIR) doxy-docs:
@@ -469,6 +538,30 @@ $(OBJ_DIR)/check-for-unused-libs.py: $(THIS_FILE) | $(OBJ_DIR)
 	$(call generate_py,$@,$(check_for_unused_libs_py))
 
 #
+# Copy the needed .DLL for 'USE_UBSAN=1'
+#
+ifeq ($(COPY_DLLs),)
+  DLL_copy:
+	$(call green_msg, No .DLLs to copy)
+
+  DLL_clean:
+	$(call green_msg, No .DLLs to remove)
+else
+  DLL_copy:
+	$(call green_msg, Copying '$(COPY_DLLs)' to CWD)
+	cp --update $(COPY_DLLs) .
+
+  DLL_clean:
+	rm -f $(notdir $(COPY_DLLs))
+endif
+
+#
+# Clean up after Visual-Studio
+#
+VS_clean:
+	rm -fr .vs x64 x86
+
+#
 # '$(sort ..)' will create a unique list.
 #
 TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
@@ -480,7 +573,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map) \
 
 OTHER_JUNK = vc1*.pdb link.tmp link.args
 
-clean: docs_clean
+clean: docs_clean DLL_clean VS_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
 	rm -f $(OBJ_DIR)/*.obj $(OBJ_DIR)/*.res
 	- @rmdir $(OBJ_DIR) 2>/dev/null
@@ -548,7 +641,7 @@ endef
 define Warning
   $(1)
   $(1) DO NOT EDIT! This file was automatically generated
-  $(1) from $(realpath $(THIS_FILE)) at $(TODAY).
+  $(1) from $(CURDIR)/$(THIS_FILE) at $(TODAY).
   $(1) Edit that file instead.
   $(1)
 endef
@@ -625,7 +718,7 @@ doxy_HEADERS = ../aircraft.h                  \
 define dump1090_Doxyfile
   PROJECT_NAME          = "Dump1090"
   PROJECT_LOGO          = # to-do
-  STRIP_FROM_PATH       = $(realpath .)/
+  STRIP_FROM_PATH       = $(CURDIR)/
   OPTIMIZE_OUTPUT_FOR_C = yes
   FORCE_LOCAL_INCLUDES  = yes
   QUIET                 = yes
@@ -640,7 +733,7 @@ define dump1090_Doxyfile
   CALL_GRAPH            = yes
   CALLER_GRAPH          = yes
   HAVE_DOT              = yes
-  OUTPUT_DIRECTORY      = $(realpath .)/doxy-docs
+  OUTPUT_DIRECTORY      = $(CURDIR)/doxy-docs
   HTML_OUTPUT           = .
   HTML_DYNAMIC_MENUS    = no
   HTML_COLORSTYLE       = light
@@ -648,7 +741,7 @@ define dump1090_Doxyfile
   GENERATE_LATEX        = no
   SEARCHENGINE          = no
   WARNINGS              = yes
-  WARN_LOGFILE          = $(realpath .)/doxy-docs/doxygen.log
+  WARN_LOGFILE          = $(CURDIR)/doxy-docs/doxygen.log
   CHM_FILE              = dump1090.chm
 endef
 
