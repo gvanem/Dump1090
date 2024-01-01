@@ -3,7 +3,7 @@ name: MSBuild
 on: [push]
 
 env:
-  SOLUTION_FILE_PATH: Dump1090.sln
+  SOLUTION_FILE_PATH: src/Dump1090.sln
 jobs:
   build:
     runs-on: windows-latest
@@ -20,7 +20,7 @@ jobs:
       uses: microsoft/setup-msbuild@v1
 
     - name: Build
-      working-directory: ${{env.GITHUB_WORKSPACE}}/src
+      working-directory: ${{env.GITHUB_WORKSPACE}}
       run: msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.BUILD_PLATFORM}} ${{env.SOLUTION_FILE_PATH}}
 
 # test:
