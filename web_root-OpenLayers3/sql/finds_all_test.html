@@ -1,0 +1,43 @@
+<html>
+  <head>
+    <script language="javascript" type="text/javascript" src="../jquery/jquery-3.0.0.min.js"></script>
+  </head>
+  <body>
+
+  <!-------------------------------------------------------------------------
+  1) Create some html content that can be accessed by jquery
+  -------------------------------------------------------------------------->
+  <h2> Metal Detecting Finds </h2>
+  <h3> Get all data via: finds_all_test.php</h3>
+  <div id="output">Results (be patient, it's a big table):<br><br></div>
+
+  <script id="source" language="javascript" type="text/javascript">
+
+  $(function () 
+  {
+    $.ajax({                                      
+      url: 'finds_all_test.php',     
+      async: false ,    
+      data: "icao=43C041",  
+      dataType: 'json',  
+      success: function(retData)  
+      {
+        for (var i in retData)
+        {
+        
+          var row = retData[i];          
+
+          var name  = row[0];
+          var lat   = row[2];
+	  var lon   = row[3];
+          $('#output').append(name+" lat:"+lat+" lon:"+lon)
+                      .append("<br />");
+        } 
+      } 
+
+    });
+  }); 
+
+  </script>
+  </body>
+</html>

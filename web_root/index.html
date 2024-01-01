@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+    <title> Dump1090 Web-server</title>
+    <link rel="icon" type="image/png" href="favicon.png" />
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
+          integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A=="
+          crossorigin=""/>
+
+    <style type="text/css">
+      html { height: 100% }
+      body { height: 100%; margin: 0; padding: 0 }
+      .plane-icon {
+        padding:0px;
+        margin:0px;
+      }
+      #map_canvas { height: 100% }
+      #info {
+        position: absolute;
+        width:20%;
+        height:100%;
+        bottom:0px;
+        right:0px;
+        top:0px;
+        background-color: white;
+        border-left:1px #666 solid;
+        font-family:Helvetica;
+      }
+      #info div {
+        padding:0px;
+        padding-left:10px;
+        margin:0px;
+      }
+      #info div h1 {
+        margin-top:10px;
+        font-size:16px;
+      }
+      #info div p {
+        font-size:14px;
+        color:#333;
+      }
+    </style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"
+            integrity="sha512-XQoYMqMTK8LvdxXYG3nZ448hOEQiglfqkJs1NOQV44cWnUrBc8PkAOcXy20w0vlaXaVUearIOBhiXZ5V3ynxwA=="
+            crossorigin="">
+    </script>
+
+    <script type="text/javascript" src="excanvas.js"></script>
+    <script type="text/javascript" src="coolclock.js"></script>
+    <script type="text/javascript" src="moreskins.js"></script>
+
+    <script type="text/javascript">
+      Map = null;
+      CenterLat = 45.0;
+      CenterLon = 9.0;
+      Planes = { };
+      NumPlanes = 0;
+      Selected = null;
+      have_wsocket = 0;
+      wsocket = null;
+
+      function getIconForPlane (plane) {
+          var r = 255, g = 255, b = 0;
+          var maxalt = 40000;    /* Max altitude in the average case */
+          var invalt = maxalt - plane.altitude;
+          var selected = (Selected == plane.hex);
+
+          if (invalt < 0)
+             invalt = 0;
+          b = parseInt (255/maxalt*invalt);
+
+          /* As Icon we use the plane emoji, this is a simple solution but
+           * is definitely a compromise: we expect the icon to be rotated
+           * 45 degrees facing north-east by default, this is true in most
+           * systems but not all.
+           */
+          var he = document.createElement ("P");
+          he.innerHTML = '>';
+          var rotation = 45 + 360 - plane.track;
+          var selhtml = '';
+
+          /* Give a border to the selected plane. */
+          if (Selected == plane.hex)
+               selhtml = 'border:1px dotted #0000aa; border-radius:10px;';
+          else selhtml = '';
+
+          he = '<div style="transform: rotate(-' + rotation + 'deg); '+ selhtml + '">XX</div>';
+          var icon = L.divIcon ({ html: he, className: 'plane-icon' });
+          return icon;
+      }
+
+      function selectPlane (planehex) {
+          if (!Planes[planehex])
+             return;
+
+          var old = Selected;
+          Selected = planehex;
+          if (Planes[old])
+             Planes[old].marker.setIcon (getIconForPlane(Planes[old])); /* Remove the highlight in the previously selected plane. */
+
+          Planes[Selected].marker.setIcon (getIconForPlane(Planes[Selected]));
+          refreshSelectedInfo();
+      }
+
+      /* Return a closure to caputure the 'hex' argument. This way we don't
+       * have to care about how Leaflet passes the object to the callback.
+       */
+      function selectPlaneCallback (hex) {
+         return function() {
+            return selectPlane (hex);
+         }
+      }
+
+      function refreshGeneralInfo() {
+         var i = document.getElementById ('geninfo');
+         i.innerHTML = NumPlanes + ' planes on screen.';
+
+         /*
+          * TODO: if (NumPlanes == 0)
+          *          remove old details for old plane(s) or say
+          *         "0 planes on screen. Last plane seen:"
+          *         "ICAO: xxxxxx"
+          *         ----  "
+          */
+      }
+
+      function removeSelectedInfo() {
+          var i = document.getElementById ('selinfo');
+          i.innerHTML = 'ICAO: -----<br>';
+      }
+
+      function refreshSelectedInfo() {
+          var i = document.getElementById ('selinfo');
+          var p = Planes[Selected];
+
+          if (!p) {
+             removeSelectedInfo();
+             return;
+          }
+
+          var html = 'ICAO: ' + p.hex + '<br>';
+          if (p.flight.length)
+             html += '<b>' + p.flight + '</b><br>';
+
+          html += 'Altitude: '+ p.altitude + ' feet<br>';
+          html += 'Speed: ' + p.speed + ' knots<br>';
+          html += 'Coordinates: '+ p.lat + ', ' + p.lon + '<br>';
+          i.innerHTML = html;
+      }
+
+      /* Refeshes the larger table of all the planes
+       */
+      function refreshTableInfo() {
+        var html = '<table id="tableinfo" width="100%">';
+        html += '<thead style="background-color: #BBBBBB; cursor: pointer;">';
+        html += '<td onclick="setASC_DESC(\'0\');sortTable(\'tableinfo\',\'0\');">ICAO</td>';
+        html += '<td onclick="setASC_DESC(\'1\');sortTable(\'tableinfo\',\'1\');">Flight</td>';
+        html += '<td onclick="setASC_DESC(\'2\');sortTable(\'tableinfo\',\'2\');" ' +
+                'align="right">Squawk</td>';
+        html += '<td onclick="setASC_DESC(\'3\');sortTable(\'tableinfo\',\'3\');" ' +
+                'align="right">Altitude</td>';
+        html += '<td onclick="setASC_DESC(\'4\');sortTable(\'tableinfo\',\'4\');" ' +
+                'align="right">Speed</td>';
+
+        // Add distance column header to table if site coordinates are provided
+        if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
+           html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'5\');" ' +
+                   'align="right">Distance</td>';
+        }
+        html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'6\');" ' +
+                'align="right">Track</td>';
+        html += '<td onclick="setASC_DESC(\'6\');sortTable(\'tableinfo\',\'7\');" ' +
+                'align="right">Msgs</td>';
+        html += '<td onclick="setASC_DESC(\'7\');sortTable(\'tableinfo\',\'8\');" ' +
+                'align="right">Seen</td></thead><tbody>';
+
+        for (var tablep in Planes) {
+          var tableplane = Planes[tablep]
+          if (!tableplane.reapable) {
+            var specialStyle = "";
+
+            if (tableplane.icao == SelectedPlane)  // Is this the plane we selected?
+               specialStyle += " selected";
+
+            if (tableplane.squawk == 7500)  // Lets hope we never see this... Aircraft Hijacking!
+               specialStyle += " squawk7500";
+
+            if (tableplane.squawk == 7600)   // Radio Failure
+               specialStyle += " squawk7600";
+
+            if (tableplane.squawk == 7700)   // Emergency
+               specialStyle += " squawk7700";
+
+            if (tableplane.vPosition == true) {
+              html += '<tr class="plane_table_row vPosition' + specialStyle + '">';
+            }
+            else {
+              html += '<tr class="plane_table_row ' + specialStyle + '">';
+            }
+
+            html += '<td>' + tableplane.icao + '</td>';
+            html += '<td>' + tableplane.flight + '</td>';
+            if (tableplane.squawk != '0000' ) {
+              html += '<td align="right">' + tableplane.squawk + '</td>';
+            }
+            else {
+              html += '<td align="right">&nbsp;</td>';
+            }
+
+            if (Metric) {
+              html += '<td align="right">' + Math.round(tableplane.altitude / 3.2828) + '</td>';
+              html += '<td align="right">' + Math.round(tableplane.speed * 1.852) + '</td>';
+            }
+            else {
+              html += '<td align="right">' + tableplane.altitude + '</td>';
+              html += '<td align="right">' + tableplane.speed + '</td>';
+            }
+
+            // Add distance column to table if site coordinates are provided
+            if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined'))
+            {
+              html += '<td align="right">';
+              if (tableplane.vPosition) {
+                var siteLatLon  = new google.maps.LatLng(SiteLat, SiteLon);
+                var planeLatLon = new google.maps.LatLng(tableplane.latitude, tableplane.longitude);
+                var dist = google.maps.geometry.spherical.computeDistanceBetween (siteLatLon, planeLatLon);
+                if (Metric)
+                     dist /= 1000;
+                else dist /= 1852;
+                dist = (Math.round((dist)*10)/10).toFixed(1);
+                html += dist;
+              }
+              else
+                html += '0';
+              html += '</td>';
+            }
+
+            html += '<td align="right">';
+            if (tableplane.vTrack)
+            {
+              html += normalizeTrack(tableplane.track, tableplane.vTrack)[2];
+           // html += ' (' + normalizeTrack(tableplane.track, tableplane.vTrack)[1] + ')';
+            }
+            else
+              html += '&nbsp;';
+
+            html += '</td>';
+            html += '<td align="right">' + tableplane.messages + '</td>';
+            html += '<td align="right">' + tableplane.seen + '</td>';
+            html += '</tr>';
+          }
+        }
+        html += '</tbody></table>';
+
+        document.getElementById ('planes_table').innerHTML = html;
+
+        if (SpecialSquawk) {
+          $('#SpecialSquawkWarning').css('display', 'inline');
+        }
+        else {
+          $('#SpecialSquawkWarning').css('display', 'none');
+        }
+
+        // Click event for table
+        $('#planes_table').find ('tr').click (function() {
+          var hex = $(this).find ('td:first').text();
+          if (hex != "ICAO") {
+            selectPlaneByHex (hex);
+            refreshTableInfo();
+            refreshSelected();
+          }
+        });
+
+        sortTable ("tableinfo");
+      }
+
+      /* TODO: compare with this
+       *    https://opensky-network.org/apidoc/python.html#retrieving-data
+       */
+      function fetchData() {
+          $.getJSON ('/data.json', function(data) {
+              var stillhere = { }
+
+              for (var j = 0; j < data.length; j++) {
+                  var plane = data[j];
+                  var marker = null;
+
+                  stillhere [plane.hex] = true;
+                  plane.flight = $.trim (plane.flight);
+
+                  if (Planes[plane.hex]) {
+                      var myplane = Planes[plane.hex];
+
+                      marker = myplane.marker;
+                      marker.setLatLng ([plane.lat,plane.lon]);
+                      marker.setIcon (getIconForPlane(plane));
+                      myplane.altitude = plane.altitude;
+                      myplane.speed = plane.speed;
+                      myplane.lat = plane.lat;
+                      myplane.lon = plane.lon;
+                      myplane.track = plane.track;
+                      myplane.flight = plane.flight;
+                      if (myplane.hex == Selected)
+                         refreshSelectedInfo();
+                  }
+                  else {
+                      var icon = getIconForPlane (plane);
+                      var marker = L.marker ([plane.lat, plane.lon], { icon: icon }).addTo (Map);
+                      var hex = plane.hex;
+
+                      marker.on ('click', selectPlaneCallback(plane.hex));
+                      plane.marker = marker;
+                      marker.planehex = plane.hex;
+                      Planes[plane.hex] = plane;
+                  }
+
+                  // FIXME: Set the title
+                  // if (plane.flight.length == 0)
+                  //     marker.setTitle (plane.hex)
+                  // else
+                  //    marker.setTitle (plane.flight+' ('+plane.hex+')')
+              }
+              NumPlanes = data.length;
+
+              /* Remove idle planes. */
+              for (var p in Planes) {
+                  if (!stillhere[p]) {
+                      Map.removeLayer (Planes[p].marker);
+                      delete Planes[p];
+                  }
+              }
+          });
+      }
+
+      function WebSocketInit() {
+         if ("WebSocket" in window) {
+           wsocket = new WebSocket ("ws://localhost:8080/echo");
+           wsocket.onopen = function() {
+              wsocket.send ("WS test");
+           };
+
+           wsocket.onmessage = function (evt) {
+             if (evt.data == "WS test")
+                have_wsocket = 1;
+           };
+
+           wsocket.onclose = function() {
+             delete wsocket;
+             have_wsocket = 0;
+             wsocket = null;
+           };
+         }
+         else {
+           have_wsocket = 0;
+         }
+      }
+
+      function WebSocketTest() {
+          var i = document.getElementById ('ws_test');
+          if (have_wsocket)   // server have WebSocket
+               i.innerHTML = 'WebSocket supported';
+          else i.innerHTML = 'No WebSocket support';
+          if (wsocket)        // client (we) have WebSocket
+             i.innerHTML += ' (<b>client has it</b>)';
+      }
+
+      function initialize() {
+        Map = L.map('map_canvas').setView([60.3, 5.2], 10);  // get the last geo-position from a cookie?
+
+        L.tileLayer ('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoiZ3ZhbmVtIiwiYSI6ImNrbjc5ZmlwMDBsbmQycXA5cjA1b3FvcXcifQ.BGuKf9ZFCyBOE7IOVBomSg', {
+          attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, Imagery &copy; <a href="https://www.mapbox.com/">Mapbox</a>',
+          maxZoom: 18,
+          id: 'mapbox/streets-v11',
+          tileSize: 512,
+          zoomOffset: -1,
+          accessToken: 'pk.eyJ1IjoiZ3ZhbmVtIiwiYSI6ImNrbjc5ZmlwMDBsbmQycXA5cjA1b3FvcXcifQ.BGuKf9ZFCyBOE7IOVBomSg'
+        }).addTo(Map);
+
+       WebSocketInit();  /* test and initialize WebSocket support. */
+       WebSocketTest();
+
+       /* Setup our timer to poll from the server. */
+       window.setInterval (function() {
+          fetchData();
+          refreshGeneralInfo();
+       /* TODO: refreshTableInfo(); */
+       }, 200);
+      }
+    </script>
+  </head>
+
+  <body onload="initialize()">
+    <div id="map_canvas" style="width:80%; height:100%">
+    </div>
+    <div id="info">
+      <div>
+        <h1>Dump1090</h1>
+          <table width="100%"> <tr>
+            <td><b>Local:</b></td>
+            <td><canvas id="localclock" class="CoolClock:classic:30"></canvas></td>
+            <td><b>UTC:</b></td>
+            <td><canvas id="gmtclock" class="CoolClock:classic:30::0"></canvas></td>
+          </tr>
+          </table>
+        <p id="geninfo"></p>
+        <p id="selinfo">Click on a plane for info.</p>
+        <p id="planes_table"> </p>
+        <p id="ws_test"></p>
+      </div>
+    </div>
+  </body>
+</html>
+

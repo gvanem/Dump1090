@@ -1,0 +1,38 @@
+<html>
+  <head>
+    <script language="javascript" type="text/javascript" src="../jquery/jquery-3.0.0.min.js"></script>
+  </head>
+  <body>
+
+  <!-------------------------------------------------------------------------
+  1) Create some html content that can be accessed by jquery
+  -------------------------------------------------------------------------->
+  <h2> Max Ranges </h2>
+  <h3> Get all data via: range_read.php</h3>
+  <div id="output">Results:<br><br></div>
+
+  <script id="source" language="javascript" type="text/javascript">
+
+  $(function () 
+  {
+    $.ajax({                                      
+      url: 'range_read.php',     
+      async: false ,    
+      dataType: 'json',  
+      success: function(retData)  
+      {
+        for (var i in retData)
+        {
+          var row      = retData[i];          
+          var bearing  = row[0];
+          var range    = row[1];
+          $('#output').append(i+" Bearing: "+bearing+" Range: "+range)
+                      .append("<br />");
+        } 
+      } 
+    });
+  }); 
+
+  </script>
+  </body>
+</html>
