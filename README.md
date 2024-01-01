@@ -40,12 +40,13 @@ and added some more references and screen-shots. But in the source-code I've don
 
 ## Building
 
-  Assuming you have downloaded this package to `c:\dev\Dump1090`, then `cd c:\dev\Dump1090` and do:
+  Assuming you have downloaded (or `git clone`-d) this package to `c:\dev\Dump1090`,
+  then `cd c:\dev\Dump1090\src` and do:
 
   * Using GNU-make, type:
-    * `c:\dev\Dump1090> make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
+    * `c:\dev\Dump1090\src> make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
   * Or using Visual Studio tools:
-    * `c:\dev\Dump1090> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
+    * `c:\dev\Dump1090\src> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
     * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`. <br>
       The project may have to be retargeted. *Devenv* would do this automatically and print <br>
       `Configuration 'Release|x64': changing Platform Toolset to 'v143' (was 'v142')` when finished.
@@ -220,7 +221,7 @@ the `--infile` option with `-` as argument.
 
 When a `aircraft-database.csv` is present and used with a `.bin`-file, it can show output like:
   ```
-  c:\dev\Dump1090> dump1090 --infile testfiles\modes1.bin
+  c:\dev\Dump1090> dump1090 --infile testfiles/modes1.bin
   ...
   *5d4d20237a55a6;
   CRC: 7a55a6 (ok)
