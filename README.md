@@ -14,7 +14,7 @@ and added some more references and screen-shots. But in the source-code I've don
  * A YouTube **[video](https://www.youtube.com/watch?v=BDLFHdq540g&ab_channel=AP47TV)**
    explaining it's basics and motivation.
  * A detailed technical description by professor **[Junzi Sun](https://mode-s.org/decode/)**.
- * Or as a **[PDF](The-1090MHz-riddle.pdf)** in this repo.
+ * Or as a **[PDF](docs/The-1090MHz-riddle.pdf)** in this repo.
 
 **The main features** of *Dump1090* are:
 
