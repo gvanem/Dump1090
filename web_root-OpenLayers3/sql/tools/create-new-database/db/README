@@ -1,6 +1,0 @@
-This directory contains static data on some aircraft (registrations, etc)
-originally derived from Virtual Radar Server's BasicAircraftLookup.sqb
-
-I have amended this to allow bespoke information to be passed to dump10190.
-
-See the tools directory to understand how I generate it
