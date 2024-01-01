@@ -16,8 +16,14 @@ Debug/
 Release/
 .vs/
 tmp/
+wsock_trace.dump1090
+packed_test.exe
+web-pages.dll
+host-*.log
+dump1090*.log
 Dump1090.vcxproj.filters
 Dump1090.vcxproj.user
+aircraft-database.csv
 aircraftDatabase.csv
 doc8643AircraftTypes.csv
 doc8643Manufacturers.csv
