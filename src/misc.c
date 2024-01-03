@@ -1051,24 +1051,40 @@ static const char *build_features (void)
   return (buf);
 }
 
-#if defined(USE_ASAN)
-/*
- * Override of the default ASAN options set by '%ASAN_OPTIONS'
+#if defined(USE_ASAN) || defined(__DOXYGEN__)
+/**
+ * Override of the default ASAN options set by `%ASAN_OPTIONS%`.
  */
 const char *__asan_default_options (void)
 {
+  static const char *asan_options;
+  static bool done = false;
+
   printf ("%s() called\n", __func__);
+  if (!done)
+      asan_options = getenv ("ASAN_OPTIONS");
+  done = true;
+  if (asan_options)
+     return (asan_options);
   return ("debug=1:check_initialization_order=1:debug=1:windows_hook_rtl_allocators=1:log_path=ASAN");
 }
 #endif
 
-#if defined(USE_UBSAN)
-/*
- * Override of the default UBSAN options set by '%UBSAN_OPTIONS'
+#if defined(USE_UBSAN) || defined(__DOXYGEN__)
+/**
+ * Override of the default UBSAN options set by `%UBSAN_OPTIONS%`.
  */
 const char *__ubsan_default_options (void)
 {
+  static const char *ubsan_options;
+  static bool done = false;
+
   printf ("%s() called\n", __func__);
+  if (!done)
+      ubsan_options = getenv ("UBSAN_OPTIONS");
+  done = true;
+  if (ubsan_options)
+     return (ubsan_options);
   return ("print_stacktrace=1:log_path=UBSAN");
 }
 #endif
