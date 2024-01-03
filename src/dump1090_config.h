@@ -7,7 +7,7 @@
 
 #define VER_MAJOR 0
 #define VER_MINOR 4
-#define VER_MICRO 2
+#define VER_MICRO 3
 
 /* Warning control:
  */
