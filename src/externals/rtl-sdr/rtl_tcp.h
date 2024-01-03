@@ -5,6 +5,10 @@
  */
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * \typedef RTL_TCP_cmds
  *
@@ -68,4 +72,9 @@ typedef struct RTL_TCP_info {
       } RTL_TCP_info;
 
 #include <packoff.h>
+
+#ifdef __cplusplus
+}
+#endif
+
 

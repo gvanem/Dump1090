@@ -1889,7 +1889,10 @@ int rtlsdr_set_sample_rate (rtlsdr_dev_t *dev, uint32_t samp_rate)
   double   real_rate;
 
   if (!dev)
-     return (-1);
+  {
+    RTL_TRACE (1, "dev == NULL!\n");
+    return (-1);
+  }
 
   /* Check if the rate is supported by the resampler
    */
@@ -2595,7 +2598,7 @@ demod_found:
 
   softagc_init (dev);
   *out_dev = dev;
-  return (0);
+  return (r);
 
 err:
   if (dev)

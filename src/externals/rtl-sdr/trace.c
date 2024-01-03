@@ -92,7 +92,7 @@ void trace_printf (const char *file, unsigned line, const char *fmt, ...)
   printf ("%s(%u): ", file , line);
   if (show_version)
   {
-    printf ("Version %d.%d.%d.%d. Compiled: \"%s\".\n", RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, __DATE__);
+    printf ("Version \"%d.%d.%d.%d\". Compiled \"%s\".\n", RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, __DATE__);
     show_version = 0;
   }
 

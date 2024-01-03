@@ -58,16 +58,6 @@ RTLSDR_API int rtlsdr_get_device_usb_strings(uint32_t index,
 					     char *product,
 					     char *serial);
 
-RTLSDR_API int rtlsdr_open(rtlsdr_dev_t **dev, uint32_t index);
-
-/*!
- * Close device.
- *
- * \param dev the device handle given by rtlsdr_open()
- * \return -1 if device handle was already close - or never opened
- */
-RTLSDR_API int rtlsdr_close(rtlsdr_dev_t *dev);
-
 /*!
  * Get device index by USB serial string descriptor.
  *
@@ -78,6 +68,16 @@ RTLSDR_API int rtlsdr_close(rtlsdr_dev_t *dev);
  * \return -3 if devices were found, but none with matching name
  */
 RTLSDR_API int rtlsdr_get_index_by_serial(const char *serial);
+
+RTLSDR_API int rtlsdr_open(rtlsdr_dev_t **dev, uint32_t index);
+
+/*!
+ * Close device.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \return -1 if device handle was already close - or never opened
+ */
+RTLSDR_API int rtlsdr_close(rtlsdr_dev_t *dev);
 
 /* configuration functions */
 
