@@ -2545,6 +2545,7 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
   time_t now = time(NULL);
   char date_str[40];
   struct tm* time_info = localtime(&now);
+
   // Since the date,time,date,time is just a repeat, build the whole string once and then add it to each MSG output (note, had to remove 3 commas from the lines below)
   strftime(date_str, sizeof date_str, "%Y/%m/%d,%H:%M:%S,%Y/%m/%d,%H:%M:%S", time_info);
 
