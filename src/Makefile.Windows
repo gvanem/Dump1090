@@ -552,17 +552,14 @@ $(OBJ_DIR)/check-for-unused-libs.py: $(THIS_FILE) | $(OBJ_DIR)
 ifeq ($(COPY_DLLs),)
   DLL_copy:
 	$(call green_msg, No .DLLs to copy)
-
-  DLL_clean:
-	$(call green_msg, No .DLLs to remove)
 else
   DLL_copy:
 	$(call green_msg, Copying '$(COPY_DLLs)' to CWD)
 	cp --update $(COPY_DLLs) .
-
-  DLL_clean:
-	rm -f $(notdir $(COPY_DLLs))
 endif
+
+DLL_clean:
+	rm -f clang_rt.asan_dynamic*.dll
 
 #
 # Clean up after Visual-Studio
