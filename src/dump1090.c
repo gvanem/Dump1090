@@ -2513,12 +2513,39 @@ static void modeS_send_raw_output (const modeS_message *mm)
 }
 
 /**
+ * Return a double-timestamp for the SBS output.
+ */
+static const char *get_SBS_timestamp (void)
+{
+  int         ts_len;
+  char        ts_buf [30];
+  static char timestamp [2*sizeof(ts_buf)];
+
+  FILETIME    ft;
+  SYSTEMTIME  st;
+
+  get_FILETIME_now (&ft);
+  FileTimeToSystemTime (&ft, &st);
+  ts_len = snprintf (ts_buf, sizeof(ts_buf), "%04u/%02u/%02u,%02u:%02u:%02u.%03u,",
+                     st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+
+  /* Since the date,time,date,time is just a repeat, build the whole string once and
+   * then add it to each MSG output.
+   */
+  strcpy (timestamp, ts_buf);
+  strcat (timestamp, ts_buf);
+  timestamp [ts_len-1] = '\0';    /* remove last ',' */
+  return (timestamp);
+}
+
+/**
  * Write SBS output to TCP clients (Base Station format).
  */
 static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
 {
-  char msg [MODES_MAX_SBS_SIZE], *p = msg;
-  int  emergency = 0, ground = 0, alert = 0, spi = 0;
+  char  msg [MODES_MAX_SBS_SIZE], *p = msg;
+  int   emergency = 0, ground = 0, alert = 0, spi = 0;
+  const char *date_str;
 
   if (mm->msg_type == 4 || mm->msg_type == 5 || mm->msg_type == 21)
   {
@@ -2542,21 +2569,13 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
    *          1   2 3 4 5      6 7          8            9          10           11 12   13 14  15       16       17 18 19 20 21 22
    * example: MSG,3,1,1,4CA7B6,1,2023/10/20,22:33:49.364,2023/10/20,22:33:49.403,  ,7250,  ,   ,53.26917,-2.17755,  ,  ,  ,  ,  ,0
    */
-  time_t now = time (NULL);
-  char   date_str [40];
-  struct tm *time_info = localtime (&now);
-
-  /* Since the date,time,date,time is just a repeat, build the whole string once and then add it to each MSG output
-   * (note, had to remove 3 commas from the lines below)
-   */
-  strftime (date_str, sizeof(date_str), "%Y/%m/%d,%H:%M:%S,%Y/%m/%d,%H:%M:%S", time_info);
+  date_str = get_SBS_timestamp();
 
   if (mm->msg_type == 0)
   {
     p += sprintf (p, "MSG,5,1,1,%06X,1,%s,,%d,,,,,,,,,,",
                   aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  date_str,
-                  mm->altitude);
+                  date_str, mm->altitude);
   }
   else if (mm->msg_type == 4)
   {
