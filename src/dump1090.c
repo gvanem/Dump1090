@@ -2537,59 +2537,73 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
   }
 
   /* Field 11 could contain the call-sign we can get from `aircraft_find_or_create()::reg_num`.
+   *
+   * Need to output the current date and time into the SBS output
+   *          1   2 3 4 5      6 7          8            9          10           11 12   13 14  15       16       17 18 19 20 21 22
+   * example: MSG,3,1,1,4CA7B6,1,2023/10/20,22:33:49.364,2023/10/20,22:33:49.403,  ,7250,  ,   ,53.26917,-2.17755,  ,  ,  ,  ,  ,0
    */
+  time_t now = time (NULL);
+  char   date_str [40];
+  struct tm *time_info = localtime (&now);
+
+  /* Since the date,time,date,time is just a repeat, build the whole string once and then add it to each MSG output
+   * (note, had to remove 3 commas from the lines below)
+   */
+  strftime (date_str, sizeof(date_str), "%Y/%m/%d,%H:%M:%S,%Y/%m/%d,%H:%M:%S", time_info);
+
   if (mm->msg_type == 0)
   {
-    p += sprintf (p, "MSG,5,,,%06X,,,,,,,%d,,,,,,,,,,",
+    p += sprintf (p, "MSG,5,1,1,%06X,1,%s,,%d,,,,,,,,,,",
                   aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
+                  date_str,
                   mm->altitude);
   }
   else if (mm->msg_type == 4)
   {
-    p += sprintf (p, "MSG,5,,,%06X,,,,,,,%d,,,,,,,%d,%d,%d,%d",
+    p += sprintf (p, "MSG,5,1,1,%06X,1,%s,,%d,,,,,,,%d,%d,%d,%d",
                   aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  mm->altitude, alert, emergency, spi, ground);
+                  date_str, mm->altitude, alert, emergency, spi, ground);
   }
   else if (mm->msg_type == 5)
   {
-    p += sprintf (p, "MSG,6,,,%06X,,,,,,,,,,,,,%d,%d,%d,%d,%d",
+    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%d,%d,%d,%d,%d",
                   aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  mm->identity, alert, emergency, spi, ground);
+                  date_str, mm->identity, alert, emergency, spi, ground);
   }
   else if (mm->msg_type == 11)
   {
-    p += sprintf (p, "MSG,8,,,%06X,,,,,,,,,,,,,,,,,",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]));
+    p += sprintf (p, "MSG,8,1,1,%06X,1,%s,,,,,,,,,,,,",
+                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]), date_str);
   }
   else if (mm->msg_type == 17 && mm->ME_type == 4)
   {
-    p += sprintf (p, "MSG,1,,,%06X,,,,,,%s,,,,,,,,0,0,0,0",
+    p += sprintf (p, "MSG,1,1,1,%06X,1,%s,%s,,,,,,,,0,0,0,0",
                   aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  mm->flight);
+                  date_str, mm->flight);
   }
   else if (mm->msg_type == 17 && mm->ME_type >= 9 && mm->ME_type <= 18)
   {
     if (!VALID_POS(a->position))
-         p += sprintf (p, "MSG,3,,,%06X,,,,,,,%d,,,,,,,0,0,0,0",
+         p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,,,,,0,0,0,0",
                        aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                       mm->altitude);
-    else p += sprintf (p, "MSG,3,,,%06X,,,,,,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
+                       date_str, mm->altitude);
+    else p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
                        aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                       mm->altitude, a->position.lat, a->position.lon);
+                       date_str, mm->altitude, a->position.lat, a->position.lon);
   }
   else if (mm->msg_type == 17 && mm->ME_type == 19 && mm->ME_subtype == 1)
   {
     int vr = (mm->vert_rate_sign == 0 ? 1 : -1) * 64 * (mm->vert_rate - 1);
 
-    p += sprintf (p, "MSG,4,,,%06X,,,,,,,,%d,%d,,,%i,,0,0,0,0",
+    p += sprintf (p, "MSG,4,1,1,%06X,1,%s,,,%d,%d,,,%i,,0,0,0,0",
                   aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  a->speed, a->heading, vr);
+                  date_str, a->speed, a->heading, vr);
   }
   else if (mm->msg_type == 21)
   {
-    p += sprintf (p, "MSG,6,,,%06X,,,,,,,,,,,,,%d,%d,%d,%d,%d",
+    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%d,%d,%d,%d,%d",
                   aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  mm->identity, alert, emergency, spi, ground);
+                  date_str, mm->identity, alert, emergency, spi, ground);
   }
   else
     return;
