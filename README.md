@@ -324,6 +324,10 @@ see on the console what's happening: <br>
     ```
     This can be used to feed data to various sharing sites without the need to use another decoder.
 
+    This is a screen-shot of dump1090 together with [**tools/SBS_client.py**](tools/SBS_client.py):
+    **![SBS_client](dump1090-SBS.png)** invoked by [**run-dump1090-SBS.bat**](run-dump1090-SBS.bat).
+
+
 ## Antenna
 
 *Mode S* messages are transmitted on the standard frequency of 1090 MHz. If you have a decent
