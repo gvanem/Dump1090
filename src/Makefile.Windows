@@ -1,7 +1,7 @@
 #
 # GNU Makefile for dump1090 (x86/x64, MSVC or clang-cl).
 #
-# By G. Vanem <gvanem@yahoo.no> 2021 - 2023.
+# By G. Vanem <gvanem@yahoo.no> 2021 - 2024.
 #
 # Ref: https://github.com/gvanem/Dump1090.git
 #
@@ -18,7 +18,7 @@ MAKEFLAGS += --warn-undefined-variables
 USE_CRT_DEBUG ?= 0
 
 #
-# Use '../tools/gen_routes_data.py' to generate '$(OBJDIR)/routes.c' from 'routes.csv'?
+# Use '../tools/gen_routes_data.py' to generate '$(OBJDIR)/routes.c' from '../routes.csv'?
 #
 USE_GEN_ROUTES ?= 1
 
@@ -31,8 +31,8 @@ USE_GEN_ROUTES ?= 1
 USE_NET_POLLER ?= SELECT
 
 #
-# Enable bundling *all* web_root pages inside 'web-pages.dll' as
-# multiple resources.
+# Enable bundling *all* web_root pages inside 'web-pages.dll' as multiple resources.
+# Use e.g. as 'web-pages.dll;2' for '../web_root-FlightAware/*' as web-root.
 #
 USE_PACKED_DLL ?= 0
 
@@ -90,7 +90,7 @@ PYTHON ?= py -3
 
 #
 # Change the 'CLANG_[32|64]' directory to suite:
-# Only important if 'USE_ASAN = 1' and 'CC = clang-cl'.
+# Only important if 'USE_ASAN = 1' and/or 'USE_UBSAN = 1' with 'CC = clang-cl'.
 #
 CLANG_32        ?= c:/ProgramFiles/LLVM-15-32bit
 CLANG_64        ?= c:/ProgramFiles/LLVM-15-64bit
@@ -226,6 +226,8 @@ ifeq ($(USE_ASAN),1)
       ASAN_LIBS = clang_rt.asan_dynamic-x86_64.lib \
                   clang_rt.asan_dynamic_runtime_thunk-x86_64.lib
     endif
+
+    ASAN_LIBS += kernel32.lib
   endif
 endif
 
@@ -276,8 +278,7 @@ ifeq ($(CC),clang-cl)
     # The default for 'x86 / Release' is 'clang_rt.asan_dynamic_runtime_thunk-i386.lib'
     # (and clang_rt.asan_dbg_dynamic_runtime_thunk-i386.lib for 'x86 / Debug')
     #
-    LDFLAGS += -inferasanlibs:no \
-               -libpath:$(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
+    LDFLAGS += -libpath:$(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
 
     ifeq ($(CPU),x86)
       COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-i386.dll
@@ -333,13 +334,10 @@ endif
 #
 # For 'web-pages.dll':
 #
-WEB_SRC ?= $(OBJ_DIR)/web-page-1.c \
-           $(OBJ_DIR)/web-page-2.c \
-           $(OBJ_DIR)/web-page-3.c \
-           $(OBJ_DIR)/web-page-4.c \
-           $(OBJ_DIR)/web-page-5.c
-
 WEB_SUFFIXES ?= 1 2 3 4 5
+
+WEB_SRC := $(addsuffix .c, \
+             $(addprefix $(OBJ_DIR)/web-page-, $(WEB_SUFFIXES)))
 
 ifeq ($(USE_PACKED_DLL),1)
   TARGETS   += ../web-pages.dll
@@ -420,11 +418,17 @@ $(OBJ_DIR) doxy-docs:
 ../sqlite3.exe: $(OBJ_DIR)/sqlite3-shell.obj $(OBJ_DIR)/sqlite3.obj
 	$(call link_EXE, $@, $^ -nodefaultlib:uuid.lib oldnames.lib)
 
-$(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c
+$(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args
 	$(call C_compile, $@, -DCOMPILING_SQLITE3_SHELL $<)
 
+#
+# Problem with '-fsanitize*' flags for ASAN/UBSAN here.
+# Hence drop these flags.
+#
+# $(WEB_OBJ): CFLAGS := $(filter-out -fsanitize%, $(CFLAGS))
+
 ../web-pages.dll: $(WEB_OBJ) $(OBJ_DIR)/web-pages.res
-	$(call link_web_DLL, $@, -noentry $^ $(ASAN_LIBS), $(WEB_SUFFIXES))
+	$(call link_web_DLL, $@, $^ $(ASAN_LIBS), $(WEB_SUFFIXES))
 ifeq ($(USE_UPX),1)
 	$(call red_msg, Compressing $@ will take some time...)
 	upx -v $@
@@ -438,18 +442,18 @@ $(OBJ_DIR)/%.res: %.rc
 	$(call create_res_file, $@, $<)
 
 ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
-  $(OBJECTS): $(SOURCES)
+  $(OBJECTS): $(SOURCES) | $(CC).args
 	$(call green_msg, Compiling $(words $(SOURCES)) .c-files in one go...)
 	$(call C_compile, $(OBJ_DIR)\\, -MP $(SOURCES))
 
 else
-  $(OBJ_DIR)/routes.obj: $(OBJ_DIR)/routes.c
+  $(OBJ_DIR)/routes.obj: $(OBJ_DIR)/routes.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
-  $(OBJ_DIR)/sqlite3.obj: externals/sqlite3.c
+  $(OBJ_DIR)/sqlite3.obj: externals/sqlite3.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
-  $(OBJ_DIR)/%.obj: %.c
+  $(OBJ_DIR)/%.obj: %.c | $(CC).args
 	$(call C_compile, $@, $<)
 endif
 
@@ -468,7 +472,7 @@ $(OBJ_DIR)/web-page-4.c: ../tools/gen_packed_fs.py
 $(OBJ_DIR)/web-page-5.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root-Tar1090, 5,)
 
-$(OBJ_DIR)/web-page-%.obj: $(OBJ_DIR)/web-page-%.c
+$(OBJ_DIR)/web-page-%.obj: $(OBJ_DIR)/web-page-%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
 $(OBJ_DIR)/packed_webfs_1.c: ../tools/gen_packed_fs.py
@@ -480,16 +484,20 @@ $(OBJ_DIR)/packed_webfs_2.c: ../tools/gen_packed_fs.py
 #
 # Test the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
 #
-$(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c
+$(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
 ../packed_test.exe: $(OBJ_DIR)/packed_webfs_main.obj $(OBJ_DIR)/packed_webfs_1.obj $(OBJ_DIR)/packed_webfs_2.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj
 	$(call link_EXE, $@, -nodefaultlib:uuid.lib $^)
 
-$(OBJ_DIR)/routes.c: ../tools/gen_routes_data.py routes.csv
+$(OBJ_DIR)/routes.c: ../tools/gen_routes_data.py ../routes.csv
 	$(call green_msg, Generating $@)
-	$(PYTHON) $< routes.csv > $@
+	$(PYTHON) $< ../routes.csv > $@
 	@echo
+
+$(CC).args: $(THIS_FILE)
+	$(call green_msg, All common CFLAGS are in $@)
+	$(call create_resp_file, $@, $(CFLAGS))
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.
@@ -512,21 +520,22 @@ $(OBJ_DIR)/ldflags_$(CC).h: $(THIS_FILE) | $(OBJ_DIR)
 	$(call generate_ldflags_h, $@, link $(LDFLAGS) -out:dump1090.exe $(OBJECTS) $(OBJ_DIR)/dump1090.res $(OS_LIBS) $(ASAN_LIBS))
 
 docs: doxy-docs doxy-docs/Doxyfile
+	$(call green_white_msg, Running, doxygen doxy-docs/Doxyfile)
 	cd $< ; doxygen Doxyfile
-	$(call green_msg, Doxygen generated docs done. Look in 'doxy-docs/doxygen.log' for details.\n)
-	- (cd $< ; hhc index.hhp)
-	$(call green_msg, ../dump1090.chm generation done.)
-	cp --update doxy-docs/dump1090.chm ..
+	$(call green_white_msg, Generating, $</dump1090.chm)
+	- ( cd $< ; hhc index.hhp )
+	mv --force $</dump1090.chm ..
+	$(call green_white_msg, Done generating Doxygen docs and, ../dump1090.chm)
 
 docs_clean:
 	rm -fr doxy-docs
-	rm -f dump1090.chw
+	rm -f ../dump1090.chm
 
 doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call generate, $@, #)
 	$(file >> $@,$(dump1090_Doxyfile))
 
-%.i: %.c $(OBJ_DIR)/cpp-filter.py FORCE
+%.i: %.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, $<)
 
 FORCE:
@@ -559,7 +568,7 @@ endif
 # Clean up after Visual-Studio
 #
 VS_clean:
-	rm -fr .vs x64 x86
+	rm -fr .vs x64 x86 Dump1090
 
 #
 # '$(sort ..)' will create a unique list.
@@ -572,7 +581,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map)     \
                       ../sqlite3.{map,pdb}     \
                       ../web-pages.{map,pdb})
 
-OTHER_JUNK = vc1*.pdb link.tmp link.args
+OTHER_JUNK = vc1*.pdb link.tmp link.args cl.args clang-cl.args
 
 clean: docs_clean DLL_clean VS_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
@@ -580,7 +589,7 @@ clean: docs_clean DLL_clean VS_clean
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
 vclean realclean: clean
-	rm -f $(TARGETS) ../dump1090.chm ../packed_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
+	rm -f $(TARGETS) ../packed_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
 #
@@ -590,18 +599,20 @@ vclean realclean: clean
 #
 BRIGHT_GREEN = \e[1;32m
 BRIGHT_RED   = \e[1;31m
+BRIGHT_WHITE = \e[1;37m
 
-green_msg = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
-red_msg   = @echo -e "$(BRIGHT_RED)$(strip $(1))\e[0m"
+green_msg       = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
+red_msg         = @echo -e "$(BRIGHT_RED)$(strip $(1))\e[0m"
+green_white_msg = $(call green_msg, $(1) $(BRIGHT_WHITE)$(strip $(2)) $(BRIGHT_GREEN)...)
 
 define C_compile
-  $(_CC) $(CFLAGS) -Fo./$(strip $(1) $(2))
+  $(_CC) @$(CC).args -Fo./$(strip $(1) $(2))
   @echo
 endef
 
 define C_compile_long_time
   $(call red_msg, Compiling $(1) will take some time...)
-  $(_CC) $(CFLAGS) -Fo./$(strip $(1) $(2))
+  $(_CC) @$(CC).args -Fo./$(strip $(1) $(2))
   @echo
 endef
 
@@ -632,7 +643,7 @@ endef
 
 define link_web_DLL
   $(call green_msg, Linking $(1))
-  $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2))
+  $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2) oldnames.lib)
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.dll=.map)
   @rm -f $(1:.dll=.exp) $(1:.dll=.lib)
@@ -696,7 +707,7 @@ define C_preprocess
   $(file >> $(1), *---------------------------------------------------------)
   $(file >> $(1), * Try to compile this output.)
   $(file >> $(1), */)
-  $(_CC) -E $(CFLAGS) $(d1PP) $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(C_FORMATER) >> $(1)
+  $(_CC) -E @$(CC).args $(d1PP) $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(C_FORMATER) >> $(1)
 endef
 
 doxy_SOURCES = $(addprefix ../, $(SOURCES))
@@ -728,7 +739,7 @@ define dump1090_Doxyfile
                           $(doxy_HEADERS)
 
   EXAMPLE_PATH          = ..
-  IMAGE_PATH            = ..
+  IMAGE_PATH            = .. ../..
   INLINE_SIMPLE_STRUCTS = yes
   SOURCE_BROWSER        = yes
   CALL_GRAPH            = yes
@@ -743,7 +754,7 @@ define dump1090_Doxyfile
   SEARCHENGINE          = no
   WARNINGS              = yes
   WARN_LOGFILE          = $(CURDIR)/doxy-docs/doxygen.log
-  CHM_FILE              = ../dump1090.chm
+  CHM_FILE              = dump1090.chm
 endef
 
 define web_pages_RC

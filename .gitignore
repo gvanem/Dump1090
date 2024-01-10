@@ -2,6 +2,8 @@
 *.pdb
 *.bat
 *.i
+cl.args
+clang-cl.args
 link.args
 link.tmp
 objects
