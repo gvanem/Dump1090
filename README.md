@@ -3,7 +3,7 @@
 [![MSBuild](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml/badge.svg?branch=main)](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml)
 
 A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<br>
-It requires a RTL-SDR USB-stick and Osmocom's **[librtlsdr](https://github.com/osmocom/rtl-sdr)**.
+It requires a RTL-SDR USB-stick (the **librtlsdr** interface is **[built-in](src/externals/rtl-sdr/)**)).
 
 This *Mode S* decoder is based on the original *Dump1090* by **Salvatore Sanfilippo**
 which is **[here](https://github.com/antirez/dump1090.git)**.<br>
@@ -247,7 +247,7 @@ The option `--update` will check and download <br>
 **https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and
 extract using the internal [**zip**](https://github.com/kuba--/zip) functions.
 And also rebuild the `aircraft-database.csv.sqlite` file using the internal bundled
-[**sqlite3.c**](externals/sqlite3.c).
+[**sqlite3.c**](src/externals/sqlite3.c).
 
 ## Additional options
 
