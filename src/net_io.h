@@ -54,15 +54,6 @@ extern net_service modeS_net_services [MODES_NET_SERVICES_NUM];
  */
 typedef bool (*net_msg_handler) (mg_iobuf *msg, int loop_cnt);
 
-/**
- * \typedef mg_listen_func
- * A function-pointer for either `mg_listen()` or `mg_http_listen()`.
- */
-typedef struct mg_connection *(*mg_listen_func) (struct mg_mgr     *mgr,
-                                                 const char        *url,
-                                                 mg_event_handler_t fn,
-                                                 void              *fn_data);
-
 bool        net_init (void);
 bool        net_exit (void);
 void        net_poll (void);
