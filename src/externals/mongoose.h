@@ -1,5 +1,5 @@
 // Copyright (c) 2004-2013 Sergey Lyubka
-// Copyright (c) 2013-2022 Cesanta Software Limited
+// Copyright (c) 2013-2024 Cesanta Software Limited
 // All rights reserved
 //
 // This software is dual-licensed: you can redistribute it and/or modify
@@ -318,6 +318,9 @@ static inline int mg_mkdir(const char *path, mode_t mode) {
     !defined MG_ENABLE_RL && (!defined(MG_ENABLE_LWIP) || !MG_ENABLE_LWIP) && \
     (!defined(MG_ENABLE_TCPIP) || !MG_ENABLE_TCPIP)
 #define MG_ENABLE_RL 1
+#ifndef MG_SOCK_LISTEN_BACKLOG_SIZE
+#define MG_SOCK_LISTEN_BACKLOG_SIZE 3
+#endif
 #endif
 
 #endif
@@ -783,7 +786,7 @@ struct timeval {
 #endif
 
 #ifndef MG_SOCK_LISTEN_BACKLOG_SIZE
-#define MG_SOCK_LISTEN_BACKLOG_SIZE 3
+#define MG_SOCK_LISTEN_BACKLOG_SIZE 128
 #endif
 
 #ifndef MG_DIRSEP
@@ -2096,7 +2099,7 @@ typedef uint64_t uECC_word_t;
 
 struct mg_connection;
 typedef void (*mg_event_handler_t)(struct mg_connection *, int ev,
-                                   void *ev_data, void *fn_data);
+                                   void *ev_data);
 void mg_call(struct mg_connection *c, int ev, void *ev_data);
 void mg_error(struct mg_connection *c, const char *fmt, ...);
 

@@ -1,5 +1,5 @@
 // Copyright (c) 2004-2013 Sergey Lyubka
-// Copyright (c) 2013-2022 Cesanta Software Limited
+// Copyright (c) 2013-2024 Cesanta Software Limited
 // All rights reserved
 //
 // This software is dual-licensed: you can redistribute it and/or modify
@@ -852,8 +852,7 @@ bool mg_dns_parse(const uint8_t *buf, size_t len, struct mg_dns_message *dm) {
   return true;
 }
 
-static void dns_cb(struct mg_connection *c, int ev, void *ev_data,
-                   void *fn_data) {
+static void dns_cb(struct mg_connection *c, int ev, void *ev_data) {
   struct dns_data *d, *tmp;
   struct dns_data **head = (struct dns_data **) &c->mgr->active_dns_requests;
   if (ev == MG_EV_POLL) {
@@ -907,7 +906,6 @@ static void dns_cb(struct mg_connection *c, int ev, void *ev_data,
       mg_dns_free(head, d);
     }
   }
-  (void) fn_data;
 }
 
 static bool mg_dns_send(struct mg_connection *c, const struct mg_str *name,
@@ -1006,8 +1004,8 @@ void mg_call(struct mg_connection *c, int ev, void *ev_data) {
   // Run user-defined handler first, in order to give it an ability
   // to intercept processing (e.g. clean input buffer) before the
   // protocol handler kicks in
-  if (c->fn != NULL) c->fn(c, ev, ev_data, c->fn_data);
-  if (c->pfn != NULL) c->pfn(c, ev, ev_data, c->pfn_data);
+  if (c->fn != NULL) c->fn(c, ev, ev_data);
+  if (c->pfn != NULL) c->pfn(c, ev, ev_data);
 }
 
 void mg_error(struct mg_connection *c, const char *fmt, ...) {
@@ -1018,7 +1016,7 @@ void mg_error(struct mg_connection *c, const char *fmt, ...) {
   va_end(ap);
   MG_ERROR(("%lu %ld %s", c->id, c->fd, buf));
   c->is_closing = 1;             // Set is_closing before sending MG_EV_CALL
-  mg_call(c, MG_EV_ERROR, buf);  // Let user handler to override it
+  mg_call(c, MG_EV_ERROR, buf);  // Let user handler override it
 }
 
 #ifdef MG_ENABLE_LINES
@@ -2286,7 +2284,7 @@ void mg_http_reply(struct mg_connection *c, int code, const char *headers,
   c->is_resp = 0;
 }
 
-static void http_cb(struct mg_connection *, int, void *, void *);
+static void http_cb(struct mg_connection *, int, void *);
 static void restore_http_cb(struct mg_connection *c) {
   mg_fs_close((struct mg_fd *) c->pfn_data);
   c->pfn_data = NULL;
@@ -2300,10 +2298,9 @@ char *mg_http_etag(char *buf, size_t len, size_t size, time_t mtime) {
   return buf;
 }
 
-static void static_cb(struct mg_connection *c, int ev, void *ev_data,
-                      void *fn_data) {
+static void static_cb(struct mg_connection *c, int ev, void *ev_data) {
   if (ev == MG_EV_WRITE || ev == MG_EV_POLL) {
-    struct mg_fd *fd = (struct mg_fd *) fn_data;
+    struct mg_fd *fd = (struct mg_fd *) c->pfn_data;
     // Read to send IO buffer directly, avoid extra on-stack buffer
     size_t n, max = MG_IO_SIZE, space;
     size_t *cl = (size_t *) &c->data[(sizeof(c->data) - sizeof(size_t)) /
@@ -2828,7 +2825,7 @@ static int skip_chunk(const char *buf, int len, int *pl, int *dl) {
   return i + 2 + n + 2;
 }
 
-static void http_cb(struct mg_connection *c, int ev, void *evd, void *fnd) {
+static void http_cb(struct mg_connection *c, int ev, void *ev_data) {
   if (ev == MG_EV_READ || ev == MG_EV_CLOSE) {
     struct mg_http_message hm;
     size_t ofs = 0;  // Parsing offset
@@ -2890,10 +2887,10 @@ static void http_cb(struct mg_connection *c, int ev, void *evd, void *fnd) {
     }
     if (ofs > 0) mg_iobuf_del(&c->recv, 0, ofs);  // Delete processed data
   }
-  (void) evd, (void) fnd;
+  (void) ev_data;
 }
 
-static void mg_hfn(struct mg_connection *c, int ev, void *ev_data, void *fnd) {
+static void mg_hfn(struct mg_connection *c, int ev, void *ev_data) {
   if (ev == MG_EV_HTTP_MSG) {
     struct mg_http_message *hm = (struct mg_http_message *) ev_data;
     if (mg_http_match_uri(hm, "/quit")) {
@@ -2908,7 +2905,7 @@ static void mg_hfn(struct mg_connection *c, int ev, void *ev_data, void *fnd) {
       mg_http_reply(c, 200, "", "hi\n");
     }
   } else if (ev == MG_EV_CLOSE) {
-    if (c->data[0] == 'X') *(bool *) fnd = true;
+    if (c->data[0] == 'X') *(bool *) c->fn_data = true;
   }
 }
 
@@ -4062,7 +4059,8 @@ int mg_mqtt_parse(const uint8_t *buf, size_t len, uint8_t version,
       }
       if (p > end) return MQTT_MALFORMED;
       if (version == 5 && p + 2 < end) {
-        len_len = (uint32_t) decode_varint(p, (size_t) (end - p), &m->props_size);
+        len_len =
+            (uint32_t) decode_varint(p, (size_t) (end - p), &m->props_size);
         if (!len_len) return MQTT_MALFORMED;
         m->props_start = (size_t) (p + len_len - buf);
         p += len_len + m->props_size;
@@ -4078,8 +4076,7 @@ int mg_mqtt_parse(const uint8_t *buf, size_t len, uint8_t version,
   return MQTT_OK;
 }
 
-static void mqtt_cb(struct mg_connection *c, int ev, void *ev_data,
-                    void *fn_data) {
+static void mqtt_cb(struct mg_connection *c, int ev, void *ev_data) {
   if (ev == MG_EV_READ) {
     for (;;) {
       uint8_t version = c->is_mqtt5 ? 5 : 4;
@@ -4147,7 +4144,6 @@ static void mqtt_cb(struct mg_connection *c, int ev, void *ev_data,
     }
   }
   (void) ev_data;
-  (void) fn_data;
 }
 
 void mg_mqtt_ping(struct mg_connection *nc) {
@@ -6630,7 +6626,7 @@ int64_t mg_sntp_parse(const unsigned char *buf, size_t len) {
   return res;
 }
 
-static void sntp_cb(struct mg_connection *c, int ev, void *evd, void *fnd) {
+static void sntp_cb(struct mg_connection *c, int ev, void *ev_data) {
   if (ev == MG_EV_READ) {
     int64_t milliseconds = mg_sntp_parse(c->recv.buf, c->recv.len);
     if (milliseconds > 0) {
@@ -6644,8 +6640,7 @@ static void sntp_cb(struct mg_connection *c, int ev, void *evd, void *fnd) {
     mg_sntp_request(c);
   } else if (ev == MG_EV_CLOSE) {
   }
-  (void) fnd;
-  (void) evd;
+  (void) ev_data;
 }
 
 void mg_sntp_request(struct mg_connection *c) {
@@ -7296,7 +7291,7 @@ static bool mg_socketpair(MG_SOCKET_TYPE sp[2], union usa usa[2]) {
 }
 
 // mg_wakeup() event handler
-static void wufn(struct mg_connection *c, int ev, void *evd, void *fnd) {
+static void wufn(struct mg_connection *c, int ev, void *ev_data) {
   if (ev == MG_EV_READ) {
     unsigned long *id = (unsigned long *) c->recv.buf;
     // MG_INFO(("Got data"));
@@ -7316,7 +7311,7 @@ static void wufn(struct mg_connection *c, int ev, void *evd, void *fnd) {
     closesocket(c->mgr->pipe);         // When we're closing, close the other
     c->mgr->pipe = MG_INVALID_SOCKET;  // side of the socketpair, too
   }
-  (void) evd, (void) fnd;
+  (void) ev_data;
 }
 
 bool mg_wakeup_init(struct mg_mgr *mgr) {
@@ -13736,8 +13731,7 @@ static bool mg_ws_client_handshake(struct mg_connection *c) {
   return false;  // Continue event handler
 }
 
-static void mg_ws_cb(struct mg_connection *c, int ev, void *ev_data,
-                     void *fn_data) {
+static void mg_ws_cb(struct mg_connection *c, int ev, void *ev_data) {
   struct ws_msg msg;
   size_t ofs = (size_t) c->pfn_data;
 
@@ -13803,7 +13797,6 @@ static void mg_ws_cb(struct mg_connection *c, int ev, void *ev_data,
       }
     }
   }
-  (void) fn_data;
   (void) ev_data;
 }
 

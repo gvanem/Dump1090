@@ -87,7 +87,7 @@ typedef struct timeout_data {
 
 static timeout_data service_timers [MODES_NET_SERVICES_NUM];
 
-static void        net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data);
+static void        net_handler (mg_connection *c, int ev, void *ev_data);
 static void        net_timer_add (intptr_t service, int timeout_ms, int flag);
 static void        net_timer_del (intptr_t service);
 static void        net_conn_free (connection *conn, intptr_t service);
@@ -230,7 +230,6 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
            url, net_service_descr(service));
 
     net_timer_add (service, timeout, MG_TIMER_ONCE);
-
     c = mg_connect (&Modes.mgr, url, net_handler, (void*)service);
   }
 
@@ -825,18 +824,18 @@ static void connection_failed_accepted (mg_connection *c, intptr_t service, cons
 /**
  * The event handler for ALL network I/O.
  */
-static void net_handler (mg_connection *c, int ev, void *ev_data, void *fn_data)
+static void net_handler (mg_connection *c, int ev, void *ev_data)
 {
   connection  *conn;
   char        *remote;
   mg_host_name remote_buf;
-  long         bytes;                              /* bytes read or written */
-  INT_PTR      service = (int)(INT_PTR) fn_data;   /* 'fn_data' is arbitrary user data */
+  long         bytes;                                /* bytes read or written */
+  INT_PTR      service = (int)(INT_PTR) c->fn_data;  /* 'fn_data' is arbitrary user data */
 
   if (Modes.exit)
      return;
 
-  if (ev == MG_EV_POLL || ev == MG_EV_OPEN)    /* Ignore thes events */
+  if (ev == MG_EV_POLL || ev == MG_EV_OPEN)    /* Ignore these events */
      return;
 
   if (ev == MG_EV_ERROR)
