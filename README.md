@@ -166,8 +166,9 @@ Running with `web-page = %~dp0\web_root-Tar1090\index.html` in the `dump1090.cfg
 will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/) and data from [**Tar1090-DB**](https://github.com/wiedehopf/tar1090-db/):
 **![tar1090 output](dump1090-tar1090-web.png)**
 
-Building with a *packed Web-filesystem* is also possible. Then **all** web-pages are built-in to the `dump1090.exe` file.<br>
-Ref. `USE_PACKED_WEB = 1` in [**Makefile.Windows**](https://github.com/gvanem/Dump1090/blob/main/Makefile.Windows#L22).
+Building with a *packed Web-filesystem* is also possible. Then **all** web-pages are built into a `web-pages.dll` file. <br>
+Ref. `USE_PACKED_WEB = 1` in [**Makefile.Windows**](https://github.com/gvanem/Dump1090/blob/main/Makefile.Windows#L22)
+and a `web-page = web-pages.dll;N` in the [**config-file**](dump1090.cfg).
 
 
 ## Using RTL1090 as RAW source
