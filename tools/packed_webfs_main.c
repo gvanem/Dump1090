@@ -1,5 +1,5 @@
 /**
- * For 'packed_test.exe'.
+ * For '../packed_test.exe'.
  */
 #include "misc.h"
 
@@ -133,8 +133,8 @@ static void create_lookup_table (unlist_func unlist, unpack_func unpack)
   lookup_table = malloc (sizeof(*lookup_table) * lookup_table_sz);
   for (num = 0; (fname = (*unlist)(num)) != NULL; num++)
   {
-    lookup_table[num].name = fname;
-    lookup_table[num].data = (const unsigned char*) (*unpack) (fname, &lookup_table[num].size, &lookup_table[num].mtime);
+    lookup_table [num].name = fname;
+    lookup_table [num].data = (const unsigned char*) (*unpack) (fname, &lookup_table[num].size, &lookup_table[num].mtime);
   }
   qsort (lookup_table, num, sizeof(*lookup_table), compare_on_name);
 }
@@ -196,13 +196,47 @@ static void check_speed (unlist_func unlist_1, unlist_func unlist_2,
   free (lookup_table);
 }
 
+static void check_DLL (const char *dll_basename)
+{
+  mg_file_path dll_fullname;
+
+  snprintf (dll_fullname, sizeof(dll_fullname), "%s\\%s", Modes.where_am_I, dll_basename);
+
+#if defined(USE_PACKED_DLL) && 0
+  /*
+   * Add a version of this from net_io.c:
+   */
+  if (!load_web_dll(dll_fullname))
+     rc++;
+
+  check_specs   (dll_mg_spec_1, dll_mg_spec_2);
+  check_numbers (dll_mg_unlist_1, dll_mg_unlist_2);
+  check_listing (dll_mg_unlist_1, dll_mg_unlist_2, dll_mg_unpack_1, dll_mg_unpack_2);
+  check_sizes   (dll_mg_unlist_1, dll_mg_unlist_2, dll_mg_unpack_1, dll_mg_unpack_2);
+  check_speed   (dll_mg_unlist_1, dll_mg_unlist_2, dll_mg_unpack_1, dll_mg_unpack_2);
+  unload_web_dll();
+#endif
+
+  MODES_NOTUSED (dll_fullname);
+  MODES_NOTUSED (dll_basename);
+}
+
+static void init (void)
+{
+  memset (&Modes, '\0', sizeof(Modes));
+  GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
+  snprintf (Modes.where_am_I, sizeof(Modes.where_am_I), "%s", dirname(Modes.who_am_I));
+}
+
 int main (void)
 {
+  init();
   check_specs   (mg_spec_1, mg_spec_2);
   check_numbers (mg_unlist_1, mg_unlist_2);
   check_listing (mg_unlist_1, mg_unlist_2, mg_unpack_1, mg_unpack_2);
   check_sizes   (mg_unlist_1, mg_unlist_2, mg_unpack_1, mg_unpack_2);
   check_speed   (mg_unlist_1, mg_unlist_2, mg_unpack_1, mg_unpack_2);
+  check_DLL ("web-pages.dll");
   return (rc);
 }
 
@@ -223,6 +257,9 @@ DEAD_CODE (const char *, "?", mz_version, (void))
 DEAD_CODE (const char *, "?", sqlite3_libversion, (void))
 DEAD_CODE (const char *, "?", sqlite3_compileoption_get, (int N))
 DEAD_CODE (const char *, "?", trace_strerror, (DWORD err))
-DEAD_CODE (const char *, "?", mg_unpack, (const char *name, size_t *size, time_t *mtime))
-DEAD_CODE (const char *, "?", mg_unlist, (size_t i))
 DEAD_CODE (uint32_t,     0,   rtlsdr_last_error, (void))
+
+#if defined(MG_ENABLE_PACKED_FS) && (MG_ENABLE_PACKED_FS == 1)
+  DEAD_CODE (const char *, "?", mg_unpack, (const char *name, size_t *size, time_t *mtime))
+  DEAD_CODE (const char *, "?", mg_unlist, (size_t i))
+#endif
