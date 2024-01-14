@@ -430,7 +430,7 @@ $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args
 ../web-pages.dll: $(WEB_OBJ) $(OBJ_DIR)/web-pages.res
 	$(call link_web_DLL, $@, $^ $(ASAN_LIBS), $(WEB_SUFFIXES))
 ifeq ($(USE_UPX),1)
-	$(call red_msg, Compressing $@ will take some time...)
+	$(call green_msg, Compressing $@ will take some time...)
 	upx -v $@
 endif
 
@@ -595,11 +595,9 @@ vclean realclean: clean
 # This assumes you have an MSys/Cygwin 'echo.exe' with colour support.
 #
 BRIGHT_GREEN = \e[1;32m
-BRIGHT_RED   = \e[1;31m
 BRIGHT_WHITE = \e[1;37m
 
 green_msg       = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
-red_msg         = @echo -e "$(BRIGHT_RED)$(strip $(1))\e[0m"
 green_white_msg = $(call green_msg, $(1) $(BRIGHT_WHITE)$(strip $(2)) $(BRIGHT_GREEN)...)
 
 define C_compile
@@ -608,7 +606,7 @@ define C_compile
 endef
 
 define C_compile_long_time
-  $(call red_msg, Compiling $(1) will take some time...)
+  $(call green_msg, Compiling $(1) will take some time...)
   $(_CC) @$(CC).args -Fo./$(strip $(1) $(2))
   @echo
 endef
