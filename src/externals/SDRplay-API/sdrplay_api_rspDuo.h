@@ -30,11 +30,18 @@ typedef struct
 
 typedef struct 
 {
+   unsigned char resetGainUpdate;      // default: 0
+   unsigned char resetRfUpdate;        // default: 0
+} sdrplay_api_RspDuo_ResetSlaveFlagsT;
+
+typedef struct
+{
     unsigned char biasTEnable;                      // default: 0
     sdrplay_api_RspDuo_AmPortSelectT tuner1AmPortSel; // default: sdrplay_api_RspDuo_AMPORT_2
     unsigned char tuner1AmNotchEnable;              // default: 0
     unsigned char rfNotchEnable;                    // default: 0
     unsigned char rfDabNotchEnable;                 // default: 0
+    sdrplay_api_RspDuo_ResetSlaveFlagsT resetSlaveFlags;
 } sdrplay_api_RspDuoTunerParamsT;
 
 #endif //SDRPLAY_API_RSPduo_H

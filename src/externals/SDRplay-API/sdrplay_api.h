@@ -21,7 +21,7 @@ typedef void *HANDLE;
 
 // Application code should check that it is compiled against the same API version
 // sdrplay_api_ApiVersion() returns the API version 
-#define SDRPLAY_API_VERSION                   (float)(3.11)
+#define SDRPLAY_API_VERSION                   (float)(3.14)
 
 // API Constants
 #define SDRPLAY_MAX_DEVICES                   (16)
@@ -35,6 +35,7 @@ typedef void *HANDLE;
 #define SDRPLAY_RSP2_ID                       (2)
 #define SDRPLAY_RSPduo_ID                     (3)
 #define SDRPLAY_RSPdx_ID                      (4)
+#define SDRPLAY_RSP1B_ID                      (6)
 
 // Enum types
 typedef enum
@@ -125,6 +126,7 @@ typedef enum
     sdrplay_api_Update_RspDx_RfNotchControl        = 0x00000008,
     sdrplay_api_Update_RspDx_RfDabNotchControl     = 0x00000010,
     sdrplay_api_Update_RspDx_HdrBw                 = 0x00000020,
+    sdrplay_api_Update_RspDuo_ResetSlaveFlags      = 0x00000040,
 
     // Reasons for master and slave mode
 } sdrplay_api_ReasonForUpdateExtension1T;
@@ -178,6 +180,7 @@ typedef sdrplay_api_ErrT        (*sdrplay_api_SelectDevice_t)(sdrplay_api_Device
 typedef sdrplay_api_ErrT        (*sdrplay_api_ReleaseDevice_t)(sdrplay_api_DeviceT *device);    
 typedef const char*             (*sdrplay_api_GetErrorString_t)(sdrplay_api_ErrT err);
 typedef sdrplay_api_ErrorInfoT* (*sdrplay_api_GetLastError_t)(sdrplay_api_DeviceT *device);
+typedef sdrplay_api_ErrorInfoT* (*sdrplay_api_GetLastErrorByType_t)(sdrplay_api_DeviceT *device, int type, unsigned long long *time);
 typedef sdrplay_api_ErrT        (*sdrplay_api_DisableHeartbeat_t)(void);
 
 // Device API function types
@@ -209,6 +212,7 @@ extern "C"
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_ReleaseDevice(sdrplay_api_DeviceT *device);   
     _SDRPLAY_DLL_QUALIFIER const char*             sdrplay_api_GetErrorString(sdrplay_api_ErrT err);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrorInfoT* sdrplay_api_GetLastError(sdrplay_api_DeviceT *device);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrorInfoT* sdrplay_api_GetLastErrorByType(sdrplay_api_DeviceT *device, int type, unsigned long long *time);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_DisableHeartbeat(void); // Must be called before sdrplay_api_SelectDevice()
 
     // Device API function definitions
