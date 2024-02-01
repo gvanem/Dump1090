@@ -88,6 +88,15 @@ struct sdrplay_priv {
        sdrplay_api_ReleaseDevice_t    sdrplay_api_ReleaseDevice;
        sdrplay_api_Update_t           sdrplay_api_Update;
        sdrplay_api_GetErrorString_t   sdrplay_api_GetErrorString;
+       sdrplay_api_GetLastError_t     sdrplay_api_GetLastError;     /* No real need for this */
+
+       /* An SDRPlay API ver 3.14. function; hence can be NULL when running a
+        * ver. < 3.14 service. Then the below `error_timestamp`
+        * and `error_info` are empty.
+        */
+       sdrplay_api_GetLastErrorByType_t sdrplay_api_GetLastErrorByType;
+       uint64_t                         error_timestamp;
+       sdrplay_api_ErrorInfoT           error_info;
      };
 
 static struct sdrplay_priv sdr = { "sdrplay_api.dll" };
@@ -103,6 +112,43 @@ static HANDLE               g_sdr_handle;
 static int gain_table[10] = { 40, 100, 150, 170, 210, 260, 310, 350, 390, 440 };
 
 /**
+ * Store the last error-details and timestamp by `type`.
+ *
+ * The `sdrplay_api_ErrorInfoT` structure contains this:
+ * ```
+ * typedef struct {
+ *     char file [256];
+ *     char function [256];
+ *     int  line;
+ *     char message [1024];
+ *  } sdrplay_api_ErrorInfoT;
+ * ```
+ *
+ * And the `type` means:
+ *  - 0:  DLL message
+ *  - 1:  DLL device message
+ *  - 2:  Service message
+ *  - 3:  Service device message
+ */
+static void sdrplay_store_error_details (int type)
+{
+  sdrplay_api_ErrorInfoT *info;
+  uint64_t                time;
+
+  sdr.error_timestamp = 0ULL;
+  memset (&sdr.error_info, '\0', sizeof(sdr.error_info));
+  info = (*sdr.sdrplay_api_GetLastErrorByType) (sdr.dev, type, &time);
+
+  /* Can it return NULL?
+   */
+  if (!info)
+  {
+    sdr.error_timestamp = time;
+    sdr.error_info = *info;
+  }
+}
+
+/**
  * Store the last error-code and error-text from the
  * last `CALL_FUNC()` macro call.
  */
@@ -115,6 +161,9 @@ static void sdrplay_store_error (sdrplay_api_ErrT rc)
   else if (rc == sdrplay_api_NotInitialised)
        strcpy_s (sdr.last_err, sizeof(sdr.last_err), "SDRplay API not initialised");
   else sdr.last_err[0] = '\0';
+
+  if (sdr.sdrplay_api_GetLastErrorByType)
+     sdrplay_store_error_details (0);   /* should use corect type */
 }
 
 static const char *sdrplay_tuner_name (sdrplay_api_TunerSelectT tuner)
@@ -762,8 +811,14 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   LOAD_FUNC (sdrplay_api_ReleaseDevice);
   LOAD_FUNC (sdrplay_api_Update);
   LOAD_FUNC (sdrplay_api_GetErrorString);
-
+  LOAD_FUNC (sdrplay_api_GetLastError);
   CALL_FUNC (sdrplay_api_Open);
+
+  /* Added in API ver 3.14. Allow this call to return NULL.
+   */
+  sdr.sdrplay_api_GetLastErrorByType = (sdrplay_api_GetLastErrorByType_t)
+     GetProcAddress (sdr.dll_hnd, "sdrplay_api_GetLastErrorByType");
+
   if (sdr.last_rc != sdrplay_api_Success)
   {
     fprintf (stderr, "The SDRPlay API is not responding. A service restart could help:\n");
