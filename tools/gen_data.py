@@ -11,7 +11,8 @@ Generate these files:
 from GitHub: 'https://github.com/vradarserver/standing-data.git'
 """
 
-import os, sys, stat, struct, time, csv, argparse, fnmatch
+import os, sys, stat, struct, time, csv, argparse
+import fnmatch, msvcrt, shutil
 
 opt        = None
 temp_dir   = os.getenv ("TEMP").replace("\\", "/") + "/dump1090/standing-data"
@@ -70,6 +71,14 @@ def make_dir (d):
     os.mkdir (d)
   except:
     pass
+
+def clean_dir (d):
+  print ("Remove '%s' (y/N)? " % d, end="")
+  sys.stdout.flush()
+  yes = int (msvcrt.getch().upper()[0])
+  if yes == 'Y':
+     shutil.rmtree (d)
+  sys.exit (0)
 
 #
 # Recursively descend the directory tree at top, adding all
@@ -462,31 +471,41 @@ def show_help():
   print (__doc__[1:])
   print ("""Usage: %s [options]
   -c, --clang:  Use 'clang-cl' to compile (not 'cl').
+  -C, --clean:  Clean all built stuff in '%s'.
   -h, --help:   Show this help.
   -l, --list:   List all .csv-file
-  -t, --test:   Run the test .exe-programs.""" % __file__)
+  -t, --test:   Run the test .exe-programs.""" % (__file__, result_dir))
   sys.exit (0)
 
 def parse_cmdline():
   parser = argparse.ArgumentParser (add_help = False)
   parser.add_argument ("-c", "--clang", dest = "clang", action = "store_true")
+  parser.add_argument ("-C", "--clean", dest = "clean", action = "store_true")
   parser.add_argument ("-h", "--help",  dest = "help",  action = "store_true")
   parser.add_argument ("-l", "--list",  dest = "list",  action = "store_true")
   parser.add_argument ("-t", "--test",  dest = "test",  action = "store_true")
   return parser.parse_args()
 
-def main():
-  global opt
+def do_init():
   opt = parse_cmdline()
   if opt.help:
      show_help()
+  if opt.clean:
+     clean_dir (result_dir)
+  return opt
 
+def do_init_git():
   if os.path.exists (git_config):
      if os.system ("git.exe -C %s pull > NUL" % temp_dir) != 0:
         error ("'git pull' failed")
   else:
      if os.system ("git.exe clone --depth=1 %s %s" % (git_url, temp_dir)) != 0:
         error ("'git clone' failed")
+
+def main():
+  global opt
+  opt = do_init()
+  do_init_git()
 
   make_dir (result_dir)
 
