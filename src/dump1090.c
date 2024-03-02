@@ -3128,6 +3128,10 @@ static void modeS_exit (void)
     Modes.log = NULL;
   }
 
+#if defined(USE_MIMALLOC)
+  mimalloc_exit();
+#endif
+
 #if defined(_DEBUG)
   crtdbug_exit();
 #endif
@@ -3566,6 +3570,10 @@ int main (int argc, char **argv)
 
 #if defined(_DEBUG)
   crtdbug_init();
+#endif
+
+#if defined(USE_MIMALLOC)
+  mimalloc_init();
 #endif
 
   modeS_init_config();  /* Set sane defaults */
