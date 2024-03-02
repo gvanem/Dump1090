@@ -1225,8 +1225,8 @@ static const char *__DATE__str (void)
   return (__DATE__);    /* e.g. "Mar  2 2024" */
 #else
   /*
-   * Convert `__DATA__` into `DD MMM YYYY`.
-   * Based on
+   * Convert `__DATE__ into `DD MMM YYYY`.
+   * Based on:
    *   https://bytes.com/topic/c/answers/215378-convert-__date__-unsigned-int
    */
   #define YEAR() ((((__DATE__[7] - '0') * 10 + (__DATE__ [8] - '0')) * 10 + \
