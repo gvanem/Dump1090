@@ -7,6 +7,7 @@
 #endif
 
 #define WIN32_LEAN_AND_MEAN
+#undef MOUSE_MOVED
 #include <windows.h>
 #undef MOUSE_MOVED
 #include <curspriv.h>
