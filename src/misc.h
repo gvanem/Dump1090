@@ -650,6 +650,14 @@ void        rx_callback (uint8_t *buf, uint32_t len, void *ctx);
 
 void NO_RETURN show_version_info (bool verbose);
 
+#if defined(USE_MIMALLOC)
+  /*
+   * Show memory statistics etc.
+   */
+  void mimalloc_init (void);
+  void mimalloc_exit (void);
+#endif
+
 /*
  * in 'pconsole.c'. Not used yet.
  */

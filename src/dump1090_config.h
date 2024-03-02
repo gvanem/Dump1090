@@ -32,12 +32,6 @@
 
 #elif defined(_MSC_VER)
   /*
-   * wincontypes.h(103): warning C4005: 'MOUSE_MOVED': macro redefinition
-   *   externals\Curses\curses.h(190): note: see previous definition of 'MOUSE_MOVED'
-   */
-   #pragma warning (disable: 4005)
-
-  /*
    * misc.c(524): warning C4152: nonstandard extension,
    *   function/data pointer conversion in expression
    */
@@ -109,9 +103,9 @@
  */
 #define USE_gettimeofday 1
 
-#if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
+#if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0602)
   #undef  _WIN32_WINNT
-  #define _WIN32_WINNT 0x0600
+  #define _WIN32_WINNT 0x0602   /* == _WIN32_WINNT_WIN8 */
 #endif
 
 /** To pull in `M_PI` in `<math.h>`
@@ -142,7 +136,9 @@
 #endif
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <malloc.h>
 #include <io.h>
 
 /**
@@ -155,12 +151,38 @@
 #define access(file, mode)   _access (file, mode)
 #define fileno(stream)       _fileno (stream)
 
-#if defined(_DEBUG) && !defined(RC_INVOKED)
+/*
+ * Options for `externals/mimalloc/` code:
+ */
+#if defined(USE_MIMALLOC)
+  /*
+   * Will redefine most 'malloc.h' + 'string.h' functions to 'mi_xx()'.
+   */
+  #include <mimalloc/mimalloc-override.h>
+
+  /*
+   * Since 'realpath()' gets defined in 'externals/mongoose.h' too.
+   * Safer to use 'mi_realpath()'
+   */
+  #undef  realpath
+  #include <externals/mongoose.h>
+
+  #undef  realpath
+  #define realpath(file, real_name)  mi_realpath (file, real_name)
+
+  /*
+   * Since 'externals/mongoose.h' defines this and '<ntddndis.h>'
+   * uses this in an enum
+   */
+  #undef ENCRYPT
+
+#elif defined(_DEBUG)
   #include <malloc.h>
 
   #undef  _malloca          /* Avoid MSVC-9 <malloc.h>/<crtdbg.h> name-clash */
   #define _CRTDBG_MAP_ALLOC
   #include <crtdbg.h>
+
 #else
   #define strdup(s)  _strdup (s)
 #endif

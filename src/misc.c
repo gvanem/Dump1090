@@ -2,11 +2,6 @@
  * \ingroup Misc
  * \brief   Various support functions.
  */
-#if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0602)
-  #undef  _WIN32_WINNT
-  #define _WIN32_WINNT 0x0602  /* _WIN32_WINNT_WIN8 */
-#endif
-
 #include <stdint.h>
 #include <sys/utime.h>
 #include <inttypes.h>
@@ -709,9 +704,6 @@ int get_timespec_UTC (struct timespec *ts)
 /**
  * Returns a `FILETIME *ft`.
  *
- * This is here since the above `#define _WIN32_WINNT 0x0602` (Win-8+)
- * is *only* defined here.
- *
  * From: https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsystemtimepreciseasfiletime
  *   retrieves the current system date and time with the highest possible
  *   level of precision (<1us). The retrieved information is in
@@ -972,6 +964,38 @@ static void print_packed_web_info (void)
 #endif
 }
 
+#if defined(USE_MIMALLOC)
+void mimalloc_init (void)
+{
+  mi_option_enable (mi_option_show_errors);
+  if (Modes.debug & DEBUG_GENERAL)
+  {
+    mi_option_enable (mi_option_show_stats);
+    mi_option_enable (mi_option_destroy_on_exit);
+    mi_option_enable (mi_option_verbose);
+  }
+}
+
+void mimalloc_exit (void)
+{
+}
+
+const char *mimalloc_version (void)
+{
+  static char buf [30];
+  int    ver = mi_version();
+
+  snprintf (buf, sizeof(buf), "mimalloc ver: %d.%d\n", ver / 100, ver % 100);
+  return (buf);
+}
+
+#else
+const char *mimalloc_version (void)
+{
+  return ("");
+}
+#endif
+
 /**
  * Return the compiler info the program was built with.
  */
@@ -1023,6 +1047,9 @@ static const char *build_features (void)
   #endif
   #if defined(USE_UBSAN)
     "UBSAN",
+  #endif
+  #if defined(USE_MIMALLOC)
+    "MIMALLOC",
   #endif
   #if defined(USE_GEN_ROUTES)
     "GEN_ROUTES",
@@ -1205,6 +1232,7 @@ void NO_RETURN show_version_info (bool verbose)
     printf ("PDCurses ver: %s\n", PDC_VERDOT);
     printf ("Mongoose ver: %s\n", MG_VERSION);
     printf ("Miniz ver:    %s\n", mz_version());
+    printf ("%s", mimalloc_version());
     print_packed_web_info();
     print_sql_info();
     print_CFLAGS();
@@ -2267,10 +2295,13 @@ static int getopt_internal (int nargc, char * const *nargv,
   posixly_correct = (getenv("POSIXLY_CORRECT") != NULL);
 
   if (*options == '-')
-     flags |= FLAG_ALLARGS;
-  else
-  if (posixly_correct || *options == '+')
-     flags &= ~FLAG_PERMUTE;
+  {
+    flags |= FLAG_ALLARGS;
+  }
+  else if (posixly_correct || *options == '+')
+  {
+    flags &= ~FLAG_PERMUTE;
+  }
 
   if (*options == '+' || *options == '-')
      options++;

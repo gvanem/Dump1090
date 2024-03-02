@@ -73,6 +73,11 @@ USE_ASAN ?= 0
 USE_UBSAN ?= 0
 
 #
+# Enable the "mimalloc" code in 'externals/mimalloc/*.c'?
+#
+USE_MIMALLOC ?= 1
+
+#
 # Compile using 'cl -MP ...'. For MSVC only.
 #
 USE_MP_COMPILE ?= 0
@@ -163,13 +168,19 @@ CFLAGS = -nologo -c -Zi -W4        \
          -I./externals/SDRplay-API \
          -I./$(OBJ_DIR)
 
+#
+# Handling of 'volatile' variables:
+#   https://learn.microsoft.com/en-us/cpp/build/reference/volatile-volatile-keyword-interpretation?view=msvc-170
+#
+CFLAGS += -volatile:iso
+
 LDFLAGS = -nologo -map -debug -verbose -incremental:no \
           -nodefaultlib:oldnames.lib -machine:$(CPU)
 
 RCFLAGS = -nologo
 
 ifeq ($(USE_CRT_DEBUG),1)
-  CFLAGS  += -MDd -GS -Oy- -RTCu -RTCs
+  CFLAGS  += -MDd -GS -Oy- -RTCu -RTCs -DMI_DEBUG=4
   RCFLAGS += -D_DEBUG
 else
   CFLAGS += -MD -GS- -Zo -Oy- -Ox -Gs0
@@ -339,6 +350,26 @@ ifeq ($(USE_GEN_ROUTES),1)
   CFLAGS  += -DUSE_GEN_ROUTES
 endif
 
+ifeq ($(USE_MIMALLOC),1)
+  vpath %.c  externals/mimalloc
+  SOURCES += externals/mimalloc/mimalloc-amalgamation.c
+
+  CFLAGS += -DUSE_MIMALLOC=1      \
+            -DMI_STAT=2           \
+            -DMI_TRACK_VALGRIND=0 \
+            -I./externals/mimalloc
+
+  #
+  # Enable "Tracking for ASAN"
+  #
+  CFLAGS += -DMI_TRACK_ASAN=$(USE_ASAN)
+
+  #
+  # Enable "Event Tracing for Windows" in _DEBUG-mode
+  #
+  CFLAGS += -DMI_TRACK_ETW=$(USE_CRT_DEBUG)
+endif
+
 #
 # For 'web-pages.dll':
 #
@@ -495,12 +526,27 @@ $(OBJ_DIR)/packed_webfs_2.c: ../tools/gen_packed_fs.py
 $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
-../packed_test.exe: $(OBJ_DIR)/packed_webfs_main.obj $(OBJ_DIR)/packed_webfs_1.obj $(OBJ_DIR)/packed_webfs_2.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj
+packed_test_OBJ = $(addprefix $(OBJ_DIR)/, \
+                    packed_webfs_main.obj  \
+                    packed_webfs_1.obj     \
+                    packed_webfs_2.obj     \
+                    misc.obj               \
+                    mongoose.obj)
+
+ifeq ($(USE_MIMALLOC),1)
+  ../packed_test.exe: $(packed_test_OBJ) $(OBJ_DIR)/mimalloc-amalgamation.obj
+	$(call link_EXE, $@, -nodefaultlib:uuid.lib advapi32.lib $^)
+else
+  ../packed_test.exe: $(packed_test_OBJ)
 	$(call link_EXE, $@, -nodefaultlib:uuid.lib $^)
+endif
 
 $(OBJ_DIR)/packed_webfs_main.obj: ../tools/packed_webfs_main.c | $(CC).args
 	$(call C_compile, $@, $<)
 
+#
+# When 'USE_GEN_ROUTES = 1'
+#
 $(OBJ_DIR)/routes.c: ../tools/gen_routes_data.py ../routes.csv
 	$(call green_msg, Generating $@)
 	$(PYTHON) $< ../routes.csv > $@
@@ -927,7 +973,29 @@ CURSES_SRC = $(addprefix externals/Curses/, \
                util.c                       \
                window.c)
 
-$(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
+MIMALLOC_SRC = $(addprefix externals/mimalloc/, \
+                 alloc-aligned.c                \
+                 alloc-override.c               \
+                 alloc-posix.c                  \
+                 alloc.c                        \
+                 arena.c                        \
+                 bitmap.c                       \
+                 heap.c                         \
+                 init.c                         \
+                 mimalloc-amalgamation.c        \
+                 options.c                      \
+                 os.c                           \
+                 page-queue.c                   \
+                 page.c                         \
+                 prim.c                         \
+                 random.c                       \
+                 segment-map.c                  \
+                 segment.c                      \
+                 stats.c                        \
+                 windows-prim.c)
+
+$(OBJ_DIR)/amalgamation.obj:          $(CURSES_SRC)
+$(OBJ_DIR)/mimalloc-amalgamation.obj: $(MIMALLOC_SRC)
 
 depend:
 	$(call generate, .depend.Windows, #)
