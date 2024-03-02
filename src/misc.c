@@ -1219,12 +1219,51 @@ static void print_LDFLAGS (void)
 #endif
 }
 
+static const char *__DATE__str (void)
+{
+#if 0
+  return (__DATE__);    /* e.g. "Mar  2 2024" */
+#else
+  /*
+   * Convert `__DATA__` into `DD MMM YYYY`.
+   * Based on
+   *   https://bytes.com/topic/c/answers/215378-convert-__date__-unsigned-int
+   */
+  #define YEAR() ((((__DATE__[7] - '0') * 10 + (__DATE__ [8] - '0')) * 10 + \
+                    (__DATE__ [9] - '0')) * 10 + (__DATE__ [10] - '0'))
+
+  #define MONTH() ( __DATE__[2] == 'n' ? 0 \
+                  : __DATE__[2] == 'b' ? 1 \
+                  : __DATE__[2] == 'r' ? (__DATE__[0] == 'M' ? 2 : 3) \
+                  : __DATE__[2] == 'y' ? 4 \
+                  : __DATE__[2] == 'n' ? 5 \
+                  : __DATE__[2] == 'l' ? 6 \
+                  : __DATE__[2] == 'g' ? 7 \
+                  : __DATE__[2] == 'p' ? 8 \
+                  : __DATE__[2] == 't' ? 9 \
+                  : __DATE__[2] == 'v' ? 10 : 11)
+
+  #define DAY() ((__DATE__ [4] == ' ' ? 0 : __DATE__ [4] - '0') * 10 + \
+                 (__DATE__ [5] - '0'))
+
+  static char buf [30];
+  static char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+
+  snprintf (buf, sizeof(buf), "%d %.3s %04d",
+            DAY(), months + 3*MONTH(), YEAR());
+  return (buf);         /* e.g. "2 Mar 2024" */
+#endif
+}
+
 /**
  * Print version information.
  */
 void NO_RETURN show_version_info (bool verbose)
 {
-  printf ("dump1090 ver: %s (%s, %s). Built at %s.\n", PROG_VERSION, compiler_info(), build_features(), __DATE__);
+  printf ("dump1090 ver: %s (%s, %s). Built at %s.\n",
+          PROG_VERSION, compiler_info(), build_features(),
+          __DATE__str());
+
   if (verbose)
   {
     printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s.\n",
