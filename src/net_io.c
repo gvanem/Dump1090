@@ -2081,7 +2081,8 @@ bool net_init (void)
       return (false);
     }
 #else
-    LOG_STDERR ("Using a .DLL when built without 'USE_PACKED_DLL' is not possible.\n");
+    LOG_STDERR ("Using a .DLL when built without 'USE_PACKED_DLL' is not possible.\n"
+                "Disable the \"web-page = XX.dll;y\" setting in '%s'.\n", Modes.cfg_file);
     return (false);
 #endif
   }
