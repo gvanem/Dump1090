@@ -20,7 +20,7 @@
 #ifndef MONGOOSE_H
 #define MONGOOSE_H
 
-#define MG_VERSION "7.12"
+#define MG_VERSION "7.13"
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,16 +61,12 @@ extern "C" {
 #define MG_ARCH MG_ARCH_AZURERTOS
 #elif defined(PICO_TARGET_NAME)
 #define MG_ARCH MG_ARCH_RP2040
-#elif defined(__ARMCC_VERSION)
-#define MG_ARCH MG_ARCH_ARMCC
 #elif defined(__RTTHREAD__)
 #define MG_ARCH MG_ARCH_RTTHREAD
 #endif
 #endif  // !defined(MG_ARCH)
 
-// if the user did not specify an MG_ARCH, or specified a custom one, OR
-// we guessed a known IDE, pull the customized config (Configuration Wizard)
-#if !defined(MG_ARCH) || (MG_ARCH == MG_ARCH_CUSTOM) || MG_ARCH == MG_ARCH_ARMCC
+#if !defined(MG_ARCH) || (MG_ARCH == MG_ARCH_CUSTOM)
 #include "mongoose_custom.h"  // keep this include
 #endif
 
@@ -183,11 +179,13 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h> // rand(), strtol(), atoi()
+#include <stdlib.h>  // rand(), strtol(), atoi()
 #include <string.h>
 #if defined(__ARMCC_VERSION)
 #define mode_t size_t
+#include <alloca.h>
 #include <time.h>
+#elif defined(__CCRH__)
 #else
 #include <sys/stat.h>
 #endif
@@ -293,6 +291,7 @@ int mkdir(const char *, mode_t);
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <alloca.h>
 #include <string.h>
 #include <time.h>
 #if MG_ARCH == MG_ARCH_CMSIS_RTOS1
@@ -793,11 +792,11 @@ struct timeval {
 #define MG_DIRSEP '/'
 #endif
 
-#ifndef MG_ENABLE_FILE
+#ifndef MG_ENABLE_POSIX_FS
 #if defined(FOPEN_MAX)
-#define MG_ENABLE_FILE 1
+#define MG_ENABLE_POSIX_FS 1
 #else
-#define MG_ENABLE_FILE 0
+#define MG_ENABLE_POSIX_FS 0
 #endif
 #endif
 
@@ -842,9 +841,6 @@ struct mg_str {
   size_t len;       // String len
 };
 
-#define MG_NULL_STR \
-  { NULL, 0 }
-
 #define MG_C_STR(a) \
   { (a), sizeof(a) - 1 }
 
@@ -864,8 +860,7 @@ struct mg_str mg_strdup(const struct mg_str s);
 const char *mg_strstr(const struct mg_str haystack, const struct mg_str needle);
 bool mg_match(struct mg_str str, struct mg_str pattern, struct mg_str *caps);
 bool mg_globmatch(const char *pattern, size_t plen, const char *s, size_t n);
-bool mg_commalist(struct mg_str *s, struct mg_str *k, struct mg_str *v);
-bool mg_split(struct mg_str *s, struct mg_str *k, struct mg_str *v, char delim);
+bool mg_span(struct mg_str s, struct mg_str *a, struct mg_str *b, char delim);
 char *mg_hex(const void *buf, size_t len, char *dst);
 void mg_unhex(const char *buf, size_t len, unsigned char *to);
 unsigned long mg_unhexn(const char *s, size_t len);
@@ -1027,7 +1022,8 @@ struct mg_fd {
 
 struct mg_fd *mg_fs_open(struct mg_fs *fs, const char *path, int flags);
 void mg_fs_close(struct mg_fd *fd);
-char *mg_file_read(struct mg_fs *fs, const char *path, size_t *size);
+bool mg_fs_ls(struct mg_fs *fs, const char *path, char *buf, size_t len);
+struct mg_str mg_file_read(struct mg_fs *fs, const char *path);
 bool mg_file_write(struct mg_fs *fs, const char *path, const void *, size_t);
 bool mg_file_printf(struct mg_fs *fs, const char *path, const char *fmt, ...);
 
@@ -1060,9 +1056,9 @@ uint64_t mg_now(void);     // Return milliseconds since Epoch
 #define mg_htons(x) mg_ntohs(x)
 #define mg_htonl(x) mg_ntohl(x)
 
-#define MG_U32(a, b, c, d)                                         \
-  (((uint32_t) ((a) &255) << 24) | ((uint32_t) ((b) &255) << 16) | \
-   ((uint32_t) ((c) &255) << 8) | (uint32_t) ((d) &255))
+#define MG_U32(a, b, c, d)                                           \
+  (((uint32_t) ((a) & 255) << 24) | ((uint32_t) ((b) & 255) << 16) | \
+   ((uint32_t) ((c) & 255) << 8) | (uint32_t) ((d) & 255))
 
 // For printing IPv4 addresses: printf("%d.%d.%d.%d\n", MG_IPADDR_PARTS(&ip))
 #define MG_U8P(ADDR) ((uint8_t *) (ADDR))
@@ -1076,9 +1072,12 @@ uint64_t mg_now(void);     // Return milliseconds since Epoch
 #define MG_ROUND_UP(x, a) ((a) == 0 ? (x) : ((((x) + (a) -1) / (a)) * (a)))
 #define MG_ROUND_DOWN(x, a) ((a) == 0 ? (x) : (((x) / (a)) * (a)))
 
-#ifdef __GNUC__
+#if defined(__GNUC__)
 #define MG_ARM_DISABLE_IRQ() asm volatile("cpsid i" : : : "memory")
 #define MG_ARM_ENABLE_IRQ() asm volatile("cpsie i" : : : "memory")
+#elif defined(__CCRH__)
+#define MG_RH850_DISABLE_IRQ() __DI()
+#define MG_RH850_ENABLE_IRQ() __EI()
 #else
 #define MG_ARM_DISABLE_IRQ()
 #define MG_ARM_ENABLE_IRQ()
@@ -2114,7 +2113,8 @@ enum {
   MG_EV_READ,       // Data received from socket    long *bytes_read
   MG_EV_WRITE,      // Data written to socket       long *bytes_written
   MG_EV_CLOSE,      // Connection closed            NULL
-  MG_EV_HTTP_MSG,   // HTTP request/response        struct mg_http_message *
+  MG_EV_HTTP_HDRS,  // HTTP headers                 struct mg_http_message *
+  MG_EV_HTTP_MSG,   // Full HTTP request/response   struct mg_http_message *
   MG_EV_WS_OPEN,    // Websocket handshake done     struct mg_http_message *
   MG_EV_WS_MSG,     // Websocket msg, text or bin   struct mg_ws_message *
   MG_EV_WS_CTL,     // Websocket control msg        struct mg_ws_message *
@@ -2292,7 +2292,7 @@ size_t mg_url_encode(const char *s, size_t n, char *buf, size_t len);
 void mg_http_creds(struct mg_http_message *, char *, size_t, char *, size_t);
 bool mg_http_match_uri(const struct mg_http_message *, const char *glob);
 long mg_http_upload(struct mg_connection *c, struct mg_http_message *hm,
-                    struct mg_fs *fs, const char *path, size_t max_size);
+                    struct mg_fs *fs, const char *dir, size_t max_size);
 void mg_http_bauth(struct mg_connection *, const char *user, const char *pass);
 struct mg_str mg_http_get_header_var(struct mg_str s, struct mg_str v);
 size_t mg_http_next_multipart(struct mg_str, size_t, struct mg_http_part *);
@@ -2582,6 +2582,7 @@ size_t mg_dns_parse_rr(const uint8_t *buf, size_t len, size_t ofs,
 enum { MG_JSON_TOO_DEEP = -1, MG_JSON_INVALID = -2, MG_JSON_NOT_FOUND = -3 };
 int mg_json_get(struct mg_str json, const char *path, int *toklen);
 
+struct mg_str mg_json_get_tok(struct mg_str json, const char *path);
 bool mg_json_get_num(struct mg_str json, const char *path, double *v);
 bool mg_json_get_bool(struct mg_str json, const char *path, bool *v);
 long mg_json_get_long(struct mg_str json, const char *path, long dflt);
@@ -2677,7 +2678,10 @@ MG_IRAM void mg_ota_boot(void);  // Bootloader function
 #define MG_DEVICE_NONE 0        // Dummy system
 #define MG_DEVICE_STM32H5 1     // STM32 H5
 #define MG_DEVICE_STM32H7 2     // STM32 H7
+#define MG_DEVICE_RT1020 3      // IMXRT1020
+#define MG_DEVICE_RT1060 4      // IMXRT1060
 #define MG_DEVICE_CH32V307 100  // WCH CH32V307
+#define MG_DEVICE_U2A 200       // Renesas U2A16, U2A8, U2A6
 #define MG_DEVICE_CUSTOM 1000   // Custom implementation
 
 #ifndef MG_DEVICE
@@ -2763,6 +2767,7 @@ extern struct mg_tcpip_driver mg_tcpip_driver_stm32h;
 extern struct mg_tcpip_driver mg_tcpip_driver_imxrt;
 extern struct mg_tcpip_driver mg_tcpip_driver_same54;
 extern struct mg_tcpip_driver mg_tcpip_driver_cmsis;
+extern struct mg_tcpip_driver mg_tcpip_driver_ra;
 
 // Drivers that require SPI, can use this SPI abstraction
 struct mg_tcpip_spi {
@@ -2870,6 +2875,14 @@ struct mg_tcpip_driver_imxrt_data {
   //    66 MHz        13
   int mdc_cr;  // Valid values: -1 to 63
 
+  uint8_t phy_addr;  // PHY address
+};
+
+
+struct mg_tcpip_driver_ra_data {
+  // MDC clock "divider". MDC clock is software generated,
+  uint32_t clock;    // core clock frequency in Hz
+  uint16_t irqno;    // IRQn, R_ICU->IELSR[irqno]
   uint8_t phy_addr;  // PHY address
 };
 
