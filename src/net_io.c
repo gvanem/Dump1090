@@ -829,8 +829,8 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
   connection  *conn;
   char        *remote;
   mg_host_name remote_buf;
-  long         bytes;                                /* bytes read or written */
-  INT_PTR      service = (int)(INT_PTR) c->fn_data;  /* 'fn_data' is arbitrary user data */
+  long         bytes;                           /* bytes read or written */
+  INT_PTR      service = (INT_PTR) c->fn_data;  /* 'fn_data' is arbitrary user data */
 
   if (Modes.exit)
      return;
