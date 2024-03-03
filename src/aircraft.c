@@ -268,9 +268,9 @@ static void aircraft_test_1 (void)
                { 0x00A78C, "ZS-OYT",  "Bell", "H1P" }  /* test for a Helicopter */
              };
   const aircraft_info *t = a_tests + 0;
-  char  sql_file [MAX_PATH] = "";
-  bool        heli_found = false;
-  const char *heli_type  = "?";
+  mg_file_path sql_file = "";
+  bool         heli_found = false;
+  const char  *heli_type  = "?";
 
   if (have_sql_file)
      snprintf (sql_file, sizeof(sql_file), " and \"%s\"", basename(aircraft_sql));
@@ -335,8 +335,8 @@ static void aircraft_test_1 (void)
  */
 static void aircraft_test_2 (void)
 {
-  unsigned i;
-  char     sql_file [MAX_PATH] = "";
+  unsigned     i;
+  mg_file_path sql_file = "";
 
   if (have_sql_file)
      snprintf (sql_file, sizeof(sql_file), " and \"%s\"", basename(aircraft_sql));
@@ -504,10 +504,10 @@ static int extract_callback (const char *file, void *arg)
  */
 bool aircraft_CSV_update (const char *db_file, const char *url)
 {
-  struct stat st;
-  bool        force_it = false;
-  char        tmp_file [MAX_PATH];
-  char        zip_file [MAX_PATH];
+  struct stat  st;
+  bool         force_it = false;
+  mg_file_path tmp_file;
+  mg_file_path zip_file;
 
   if (!db_file || !url)
   {
