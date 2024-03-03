@@ -151,6 +151,13 @@
 #define access(file, mode)   _access (file, mode)
 #define fileno(stream)       _fileno (stream)
 
+/**
+ * Check for illegal settings.
+ */
+#if defined(_DEBUG) && defined(USE_MIMALLOC)
+  #error "Setting 'USE_CRT_DEBUUG=1' and 'USE_MIMALLOC=1' is not supported"
+#endif
+
 /*
  * Options for `_DEBUG` / `-MDd` mode:
  */
@@ -160,37 +167,12 @@
   #undef  _malloca          /* Avoid MSVC-9 <malloc.h>/<crtdbg.h> name-clash */
   #define _CRTDBG_MAP_ALLOC
   #include <crtdbg.h>
-#endif
 
-/*
- * Options for `externals/mimalloc/` code. Can also be used with `_DEBUG`.
- */
-#if defined(USE_MIMALLOC)
+#elif defined(USE_MIMALLOC)
   /*
+   * Options for `externals/mimalloc/` code. Can not be used with `_DEBUG`.
    * 'mimalloc-override.h' will redefine most of these functions to 'mi_xx()'.
    */
-  #undef malloc
-  #undef calloc
-  #undef realloc
-  #undef free
-  #undef strdup
-  #undef _expand
-  #undef _msize
-  #undef _recalloc
-  #undef _strdup
-  #undef _wcsdup
-  #undef _mbsdup
-  #undef _dupenv_s
-  #undef _wdupenv_s
-  #undef _aligned_malloc
-  #undef _aligned_realloc
-  #undef _aligned_recalloc
-  #undef _aligned_msize
-  #undef _aligned_free
-  #undef _aligned_offset_malloc
-  #undef _aligned_offset_realloc
-  #undef _aligned_offset_recalloc
-
   #include <mimalloc/mimalloc-override.h>
 
   /*
@@ -208,9 +190,11 @@
    * uses this in an enum
    */
   #undef ENCRYPT
-#endif
 
-#if  defined(_DEBUG) && !defined(USE_MIMALLOC)
+#else
+  /*
+   * Drop the dependency on 'oldnames.lib'
+   */
   #define strdup(s)  _strdup (s)
 #endif
 
