@@ -2,7 +2,6 @@
 *.pdb
 *.i
 aircraft-database-dump.bat
-aircraft-database-update.bat
 cdb.bat
 get-urls.bat
 go.bat
