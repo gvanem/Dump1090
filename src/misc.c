@@ -552,7 +552,7 @@ bool test_contains (const char *spec, const char *which)
   }
 
   s = mg_str (spec);
-  while (mg_commalist(&s, &k, &v))
+  while (mg_span(s, &k, &v, ','))
   {
     if (!strnicmp(which, k.ptr, k.len))
        return (true);
@@ -795,6 +795,40 @@ void crtdbug_init (void)
   _CrtSetDbgFlag (flags | _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG));
   _CrtMemCheckpoint (&start_state);
 }
+
+#elif defined(USE_MIMALLOC)
+/**
+ * Setting for the `mimalloc` code
+ */
+void mimalloc_init (void)
+{
+  mi_option_enable (mi_option_show_errors);
+  if (Modes.debug & DEBUG_GENERAL)
+  {
+    mi_option_enable (mi_option_show_stats);
+    mi_option_enable (mi_option_destroy_on_exit);
+    mi_option_enable (mi_option_verbose);
+  }
+}
+
+void mimalloc_exit (void)
+{
+}
+
+static const char *mimalloc_version (void)
+{
+  static char buf [30];
+  int    ver = mi_version();
+
+  snprintf (buf, sizeof(buf), "mimalloc ver: %d.%d\n", ver / 100, ver % 100);
+  return (buf);
+}
+
+#else
+static const char *mimalloc_version (void)
+{
+  return ("");
+}
 #endif  /* _DEBUG */
 
 /**
@@ -963,38 +997,6 @@ static void print_packed_web_info (void)
    */
 #endif
 }
-
-#if defined(USE_MIMALLOC)
-void mimalloc_init (void)
-{
-  mi_option_enable (mi_option_show_errors);
-  if (Modes.debug & DEBUG_GENERAL)
-  {
-    mi_option_enable (mi_option_show_stats);
-    mi_option_enable (mi_option_destroy_on_exit);
-    mi_option_enable (mi_option_verbose);
-  }
-}
-
-void mimalloc_exit (void)
-{
-}
-
-const char *mimalloc_version (void)
-{
-  static char buf [30];
-  int    ver = mi_version();
-
-  snprintf (buf, sizeof(buf), "mimalloc ver: %d.%d\n", ver / 100, ver % 100);
-  return (buf);
-}
-
-#else
-const char *mimalloc_version (void)
-{
-  return ("");
-}
-#endif
 
 /**
  * Return the compiler info the program was built with.
@@ -1229,8 +1231,8 @@ static const char *__DATE__str (void)
    * Based on:
    *   https://bytes.com/topic/c/answers/215378-convert-__date__-unsigned-int
    */
-  #define YEAR() ((((__DATE__[7] - '0') * 10 + (__DATE__ [8] - '0')) * 10 + \
-                    (__DATE__ [9] - '0')) * 10 + (__DATE__ [10] - '0'))
+  #define YEAR() ((((__DATE__[7] - '0') * 10 + (__DATE__[8] - '0')) * 10 + \
+                    (__DATE__[9] - '0')) * 10 + (__DATE__[10] - '0'))
 
   #define MONTH() ( __DATE__[2] == 'n' ? 0 \
                   : __DATE__[2] == 'b' ? 1 \
@@ -1243,8 +1245,8 @@ static const char *__DATE__str (void)
                   : __DATE__[2] == 't' ? 9 \
                   : __DATE__[2] == 'v' ? 10 : 11)
 
-  #define DAY() ((__DATE__ [4] == ' ' ? 0 : __DATE__ [4] - '0') * 10 + \
-                 (__DATE__ [5] - '0'))
+  #define DAY() ((__DATE__[4] == ' ' ? 0 : __DATE__[4] - '0') * 10 + \
+                 (__DATE__[5] - '0'))
 
   static char buf [30];
   static char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
@@ -1260,7 +1262,7 @@ static const char *__DATE__str (void)
  */
 void NO_RETURN show_version_info (bool verbose)
 {
-  printf ("dump1090 ver: %s (%s, %s). Built at %s.\n",
+  printf ("dump1090 ver: %s (%s, %s).\nBuilt on %s.\n",
           PROG_VERSION, compiler_info(), build_features(),
           __DATE__str());
 
