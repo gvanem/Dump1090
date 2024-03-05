@@ -2788,10 +2788,10 @@ struct mg_tcpip_spi {
 //   make -C examples/http-server/ CFLAGS_EXTRA=-DMG_ENABLE_PROFILE=1
 //   curl localhost:8000
 // Output:
-//   1ea1f1e7 2 net.c:150:mg_close_conn      3 profile:                                                            
-//   1ea1f1e8 2 net.c:150:mg_close_conn      1ea1f1e6 init                                                         
+//   1ea1f1e7 2 net.c:150:mg_close_conn      3 profile:
+//   1ea1f1e8 2 net.c:150:mg_close_conn      1ea1f1e6 init
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_OPEN
-//   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_ACCEPT 
+//   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_ACCEPT
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_READ
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_HTTP_MSG
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_WRITE
