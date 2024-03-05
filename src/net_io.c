@@ -154,13 +154,16 @@ static const char *event_name (int ev)
           ev == MG_EV_CLOSE      ? "MG_EV_CLOSE" :
           ev == MG_EV_ERROR      ? "MG_EV_ERROR" :
           ev == MG_EV_HTTP_MSG   ? "MG_EV_HTTP_MSG" :
+          ev == MG_EV_HTTP_HDRS  ? "MG_EV_HTTP_HDRS" :
           ev == MG_EV_WS_OPEN    ? "MG_EV_WS_OPEN" :
           ev == MG_EV_WS_MSG     ? "MG_EV_WS_MSG" :
           ev == MG_EV_WS_CTL     ? "MG_EV_WS_CTL" :
           ev == MG_EV_MQTT_CMD   ? "MG_EV_MQTT_CMD" :   /* Can never occur here */
           ev == MG_EV_MQTT_MSG   ? "MG_EV_MQTT_MSG" :   /* Can never occur here */
           ev == MG_EV_MQTT_OPEN  ? "MG_EV_MQTT_OPEN" :  /* Can never occur here */
-          ev == MG_EV_SNTP_TIME  ? "MG_EV_SNTP_TIME"    /* Can never occur here */
+          ev == MG_EV_SNTP_TIME  ? "MG_EV_SNTP_TIME" :  /* Can never occur here */
+          ev == MG_EV_TLS_HS     ? "MG_EV_TLS_HS" :     /* Can never occur here */
+          ev == MG_EV_WAKEUP     ? "MG_EV_WAKEUP"       /* Can never occur here */
                                  : "?");
 }
 
@@ -238,7 +241,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
 
 quit:
   modeS_err_set (false);
-  modeS_set_log();         /* restore previous log-settings */
+  modeS_log_set();         /* restore previous log-settings */
   return (c);
 }
 
@@ -988,6 +991,10 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     if (ev == MG_EV_WS_OPEN || ev == MG_EV_WS_MSG || ev == MG_EV_WS_CTL)
     {
       status = net_handler_websocket (c, ws, ev);
+    }
+    else if (ev == MG_EV_HTTP_HDRS)
+    {
+      DEBUG (DEBUG_NET2, "Ignoring MG_EV_HTTP_HDRS (conn-id: %lu)\n", c->id);
     }
     else if (ev == MG_EV_HTTP_MSG)
     {
