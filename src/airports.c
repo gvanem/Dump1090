@@ -16,16 +16,15 @@
 #include "routes.h"
 #include "airports.h"
 
-#define API_SERVICE_URL_OLD   "https://api.adsb.lol/api/0/route/%s"
-#define API_SERVICE_URL_NEW   "https://vrs-standing-data.adsb.lol/routes/%.2s/%s.json"
-#define API_SERVICE_503       "<html><head><title>503 Service Temporarily Unavailable"
+#define API_SERVICE_URL     "https://vrs-standing-data.adsb.lol/routes/%.2s/%s.json"
+#define API_SERVICE_503     "<html><head><title>503 Service Temporarily Unavailable"
 
-#define API_AIRPORT_IATA      "\"_airport_codes_iata\": "    /* what to look for in response */
-#define API_AIRPORT_ICAO      "\"airport_codes\": "          /* todo: look for these ICAO codes too */
-#define API_SLEEP_MS          100                            /* Sleep() granularity */
-#define API_MAX_AGE           (10 * 100ULL * 10000000ULL)    /* 10 min in 100 nsec units */
-#define API_CACHE_PERIOD      (5 * 60 * 1000)                /* Save the cache every 5 min */
-#define ICAO_UNKNOWN          0xFFFFFFFF                     /* mark an unused ICAO address */
+#define API_AIRPORT_IATA    "\"_airport_codes_iata\": "    /* what to look for in response */
+#define API_AIRPORT_ICAO    "\"airport_codes\": "          /* todo: look for these ICAO codes too */
+#define API_SLEEP_MS        100                            /* Sleep() granularity */
+#define API_MAX_AGE         (10 * 100ULL * 10000000ULL)    /* 10 min in 100 nsec units */
+#define API_CACHE_PERIOD    (5 * 60 * 1000)                /* Save the cache every 5 min */
+#define ICAO_UNKNOWN        0xFFFFFFFF                     /* mark an unused ICAO address */
 
 /**
  * \enum airport_t
@@ -159,7 +158,6 @@ typedef struct airports_priv {
         unsigned          thread_id;      /**< Thread-ID from `_beginthreadex()` */
         bool              do_trace;       /**< Use `API_TRACE()` macro? */
         bool              do_trace_LOL;   /**< or use `API_TRACE_LOL()` macro? */
-        bool              use_new_api;    /**< The ADSB API was recently changed. Use the new URL format? */
         bool              init_done;
         uint32_t          last_rc;
 
@@ -558,6 +556,8 @@ static int routes_compare (const void *a, const void *b)
 
 /**
  * Look in `route_records[]` before posting a requst to the ADSB-LOL API.
+ *
+ * \todo Handle search order; live API over file, `Modes.prefer_ADSB_LOL == true`.
  */
 static flight_info *routes_find_by_callsign (const char *call_sign)
 {
@@ -579,7 +579,7 @@ static flight_info *routes_find_by_callsign (const char *call_sign)
   memset (&f, '\0', sizeof(f));
   strncpy (f.call_sign, r->call_sign, sizeof(f.call_sign)-1);
   f.type    = AIRPORT_API_CACHED;
-  f.created = Modes.start_time;
+  f.created = Modes.start_FILETIME;
   dep  = CSV_lookup_ICAO (r->departure);
   dest = CSV_lookup_ICAO (r->destination);
 
@@ -599,7 +599,7 @@ static flight_info *routes_find_by_callsign (const char *call_sign)
 static void routes_find_test_1 (void)
 {
 #if !defined(USE_GEN_ROUTES)
-  printf ("%s(): '-DUSE_GEN_ROUTEST' not defined.\n", __FUNCTION__);
+  printf ("%s(): '-DUSE_GEN_ROUTES' not defined.\n", __FUNCTION__);
 
 #else
   size_t num = min (10, route_records_num);
@@ -649,9 +649,9 @@ static int API_add_entry (const flight_info *rec)
     strcpy (f->destination, rec->destination);
     g_data.ap_stats.API_added_CSV++;
 
-    /* Check if 'Modes.start_time - rec->created > API_MAX_AGE'.
+    /* Check if 'Modes.start_FILETIME - rec->created > API_MAX_AGE'.
      */
-    ft_diff = *(ULONGLONG*) &Modes.start_time - *(ULONGLONG*) &rec->created;
+    ft_diff = *(ULONGLONG*) &Modes.start_FILETIME - *(ULONGLONG*) &rec->created;
     if (ft_diff > API_MAX_AGE)
        f->type = AIRPORT_API_EXPIRED;
   }
@@ -877,12 +877,10 @@ static bool API_thread_worker (flight_info *f)
   char  request [200];
   bool  rc = false;
 
-  /* Use the new URL format? A route for e.g. callsign "TVS4307" becomes:
+  /* A route for e.g. callsign "TVS4307" becomes:
    * https://vrs-standing-data.adsb.lol/routes/TV/TVS4307.json
    */
-  if (g_data.use_new_api)
-       snprintf (request, sizeof(request), API_SERVICE_URL_NEW, f->call_sign, f->call_sign);
-  else snprintf (request, sizeof(request), API_SERVICE_URL_OLD, f->call_sign);
+  snprintf (request, sizeof(request), API_SERVICE_URL, f->call_sign, f->call_sign);
 
   /* Log complete request to log-file?
    */
@@ -1156,10 +1154,9 @@ uint32_t airports_init (void)
   assert (g_data.airports == NULL);
   assert (g_data.init_done == false);
 
-  g_data.do_trace_LOL = (Modes.debug & DEBUG_ADSB_LOL);
-  g_data.use_new_api  = true;
-
-  if (Modes.debug > 0 && !g_data.do_trace_LOL)
+  if (Modes.debug & DEBUG_ADSB_LOL)
+     g_data.do_trace_LOL = true;
+  else if (Modes.debug)
      g_data.do_trace = true;
 
   Modes.airports_priv = &g_data;
