@@ -72,10 +72,6 @@ static int  curses_refresh (int y, int x);
 static WINDOW *stats_win  = NULL;
 static WINDOW *flight_win = NULL;
 
-#ifdef  USE_MIMALLOC
-#define SHOW_MIMALLOC_STATS 0   /** \todo show mimalloc stats in 'stats_win' */
-#endif
-
 static API_funcs curses_api = {
        .init         = curses_init,
        .exit         = curses_exit,
@@ -251,16 +247,8 @@ void interactive_title_stats (void)
   SetConsoleTitleA (buf);
 }
 
-
-#if SHOW_MIMALLOC_STATS
-static void mi_cdecl mimalloc_stats (const char *msg, void *arg)
-{
-  mvwprintw (stats_win, ...); // etc.
-}
-#endif
-
 /*
- * Also called from `background_tasks()` in the main thread.
+ * Called from `background_tasks()` in the main thread.
  * This function does nothing when `Modes.tui_interface != TUI_CURSES`.
  */
 void interactive_other_stats (void)
@@ -280,11 +268,6 @@ void interactive_other_stats (void)
     mvwprintw (stats_win, 21, 0, "HTTP bytes: %llu/%llu",
                       Modes.stat.bytes_sent[MODES_NET_SERVICE_HTTP],
                       Modes.stat.bytes_recv[MODES_NET_SERVICE_HTTP]);
-
-#if SHOW_MIMALLOC_STATS /** \todo */
-    if (mi_option_is_enabled(mi_option_show_stats))
-       mi_stats_print_out (mimalloc_stats, NULL);
-#endif
   }
 
   /* Refresh the sub-window for flight-information.
