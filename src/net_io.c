@@ -164,7 +164,7 @@ static const char *event_name (int ev)
           ev == MG_EV_SNTP_TIME  ? "MG_EV_SNTP_TIME" :  /* Can never occur here */
           ev == MG_EV_TLS_HS     ? "MG_EV_TLS_HS" :     /* Can never occur here */
           ev == MG_EV_WAKEUP     ? "MG_EV_WAKEUP"       /* Can never occur here */
-                                 : "?");
+                                 : "?");                /* Ref: https://mongoose.ws/documentation/tutorials/multi-threaded/ */
 }
 
 /**
@@ -2105,6 +2105,64 @@ bool net_init (void)
   }
 
   mg_mgr_init (&Modes.mgr);
+
+#if 0
+  mg_wakeup_init (&Modes.mgr);
+
+  /* Replace some of background_tasks() with this:
+   */
+  int background_tasks_thread (void *arg)
+  {
+    thread_data *t = arg;
+
+    while (!Modes.exit)
+    {
+      Sleep (MODES_INTERACTIVE_REFRESH_TIME);
+      mg_wakeup (t->mgr, t->conn_id, &t->task_num, sizeof(t->task_num));
+      if (++t->task_num > t->task_max)
+         t->task_num = 0;
+    }
+  }
+  /* And in net_handler() above
+   */
+  if (ev == MG_EV_WAKEUP)
+  {
+    const thread_data *t = ev_data;
+
+    switch (t->task_num) {
+      case 0:
+           interactive_show_data (now);
+           break;
+      case 1:
+           location_poll(&pos);
+           break;
+      case 2:
+           aircraft_remove_stale (now);
+           break;
+      case 3:
+           airports_background (now);
+           break;
+      case 4:
+           interactive_title_stats();
+           interactive_update_gain();
+           interactive_other_stats();
+           break;
+       default:
+           assert(0);
+           break;
+    }
+  }
+
+  /* Initialize the above idea:
+   */
+  unsigned    wakeup_tid;
+  uintptr_t   wakeup_hnd;
+  thread_data t;
+
+  t.task_num = 0;
+  t.task_max = 4;
+  wakeup_hnd = _beginthreadex (NULL, 0, background_tasks_thread, &t, 0, &wakeup_tid);
+#endif
 
   Modes.dns = net_init_dns();
   if (Modes.dns)
