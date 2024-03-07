@@ -106,10 +106,12 @@ static bool      set_logfile (const char *arg);
 static bool      set_loops (const char *arg);
 static bool      set_metric (const char *arg);
 static bool      set_max_messages (const char *arg);
+static bool      set_max_frames (const char *arg);
 static bool      set_port_http (const char *arg);
 static bool      set_port_raw_in (const char *arg);
 static bool      set_port_raw_out (const char *arg);
 static bool      set_port_sbs (const char *arg);
+static bool      set_prefer_adsb_lol (const char *arg);
 static bool      set_ppm (const char *arg);
 static bool      set_sample_rate (const char *arg);
 static bool      set_silent (const char *arg);
@@ -146,12 +148,15 @@ static const struct cfg_table config[] = {
     { "interactive-ttl",  ARG_FUNC,   (void*) set_interactive_ttl },
     { "keep-alive",       ARG_FUNC,   (void*) set_keep_alive },
     { "logfile",          ARG_FUNC,   (void*) set_logfile },
+    { "logfile-daily",    ARG_ATOB,   (void*) &Modes.logfile_daily },
     { "loops",            ARG_FUNC,   (void*) set_loops },
     { "max-messages",     ARG_FUNC,   (void*) set_max_messages },
+    { "max-frames",       ARG_FUNC,   (void*) set_max_frames },
     { "net-http-port",    ARG_FUNC,   (void*) set_port_http },
     { "net-ri-port",      ARG_FUNC,   (void*) set_port_raw_in },
     { "net-ro-port",      ARG_FUNC,   (void*) set_port_raw_out },
     { "net-sbs-port",     ARG_FUNC,   (void*) set_port_sbs },
+    { "prefer-adsb-lol",  ARG_FUNC,   (void*) set_prefer_adsb_lol },
     { "samplerate",       ARG_FUNC,   (void*) set_sample_rate },
     { "silent",           ARG_FUNC,   (void*) set_silent },
     { "ppm",              ARG_FUNC,   (void*) set_ppm },
@@ -374,6 +379,7 @@ static void modeS_init_config (void)
   snprintf (Modes.airport_freq_db, sizeof(Modes.airport_freq_db), "%s\\%s", Modes.where_am_I, AIRPORT_FREQ_CSV);
   snprintf (Modes.airport_cache, sizeof(Modes.airport_cache), "%s\\%s", Modes.tmp_dir, AIRPORT_DATABASE_CACHE);
 
+  Modes.infile_fd       = -1;      /* no --infile */
   Modes.gain_auto       = true;
   Modes.sample_rate     = MODES_DEFAULT_RATE;
   Modes.freq            = MODES_DEFAULT_FREQ;
@@ -389,7 +395,8 @@ static void modeS_init_config (void)
 }
 
 /**
- * Create or append to `Modes.logfile` and write the starting command-line into it.
+ * Create or append to `Modes.logfile_initial` and write the
+ * start-up command-line into it.
  */
 static void modeS_init_log (void)
 {
@@ -398,41 +405,35 @@ static void modeS_init_log (void)
   size_t line_len, left = sizeof(args);
   int    i, n;
 
-  /* Open the log-file exclusively for us.
+  if (!modeS_log_init())
+     return;
+
+  /* Print this a bit nicer. Split into multiple lines (< 120 character per line).
    */
-  Modes.log = fopen_excl (Modes.logfile, "at");
-  if (!Modes.log)
-     LOG_STDERR ("Failed to create/append to \"%s\" (%s). Continuing anyway.\n",
-                 Modes.logfile, strerror(errno));
-  else
+  #define FILLER "             "
+
+  n = snprintf (ptr, left, "Starting: %s", Modes.who_am_I);
+  ptr  += n;
+  left -= n;
+  line_len = strlen (FILLER) + strlen ("Starting: ");
+
+  for (i = 1; i < __argc && left > 2; i++)
   {
-    /* Print this a bit nicer. Split into multiple lines (< 120 character per line).
-     */
-    #define FILLER "             "
-
-    n = snprintf (ptr, left, "Starting: %s", Modes.who_am_I);
-    ptr  += n;
-    left -= n;
-    line_len = strlen (FILLER) + strlen ("Starting: ");
-
-    for (i = 1; i < __argc && left > 2; i++)
+    if (i >= 2 && line_len + strlen(__argv[i]) > 120)
     {
-      if (i >= 2 && line_len + strlen(__argv[i]) > 120)
-      {
-        n = snprintf (ptr, left, "\n%s", FILLER);
-        ptr  += n;
-        left -= n;
-        line_len = 0;
-      }
-      n = snprintf (ptr, left, " %s", __argv[i]);
-      line_len += n + 1;
+      n = snprintf (ptr, left, "\n%s", FILLER);
       ptr  += n;
       left -= n;
+      line_len = 0;
     }
-    fputs ("\n---------------------------------------------------------------------------------\n", Modes.log);
-    modeS_log (args);
-    fputs ("\n\n", Modes.log);
+    n = snprintf (ptr, left, " %s", __argv[i]);
+    line_len += n + 1;
+    ptr  += n;
+    left -= n;
   }
+  fputs ("\n---------------------------------------------------------------------------------\n", Modes.log);
+  modeS_log (args);
+  fputs ("\n\n", Modes.log);
 }
 
 /**
@@ -457,10 +458,10 @@ static bool modeS_init (void)
   if (strcmp(Modes.cfg_file, "NUL") && !cfg_open_and_parse(Modes.cfg_file, config))
      return (false);
 
-  if (Modes.logfile[0])
+  if (Modes.logfile_initial[0])
      modeS_init_log();
 
-  modeS_set_log();
+  modeS_log_set();
   aircraft_SQL_set_name();
 
   if (strcmp(Modes.aircraft_db, "NUL") && (Modes.aircraft_db_url || Modes.update))
@@ -519,6 +520,9 @@ static bool modeS_init (void)
 
   memset (Modes.data, 127, Modes.data_len);
   Modes.magnitude_lut = gen_magnitude_lut();
+
+  if (Modes.max_frames > 0)
+     Modes.max_messages = Modes.max_frames;
 
   if (test_contains(Modes.tests, "net"))
      Modes.net = true;    /* Will force `net_init()` and it's tests to be called */
@@ -693,14 +697,25 @@ void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
 }
 
 /**
+ * Close the `--infile file` handle.
+ */
+static void infile_exit (void)
+{
+  if (Modes.infile_fd == STDIN_FILENO)
+        _setmode (STDIN_FILENO, O_TEXT);
+  else _close (Modes.infile_fd);
+  Modes.infile_fd = -1;
+}
+
+/**
  * This is used when `--infile` is specified in order to read data from file
  * instead of using a RTLSDR / SDRplay device.
  */
-static int read_from_data_file (void)
+static int infile_read (void)
 {
   uint32_t rc = 0;
 
-  if (Modes.loops > 0 && Modes.fd == STDIN_FILENO)
+  if (Modes.loops > 0 && Modes.infile_fd == STDIN_FILENO)
   {
     LOG_STDERR ("Option `--loops <N>' not supported for `stdin'.\n");
     Modes.loops = 0;
@@ -728,7 +743,7 @@ static int read_from_data_file (void)
 
      while (toread)
      {
-       nread = _read (Modes.fd, data, toread);
+       nread = _read (Modes.infile_fd, data, toread);
        if (nread <= 0)
           break;
        data   += nread;
@@ -747,7 +762,7 @@ static int read_from_data_file (void)
      rc += detect_modeS (Modes.magnitude, Modes.data_len/2);
      background_tasks();
 
-     if (Modes.exit || Modes.fd == STDIN_FILENO)
+     if (Modes.exit || Modes.infile_fd == STDIN_FILENO)
         break;
 
      /* seek the file again from the start
@@ -755,7 +770,7 @@ static int read_from_data_file (void)
       */
      if (Modes.loops > 0)
         Modes.loops--;
-     if (Modes.loops == 0 || _lseek(Modes.fd, 0, SEEK_SET) == -1)
+     if (Modes.loops == 0 || _lseek(Modes.infile_fd, 0, SEEK_SET) == -1)
         break;
   }
   while (1);
@@ -778,8 +793,7 @@ static unsigned int __stdcall data_thread_fn (void *arg)
                             MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
 
     modeS_signal_handler (0);   /* break out of main_data_loop() */
-    DEBUG (DEBUG_GENERAL, "infile_read_async(): rc: %d / %s.\n",
-           rc, strerror(rc));
+    LOG_STDERR  ("infile_read_async(): rc: %d / %s.\n", rc, strerror(rc));
   }
   else
 #endif
@@ -788,9 +802,7 @@ static unsigned int __stdcall data_thread_fn (void *arg)
     rc = sdrplay_read_async (Modes.sdrplay.device, rx_callback, (void*)&Modes.exit,
                              MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
 
-    DEBUG (DEBUG_GENERAL, "sdrplay_read_async(): rc: %d / %s.\n",
-           rc, sdrplay_strerror(rc));
-
+    LOG_STDERR ("sdrplay_read_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
     modeS_signal_handler (0);   /* break out of main_data_loop() */
   }
   else if (Modes.rtlsdr.device)
@@ -798,9 +810,7 @@ static unsigned int __stdcall data_thread_fn (void *arg)
     rc = rtlsdr_read_async (Modes.rtlsdr.device, rx_callback, (void*)&Modes.exit,
                             MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
 
-    DEBUG (DEBUG_GENERAL, "rtlsdr_read_async(): rc: %d/%s\n",
-           rc, get_rtlsdr_error());
-
+    LOG_STDERR ("rtlsdr_read_async(): rc: %d/%s\n", rc, get_rtlsdr_error());
     modeS_signal_handler (0);    /* break out of main_data_loop() */
   }
   MODES_NOTUSED (arg);
@@ -2136,6 +2146,7 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
   uint8_t  msg [MODES_LONG_MSG_BITS / 2];
   uint16_t aux [MODES_LONG_MSG_BITS * 2];
   uint32_t j;
+  uint32_t frame = 0;
   bool     use_correction = false;
   uint32_t rc = 0;  /**\todo fix this */
 
@@ -2162,7 +2173,7 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
    *   8   --
    *   9   -------------------
    */
-  for (j = 0; j < mlen - 2*MODES_FULL_LEN; j++)
+  for (j = 0; j < mlen - 2*MODES_FULL_LEN; j++, frame++)
   {
     int  low, high, delta, i, errors;
     bool good_message = false;
@@ -2190,6 +2201,9 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
     {
       if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
          dump_raw_message ("Unexpected ratio among first 10 samples", msg, m, j);
+
+      if (Modes.max_frames > 0 && frame >= Modes.max_frames)
+         return (rc);
       continue;
     }
 
@@ -2203,6 +2217,8 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
     {
       if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
          dump_raw_message ("Too high level in samples between 3 and 6", msg, m, j);
+      if (Modes.max_frames > 0 && frame >= Modes.max_frames)
+         return (rc);
       continue;
     }
 
@@ -2214,6 +2230,8 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
     {
       if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
          dump_raw_message ("Too high level in samples between 10 and 15", msg, m, j);
+      if (Modes.max_frames > 0 && frame >= Modes.max_frames)
+         return (rc);
       continue;
     }
 
@@ -2975,7 +2993,9 @@ void modeS_signal_handler (int sig)
     airports_exit (false);
   }
   else if (sig == 0)
-     DEBUG (DEBUG_GENERAL, "Breaking 'main_data_loop()', shutting down ...\n");
+  {
+    DEBUG (DEBUG_GENERAL, "Breaking 'main_data_loop()', shutting down ...\n");
+  }
 
   if (Modes.rtlsdr.device)
   {
@@ -3038,10 +3058,14 @@ static void show_decoder_stats (void)
 
 /**
  * Show some statistics at program exit.
+ * If at least 1 device got opened, show some decoder statistics.
  */
-static void show_statistics (bool show_dev_stats)
+static void show_statistics (void)
 {
-  if (show_dev_stats)
+  bool any_device = (Modes.rtlsdr.device || Modes.rtl_tcp_in ||
+                     Modes.sdrplay.device || Modes.infile_fd > -1);
+
+  if (any_device) /* assume we got some data */
      show_decoder_stats();
 
   if (Modes.net)
@@ -3049,6 +3073,10 @@ static void show_statistics (bool show_dev_stats)
 
   if (Modes.airports_priv)
      airports_show_stats();
+
+#ifdef USE_MIMALLOC
+  mimalloc_stats();
+#endif
 }
 
 /**
@@ -3087,8 +3115,8 @@ static void modeS_exit (void)
   if (Modes.reader_thread)
      CloseHandle ((HANDLE)Modes.reader_thread);
 
-  if (Modes.fd > STDIN_FILENO)
-     _close (Modes.fd);
+  if (Modes.infile_fd > -1)
+     infile_exit();
 
   if (Modes.interactive)
      interactive_exit();
@@ -3378,7 +3406,7 @@ static bool set_metric (const char *arg)
 
 static bool set_logfile (const char *arg)
 {
-  strcpy_s (Modes.logfile, sizeof(Modes.logfile), arg);
+  strcpy_s (Modes.logfile_initial, sizeof(Modes.logfile_initial), arg);
   return (true);
 }
 
@@ -3391,6 +3419,12 @@ static bool set_loops (const char *arg)
 static bool set_max_messages (const char *arg)
 {
   Modes.max_messages = _atoi64 (arg);
+  return (true);
+}
+
+static bool set_max_frames (const char *arg)
+{
+  Modes.max_frames = _atoi64 (arg);
   return (true);
 }
 
@@ -3461,6 +3495,19 @@ static bool set_digital_agc (const char *arg)
 static bool set_silent (const char *arg)
 {
   Modes.silent = cfg_true (arg);
+  return (true);
+}
+
+static bool set_prefer_adsb_lol (const char *arg)
+{
+  Modes.prefer_adsb_lol = cfg_true (arg);
+
+#if !defined(USE_GEN_ROUTES)
+  DEBUG (DEBUG_GENERAL,
+         "Config value 'prefer_adsb_lol=%d' has no meaning.\n"
+         "Will always use ADSB-LOL API to lookup routes in 'airports.c'.\n",
+         Modes.prefer_adsb_lol);
+#endif
   return (true);
 }
 
@@ -3564,7 +3611,7 @@ static bool parse_cmd_line (int argc, char **argv)
  */
 int main (int argc, char **argv)
 {
-  bool dev_open = false;
+  bool init_error = true;   /* assume some 'x_init()' failure */
   int  rc;
 
 #if defined(USE_MIMALLOC)
@@ -3601,9 +3648,10 @@ int main (int argc, char **argv)
     rc = 1;
     if (Modes.infile[0] == '-' && Modes.infile[1] == '\0')
     {
-      Modes.fd = STDIN_FILENO;
+      Modes.infile_fd = STDIN_FILENO;
+      _setmode (Modes.infile_fd, O_BINARY);
     }
-    else if ((Modes.fd = _open(Modes.infile, O_RDONLY | O_BINARY)) == -1)
+    else if ((Modes.infile_fd = _open(Modes.infile, O_RDONLY | O_BINARY)) == -1)
     {
       LOG_STDERR ("Error opening `%s`: %s\n", Modes.infile, strerror(errno));
       goto quit;
@@ -3625,7 +3673,6 @@ int main (int argc, char **argv)
       if (!rc)
          goto quit;
     }
-    dev_open = true;
   }
 
   if (Modes.net)
@@ -3638,6 +3685,8 @@ int main (int argc, char **argv)
        goto quit;
   }
 
+  init_error = false;
+
   if (Modes.tests)
      goto quit;
 
@@ -3647,7 +3696,7 @@ int main (int argc, char **argv)
    */
   if (Modes.infile[0])
   {
-    if (read_from_data_file() == 0)
+    if (infile_read() == 0)
        LOG_STDERR ("No good messages found in '%s'.\n", Modes.infile);
   }
   else if (Modes.strip_level == 0 || !Modes.rtl_tcp_in)
@@ -3665,7 +3714,8 @@ int main (int argc, char **argv)
   }
 
 quit:
-  show_statistics (dev_open);
+  if (!init_error)
+     show_statistics();
   modeS_exit();
   return (0);
 }

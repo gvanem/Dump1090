@@ -352,7 +352,8 @@ typedef struct global_data {
         mg_file_path      where_am_I;               /**< The directory of this program. */
         mg_file_path      tmp_dir;                  /**< The `%TEMP%\\dump1090` directory. (no trailing `\\`). */
         mg_file_path      cfg_file;                 /**< The config-file (default: "where_am_I\\dump1090.cfg") */
-        FILETIME          start_time;               /**< The start-time */
+        FILETIME          start_FILETIME;           /**< The start-time on `FILETIME` form */
+        SYSTEMTIME        start_SYSTEMTIME;         /**< The start-time on `SYSTEMTIME` form */
         uintptr_t         reader_thread;            /**< Device reader thread ID. */
         CRITICAL_SECTION  data_mutex;               /**< Mutex to synchronize buffer access. */
         CRITICAL_SECTION  print_mutex;              /**< Mutex to synchronize printouts. */
@@ -360,7 +361,7 @@ typedef struct global_data {
         uint32_t          data_len;                 /**< Length of raw IQ buffer. */
         uint16_t         *magnitude;                /**< Magnitude vector. */
         uint16_t         *magnitude_lut;            /**< I/Q -> Magnitude lookup table. */
-        int               fd;                       /**< File descriptor for `--infile` option. */
+        int               infile_fd;                /**< File descriptor for `--infile` option. */
         volatile bool     exit;                     /**< Exit from the main loop when true. */
         volatile bool     data_ready;               /**< Data ready to be processed. */
         uint32_t         *ICAO_cache;               /**< Recently seen ICAO addresses. */
@@ -368,6 +369,7 @@ typedef struct global_data {
         struct aircraft  *aircrafts;                /**< Linked list of active aircrafts. */
         uint64_t          last_update_ms;           /**< Last screen update in milliseconds. */
         uint64_t          max_messages;             /**< How many messages to process before quitting. */
+        uint64_t          max_frames;               /**< How many frames in a sample-buffer to process (for testing SDRPlay) */
 
         /** Common stuff for RTLSDR and SDRplay:
          */
@@ -407,8 +409,10 @@ typedef struct global_data {
         /** Configuration
          */
         mg_file_path infile;                     /**< Input IQ samples from file with option `--infile file`. */
-        mg_file_path logfile;                    /**< Write debug/info to file with option `--logfile file`. */
-        FILE        *log;                        /**< Opened it for exclusive write access. */
+        mg_file_path logfile_current;            /**< Write debug/info to file with option `--logfile file`. */
+        mg_file_path logfile_initial;            /**< The initial `--logfile file` w/o the below pattern. */
+        bool         logfile_daily;              /**< Create a new `logfile` at midnight; pattern always `x-<YYYY-MM-DD>.log`. */
+        FILE        *log;                        /**< Open it for exclusive write access. */
         uint64_t     loops;                      /**< Read input file in a loop. */
         uint32_t     debug;                      /**< `DEBUG()` mode bits. */
         int          raw;                        /**< Raw output format. */
@@ -422,6 +426,7 @@ typedef struct global_data {
         int          win_location;               /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
         int          only_addr;                  /**< Print only ICAO addresses. */
         int          metric;                     /**< Use metric units. */
+        int          prefer_adsb_lol;            /**< Prefer using ADSB-LOL API even with '-DUSE_GEN_ROUTES'. */
         bool         error_correct_1;            /**< Fix 1 bit errors (default: true). */
         bool         error_correct_2;            /**< Fix 2 bit errors (default: false). */
         int          keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
@@ -594,7 +599,8 @@ typedef struct packed_file {
 void        modeS_log (const char *buf);
 void        modeS_logc (char c, void *param);
 void        modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
-void        modeS_set_log (void);
+void        modeS_log_set (void);
+bool        modeS_log_init (void);
 void        modeS_err_set (bool on);
 char       *modeS_err_get (void);
 char       *modeS_SYSTEMTIME_to_str (const SYSTEMTIME *st, bool show_YMD);
@@ -651,11 +657,9 @@ void        rx_callback (uint8_t *buf, uint32_t len, void *ctx);
 void NO_RETURN show_version_info (bool verbose);
 
 #if defined(USE_MIMALLOC)
-  /*
-   * Show memory statistics etc.
-   */
   void mimalloc_init (void);
   void mimalloc_exit (void);
+  void mimalloc_stats (void);
 #endif
 
 /*

@@ -22,7 +22,7 @@
 #define API_AIRPORT_IATA    "\"_airport_codes_iata\": "    /* what to look for in response */
 #define API_AIRPORT_ICAO    "\"airport_codes\": "          /* todo: look for these ICAO codes too */
 #define API_SLEEP_MS        100                            /* Sleep() granularity */
-#define API_MAX_AGE         (10 * 100ULL * 10000000ULL)    /* 10 min in 100 nsec units */
+#define API_MAX_AGE         (10 * 60 * 10000000ULL)        /* 10 min in 100 nsec units */
 #define API_CACHE_PERIOD    (5 * 60 * 1000)                /* Save the cache every 5 min */
 #define ICAO_UNKNOWN        0xFFFFFFFF                     /* mark an unused ICAO address */
 
@@ -556,8 +556,6 @@ static int routes_compare (const void *a, const void *b)
 
 /**
  * Look in `route_records[]` before posting a requst to the ADSB-LOL API.
- *
- * \todo Handle search order; live API over file, `Modes.prefer_ADSB_LOL == true`.
  */
 static flight_info *routes_find_by_callsign (const char *call_sign)
 {
@@ -1716,13 +1714,20 @@ static flight_info *flight_info_find_by_addr (uint32_t addr)
 
 /**
  * Find `flight_info` for a call_sign in either
- * `route_records[]` or `g_data.flight_info`.
+ * `route_records[]` or the `g_data.flight_info` cache.
+ *
+ * If `Modes.prefer_ADSB_LOL == true` (from the config-file), search in
+ * `g_data.flight_info` cache. If not found there, we return NULL to create
+ * a new AIRPORT_API_PENDING record handled by 'API_thread_worker()'.
  */
 static flight_info *find_by_callsign (const char *call_sign, bool *fixed)
 {
   flight_info *f;
 
   *fixed = false;
+
+  if (Modes.prefer_adsb_lol)
+     goto cache_lookup;
 
 #if defined(USE_GEN_ROUTES)
   f = routes_find_by_callsign (call_sign);
@@ -1732,6 +1737,8 @@ static flight_info *find_by_callsign (const char *call_sign, bool *fixed)
     return (f);
   }
 #endif
+
+  cache_lookup:
 
   for (f = g_data.flight_info; f; f = f->next)
   {

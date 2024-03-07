@@ -28,6 +28,8 @@
 
 #define TSIZE (int)(sizeof("HH:MM:SS.MMM: ") - 1)
 
+static bool modeS_log_reinit (const SYSTEMTIME *st);
+
 /**
  * Log a message to the `Modes.log` file with a timestamp.
  * But no timestamp if `buf` starts with a `!`.
@@ -44,12 +46,24 @@ void modeS_log (const char *buf)
      buf++;
   else
   {
-    SYSTEMTIME now;
-    static WORD day = 0;
+    static WORD day = (WORD)-1;
+    SYSTEMTIME  now;
+
+    assert (Modes.start_SYSTEMTIME.wYear);
 
     GetLocalTime (&now);
     time = modeS_SYSTEMTIME_to_str (&now, false);
-    if (now.wDay != day)    /* show the date once per day */
+
+    if (day == (WORD)-1)
+       day = Modes.start_SYSTEMTIME.wDay;
+
+    if (Modes.logfile_daily && now.wDay != day)
+    {
+      day = now.wDay;
+      if (!modeS_log_reinit(&now))
+         return;
+    }
+    else if (now.wDay != day)      /* show the date once per day */
     {
       snprintf (day_change, sizeof(day_change), "%02u/%02u/%02u:\n", now.wYear, now.wMonth, now.wDay);
       day = now.wDay;
@@ -135,7 +149,7 @@ void modeS_flogf (FILE *f, const char *fmt, ...)
 /**
  * Disable, then enable Mongoose logging based on the `Modes.debug` bits.
  */
-void modeS_set_log (void)
+void modeS_log_set (void)
 {
   mg_log_set (0);   /* By default, disable all logging from Mongoose */
 
@@ -149,6 +163,67 @@ void modeS_set_log (void)
     mg_log_set_fn (modeS_logc, NULL);
     mg_log_set (MG_LL_VERBOSE);
   }
+}
+
+/**
+ * Open the initial or a new .log-file based on `Modes.logfile_daily`.
+ *
+ * If `st == NULL`, open `Modes.logfile_current` for the 1st time.
+ * Otherwise set the `Modes.logfile_current` filename with a
+ * `"YYYY-MM-DD.log"` suffix.
+ */
+static bool modeS_log_reinit (const SYSTEMTIME *st)
+{
+  static const char *dot = NULL;
+  bool   initial = (st == NULL);
+
+  if (initial)
+  {
+    SYSTEMTIME now;
+
+    GetLocalTime (&now);
+    st = &now;
+    if (Modes.logfile_daily)
+    {
+      dot = strrchr (Modes.logfile_initial, '.');
+      if (!dot || stricmp(dot, ".log"))
+      {
+        LOG_STDERR ("Unexpected log-file name \"%s\"\n"
+                    "Disabling daily logfiles.\n", Modes.logfile_initial);
+        Modes.logfile_daily = false;
+      }
+    }
+  }
+
+  /* Force a name-change from 'x.log' to 'x-YYYY-MM-DD.log'?
+   */
+  if (Modes.logfile_daily)
+       snprintf (Modes.logfile_current, sizeof(Modes.logfile_current),
+                 "%.*s-%04d-%02d-%02d.log",
+                 (int) (dot - Modes.logfile_initial), Modes.logfile_initial,
+                 st->wYear, st->wMonth, st->wDay);
+
+  else strcpy_s (Modes.logfile_current, sizeof(Modes.logfile_current),
+                 Modes.logfile_initial);
+
+  if (Modes.log)
+     fclose (Modes.log);
+
+  Modes.log = fopen_excl (Modes.logfile_current, "at");
+  return (Modes.log != NULL);
+}
+
+/**
+ * Open the initial .log-file based on `Modes.logfile_daily`.
+ */
+bool modeS_log_init (void)
+{
+  bool rc = modeS_log_reinit (NULL);
+
+  if (!rc)
+     LOG_STDERR ("Failed to create/append to \"%s\" (%s). Continuing anyway.\n",
+                 Modes.logfile_current, strerror(errno));
+  return (rc);
 }
 
 /**
@@ -611,7 +686,7 @@ FILE *fopen_excl (const char *file, const char *mode)
  * Internals of 'externals/mongoose.c':
  */
 typedef struct dirent {
-        char d_name [MAX_PATH];
+        mg_file_path d_name;
       } dirent;
 
 typedef struct win32_dir {
@@ -642,9 +717,9 @@ int touch_dir (const char *directory, bool recurse)
 
   while ((d = readdir(dir)) != NULL)
   {
-    char  full_name [MAX_PATH];
-    DWORD attrs;
-    bool  is_dir;
+    mg_file_path full_name;
+    DWORD        attrs;
+    bool         is_dir;
 
     if (!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
        continue;
@@ -745,8 +820,9 @@ double get_usec_now (void)
 void init_timings (void)
 {
   get_usec_now();
-  get_FILETIME_now (&Modes.start_time);
-  modeS_FILETIME_to_loc_str (&Modes.start_time, true);
+  get_FILETIME_now (&Modes.start_FILETIME);
+  modeS_FILETIME_to_loc_str (&Modes.start_FILETIME, true);
+  GetLocalTime (&Modes.start_SYSTEMTIME);
 }
 
 /**
@@ -803,6 +879,7 @@ void crtdbug_init (void)
 void mimalloc_init (void)
 {
   mi_option_enable (mi_option_show_errors);
+
   if (Modes.debug & DEBUG_GENERAL)
   {
     mi_option_enable (mi_option_show_stats);
@@ -815,6 +892,22 @@ void mimalloc_exit (void)
 {
 }
 
+static void mi_cdecl stats_cb (const char *msg, void *arg)
+{
+  FILE *f = arg;
+
+  modeS_flogf (f, "!%s", msg);
+}
+
+void mimalloc_stats (void)
+{
+  if (Modes.log && mi_option_is_enabled(mi_option_show_stats))
+  {
+    modeS_flogf (Modes.log, "MIMALLOC stats:\n");
+    mi_stats_print_out (stats_cb, Modes.log);
+  }
+}
+
 static const char *mimalloc_version (void)
 {
   static char buf [30];
@@ -823,13 +916,13 @@ static const char *mimalloc_version (void)
   snprintf (buf, sizeof(buf), "mimalloc ver: %d.%d\n", ver / 100, ver % 100);
   return (buf);
 }
-
-#else
-static const char *mimalloc_version (void)
-{
-  return ("");
-}
 #endif  /* _DEBUG */
+
+/* A dummy for `show_version_info()`
+ */
+#if !defined(USE_MIMALLOC)
+#define mimalloc_version() ""
+#endif
 
 /**
  * Return err-number and string for 'err'.
