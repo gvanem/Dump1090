@@ -490,6 +490,46 @@ char *str_trim (char *s)
 }
 
 /**
+ * Create a joined string from an array of strings.
+ *
+ * \param[in] array  the array of strings to join and return as a single string.
+ * \param[in] sep    the separator between the `array` elements; after the first up-to the 2nd last
+ *
+ * \retval NULL  if `array` is empty
+ * \retval !NULL a `malloc()`-ed string of the concatinated result.
+ */
+char *str_join (char *const *array, const char *sep)
+{
+  char  *p,  *ret = NULL;
+  int    i, num;
+  size_t sz = 0;
+
+  if (!array || !array[0])
+     return (NULL);
+
+  /* Get the needed size for `ret`
+   */
+  for (i = num = 0; array[i]; i++, num++)
+      sz += strlen (array[i]) + strlen (sep);
+
+  sz++;
+  sz -= strlen (sep);      /* No `sep` after last `array[]` */
+  p = ret = malloc (sz);
+  if (!p)
+     return (NULL);
+
+  for (i = 0; i < num; i++)
+  {
+    strcpy (p, array[i]);
+    p = strchr (p, '\0');
+    if (i < num - 1)
+       strcpy (p, sep);
+    p = strchr (p, '\0');
+  }
+  return (ret);
+}
+
+/**
  * Strip drive-letter, directory and suffix from a filename.
  */
 char *basename (const char *fname)
@@ -1372,7 +1412,7 @@ void NO_RETURN show_version_info (bool verbose)
     print_CFLAGS();
     print_LDFLAGS();
   }
-  exit (0);
+ // exit (0);
 }
 
 /**

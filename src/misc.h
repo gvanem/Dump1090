@@ -615,6 +615,7 @@ bool        str_endswith (const char *s1, const char *s2);
 char       *str_ltrim (char *s);
 char       *str_rtrim (char *s);
 char       *str_trim (char *s);
+char       *str_join (char *const *array, const char *sep);
 int         hex_digit_val (int c);
 const char *unescape_hex (const char *value);
 char       *basename (const char *fname);
