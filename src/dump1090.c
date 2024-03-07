@@ -3504,7 +3504,7 @@ static bool set_prefer_adsb_lol (const char *arg)
 
 #if !defined(USE_GEN_ROUTES)
   DEBUG (DEBUG_GENERAL,
-         "Config value 'prefer_adsb_lol=%d' has no meaning.\n"
+         "Config value 'prefer-adsb-lol=%d' has no meaning.\n"
          "Will always use ADSB-LOL API to lookup routes in 'airports.c'.\n",
          Modes.prefer_adsb_lol);
 #endif
