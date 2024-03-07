@@ -2437,7 +2437,7 @@ good_preamble:
 
 /**
  * When a new message is available, because it was decoded from the
- * RTL/SDRplay device, file, or received in a TCP input port, or any other
+ * RTLSDR/SDRplay device, file, or received in a TCP input port, or any other
  * way we can receive a decoded message, we call this function in order
  * to use the message.
  *
@@ -2867,7 +2867,7 @@ static void NO_RETURN show_help (const char *fmt, ...)
             "                        n = Log network debugging information.\n"
             "                        N = A bit more network information than flag `n'.\n"
             "                        p = Log frames with bad preamble.\n"
-            "  --device <N / name>   Select RTL/SDRPlay device (default: 0; first found).\n"
+            "  --device <N / name>   Select RTLSDR/SDRPlay device (default: 0; first found).\n"
             "                        e.g. `--device 0'               - select first RTLSDR device found.\n"
             "                             `--device RTL2838-silver'  - select on RTLSDR name.\n"
             "                             `--device tcp://host:port' - select a remote RTLSDR tcp service (default port=%u).\n"
