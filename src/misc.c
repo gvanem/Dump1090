@@ -700,7 +700,7 @@ bool test_contains (const char *spec, const char *which)
   if (!strcmp(spec, "*"))
      return (true);      /* a '*' test-spec enables all */
 
-  strncpy (spe2c, spec, sizeof(spec2));
+  strncpy (spec2, spec, sizeof(spec2));
   for (p = str_tokenize(spec2, ",", &end); p; p = str_tokenize(NULL, ",", &end))
   {
     if (!stricmp(which, p))
