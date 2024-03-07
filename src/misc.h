@@ -616,6 +616,7 @@ char       *str_ltrim (char *s);
 char       *str_rtrim (char *s);
 char       *str_trim (char *s);
 char       *str_join (char *const *array, const char *sep);
+char       *str_tokenize (char *ptr, const char *sep, char **end);
 int         hex_digit_val (int c);
 const char *unescape_hex (const char *value);
 char       *basename (const char *fname);

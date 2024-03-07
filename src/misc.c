@@ -530,6 +530,43 @@ char *str_join (char *const *array, const char *sep)
 }
 
 /**
+ * A `strtok_r()` similar function.
+ *
+ * \param[in,out] ptr  on first call, the string to break apart looking for `sep` strings.
+ * \param[in]     sep  the separator string to look for.
+ * \param[in]     end  the pointer to the end. Ignored on 1st call.
+ */
+char *str_tokenize (char *ptr, const char *sep, char **end)
+{
+  if (!ptr)
+     ptr = *end;
+
+  while (*ptr && strchr(sep, *ptr))
+    ++ptr;
+
+  if (*ptr)
+  {
+    char *start = ptr;
+
+    *end = start + 1;
+
+    /* scan through the string to find where it ends, it ends on a
+     * null byte or a character that exists in the separator string.
+     */
+    while (**end && !strchr(sep, **end))
+      ++*end;
+
+    if (**end)
+    {
+      **end = '\0';  /* zero terminate it! */
+      ++*end;        /* advance the last pointer to beyond the null byte */
+    }
+    return (start);  /* return the position where the string starts */
+  }
+  return (NULL);
+}
+
+/**
  * Strip drive-letter, directory and suffix from a filename.
  */
 char *basename (const char *fname)
@@ -653,7 +690,7 @@ bool test_add (char **spec, const char *which)
  */
 bool test_contains (const char *spec, const char *which)
 {
-  mg_str s, k, v;
+  char *p, *end, spec2 [100];
 
   assert (which);
 
@@ -661,15 +698,12 @@ bool test_contains (const char *spec, const char *which)
      return (false);
 
   if (!strcmp(spec, "*"))
-  {
-    printf ("spec='*', which='%s'\n", which);
-    return (true);      /* a '*' test-spec enables all */
-  }
+     return (true);      /* a '*' test-spec enables all */
 
-  s = mg_str (spec);
-  while (mg_span(s, &k, &v, ','))
+  strncpy (spe2c, spec, sizeof(spec2));
+  for (p = str_tokenize(spec2, ",", &end); p; p = str_tokenize(NULL, ",", &end))
   {
-    if (!strnicmp(which, k.ptr, k.len))
+    if (!stricmp(which, p))
        return (true);
   }
   return (false);
