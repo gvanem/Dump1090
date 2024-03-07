@@ -155,7 +155,7 @@
  * Check for illegal settings.
  */
 #if defined(_DEBUG) && defined(USE_MIMALLOC)
-  #error "Setting 'USE_CRT_DEBUUG=1' and 'USE_MIMALLOC=1' is not supported"
+  #error "Setting 'USE_CRT_DEBUG=1' and 'USE_MIMALLOC=1' is not supported"
 #endif
 
 /*
