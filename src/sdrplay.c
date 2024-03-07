@@ -45,7 +45,10 @@
             TRACE ( "%s(): %d / %s", #func, rc, sdr.last_err); \
           }                                                    \
           else                                                 \
+          {                                                    \
+            sdrplay_clear_error();                             \
             TRACE ( "%s(): OKAY", #func);                      \
+          }                                                    \
         } while (0)
 
 struct sdrplay_priv {
@@ -150,7 +153,7 @@ static void sdrplay_store_error_details (int type)
 
 /**
  * Store the last error-code and error-text from the
- * last `CALL_FUNC()` macro call.
+ * last failed `CALL_FUNC()` macro call.
  */
 static void sdrplay_store_error (sdrplay_api_ErrT rc)
 {
@@ -164,6 +167,18 @@ static void sdrplay_store_error (sdrplay_api_ErrT rc)
 
   if (sdr.sdrplay_api_GetLastErrorByType)
      sdrplay_store_error_details (0);   /* should use corect type */
+}
+
+/**
+ * Clear any last error-codes and error-text from the
+ * last successful `CALL_FUNC()` macro call.
+ */
+static void sdrplay_clear_error (void)
+{
+  sdr.last_rc = sdrplay_api_Success;
+  strcpy (sdr.last_err, "none");
+  sdr.error_timestamp = 0ULL;
+  memset (&sdr.error_info, '\0', sizeof(sdr.error_info));
 }
 
 static const char *sdrplay_tuner_name (sdrplay_api_TunerSelectT tuner)
