@@ -45,13 +45,13 @@
             TRACE ( "%s(): %d / %s", #func, rc, sdr.last_err); \
           }                                                    \
           else                                                 \
-            TRACE ( "%s(): OKAY.\n", #func);                   \
+            TRACE ( "%s(): OKAY", #func);                      \
         } while (0)
 
 struct sdrplay_priv {
        const char                    *dll_name;
        HANDLE                         dll_hnd;
-       mg_file_path                   full_dll_name;  /**< The full name of the `sdrplay_api.dll`. */
+       mg_file_path                   dll_full_name;  /**< The full name of the `sdrplay_api.dll`. */
        float                          version;
        bool                           API_locked;
        bool                           master_initialised;
@@ -63,7 +63,7 @@ struct sdrplay_priv {
        sdrplay_api_DeviceT            devices [4];
        unsigned int                   num_devices;
        char                           last_err [256];
-       sdrplay_api_ErrT               last_rc;
+       int                            last_rc;
        int                            max_sig, max_sig_acc;
        sdrplay_api_CallbackFnsT       cbFns;
        sdrplay_api_DeviceParamsT     *deviceParams;
@@ -141,7 +141,7 @@ static void sdrplay_store_error_details (int type)
 
   /* Can it return NULL?
    */
-  if (!info)
+  if (info)
   {
     sdr.error_timestamp = time;
     sdr.error_info = *info;
@@ -440,8 +440,14 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
 {
   sdrplay_api_DeviceT *device;
   int     i, select_this = -1;
+  int     dash_ofs = 0;
   char    current_dev [100];
   bool    select_first = true;
+
+  /* Allow a 'wanted_name' like "sdrplay-RSP1A"
+   */
+  if (*wanted_name == '-')
+     dash_ofs = 1;
 
   if (wanted_index != -1 || *wanted_name)
      select_first = false;
@@ -499,7 +505,7 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
          select_this = i;
       else if (i == wanted_index)
          select_this = i;
-      else if (!stricmp(current_dev, wanted_name))
+      else if (!stricmp(current_dev, wanted_name + dash_ofs))
          select_this = i;
     }
   }
@@ -511,15 +517,14 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
   }
 
   CALL_FUNC (sdrplay_api_SelectDevice, device);
-  if (sdr.last_rc == sdrplay_api_Success)
-  {
-    sdr.dev = device;
-    g_sdr_device = &sdr;
-    g_sdr_handle = device->dev;
-    Modes.selected_dev = mg_mprintf ("sdrplay-%s", current_dev);
-    return (true);
-  }
-  return (false);
+  if (sdr.last_rc != sdrplay_api_Success)
+     return (false);
+
+  sdr.dev = device;
+  g_sdr_device = &sdr;
+  g_sdr_handle = device->dev;
+  Modes.selected_dev = mg_mprintf ("sdrplay-%s", current_dev);
+  return (true);
 }
 
 /**
@@ -663,7 +668,8 @@ int sdrplay_read_async (sdrplay_dev *device,
     else tuner = '?';
 
     TRACE ("Tuner %c: sample-rate: %.0f MS/s, adsbMode: %s.\n"
-           "                decimation-enable: %d, decimation-factor: %d",
+           "                              decimation-enable: %d,"
+           " decimation-factor: %d",
            tuner, sdr.deviceParams->devParams->fsFreq.fsHz / 1E6,
            sdrplay_adsb_mode(sdr.chParams->ctrlParams.adsbMode),
            sdr.chParams->ctrlParams.decimation.enable,
@@ -730,12 +736,14 @@ int sdrplay_cancel_async (sdrplay_dev *device)
 }
 
 /**
- *
+ * Called from the outside only.
  */
 const char *sdrplay_strerror (int rc)
 {
+  if (sdr.last_rc == -1)
+     return ("<unknown>");
   if (rc == 0 || !sdr.last_err[0])
-     return ("<none>");
+     return ("<success>");
   return (sdr.last_err);
 }
 
@@ -747,10 +755,10 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   *device = NULL;
 
   TRACE ("name: '%s', index: %d", name, index);
-  assert (strnicmp(name, "sdrplay", 7) == 0);
 
   g_sdr_device = NULL;
   g_sdr_handle = NULL;
+  sdr.last_rc  = -1;  /* no idea yet */
 
   Modes.sdrplay.priv = calloc (sizeof(*Modes.sdrplay.priv), 1);
   if (!Modes.sdrplay.priv)
@@ -793,9 +801,9 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
     goto failed;
   }
 
-  if (!GetModuleFileNameA(sdr.dll_hnd, sdr.full_dll_name, sizeof(sdr.full_dll_name)))
-     strcpy (sdr.full_dll_name, "?");
-  TRACE ("sdrplay DLL: '%s'", sdr.full_dll_name);
+  if (!GetModuleFileNameA(sdr.dll_hnd, sdr.dll_full_name, sizeof(sdr.dll_full_name)))
+     strcpy (sdr.dll_full_name, "?");
+  TRACE ("sdrplay DLL: '%s'", sdr.dll_full_name);
 
   LOAD_FUNC (sdrplay_api_Open);
   LOAD_FUNC (sdrplay_api_Close);
@@ -873,9 +881,10 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
 
 nomem:
   strcpy_s (sdr.last_err, sizeof(sdr.last_err), "Insufficient memory");
+  sdr.last_rc = ENOMEM;
 
 failed:
-  LOG_STDERR ("%s.\n", sdr.last_err);
+  LOG_STDERR ("%s", sdr.last_err);
   sdrplay_exit (NULL);
   return (sdrplay_api_Fail);  /* A better error-code? */
 }
