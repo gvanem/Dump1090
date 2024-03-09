@@ -2418,7 +2418,7 @@ static bool set_nearest_gain (RTL_TCP_info *info, uint16_t *target_gain)
 /**
  * The read event handler expecting the RTL_TCP welcome-message.
  */
-void rtl_tcp_recv_info (mg_iobuf *msg)
+static void rtl_tcp_recv_info (mg_iobuf *msg)
 {
   if (msg->len >= sizeof(Modes.rtltcp.info) &&
       !memcmp(msg->buf, RTL_TCP_MAGIC, sizeof(RTL_TCP_MAGIC)-1))
@@ -2444,7 +2444,7 @@ void rtl_tcp_recv_info (mg_iobuf *msg)
 /**
  * The read event handler for the RTL_TCP raw IQ data.
  */
-void rtl_tcp_recv_data (mg_iobuf *msg)
+static void rtl_tcp_recv_data (mg_iobuf *msg)
 {
   rx_callback (msg->buf, msg->len, (void*)&Modes.exit);
   mg_iobuf_del (msg, 0, msg->len);
