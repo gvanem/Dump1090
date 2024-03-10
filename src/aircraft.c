@@ -9,6 +9,7 @@
 #include <assert.h>
 
 #include "misc.h"
+#include "interactive.h"
 #include "sqlite3.h"
 #include "zip.h"
 #include "aircraft.h"
@@ -478,7 +479,7 @@ static bool aircraft_tests (void)
   aircraft_test_1();
   aircraft_test_2();
   aircraft_test_3();
-  return (false);
+  return (true);
 }
 
 /**
@@ -1630,6 +1631,29 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
 }
 
 /**
+ * Called from show_statistics() to print statistics collected here.
+ */
+void aircraft_show_stats (void)
+{
+  LOG_STDOUT ("Aircrafts statistics:\n");
+  interactive_clreol();
+
+  LOG_STDOUT (" %8llu unique aircrafts of which %llu was in CSV-file and %llu in SQL-file.\n",
+              Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV, Modes.stat.unique_aircrafts_SQL);
+
+#if 0  /**\todo print details on unique aircrafts */
+  const ac_unique *a;
+  char  comment [100];
+  size_t  num = 0;
+
+  for (a = g_ac_unique; a; a = a->next, num++)
+  {
+
+  }
+#endif
+}
+
+/**
  * Called to:
  *  \li Close the Sqlite interface.
  *  \li And possibly free memory allocated here (if called from `modeS_exit()`
@@ -1660,5 +1684,3 @@ void aircraft_exit (bool free_aircrafts)
      free (Modes.aircraft_list_CSV);
   Modes.aircraft_list_CSV = NULL;
 }
-
-
