@@ -185,12 +185,6 @@
   #undef  realpath
   #define realpath(file, real_name)  mi_realpath (file, real_name)
 
-  /*
-   * Since 'externals/mongoose.h' defines this and '<ntddndis.h>'
-   * uses this in an enum
-   */
-  #undef ENCRYPT
-
 #else
   /*
    * Drop the dependency on 'oldnames.lib'

@@ -1220,8 +1220,8 @@ void mg_hmac_sha256(uint8_t dst[32], uint8_t *key, size_t keysz, uint8_t *data,
 #define AES_DECRYPTION 1  // whether AES decryption is supported
 /******************************************************************************/
 
-#define ENCRYPT 1  // specify whether we're encrypting
-#define DECRYPT 0  // or decrypting
+#define MG_ENCRYPT 1  // specify whether we're encrypting
+#define MG_DECRYPT 0  // or decrypting
 
 
 
@@ -1339,7 +1339,7 @@ int gcm_setkey(gcm_context *ctx,   // caller-provided context ptr
  ******************************************************************************/
 int gcm_crypt_and_tag(
     gcm_context *ctx,    // gcm context with key already setup
-    int mode,            // cipher direction: ENCRYPT (1) or DECRYPT (0)
+    int mode,            // cipher direction: MG_ENCRYPT (1) or MG_DECRYPT (0)
     const uchar *iv,     // pointer to the 12-byte initialization vector
     size_t iv_len,       // byte length if the IV. should always be 12
     const uchar *add,    // pointer to the non-ciphered additional data
@@ -1384,7 +1384,7 @@ int gcm_auth_decrypt(
  ******************************************************************************/
 int gcm_start(
     gcm_context *ctx,  // pointer to user-provided GCM context
-    int mode,          // ENCRYPT (1) or DECRYPT (0)
+    int mode,          // MG_ENCRYPT (1) or MG_DECRYPT (0)
     const uchar *iv,   // pointer to initialization vector
     size_t iv_len,     // IV length in bytes (should == 12)
     const uchar *add,  // pointer to additional AEAD data (NULL if none)
@@ -2788,10 +2788,10 @@ struct mg_tcpip_spi {
 //   make -C examples/http-server/ CFLAGS_EXTRA=-DMG_ENABLE_PROFILE=1
 //   curl localhost:8000
 // Output:
-//   1ea1f1e7 2 net.c:150:mg_close_conn      3 profile:
-//   1ea1f1e8 2 net.c:150:mg_close_conn      1ea1f1e6 init
+//   1ea1f1e7 2 net.c:150:mg_close_conn      3 profile:                                                            
+//   1ea1f1e8 2 net.c:150:mg_close_conn      1ea1f1e6 init                                                         
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_OPEN
-//   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_ACCEPT
+//   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_ACCEPT 
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_READ
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_HTTP_MSG
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_WRITE
