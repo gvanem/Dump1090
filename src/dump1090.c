@@ -89,8 +89,6 @@ static void      modeS_user_message (const modeS_message *mm);
 
 static bool      set_bandwidth (const char *arg);
 static bool      set_bias_tee (const char *arg);
-static bool      set_calibrate (const char *arg);
-static bool      set_digital_agc (const char *arg);
 static bool      set_frequency (const char *arg);
 static bool      set_gain (const char *arg);
 static bool      set_if_mode (const char *arg);
@@ -101,12 +99,8 @@ static bool      set_home_pos_from_location_API (const char *arg);
 static bool      set_host_port_raw_in (const char *arg);
 static bool      set_host_port_raw_out (const char *arg);
 static bool      set_host_port_sbs_in (const char *arg);
-static bool      set_keep_alive (const char *arg);
 static bool      set_logfile (const char *arg);
 static bool      set_loops (const char *arg);
-static bool      set_metric (const char *arg);
-static bool      set_max_messages (const char *arg);
-static bool      set_max_frames (const char *arg);
 static bool      set_port_http (const char *arg);
 static bool      set_port_raw_in (const char *arg);
 static bool      set_port_raw_out (const char *arg);
@@ -114,7 +108,6 @@ static bool      set_port_sbs (const char *arg);
 static bool      set_prefer_adsb_lol (const char *arg);
 static bool      set_ppm (const char *arg);
 static bool      set_sample_rate (const char *arg);
-static bool      set_silent (const char *arg);
 static bool      set_tui (const char *arg);
 static bool      set_web_page (const char *arg);
 
@@ -127,45 +120,47 @@ static void      background_tasks (void);
 static void      modeS_exit (void);
 
 static const struct cfg_table config[] = {
-    { "bias-t",           ARG_FUNC,   (void*) set_bias_tee },
-    { "calibrate",        ARG_FUNC,   (void*) set_calibrate },
-    { "deny4",            ARG_FUNC,   (void*) net_deny4 },
-    { "deny6",            ARG_FUNC,   (void*) net_deny6 },
-    { "gain",             ARG_FUNC,   (void*) set_gain },
-    { "homepos",          ARG_FUNC,   (void*) set_home_pos },
-    { "location",         ARG_FUNC,   (void*) set_home_pos_from_location_API },
-    { "if-mode",          ARG_FUNC,   (void*) set_if_mode },
-    { "metric",           ARG_FUNC,   (void*) set_metric },
-    { "web-page",         ARG_FUNC,   (void*) set_web_page },
-    { "web-touch",        ARG_ATOB,   (void*) &Modes.web_root_touch },
-    { "tui",              ARG_FUNC,   (void*) set_tui },
-    { "airports",         ARG_STRCPY, (void*) &Modes.airport_db },
-    { "aircrafts",        ARG_STRCPY, (void*) &Modes.aircraft_db },
-    { "aircrafts-url",    ARG_STRDUP, (void*) &Modes.aircraft_db_url },
-    { "bandwidth",        ARG_FUNC,   (void*) set_bandwidth },
-    { "freq",             ARG_FUNC,   (void*) set_frequency },
-    { "agc",              ARG_FUNC,   (void*) set_digital_agc },
-    { "interactive-ttl",  ARG_FUNC,   (void*) set_interactive_ttl },
-    { "keep-alive",       ARG_FUNC,   (void*) set_keep_alive },
-    { "logfile",          ARG_FUNC,   (void*) set_logfile },
-    { "logfile-daily",    ARG_ATOB,   (void*) &Modes.logfile_daily },
-    { "loops",            ARG_FUNC,   (void*) set_loops },
-    { "max-messages",     ARG_FUNC,   (void*) set_max_messages },
-    { "max-frames",       ARG_FUNC,   (void*) set_max_frames },
-    { "net-http-port",    ARG_FUNC,   (void*) set_port_http },
-    { "net-ri-port",      ARG_FUNC,   (void*) set_port_raw_in },
-    { "net-ro-port",      ARG_FUNC,   (void*) set_port_raw_out },
-    { "net-sbs-port",     ARG_FUNC,   (void*) set_port_sbs },
-    { "prefer-adsb-lol",  ARG_FUNC,   (void*) set_prefer_adsb_lol },
-    { "samplerate",       ARG_FUNC,   (void*) set_sample_rate },
-    { "silent",           ARG_FUNC,   (void*) set_silent },
-    { "ppm",              ARG_FUNC,   (void*) set_ppm },
-    { "host-raw-in",      ARG_FUNC,   (void*) set_host_port_raw_in },
-    { "host-raw-out",     ARG_FUNC,   (void*) set_host_port_raw_out },
-    { "host-sbs-in",      ARG_FUNC,   (void*) set_host_port_sbs_in },
-    { "error-correct1",   ARG_ATOB,   (void*) &Modes.error_correct_1 },
-    { "error-correct2",   ARG_ATOB,   (void*) &Modes.error_correct_2 },
-    { NULL,               0,          NULL }
+    { "bias-t",           ARG_FUNC,    (void*) set_bias_tee },
+    { "usb-bulk",         ARG_ATOB,    (void*) &Modes.sdrplay.USB_bulk_mode },
+    { "calibrate",        ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
+    { "deny4",            ARG_FUNC,    (void*) net_deny4 },
+    { "deny6",            ARG_FUNC,    (void*) net_deny6 },
+    { "gain",             ARG_FUNC,    (void*) set_gain },
+    { "homepos",          ARG_FUNC,    (void*) set_home_pos },
+    { "location",         ARG_FUNC,    (void*) set_home_pos_from_location_API },
+    { "if-mode",          ARG_FUNC,    (void*) set_if_mode },
+    { "metric",           ARG_ATOB,    (void*) &Modes.metric },
+    { "web-page",         ARG_FUNC,    (void*) set_web_page },
+    { "web-touch",        ARG_ATOB,    (void*) &Modes.web_root_touch },
+    { "tui",              ARG_FUNC,    (void*) set_tui },
+    { "airports",         ARG_STRCPY,  (void*) &Modes.airport_db },
+    { "aircrafts",        ARG_STRCPY,  (void*) &Modes.aircraft_db },
+    { "aircrafts-url",    ARG_STRDUP,  (void*) &Modes.aircraft_db_url },
+    { "bandwidth",        ARG_FUNC,    (void*) set_bandwidth },
+    { "freq",             ARG_FUNC,    (void*) set_frequency },
+    { "agc",              ARG_ATOB,    (void*) &Modes.dig_agc },
+    { "interactive-ttl",  ARG_FUNC,    (void*) set_interactive_ttl },
+    { "keep-alive",       ARG_ATOB,    (void*) &Modes.keep_alive },
+    { "logfile",          ARG_FUNC,    (void*) set_logfile },
+    { "logfile-daily",    ARG_ATOB,    (void*) &Modes.logfile_daily },
+    { "loops",            ARG_FUNC,    (void*) set_loops },
+    { "max-messages",     ARG_ATO_U64, (void*) &Modes.max_messages },
+    { "max-frames",       ARG_ATO_U64, (void*) &Modes.max_frames },
+    { "net-http-port",    ARG_FUNC,    (void*) set_port_http },
+    { "net-ri-port",      ARG_FUNC,    (void*) set_port_raw_in },
+    { "net-ro-port",      ARG_FUNC,    (void*) set_port_raw_out },
+    { "net-sbs-port",     ARG_FUNC,    (void*) set_port_sbs },
+    { "prefer-adsb-lol",  ARG_FUNC,    (void*) set_prefer_adsb_lol },
+    { "rtl-reset",        ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
+    { "samplerate",       ARG_FUNC,    (void*) set_sample_rate },
+    { "silent",           ARG_ATOB,    (void*) &Modes.silent },
+    { "ppm",              ARG_FUNC,    (void*) set_ppm },
+    { "host-raw-in",      ARG_FUNC,    (void*) set_host_port_raw_in },
+    { "host-raw-out",     ARG_FUNC,    (void*) set_host_port_raw_out },
+    { "host-sbs-in",      ARG_FUNC,    (void*) set_host_port_sbs_in },
+    { "error-correct1",   ARG_ATOB,    (void*) &Modes.error_correct_1 },
+    { "error-correct2",   ARG_ATOB,    (void*) &Modes.error_correct_2 },
+    { NULL,               0,           NULL }
   };
 
 /**
@@ -305,6 +300,14 @@ static void verbose_bias_tee (rtlsdr_dev_t *dev, int bias_t)
 
   if (bias_t && r)
      LOG_STDERR ("Failed to activate Bias-T.\n");
+}
+
+/**
+ * \todo power down and up again before calling RTLSDR API
+ */
+static bool rtlsdr_power_cycle (void)
+{
+  return (false);
 }
 
 /**
@@ -590,6 +593,9 @@ static bool modeS_init_RTLSDR (void)
                 selected ? " (currently selected)" : "");
   }
 
+  if (Modes.rtlsdr.power_cycle)
+     rtlsdr_power_cycle();
+
   if (Modes.rtlsdr.calibrate)
      rtlsdr_cal_imr (1);
 
@@ -668,10 +674,13 @@ static bool modeS_init_RTLSDR (void)
 }
 
 /**
- * This reading callback gets data from the local or remote RTLSDR
- * or SDRplay API asynchronously. We then populate the data buffer.
+ * This RX-data callback gets data from the local RTLSDR, a remote RTLSDR
+ * device or a local SDRplay device asynchronously.
+ * We then populate the data buffer for "Pulse Position Modulation" decoding in
+ * `detect_modeS()`.
  *
- * A Mutex is used to avoid race-condition with the decoding thread.
+ * \note A Mutex is used to avoid race-condition with the decoding thread.
+ * \node "Mode S" is "Mode Select Beacon System" (\ref "docs/The-1090MHz-riddle.pdf" chapter 1.4.)
  */
 void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
 {
@@ -704,6 +713,7 @@ static void infile_exit (void)
   if (Modes.infile_fd == STDIN_FILENO)
         _setmode (STDIN_FILENO, O_TEXT);
   else _close (Modes.infile_fd);
+
   Modes.infile_fd = -1;
 }
 
@@ -858,13 +868,10 @@ static void main_data_loop (void)
 
     LeaveCriticalSection (&Modes.data_mutex);
 
-    if (Modes.max_messages > 0)
+    if (Modes.max_messages > 0 && --Modes.max_messages == 0)
     {
-      if (--Modes.max_messages == 0)
-      {
-        LOG_STDOUT ("'Modes.max_messages' reached 0.\n");
-        Modes.exit = true;
-       }
+      LOG_STDOUT ("'Modes.max_messages' reached 0.\n");
+      Modes.exit = true;
     }
   }
 }
@@ -937,7 +944,8 @@ static void dump_magnitude_vector (const uint16_t *m, uint32_t offset)
  * Produce a raw representation of the message as a Javascript file
  * loadable by `debug.html`.
  */
-static void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t *m, uint32_t offset, int fixable)
+static void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t *m, uint32_t offset,
+                                 int fixable, uint32_t frame)
 {
   int   padding = 5;     /* Show a few samples before the actual start. */
   int   start = offset - padding;
@@ -973,6 +981,7 @@ static void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t
       fprintf (fp, "\\x%02x", msg[j]);
   fprintf (fp, "\"});\n");
   fclose (fp);
+  (void) frame;
 }
 
 /**
@@ -988,7 +997,8 @@ static void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t
  * display packets in a graphical format if the Javascript output was
  * enabled.
  */
-static void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m, uint32_t offset)
+static void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m,
+                              uint32_t offset, uint32_t frame)
 {
   int j;
   int msg_type = msg[0] >> 3;
@@ -1005,7 +1015,7 @@ static void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m
 
   if (Modes.debug & DEBUG_JS)
   {
-    dump_raw_message_JS (descr, msg, m, offset, fixable);
+    dump_raw_message_JS (descr, msg, m, offset, fixable, frame);
     return;
   }
 
@@ -1015,12 +1025,12 @@ static void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m
   for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
   {
     printf ("%02X", msg[j]);
-    if (j == MODES_SHORT_MSG_BYTES-1)
+    if (j == MODES_SHORT_MSG_BYTES - 1)
        printf (" ... ");
   }
-  printf (" (DF %d, Fixable: %d)\n", msg_type, fixable);
+  printf (" (DF %d, Fixable: %d, frame: %u)\n", msg_type, fixable, frame);
   dump_magnitude_vector (m, offset);
-  puts ("---\n");
+  puts ("---");
 
   LeaveCriticalSection (&Modes.print_mutex);
 }
@@ -2139,6 +2149,9 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
  *
  * In the inner loop to extract the bits in a frame:
  *   index `i == [0 .. 2*112]`.
+ *
+ * \todo Use the pulse_slicer_ppm() function from the RTL-433 project.
+ * \ref https://github.com/merbanan/rtl_433/blob/master/src/pulse_slicer.c#L259
  */
 static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
 {
@@ -2173,7 +2186,7 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
    *   8   --
    *   9   -------------------
    */
-  for (j = 0; j < mlen - 2*MODES_FULL_LEN; j++, frame++)
+  for (j = 0; j < mlen - 2*MODES_FULL_LEN; j++)
   {
     int  low, high, delta, i, errors;
     bool good_message = false;
@@ -2200,9 +2213,9 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
           m[j+9] > m[j+6]))
     {
       if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
-         dump_raw_message ("Unexpected ratio among first 10 samples", msg, m, j);
+         dump_raw_message ("Unexpected ratio among first 10 samples", msg, m, j, frame);
 
-      if (Modes.max_frames > 0 && frame >= Modes.max_frames)
+      if (Modes.max_frames > 0 && ++frame > Modes.max_frames)
          return (rc);
       continue;
     }
@@ -2216,8 +2229,9 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
     if (m[j+4] >= high || m[j+5] >= high)
     {
       if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
-         dump_raw_message ("Too high level in samples between 3 and 6", msg, m, j);
-      if (Modes.max_frames > 0 && frame >= Modes.max_frames)
+         dump_raw_message ("Too high level in samples between 3 and 6", msg, m, j, frame);
+
+      if (Modes.max_frames > 0 && ++frame > Modes.max_frames)
          return (rc);
       continue;
     }
@@ -2229,8 +2243,9 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
     if (m[j+11] >= high || m[j+12] >= high || m[j+13] >= high || m[j+14] >= high)
     {
       if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
-         dump_raw_message ("Too high level in samples between 10 and 15", msg, m, j);
-      if (Modes.max_frames > 0 && frame >= Modes.max_frames)
+         dump_raw_message ("Too high level in samples between 10 and 15", msg, m, j, frame);
+
+      if (Modes.max_frames > 0 && ++frame > Modes.max_frames)
          return (rc);
       continue;
     }
@@ -2386,13 +2401,13 @@ good_preamble:
       if (!use_correction)
       {
         if (Modes.debug & DEBUG_DEMOD)
-           dump_raw_message ("Demodulated with 0 errors", msg, m, j);
+           dump_raw_message ("Demodulated with 0 errors", msg, m, j, frame);
 
         else if ((Modes.debug & DEBUG_BADCRC) && mm.msg_type == 17 && (!mm.CRC_ok || mm.error_bit != -1))
-           dump_raw_message ("Decoded with bad CRC", msg, m, j);
+           dump_raw_message ("Decoded with bad CRC", msg, m, j, frame);
 
         else if ((Modes.debug & DEBUG_GOODCRC) && mm.CRC_ok && mm.error_bit == -1)
-           dump_raw_message ("Decoded with good CRC", msg, m, j);
+           dump_raw_message ("Decoded with good CRC", msg, m, j, frame);
       }
 
       /* Skip this message if we are sure it's fine.
@@ -2415,7 +2430,7 @@ good_preamble:
       if ((Modes.debug & DEBUG_DEMODERR) && use_correction)
       {
         LOG_STDOUT ("The following message has %d demod errors:", errors);
-        dump_raw_message ("Demodulated with errors", msg, m, j);
+        dump_raw_message ("Demodulated with errors", msg, m, j, frame);
       }
     }
 
@@ -2891,7 +2906,6 @@ static void NO_RETURN show_help (const char *fmt, ...)
 
     printf ("  Refer the `%s` file for other settings.\n", Modes.cfg_file);
   }
-
   modeS_exit();
   exit (0);
 }
@@ -3050,6 +3064,8 @@ static void show_decoder_stats (void)
   LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
   interactive_clreol();
 
+  /**\todo Move to `aircraft_show_stats()`
+   */
   LOG_STDOUT (" %8llu unique aircrafts of which %llu was in CSV-file and %llu in SQL-file.\n",
               Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV, Modes.stat.unique_aircrafts_SQL);
 
@@ -3062,10 +3078,12 @@ static void show_decoder_stats (void)
  */
 static void show_statistics (void)
 {
-  bool any_device = (Modes.rtlsdr.device || Modes.rtl_tcp_in ||
-                     Modes.sdrplay.device || Modes.infile_fd > -1);
+  bool any_device = (Modes.rtlsdr.device || Modes.sdrplay.device || Modes.infile_fd > -1);
 
-  if (any_device) /* assume we got some data */
+  if (Modes.rtl_tcp_in && !modeS_net_services[MODES_NET_SERVICE_RTL_TCP].last_err)
+     any_device = true;  /* connect() OK */
+
+  if (any_device)  /* assume we got some data */
      show_decoder_stats();
 
   if (Modes.net)
@@ -3179,7 +3197,7 @@ static void set_device (const char *arg)
   {
     net_set_host_port (arg, &modeS_net_services [MODES_NET_SERVICE_RTL_TCP], MODES_NET_PORT_RTL_TCP);
     Modes.selected_dev = mg_mprintf ("%s", modeS_net_services [MODES_NET_SERVICE_RTL_TCP].descr);
-    Modes.rtlsdr.index = -1;  /* select on host+port only */
+    Modes.rtlsdr.index = -1;      /* select on host+port only */
     Modes.net = true;
   }
   else
@@ -3193,7 +3211,7 @@ static void set_device (const char *arg)
     Modes.sdrplay.name = strdup (arg);
     if (isdigit(arg[7]))
     {
-      Modes.sdrplay.index   = atoi (arg+7);
+      Modes.sdrplay.index   = atoi (arg + 7);
       Modes.sdrplay.name[7] = '\0';
     }
     else
@@ -3226,13 +3244,13 @@ static bool set_sample_rate (const char *arg)
 {
   Modes.sample_rate = ato_hertz (arg);
   if (Modes.sample_rate == 0)
-     show_help ("Illegal sample_rate: %s\n", optarg);
+     show_help ("Illegal sample_rate: %s.\n", arg);
 
   if (Modes.sample_rate != MODES_DEFAULT_RATE)
   {
     if (Modes.sample_rate == 2400000)
-         show_help ("2.4 MB/s sample_rate is not yet supported\n");
-    else show_help ("Ilegal sample_rate: %s\n", optarg);
+         show_help ("2.4 MB/s sample_rate is not yet supported.\n");
+    else show_help ("Illegal sample_rate: %s. Use '%uM' or leave empty.\n", arg, MODES_DEFAULT_RATE/1000000);
   }
   return (true);
 }
@@ -3392,18 +3410,6 @@ static bool set_infile (const char *arg)
   return (true);
 }
 
-static bool set_keep_alive (const char *arg)
-{
-  Modes.keep_alive = cfg_true (arg);
-  return (true);
-}
-
-static bool set_metric (const char *arg)
-{
-  Modes.metric = cfg_true (arg);
-  return (true);
-}
-
 static bool set_logfile (const char *arg)
 {
   strcpy_s (Modes.logfile_initial, sizeof(Modes.logfile_initial), arg);
@@ -3413,18 +3419,6 @@ static bool set_logfile (const char *arg)
 static bool set_loops (const char *arg)
 {
   Modes.loops = arg ? _atoi64 (arg) : LLONG_MAX;
-  return (true);
-}
-
-static bool set_max_messages (const char *arg)
-{
-  Modes.max_messages = _atoi64 (arg);
-  return (true);
-}
-
-static bool set_max_frames (const char *arg)
-{
-  Modes.max_frames = _atoi64 (arg);
   return (true);
 }
 
@@ -3480,24 +3474,6 @@ static bool set_ppm (const char *arg)
   return (true);
 }
 
-static bool set_calibrate (const char *arg)
-{
-  Modes.rtlsdr.calibrate = cfg_true (arg);
-  return (true);
-}
-
-static bool set_digital_agc (const char *arg)
-{
-  Modes.dig_agc = cfg_true (arg);
-  return (true);
-}
-
-static bool set_silent (const char *arg)
-{
-  Modes.silent = cfg_true (arg);
-  return (true);
-}
-
 static bool set_prefer_adsb_lol (const char *arg)
 {
   Modes.prefer_adsb_lol = cfg_true (arg);
@@ -3508,6 +3484,7 @@ static bool set_prefer_adsb_lol (const char *arg)
          "Will always use ADSB-LOL API to lookup routes in 'airports.c'.\n",
          Modes.prefer_adsb_lol);
 #endif
+
   return (true);
 }
 
@@ -3520,28 +3497,29 @@ static bool set_web_page (const char *arg)
 }
 
 static struct option long_options[] = {
-  { "config",      required_argument,  NULL,                  'c' },
-  { "debug",       required_argument,  NULL,                  'd' },
-  { "device",      required_argument,  NULL,                  'D' },
-  { "help",        no_argument,        NULL,                  'h' },
-  { "infile",      required_argument,  NULL,                  'i' },
-  { "interactive", no_argument,        &Modes.interactive,     1  },
-  { "net",         no_argument,        &Modes.net,             1  },
-  { "net-active",  no_argument,        &Modes.net_active,     'N' },
-  { "net-only",    no_argument,        &Modes.net_only,       'n' },
-  { "only-addr",   no_argument,        &Modes.only_addr,       1 },
-  { "raw",         no_argument,        &Modes.raw,             1  },
-  { "strip",       required_argument,  NULL,                  'S' },
-  { "test",        required_argument,  NULL,                  'T' },
-  { "update",      no_argument,        NULL,                  'u' },
-  { "version",     no_argument,        NULL,                  'V' },
-  { NULL,          no_argument,        NULL,                   0  }
+  { "config",      required_argument,  NULL,               'c' },
+  { "debug",       required_argument,  NULL,               'd' },
+  { "device",      required_argument,  NULL,               'D' },
+  { "help",        no_argument,        NULL,               'h' },
+  { "infile",      required_argument,  NULL,               'i' },
+  { "interactive", no_argument,        &Modes.interactive,  1  },
+  { "net",         no_argument,        &Modes.net,          1  },
+  { "net-active",  no_argument,        &Modes.net_active,  'N' },
+  { "net-only",    no_argument,        &Modes.net_only,    'n' },
+  { "only-addr",   no_argument,        &Modes.only_addr,    1  },
+  { "raw",         no_argument,        &Modes.raw,          1  },
+  { "strip",       required_argument,  NULL,               'S' },
+  { "test",        required_argument,  NULL,               'T' },
+  { "update",      no_argument,        NULL,               'u' },
+  { "version",     no_argument,        NULL,               'V' },
+  { NULL,          no_argument,        NULL,                0  }
 };
 
 static bool parse_cmd_line (int argc, char **argv)
 {
-  int  c, show_ver = 0, idx = 0;
-  bool rc = true;
+  int   c, show_ver = 0, idx = 0;
+  bool  rc = true;
+  char *non_options;
 
   while ((c = getopt_long (argc, argv, "+h?V", long_options, &idx)) != EOF)
   {
@@ -3598,11 +3576,23 @@ static bool parse_cmd_line (int argc, char **argv)
   }
 
   if (show_ver > 0)
-     show_version_info (show_ver >= 2);
+  {
+    show_version_info (show_ver >= 2);
+    rc = false;
+  }
+  else if (Modes.net_only || Modes.net_active)
+  {
+    Modes.net = Modes.net_only = true;
+  }
 
-  if (Modes.net_only || Modes.net_active)
-     Modes.net = Modes.net_only = true;
-
+  argv += optind;
+  if (*argv)
+  {
+    non_options = str_join (argv, " ");
+    fprintf (stderr, "Argments ('%s') after options was unexpected!\n", non_options);
+    free (non_options);
+    rc = false;
+  }
   return (rc);
 }
 
@@ -3634,9 +3624,12 @@ int main (int argc, char **argv)
   {
     char notice [100] = "";
 
-    if (Modes.rtlsdr.name  || Modes.rtlsdr.index > -1 ||
-        Modes.sdrplay.name || Modes.sdrplay.index > -1)
-       strcpy (notice, " The `--device x' option has no effect now.");
+    if ((Modes.rtlsdr.name  || Modes.rtlsdr.index > -1 ||
+         Modes.sdrplay.name || Modes.sdrplay.index > -1) &&
+        !Modes.rtl_tcp_in)
+    {
+      strcpy (notice, " The `--device x' option has no effect now.");
+    }
     LOG_STDERR ("Net-only mode, no physical device or file open.%s\n", notice);
   }
   else if (Modes.strip_level)
@@ -3657,7 +3650,7 @@ int main (int argc, char **argv)
       goto quit;
     }
   }
-  else
+  else if (!Modes.tests)     /* for testing, do not initialize RTLSDR/SDRPlay */
   {
     if (Modes.sdrplay.name)
     {
@@ -3668,7 +3661,7 @@ int main (int argc, char **argv)
     }
     else if (!modeS_net_services[MODES_NET_SERVICE_RTL_TCP].host[0])
     {
-      rc = modeS_init_RTLSDR();
+      rc = modeS_init_RTLSDR();  /* not using a remote RTL_TCP input device */
       DEBUG (DEBUG_GENERAL, "modeS_init_RTLSDR(): rc: %d.\n", rc);
       if (!rc)
          goto quit;
@@ -3677,7 +3670,7 @@ int main (int argc, char **argv)
 
   if (Modes.net)
   {
-    /* This will also setup a service for the remote RTL_TCP device.
+    /* This will also setup a service for the remote RTL_TCP input device.
      */
     rc = net_init();
     DEBUG (DEBUG_GENERAL, "net_init(): rc: %d.\n", rc);
