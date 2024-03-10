@@ -1427,7 +1427,7 @@ static const char *__DATE__str (void)
 /**
  * Print version information.
  */
-void NO_RETURN show_version_info (bool verbose)
+void show_version_info (bool verbose)
 {
   printf ("dump1090 ver: %s (%s, %s).\nBuilt on %s.\n",
           PROG_VERSION, compiler_info(), build_features(),
@@ -1446,7 +1446,6 @@ void NO_RETURN show_version_info (bool verbose)
     print_CFLAGS();
     print_LDFLAGS();
   }
- // exit (0);
 }
 
 /**

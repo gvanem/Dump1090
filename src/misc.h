@@ -289,10 +289,11 @@ typedef struct rtlsdr_conf {
         char         *name;              /**< The manufacturer name of the RTLSDR device to use. As in e.g. `"--device silver"` */
         int           index;             /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"` */
         rtlsdr_dev_t *device;            /**< The RTLSDR handle from `rtlsdr_open()` */
-        int           ppm_error;         /**< Set RTLSDR frequency correction */
-        int           calibrate;         /**< Enable calibration for R820T/R828D type devices */
+        int           ppm_error;         /**< Set RTLSDR frequency correction (negative or positive) */
+        bool          calibrate;         /**< Enable calibration for R820T/R828D type devices */
         int          *gains;             /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
         int           gain_count;        /**< Number of gain values in above array */
+        bool          power_cycle;       /**< \todo power down and up again before calling any RTLSDR API function */
       } rtlsdr_conf;
 
 /**
@@ -307,16 +308,9 @@ typedef struct rtltcp_conf {
       } rtltcp_conf;
 
 /**
- * The private data for a SDRplay device.
- * Ref \file sdrplay.c for this.
- */
-struct sdrplay_priv;
-
-/**
  * The device configuration for a SDRplay device.
  */
 typedef struct sdrplay_conf {
-        struct sdrplay_priv             *priv;
         char                            *name;               /**< Name of SDRplay instance to use */
         int                              index;              /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"` */
         void                            *device;             /**< Device-handle from `sdrplay_init()` */
@@ -324,6 +318,7 @@ typedef struct sdrplay_conf {
         bool                             over_sample;
         bool                             disable_broadcast_notch;
         bool                             disable_DAB_notch;
+        bool                             USB_bulk_mode;
         int                              gain_reduction;
         int                              ADSB_mode;
         int                              BW_mode;
@@ -656,7 +651,7 @@ void        decode_CPR (struct aircraft *a);
 const char *mz_version (void);                 /* in 'externals/zip.c' */
 void        rx_callback (uint8_t *buf, uint32_t len, void *ctx);
 
-void NO_RETURN show_version_info (bool verbose);
+void show_version_info (bool verbose);
 
 #if defined(USE_MIMALLOC)
   void mimalloc_init (void);
