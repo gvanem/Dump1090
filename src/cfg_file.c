@@ -535,7 +535,7 @@ static bool handle_ipv4_test (const char *value)
   mg_addr      ip;
   bool         rc;
 
-  if (!test_contains(Modes.tests, "net"))
+  if (!test_contains(Modes.tests, "config"))
      return (true);
 
   memset (&ip, '\0', sizeof(ip));
@@ -552,7 +552,7 @@ static bool handle_ipv6_test (const char *value)
   mg_addr      ip;
   bool         rc;
 
-  if (!test_contains(Modes.tests, "net"))
+  if (!test_contains(Modes.tests, "config"))
      return (true);
 
   memset (&ip, '\0', sizeof(ip));
@@ -614,7 +614,7 @@ static bool handle_deny4_test (const char *value)
   int  save = Modes.debug;
   bool rc;
 
-  if (!test_contains(Modes.tests, "net"))
+  if (!test_contains(Modes.tests, "config"))
      return (true);
 
   Modes.debug |= DEBUG_GENERAL;
