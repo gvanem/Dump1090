@@ -54,7 +54,7 @@ DEF_FUNC (const char *, mg_spec,   (void));
  * For handling denial of clients in `client_handler (.., MG_EV_ACCEPT)` .
  */
 typedef struct deny_element {
-        char                 acl [MAX_ADDRESS];
+        ip_address           acl;
         bool                 is_ip6;
         struct deny_element *next;
       } deny_element;
@@ -1255,7 +1255,7 @@ static bool client_is_unique (const mg_addr *addr, intptr_t service, unique_IP *
 
   if (test_contains(Modes.tests, "net"))
   {
-    char ip_addr [MAX_ADDRESS];
+    ip_address ip_addr;
 
     mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, addr);
 
@@ -1274,7 +1274,7 @@ static bool client_is_unique (const mg_addr *addr, intptr_t service, unique_IP *
 static void unique_ips_print (intptr_t service)
 {
   const unique_IP *ip;
-  char             addr [MAX_ADDRESS];
+  ip_address       ip_addr;
   size_t           num = 0;
 
   LOG_STDOUT ("    %8llu unique client(s):\n", Modes.stat.unique_clients[service]);
@@ -1288,7 +1288,7 @@ static void unique_ips_print (intptr_t service)
     if (ip->service != service)
        continue;
 
-    mg_snprintf (addr, sizeof(addr), "%M", mg_print_ip, ip->addr);
+    mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, ip->addr);
     if (ip->denied > 0)
        snprintf (denied, sizeof(denied), " (%u)", ip->denied);
     if (num == 0)
@@ -1296,7 +1296,7 @@ static void unique_ips_print (intptr_t service)
     else if (num % 7 == 0)
        fprintf (Modes.log, "\n%27s", " ");
 
-    fprintf (Modes.log, "%s%s%s", addr, denied, ip->next ? ", " : "");
+    fprintf (Modes.log, "%s%s%s", ip_addr, denied, ip->next ? ", " : "");
     num++;
   }
   if (num == 0)
@@ -2022,20 +2022,20 @@ static void unique_ip_tests (void)
  */
 static char *net_init_dns (void)
 {
-  FIXED_INFO  *fi = alloca (sizeof(*fi));
-  DWORD        size = 0;
+  FIXED_INFO     *fi = alloca (sizeof(*fi));
+  DWORD           size = 0;
   IP_ADDR_STRING *ip;
-  int          i;
+  int             i;
 
   if (GetNetworkParams(fi, &size) != ERROR_BUFFER_OVERFLOW)
   {
-    LOG_STDERR ("  error: %s\n", win_strerror(WSAGetLastError()));
+    LOG_STDERR ("  error: %s\n", win_strerror(GetLastError()));
     return (NULL);
   }
   fi = alloca (size);
   if (GetNetworkParams(fi, &size) != ERROR_SUCCESS)
   {
-    LOG_STDERR ("  error: %s\n", win_strerror(WSAGetLastError()));
+    LOG_STDERR ("  error: %s\n", win_strerror(GetLastError()));
     return (NULL);
   }
 

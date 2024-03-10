@@ -37,6 +37,8 @@
  */
 #define MAX_ADDRESS 50
 
+typedef char ip_address [MAX_ADDRESS];
+
 /**
  * Default network port numbers:
  */
