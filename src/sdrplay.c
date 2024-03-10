@@ -8,37 +8,24 @@
 #include "sdrplay.h"
 #include "misc.h"
 
-#define MODES_RSP_BUF_SIZE  (16*16384)   /* 256k, same as MODES_ASYNC_BUF_SIZE  */
-#define MODES_RSP_BUFFERS    16          /* Must be power of 2 */
+#define MODES_RSP_BUF_SIZE   (256*1024)   /* 256k, same as MODES_ASYNC_BUF_SIZE  */
+#define MODES_RSP_BUFFERS     16          /* Must be power of 2 */
 
-#define RSP_MIN_GAIN_THRESH  512         /* Increase gain if peaks below this */
-#define RSP_MAX_GAIN_THRESH 1024         /* Decrease gain if peaks above this */
-#define RSP_ACC_SHIFT         13         /* Sets time constant of averaging filter */
-#define MODES_RSP_INITIAL_GR  20
+#define RSP_MIN_GAIN_THRESH   512         /* Increase gain if peaks below this */
+#define RSP_MAX_GAIN_THRESH  1024         /* Decrease gain if peaks above this */
+#define RSP_ACC_SHIFT          13         /* Sets time constant of averaging filter */
+#define MODES_RSP_INITIAL_GR   20
+#define USE_8BIT_SAMPLES        1
 
-/**
- * \def LOAD_FUNC(func)
- *   A `GetProcAddress()` helper.
- *   \param func  the name of the function (without any `"`).
- */
-#define LOAD_FUNC(func)                                                    \
-        do {                                                               \
-          sdr.func = (func ## _t) GetProcAddress (sdr.dll_hnd, #func);     \
-          if (!sdr.func)                                                   \
-          {                                                                \
-            snprintf (sdr.last_err, sizeof(sdr.last_err),                  \
-                      "Failed to find '%s()' in %s", #func, sdr.dll_name); \
-            goto failed;                                                   \
-          }                                                                \
-          TRACE ("Function: %-30s -> 0x%p", #func, sdr.func);              \
-        } while (0)
+#if USE_8BIT_SAMPLES
+  #define SAMPLE_TYPE uint8_t
+#else
+  #define SAMPLE_TYPE uint16_t
+#endif
 
 #define CALL_FUNC(func, ...)                                   \
         do {                                                   \
-          sdrplay_api_ErrT rc;                                 \
-          if (!sdr.func)                                       \
-               rc = sdrplay_api_NotInitialised;                \
-          else rc = (*sdr.func) (__VA_ARGS__);                 \
+          sdrplay_api_ErrT rc = (*sdr.func) (__VA_ARGS__);     \
           if (rc != sdrplay_api_Success)                       \
           {                                                    \
             sdrplay_store_error (rc);                          \
@@ -52,25 +39,24 @@
         } while (0)
 
 struct sdrplay_priv {
-       const char                    *dll_name;
-       HANDLE                         dll_hnd;
-       mg_file_path                   dll_full_name;  /**< The full name of the `sdrplay_api.dll`. */
+       HANDLE                         handle;
        float                          version;
        bool                           API_locked;
        bool                           master_initialised;
        bool                           slave_uninitialised;
        bool                           slave_attached;
-       bool                           cancelling;
+       volatile bool                  cancelling;
+       volatile bool                  uninit_done;
 
-       sdrplay_api_DeviceT           *dev;
-       sdrplay_api_DeviceT            devices [4];
+       sdrplay_api_DeviceT            devices [4];     /**< 4 should be enough for `sdr::sdrplay_api_GetDevices()`. */
+       sdrplay_api_DeviceT           *chosen_dev;      /**< `sdrplay_select()` sets this to one of the above */
        unsigned int                   num_devices;
        char                           last_err [256];
        int                            last_rc;
        int                            max_sig, max_sig_acc;
-       sdrplay_api_CallbackFnsT       cbFns;
-       sdrplay_api_DeviceParamsT     *deviceParams;
-       sdrplay_api_RxChannelParamsT  *chParams;
+       sdrplay_api_CallbackFnsT       callbacks;
+       sdrplay_api_DeviceParamsT     *dev_params;
+       sdrplay_api_RxChannelParamsT  *ch_params;
        uint16_t                      *rx_data;
        uint32_t                       rx_data_idx;
        sdrplay_cb                     rx_callback;
@@ -91,28 +77,80 @@ struct sdrplay_priv {
        sdrplay_api_ReleaseDevice_t    sdrplay_api_ReleaseDevice;
        sdrplay_api_Update_t           sdrplay_api_Update;
        sdrplay_api_GetErrorString_t   sdrplay_api_GetErrorString;
-       sdrplay_api_GetLastError_t     sdrplay_api_GetLastError;     /* No real need for this */
 
-       /* An SDRPlay API ver 3.14. function; hence can be NULL when running a
-        * ver. < 3.14 service. Then the below `error_timestamp`
-        * and `error_info` are empty.
+       /* An SDRPlay API ver 3.14. function; hence it can be NULL when running
+        * a ver. < 3.14 service. Then the below `error_timestamp`
+        * and `error_info` are always empty.
         */
        sdrplay_api_GetLastErrorByType_t sdrplay_api_GetLastErrorByType;
        uint64_t                         error_timestamp;
        sdrplay_api_ErrorInfoT           error_info;
      };
 
-static struct sdrplay_priv sdr = { "sdrplay_api.dll" };
-
-/**
- * We support only 1 device at a time.
- */
-static struct sdrplay_priv *g_sdr_device;
-static HANDLE               g_sdr_handle;
+static struct sdrplay_priv sdr;
 
 /* 4 - 44 dB
  */
-static int gain_table[10] = { 40, 100, 150, 170, 210, 260, 310, 350, 390, 440 };
+static int gain_table [10] = { 40, 100, 150, 170, 210, 260, 310, 350, 390, 440 };
+
+/**
+ * Load and use the SDRPlay-API dynamically.
+ */
+#define ADD_FUNC(opt, func)  { opt, NULL, NULL, #func, (void**) &sdr.func }
+
+static struct dyn_struct sdrplay_funcs [] = {
+              ADD_FUNC (false, sdrplay_api_Open),
+              ADD_FUNC (false, sdrplay_api_Close),
+              ADD_FUNC (false, sdrplay_api_Init),
+              ADD_FUNC (false, sdrplay_api_Uninit),
+              ADD_FUNC (false, sdrplay_api_ApiVersion),
+              ADD_FUNC (false, sdrplay_api_DebugEnable),
+              ADD_FUNC (false, sdrplay_api_LockDeviceApi),
+              ADD_FUNC (false, sdrplay_api_UnlockDeviceApi),
+              ADD_FUNC (false, sdrplay_api_GetDevices),
+              ADD_FUNC (false, sdrplay_api_GetDeviceParams),
+              ADD_FUNC (false, sdrplay_api_SelectDevice),
+              ADD_FUNC (false, sdrplay_api_ReleaseDevice),
+              ADD_FUNC (false, sdrplay_api_Update),
+              ADD_FUNC (false, sdrplay_api_GetErrorString),
+              ADD_FUNC (true,  sdrplay_api_GetLastErrorByType)  /* optional, added in API ver 3.14 */
+          };
+
+#undef ADD_FUNC
+
+static bool sdrplay_load_funcs (const char *dll_name)
+{
+  mg_file_path full_name;
+  size_t       i, num;
+
+  for (i = 0; i < DIM(sdrplay_funcs); i++)
+      sdrplay_funcs[i].mod_name = dll_name;
+
+  SetLastError (0);
+
+  num = load_dynamic_table (sdrplay_funcs, DIM(sdrplay_funcs));
+  if (num < DIM(sdrplay_funcs) - 1)
+  {
+    DWORD err = GetLastError();
+
+    /* The 'LoadLibraryA()' above will fail with 'err == ERROR_BAD_EXE_FORMAT' (193)
+     * if we're running a 32-bit Dump1090 and we loaded a 64-bit "sdrplay_api.dll".
+     * And vice-versa.
+     */
+    if (err == ERROR_BAD_EXE_FORMAT)
+         snprintf (sdr.last_err, sizeof(sdr.last_err), "\"%s\" is not a %d bit version", dll_name, 8*(int)sizeof(void*));
+    else if (err == ERROR_MOD_NOT_FOUND)
+         snprintf (sdr.last_err, sizeof(sdr.last_err), "\"%s\" not found on PATH", dll_name);
+    else snprintf (sdr.last_err, sizeof(sdr.last_err), "Failed to load \"%s\"; %s", dll_name, win_strerror(err));
+    return (false);
+  }
+
+  if (!GetModuleFileNameA(sdrplay_funcs[0].mod_handle, full_name, sizeof(full_name)))
+     strcpy (full_name, "?");
+
+  TRACE ("sdrplay DLL: '%s'", full_name);
+  return (true);
+}
 
 /**
  * Store the last error-details and timestamp by `type`.
@@ -140,7 +178,7 @@ static void sdrplay_store_error_details (int type)
 
   sdr.error_timestamp = 0ULL;
   memset (&sdr.error_info, '\0', sizeof(sdr.error_info));
-  info = (*sdr.sdrplay_api_GetLastErrorByType) (sdr.dev, type, &time);
+  info = (*sdr.sdrplay_api_GetLastErrorByType) (sdr.handle, type, &time);
 
   /* Can it return NULL?
    */
@@ -230,7 +268,7 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
                                     sdrplay_api_EventParamsT *params,
                                     void                     *cb_context)
 {
-  if (g_sdr_device->cancelling)
+  if (sdr.cancelling)
      return;
 
   EnterCriticalSection (&Modes.print_mutex);
@@ -238,17 +276,17 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
   switch (event_id)
   {
     case sdrplay_api_PowerOverloadChange:
-         TRACE ("%s(): sdrplay_api_PowerOverloadChange: sdrplay_api_AgcEvent, tuner=%s powerOverloadChangeType=%s",
-                __FUNCTION__, sdrplay_tuner_name(tuner), sdrplay_overload_name(params->powerOverloadParams.powerOverloadChangeType));
+         TRACE ("sdrplay_api_PowerOverloadChange: sdrplay_api_AgcEvent, tuner=%s powerOverloadChangeType=%s",
+                sdrplay_tuner_name(tuner), sdrplay_overload_name(params->powerOverloadParams.powerOverloadChangeType));
 
-         CALL_FUNC (sdrplay_api_Update, g_sdr_handle, tuner,
+         CALL_FUNC (sdrplay_api_Update, sdr.handle, tuner,
                     sdrplay_api_Update_Ctrl_OverloadMsgAck,
                     sdrplay_api_Update_Ext1_None);
          break;
 
     case sdrplay_api_RspDuoModeChange:
-         TRACE ("%s(): sdrplay_api_RspDuoModeChange, tuner=%s modeChangeType=%s",
-                __FUNCTION__, sdrplay_tuner_name(tuner), sdrplay_duo_event(params->rspDuoModeParams.modeChangeType));
+         TRACE ("sdrplay_api_RspDuoModeChange, tuner=%s modeChangeType=%s",
+                sdrplay_tuner_name(tuner), sdrplay_duo_event(params->rspDuoModeParams.modeChangeType));
 
          if (params->rspDuoModeParams.modeChangeType == sdrplay_api_MasterInitialised)
          {
@@ -264,36 +302,38 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
          }
          else if (params->rspDuoModeParams.modeChangeType == sdrplay_api_SlaveDetached)
          {
-             sdr.slave_attached = false;
+           sdr.slave_attached = false;
          }
          else if (params->rspDuoModeParams.modeChangeType == sdrplay_api_MasterDllDisappeared)
          {
-           sdrplay_exit (g_sdr_device);
+           sdrplay_exit (sdr.chosen_dev);
            LOG_STDERR ("\nThe master stream no longer exists.\n"
                        "This application will now exit.\n");
          }
          else if (params->rspDuoModeParams.modeChangeType == sdrplay_api_SlaveDllDisappeared)
-              sdr.slave_attached = false;
+         {
+           sdr.slave_attached = false;
+         }
          break;
 
     case sdrplay_api_GainChange:
-         TRACE ("%s(): sdrplay_api_GainChange, tuner=%s gRdB=%d lnaGRdB=%d systemGain=%.2f",
-                __FUNCTION__, sdrplay_tuner_name(tuner),
+         TRACE ("sdrplay_api_GainChange, tuner=%s gRdB=%d lnaGRdB=%d systemGain=%.2f",
+                sdrplay_tuner_name(tuner),
                 params->gainParams.gRdB,
                 params->gainParams.lnaGRdB,
                 params->gainParams.currGain);
          break;
 
     case sdrplay_api_DeviceRemoved:
-         TRACE ("%s(): sdrplay_api_DeviceRemoved", __FUNCTION__);
+         TRACE ("sdrplay_api_DeviceRemoved");
          break;
 
     case sdrplay_api_DeviceFailure:
-         TRACE ("%s(): sdrplay_api_DeviceFailure", __FUNCTION__);
+         TRACE ("sdrplay_api_DeviceFailure");
          break;
 
     default:
-         TRACE ("%s(): unknown event %d", __FUNCTION__, event_id);
+         TRACE ("unknown event %d", event_id);
          break;
   }
 
@@ -304,26 +344,20 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
 /**
  * The main SDRplay stream callback.
  */
-#define USE_8BIT_SAMPLES 1
-
-static void sdrplay_callback_A (short *xi, short *xq,
+static void sdrplay_callback_A (short                       *xi,
+                                short                       *xq,
                                 sdrplay_api_StreamCbParamsT *params,
                                 unsigned int                 num_samples,
                                 unsigned int                 reset,
                                 void                        *cb_context)
 {
-  int      i, count1, count2;
-  int      sig_I, sig_Q, max_sig;
-  bool     new_buf_flag;
-  uint32_t end, input_index;
-  uint32_t rx_data_idx = sdr.rx_data_idx;
-  int      max_sig_acc = sdr.max_sig;
-
-#if USE_8BIT_SAMPLES
-  uint8_t  *dptr = (uint8_t*) sdr.rx_data;
-#else
-  uint16_t *dptr = (uint16_t*) sdr.rx_data;
-#endif
+  int          i, count1, count2;
+  int          sig_I, sig_Q, max_sig;
+  bool         new_buf_flag;
+  uint32_t     end, input_index;
+  uint32_t     rx_data_idx = sdr.rx_data_idx;
+  int          max_sig_acc = sdr.max_sig;
+  SAMPLE_TYPE *dptr = (SAMPLE_TYPE*) sdr.rx_data;
 
   /* 'count1' is lesser of input samples and samples to end of buffer.
    * 'count2' is the remainder, generally zero
@@ -376,18 +410,20 @@ static void sdrplay_callback_A (short *xi, short *xq,
      */
     if (max_sig > RSP_MAX_GAIN_THRESH)
     {
-      sdr.chParams->tunerParams.gain.gRdB += 1;
-      if (sdr.chParams->tunerParams.gain.gRdB > 59)
-         sdr.chParams->tunerParams.gain.gRdB = 59;
-      CALL_FUNC (sdrplay_api_Update, g_sdr_handle, sdr.dev->tuner,
+      sdr.ch_params->tunerParams.gain.gRdB++;
+      if (sdr.ch_params->tunerParams.gain.gRdB > 59)
+         sdr.ch_params->tunerParams.gain.gRdB = 59;
+
+      CALL_FUNC (sdrplay_api_Update, sdr.handle, sdr.chosen_dev->tuner,
                  sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
     }
     else if (max_sig < RSP_MIN_GAIN_THRESH)
     {
-      sdr.chParams->tunerParams.gain.gRdB -= 1;
-      if (sdr.chParams->tunerParams.gain.gRdB < 0)
-         sdr.chParams->tunerParams.gain.gRdB = 0;
-      CALL_FUNC (sdrplay_api_Update, g_sdr_handle, sdr.dev->tuner,
+      sdr.ch_params->tunerParams.gain.gRdB--;
+      if (sdr.ch_params->tunerParams.gain.gRdB < 0)
+         sdr.ch_params->tunerParams.gain.gRdB = 0;
+
+      CALL_FUNC (sdrplay_api_Update, sdr.handle, sdr.chosen_dev->tuner,
                  sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
     }
 
@@ -412,8 +448,8 @@ static void sdrplay_callback_A (short *xi, short *xq,
     /* Go back by one buffer length, then round down further to start of buffer
      */
     end = rx_data_idx + MODES_RSP_BUF_SIZE * (MODES_RSP_BUFFERS-1);
-    end &= MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS - 1;
-    end &= ~(MODES_RSP_BUF_SIZE-1);
+    end &= (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS) - 1;
+    end &= ~(MODES_RSP_BUF_SIZE - 1);
 
     sdr.rx_num_callbacks++;
     (*sdr.rx_callback) ((uint8_t*)sdr.rx_data + end, MODES_RSP_BUF_SIZE, sdr.rx_context);
@@ -434,11 +470,12 @@ static void sdrplay_callback_A (short *xi, short *xq,
  *
  * Not used for anything.
  */
-static void sdrplay_callback_B (short *xi, short *xq,
+static void sdrplay_callback_B (short                       *xi,
+                                short                       *xq,
                                 sdrplay_api_StreamCbParamsT *params,
-                                unsigned int num_samples,
-                                unsigned int reset,
-                                void *cb_context)
+                                unsigned int                 num_samples,
+                                unsigned int                 reset,
+                                void                        *cb_context)
 {
   MODES_NOTUSED (xi);
   MODES_NOTUSED (xq);
@@ -454,8 +491,7 @@ static void sdrplay_callback_B (short *xi, short *xq,
 static bool sdrplay_select (const char *wanted_name, int wanted_index)
 {
   sdrplay_api_DeviceT *device;
-  int     i, select_this = -1;
-  int     dash_ofs = 0;
+  int     i, select_this = -1, dash_ofs = 0;
   char    current_dev [100];
   bool    select_first = true;
 
@@ -480,7 +516,7 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
     return (false);
   }
 
-  device = sdr.devices + 0;
+  device = sdr.devices + 0;  /* start checking the 1st device returned */
 
   TRACE ("wanted_name: \"sdrplay%s\", wanted_index: %d. Found %d devices",
          wanted_name, wanted_index, sdr.num_devices);
@@ -494,6 +530,10 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
     else if (sdr.devices[i].hwVer == SDRPLAY_RSP1A_ID)
     {
       strcpy (current_dev, "RSP1A");
+    }
+    else if (sdr.devices[i].hwVer == SDRPLAY_RSP1B_ID)
+    {
+      strcpy (current_dev, "RSP1B");
     }
     else if (sdr.devices[i].hwVer == SDRPLAY_RSP2_ID)
     {
@@ -527,7 +567,8 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
 
   if (select_this == -1)
   {
-    LOG_STDERR ("Wanted device \"sdrplay%s\" (at index: %d) not found.\n", wanted_name, wanted_index);
+    LOG_STDERR ("Wanted device \"sdrplay%s\" (at index: %d) not found.\n",
+                wanted_name, wanted_index);
     return (false);
   }
 
@@ -535,9 +576,9 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
   if (sdr.last_rc != sdrplay_api_Success)
      return (false);
 
-  sdr.dev = device;
-  g_sdr_device = &sdr;
-  g_sdr_handle = device->dev;
+  sdr.handle     = device->dev;
+  sdr.chosen_dev = device;        /* we only support 1 device */
+
   Modes.selected_dev = mg_mprintf ("sdrplay-%s", current_dev);
   return (true);
 }
@@ -549,7 +590,8 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
  * the stop-condition specified in the `context`.
  *
  * \param[in] device   The device handle which is ignored. Since it's already
- *                     retured in `sdrplay_init()` (we support only one device at a time).
+ *                     retured in `sdrplay_init()` (we support only one device at a time.
+ *                     But check for a NULL-device just in case).
  * \param[in] callback The address of the receiver callback.
  * \param[in] context  The address of the "stop-variable".
  * \param[in] buf_num  The number of buffers to use (ignored for now).
@@ -561,51 +603,58 @@ int sdrplay_read_async (sdrplay_dev *device,
                         uint32_t     buf_num,
                         uint32_t     buf_len)
 {
+  int tuner;
+
   MODES_NOTUSED (buf_num);
   MODES_NOTUSED (buf_len);
 
-  if (device != g_sdr_device)
+  if (!device || device != sdr.chosen_dev)
   {
     strcpy_s (sdr.last_err, sizeof(sdr.last_err), "No device");
     sdr.last_rc = sdrplay_api_NotInitialised;
     return (sdr.last_rc);
   }
 
-  sdr.chParams = (sdr.dev->tuner == sdrplay_api_Tuner_A) ? sdr.deviceParams->rxChannelA :
-                                                           sdr.deviceParams->rxChannelB;
+  sdr.ch_params = (sdr.chosen_dev->tuner == sdrplay_api_Tuner_A) ?
+                  sdr.dev_params->rxChannelA : sdr.dev_params->rxChannelB;
+
+  TRACE ("tuner: '%s', ch-A: 0x%p, ch-B: 0x%p",
+         sdrplay_tuner_name(sdr.chosen_dev->tuner),
+         sdr.dev_params->rxChannelA,
+         sdr.dev_params->rxChannelB);
 
 #if 0
-  sdr.chParams->ctrlParams.dcOffset.IQenable = 0;
-  sdr.chParams->ctrlParams.dcOffset.DCenable = 1;
+  sdr.ch_params->ctrlParams.dcOffset.IQenable = 0;
+  sdr.ch_params->ctrlParams.dcOffset.DCenable = 1;
 #else
-  sdr.chParams->ctrlParams.dcOffset.IQenable = 1;
-  sdr.chParams->ctrlParams.dcOffset.DCenable = 0;
+  sdr.ch_params->ctrlParams.dcOffset.IQenable = 1;
+  sdr.ch_params->ctrlParams.dcOffset.DCenable = 0;
 #endif
 
-  sdr.cbFns.StreamACbFn = sdrplay_callback_A;
-  sdr.cbFns.StreamBCbFn = sdrplay_callback_B;
-  sdr.cbFns.EventCbFn   = sdrplay_event_callback;
-  sdr.rx_callback       = callback;
-  sdr.rx_context        = context;
+  sdr.callbacks.StreamACbFn = sdrplay_callback_A;
+  sdr.callbacks.StreamBCbFn = sdrplay_callback_B;
+  sdr.callbacks.EventCbFn   = sdrplay_event_callback;
+  sdr.rx_callback           = callback;
+  sdr.rx_context            = context;
 
-  if (sdr.dev->hwVer != SDRPLAY_RSP1_ID)
-     sdr.chParams->tunerParams.gain.minGr = sdrplay_api_EXTENDED_MIN_GR;
+  if (sdr.chosen_dev->hwVer != SDRPLAY_RSP1_ID)
+     sdr.ch_params->tunerParams.gain.minGr = sdrplay_api_EXTENDED_MIN_GR;
 
-  sdr.chParams->tunerParams.gain.gRdB = Modes.sdrplay.gain_reduction;
-  sdr.chParams->tunerParams.gain.LNAstate = 0;
+  sdr.ch_params->tunerParams.gain.gRdB = Modes.sdrplay.gain_reduction;
+  sdr.ch_params->tunerParams.gain.LNAstate = 0;
 
-  sdr.chParams->ctrlParams.agc.enable = Modes.dig_agc;
+  sdr.ch_params->ctrlParams.agc.enable = Modes.dig_agc;
 
-  sdr.chParams->tunerParams.dcOffsetTuner.dcCal = 4;
-  sdr.chParams->tunerParams.dcOffsetTuner.speedUp = 0;
-  sdr.chParams->tunerParams.dcOffsetTuner.trackTime = 63;
+  sdr.ch_params->tunerParams.dcOffsetTuner.dcCal = 4;
+  sdr.ch_params->tunerParams.dcOffsetTuner.speedUp = 0;
+  sdr.ch_params->tunerParams.dcOffsetTuner.trackTime = 63;
 
-  if (sdr.dev->hwVer != SDRPLAY_RSPduo_ID || sdr.dev->rspDuoMode != sdrplay_api_RspDuoMode_Slave)
-     sdr.deviceParams->devParams->fsFreq.fsHz = Modes.sample_rate;  // was '8 * 1E6'
+  if (sdr.chosen_dev->hwVer != SDRPLAY_RSPduo_ID || sdr.chosen_dev->rspDuoMode != sdrplay_api_RspDuoMode_Slave)
+     sdr.dev_params->devParams->fsFreq.fsHz = Modes.sample_rate;  // was '8 * 1E6'
 
-  if (sdr.dev->hwVer == SDRPLAY_RSPduo_ID && (sdr.dev->rspDuoMode & sdrplay_api_RspDuoMode_Slave))
+  if (sdr.chosen_dev->hwVer == SDRPLAY_RSPduo_ID && (sdr.chosen_dev->rspDuoMode & sdrplay_api_RspDuoMode_Slave))
   {
-    if ((uint32_t)sdr.dev->rspDuoSampleFreq != Modes.sample_rate)
+    if ((uint32_t)sdr.chosen_dev->rspDuoSampleFreq != Modes.sample_rate)
     {
       strcpy_s (sdr.last_err, sizeof(sdr.last_err), "RSPduo Master tuner in use and is not running in ADS-B compatible mode");
       LOG_STDERR ("Error: %s.\n"
@@ -615,46 +664,46 @@ int sdrplay_read_async (sdrplay_dev *device,
     }
   }
 
-  if (sdr.dev->hwVer == SDRPLAY_RSP1A_ID)
+  if (sdr.chosen_dev->hwVer == SDRPLAY_RSP1A_ID || sdr.chosen_dev->hwVer == SDRPLAY_RSP1B_ID)
   {
-    sdr.chParams->rsp1aTunerParams.biasTEnable                = Modes.bias_tee;
-    sdr.deviceParams->devParams->rsp1aParams.rfNotchEnable    = (1 - Modes.sdrplay.disable_broadcast_notch);
-    sdr.deviceParams->devParams->rsp1aParams.rfDabNotchEnable = (1 - Modes.sdrplay.disable_DAB_notch);
+    sdr.ch_params->rsp1aTunerParams.biasTEnable             = Modes.bias_tee;
+    sdr.dev_params->devParams->rsp1aParams.rfNotchEnable    = (1 - Modes.sdrplay.disable_broadcast_notch);
+    sdr.dev_params->devParams->rsp1aParams.rfDabNotchEnable = (1 - Modes.sdrplay.disable_DAB_notch);
   }
-  else if (sdr.dev->hwVer == SDRPLAY_RSP2_ID)
+  else if (sdr.chosen_dev->hwVer == SDRPLAY_RSP2_ID)
   {
-    sdr.chParams->rsp2TunerParams.biasTEnable   = Modes.bias_tee;
-    sdr.chParams->rsp2TunerParams.rfNotchEnable = (1 - Modes.sdrplay.disable_broadcast_notch);
-    sdr.chParams->rsp2TunerParams.amPortSel     = sdrplay_api_Rsp2_AMPORT_2;
-    sdr.chParams->rsp2TunerParams.antennaSel    = Modes.sdrplay.antenna_port;
+    sdr.ch_params->rsp2TunerParams.biasTEnable   = Modes.bias_tee;
+    sdr.ch_params->rsp2TunerParams.rfNotchEnable = (1 - Modes.sdrplay.disable_broadcast_notch);
+    sdr.ch_params->rsp2TunerParams.amPortSel     = sdrplay_api_Rsp2_AMPORT_2;
+    sdr.ch_params->rsp2TunerParams.antennaSel    = Modes.sdrplay.antenna_port;
   }
-  else if (sdr.dev->hwVer == SDRPLAY_RSPdx_ID)
+  else if (sdr.chosen_dev->hwVer == SDRPLAY_RSPdx_ID)
   {
-    sdr.deviceParams->devParams->rspDxParams.biasTEnable      = Modes.bias_tee;
-    sdr.deviceParams->devParams->rspDxParams.rfNotchEnable    = (1 - Modes.sdrplay.disable_broadcast_notch);
-    sdr.deviceParams->devParams->rspDxParams.antennaSel       = Modes.sdrplay.DX_antenna_port;
-    sdr.deviceParams->devParams->rspDxParams.rfDabNotchEnable = (1 - Modes.sdrplay.disable_DAB_notch);
+    sdr.dev_params->devParams->rspDxParams.biasTEnable      = Modes.bias_tee;
+    sdr.dev_params->devParams->rspDxParams.rfNotchEnable    = (1 - Modes.sdrplay.disable_broadcast_notch);
+    sdr.dev_params->devParams->rspDxParams.antennaSel       = Modes.sdrplay.DX_antenna_port;
+    sdr.dev_params->devParams->rspDxParams.rfDabNotchEnable = (1 - Modes.sdrplay.disable_DAB_notch);
   }
-  else if (sdr.dev->hwVer == SDRPLAY_RSPduo_ID)
+  else if (sdr.chosen_dev->hwVer == SDRPLAY_RSPduo_ID)
   {
-    sdr.chParams->rspDuoTunerParams.biasTEnable      = Modes.bias_tee;
-    sdr.chParams->rspDuoTunerParams.rfNotchEnable    = (1 - Modes.sdrplay.disable_broadcast_notch);
-    sdr.chParams->rspDuoTunerParams.rfDabNotchEnable = (1 - Modes.sdrplay.disable_DAB_notch);
+    sdr.ch_params->rspDuoTunerParams.biasTEnable      = Modes.bias_tee;
+    sdr.ch_params->rspDuoTunerParams.rfNotchEnable    = (1 - Modes.sdrplay.disable_broadcast_notch);
+    sdr.ch_params->rspDuoTunerParams.rfDabNotchEnable = (1 - Modes.sdrplay.disable_DAB_notch);
   }
 
   switch (Modes.sdrplay.ADSB_mode)
   {
     case 0:
-         sdr.chParams->ctrlParams.adsbMode = sdrplay_api_ADSB_DECIMATION;
+         sdr.ch_params->ctrlParams.adsbMode = sdrplay_api_ADSB_DECIMATION;
          break;
     case 1:
-         sdr.chParams->ctrlParams.adsbMode = sdrplay_api_ADSB_NO_DECIMATION_LOWPASS;
+         sdr.ch_params->ctrlParams.adsbMode = sdrplay_api_ADSB_NO_DECIMATION_LOWPASS;
          break;
     case 2:
-         sdr.chParams->ctrlParams.adsbMode = sdrplay_api_ADSB_NO_DECIMATION_BANDPASS_2MHZ;
+         sdr.ch_params->ctrlParams.adsbMode = sdrplay_api_ADSB_NO_DECIMATION_BANDPASS_2MHZ;
          break;
     case 3:
-         sdr.chParams->ctrlParams.adsbMode = sdrplay_api_ADSB_NO_DECIMATION_BANDPASS_3MHZ;
+         sdr.ch_params->ctrlParams.adsbMode = sdrplay_api_ADSB_NO_DECIMATION_BANDPASS_3MHZ;
          break;
   }
 
@@ -662,41 +711,43 @@ int sdrplay_read_async (sdrplay_dev *device,
   {
     if (!Modes.sdrplay.over_sample)
     {
-      sdr.chParams->ctrlParams.decimation.enable = 1;
-      sdr.chParams->ctrlParams.decimation.decimationFactor = 4;
+      sdr.ch_params->ctrlParams.decimation.enable = 1;
+      sdr.ch_params->ctrlParams.decimation.decimationFactor = 4;
     }
     else
     {
-      sdr.chParams->ctrlParams.adsbMode = sdrplay_api_ADSB_DECIMATION;
-      sdr.chParams->ctrlParams.decimation.enable = 0;
-      sdr.chParams->ctrlParams.decimation.decimationFactor = 1;
+      sdr.ch_params->ctrlParams.adsbMode = sdrplay_api_ADSB_DECIMATION;
+      sdr.ch_params->ctrlParams.decimation.enable = 0;
+      sdr.ch_params->ctrlParams.decimation.decimationFactor = 1;
     }
   }
 
+  if (Modes.sdrplay.USB_bulk_mode)
   {
-    int tuner;
-
-    if (sdr.chParams == sdr.deviceParams->rxChannelA)
-         tuner = 'A';
-    else if (sdr.chParams == sdr.deviceParams->rxChannelB)
-         tuner = 'B';
-    else tuner = '?';
-
-    TRACE ("Tuner %c: sample-rate: %.0f MS/s, adsbMode: %s.\n"
-           "                              decimation-enable: %d,"
-           " decimation-factor: %d",
-           tuner, sdr.deviceParams->devParams->fsFreq.fsHz / 1E6,
-           sdrplay_adsb_mode(sdr.chParams->ctrlParams.adsbMode),
-           sdr.chParams->ctrlParams.decimation.enable,
-           sdr.chParams->ctrlParams.decimation.decimationFactor);
+    TRACE ("Using streaming USB mode bulk.");
+    sdr.dev_params->devParams->mode = sdrplay_api_BULK;
   }
 
-  CALL_FUNC (sdrplay_api_Init, g_sdr_handle, &sdr.cbFns, NULL);
+  if (sdr.ch_params == sdr.dev_params->rxChannelA)
+       tuner = 'A';
+  else if (sdr.ch_params == sdr.dev_params->rxChannelB)
+       tuner = 'B';
+  else tuner = '?';
+
+  TRACE ("Tuner %c: sample-rate: %.0f MS/s, adsbMode: %s.\n"
+         "                         decimation-enable: %d, decimation-factor: %d",
+         tuner, sdr.dev_params->devParams->fsFreq.fsHz / 1E6,
+         sdrplay_adsb_mode(sdr.ch_params->ctrlParams.adsbMode),
+         sdr.ch_params->ctrlParams.decimation.enable,
+         sdr.ch_params->ctrlParams.decimation.decimationFactor);
+
+  CALL_FUNC (sdrplay_api_Init, sdr.handle, &sdr.callbacks, NULL);
   if (sdr.last_rc != sdrplay_api_Success)
      return (sdr.last_rc);
 
-  sdr.chParams->tunerParams.rfFreq.rfHz = Modes.freq;
-  CALL_FUNC (sdrplay_api_Update, g_sdr_handle, sdr.dev->tuner,
+  sdr.ch_params->tunerParams.rfFreq.rfHz = Modes.freq;
+
+  CALL_FUNC (sdrplay_api_Update, sdr.handle, sdr.chosen_dev->tuner,
              sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
 
   if (sdr.last_rc != sdrplay_api_Success)
@@ -732,20 +783,20 @@ int sdrplay_set_gain (sdrplay_dev *device, int gain)
  */
 int sdrplay_cancel_async (sdrplay_dev *device)
 {
-  if (device != g_sdr_device)
+  if (device != sdr.chosen_dev)
   {
     strcpy_s (sdr.last_err, sizeof(sdr.last_err), "No device");
     sdr.last_rc = sdrplay_api_NotInitialised;
   }
-  else if (g_sdr_device->cancelling)
+  else if (sdr.cancelling)
   {
     strcpy_s (sdr.last_err, sizeof(sdr.last_err), "Cancelling");
     sdr.last_rc = sdrplay_api_StopPending;
   }
-  else
+  else if (!sdr.uninit_done)
   {
-    g_sdr_device->cancelling = true;
-    CALL_FUNC (sdrplay_api_Uninit, g_sdr_handle);
+    CALL_FUNC (sdrplay_api_Uninit, sdr.chosen_dev->dev);
+    sdr.cancelling = sdr.uninit_done = true;
   }
   return (sdr.last_rc);
 }
@@ -771,17 +822,11 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
 
   TRACE ("name: '%s', index: %d", name, index);
 
-  g_sdr_device = NULL;
-  g_sdr_handle = NULL;
-  sdr.last_rc  = -1;  /* no idea yet */
-
-  Modes.sdrplay.priv = calloc (sizeof(*Modes.sdrplay.priv), 1);
-  if (!Modes.sdrplay.priv)
-     goto nomem;
+  sdr.chosen_dev = NULL;
+  sdr.last_rc    = -1;  /* no idea yet */
 
   sdr.cancelling = false;
   sdr.API_locked = false;
-  sdr.dev        = NULL;
 
   Modes.sdrplay.gain_reduction = MODES_RSP_INITIAL_GR;
   Modes.sdrplay.disable_broadcast_notch = true;
@@ -799,49 +844,20 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   if (!sdr.rx_data)
      goto nomem;
 
-  sdr.dll_hnd = LoadLibraryA (sdr.dll_name);
-  if (!sdr.dll_hnd)
-  {
-    DWORD err = GetLastError();
+  Modes.sdrplay.gains = malloc (10 * sizeof(int));
+  if (!Modes.sdrplay.gains)
+      goto nomem;
 
-    /* The 'LoadLibraryA()' will fail with 'GetLastError() ==  ERROR_BAD_EXE_FORMAT' (193)
-     * if we're running a 32-bit Dump1090 and loaded a 64-bit "sdrplay_api.dll".
-     * And vice-versa.
-     */
-    if (err == ERROR_BAD_EXE_FORMAT)
-         snprintf (sdr.last_err, sizeof(sdr.last_err), "%s is not a %d bit version", sdr.dll_name, 8*(int)sizeof(void*));
-    else if (err == ERROR_MOD_NOT_FOUND)
-         snprintf (sdr.last_err, sizeof(sdr.last_err), "%s not found on PATH", sdr.dll_name);
-    else snprintf (sdr.last_err, sizeof(sdr.last_err), "Failed to load %s; %lu", sdr.dll_name, GetLastError());
-    goto failed;
-  }
+  Modes.sdrplay.gain_count = 10;
+  memcpy (Modes.sdrplay.gains, &gain_table, 10 * sizeof(int));
 
-  if (!GetModuleFileNameA(sdr.dll_hnd, sdr.dll_full_name, sizeof(sdr.dll_full_name)))
-     strcpy (sdr.dll_full_name, "?");
-  TRACE ("sdrplay DLL: '%s'", sdr.dll_full_name);
+  if (!sdrplay_load_funcs("sdrplay_api.dll"))
+     goto failed;
 
-  LOAD_FUNC (sdrplay_api_Open);
-  LOAD_FUNC (sdrplay_api_Close);
-  LOAD_FUNC (sdrplay_api_Init);
-  LOAD_FUNC (sdrplay_api_Uninit);
-  LOAD_FUNC (sdrplay_api_ApiVersion);
-  LOAD_FUNC (sdrplay_api_DebugEnable);
-  LOAD_FUNC (sdrplay_api_LockDeviceApi);
-  LOAD_FUNC (sdrplay_api_UnlockDeviceApi);
-  LOAD_FUNC (sdrplay_api_GetDevices);
-  LOAD_FUNC (sdrplay_api_GetDeviceParams);
-  LOAD_FUNC (sdrplay_api_SelectDevice);
-  LOAD_FUNC (sdrplay_api_ReleaseDevice);
-  LOAD_FUNC (sdrplay_api_Update);
-  LOAD_FUNC (sdrplay_api_GetErrorString);
-  LOAD_FUNC (sdrplay_api_GetLastError);
+  TRACE ("Optional (ver. 3.14) function 'sdrplay_api_GetLastErrorByType()' %sfound",
+         sdr.sdrplay_api_GetLastErrorByType ? "" : "not ");
+
   CALL_FUNC (sdrplay_api_Open);
-
-  /* Added in API ver 3.14. Allow this call to return NULL.
-   */
-  sdr.sdrplay_api_GetLastErrorByType = (sdrplay_api_GetLastErrorByType_t)
-     GetProcAddress (sdr.dll_hnd, "sdrplay_api_GetLastErrorByType");
-
   if (sdr.last_rc != sdrplay_api_Success)
   {
     fprintf (stderr, "The SDRPlay API is not responding. A service restart could help:\n");
@@ -853,7 +869,8 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   if (sdr.last_rc != sdrplay_api_Success)
      goto failed;
 
-  TRACE ("sdrplay_api_ApiVersion(): '%.2f', build version: '%.2f'", sdr.version, SDRPLAY_API_VERSION);
+  TRACE ("sdrplay_api_ApiVersion(): '%.2f', build version: '%.2f'",
+         sdr.version, SDRPLAY_API_VERSION);
 
   if (sdr.version == 3.10F && SDRPLAY_API_VERSION == 3.11F)
      TRACE ("ver 3.10 and ver 3.11 should be compatible.");
@@ -865,41 +882,33 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
     goto failed;
   }
 
-  if (!sdrplay_select(name+7, index))
+  if (!sdrplay_select(name + 7, index))
      goto failed;
 
   if (Modes.debug & DEBUG_GENERAL)
-     CALL_FUNC (sdrplay_api_DebugEnable, g_sdr_handle, sdrplay_api_DbgLvl_Verbose);
+     CALL_FUNC (sdrplay_api_DebugEnable, sdr.handle, sdrplay_api_DbgLvl_Verbose);
 
-  CALL_FUNC (sdrplay_api_GetDeviceParams, g_sdr_handle, &sdr.deviceParams);
-  if (sdr.last_rc != sdrplay_api_Success)
-     goto failed;
+  CALL_FUNC (sdrplay_api_GetDeviceParams, sdr.handle, &sdr.dev_params);
 
-  if (!sdr.deviceParams)
+  if (sdr.last_rc != sdrplay_api_Success || !sdr.dev_params)
   {
     TRACE ("sdrplay_api_GetDeviceParams() failed: %s'", sdr.last_err);
     goto failed;
   }
 
-  *device = g_sdr_device;
+  TRACE ("device: 0x%p, ch-A: 0x%p, ch-B: 0x%p",
+         sdr.chosen_dev, sdr.dev_params->rxChannelA, sdr.dev_params->rxChannelB);
 
-  /* A fixed test
-   */
-  Modes.sdrplay.gains = malloc (10 * sizeof(int));
-  if (!Modes.sdrplay.gains)
-      goto nomem;
-
-  Modes.sdrplay.gain_count = 10;
-  memcpy (Modes.sdrplay.gains, &gain_table, 10 * sizeof(int));
+  *device = sdr.chosen_dev;
 
   return (sdrplay_api_Success);
 
 nomem:
   strcpy_s (sdr.last_err, sizeof(sdr.last_err), "Insufficient memory");
-  sdr.last_rc = ENOMEM;
+  sdr.last_rc = ENOMEM;       /* fall through to 'failed' */
 
 failed:
-  LOG_STDERR ("%s", sdr.last_err);
+  LOG_STDERR ("%s\n", sdr.last_err);
   sdrplay_exit (NULL);
   return (sdrplay_api_Fail);  /* A better error-code? */
 }
@@ -909,7 +918,7 @@ failed:
  */
 static int sdrplay_release (sdrplay_dev *device)
 {
-  if (device != g_sdr_device || !g_sdr_device) /* support only 1 device */
+  if (device != sdr.chosen_dev)    /* support only 1 device */
   {
     strcpy_s (sdr.last_err, sizeof(sdr.last_err), "No device");
     sdr.last_rc = sdrplay_api_NotInitialised;
@@ -919,18 +928,20 @@ static int sdrplay_release (sdrplay_dev *device)
     if (!sdr.API_locked)
        CALL_FUNC (sdrplay_api_LockDeviceApi);
 
-    if (!g_sdr_device->cancelling)
-       CALL_FUNC (sdrplay_api_Uninit, g_sdr_handle);
+    if (!sdr.cancelling)
+    {
+      CALL_FUNC (sdrplay_api_Uninit, sdr.chosen_dev->dev);
+      sdr.uninit_done = true;
+    }
 
-    CALL_FUNC (sdrplay_api_ReleaseDevice, sdr.dev);
+    CALL_FUNC (sdrplay_api_ReleaseDevice, sdr.chosen_dev);
 
     if (sdr.API_locked)
        CALL_FUNC (sdrplay_api_UnlockDeviceApi);
   }
 
   sdr.API_locked = false;
-  g_sdr_device   = NULL;
-  g_sdr_handle   = NULL;
+  sdr.chosen_dev = NULL;
   return (sdr.last_rc);
 }
 
@@ -943,22 +954,18 @@ int sdrplay_exit (sdrplay_dev *device)
      sdrplay_release (device);
 
   free (sdr.rx_data);
-  free (Modes.sdrplay.priv);
-  sdr.rx_data        = NULL;
-  Modes.sdrplay.priv = NULL;
+  sdr.rx_data = NULL;
 
-  if (!sdr.dll_hnd)
+  if (!sdrplay_funcs[0].mod_handle || sdrplay_funcs[0].mod_handle == INVALID_HANDLE_VALUE)
   {
     strcpy_s (sdr.last_err, sizeof(sdr.last_err), "No DLL loaded");
     sdr.last_rc = sdrplay_api_NotInitialised;
-    return (sdr.last_rc);
   }
-
-  CALL_FUNC (sdrplay_api_Close);
-  FreeLibrary (sdr.dll_hnd);
-
-  sdr.dll_hnd = NULL;
-  g_sdr_device = NULL;
-  g_sdr_handle = NULL;
+  else
+  {
+    CALL_FUNC (sdrplay_api_Close);
+    unload_dynamic_table (sdrplay_funcs, DIM(sdrplay_funcs));
+  }
+  sdr.chosen_dev = NULL;
   return (sdr.last_rc);
 }
