@@ -476,11 +476,13 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
  * \eg If `INCLUDE=c:\VC\include;%C_INCLUDE_PATH%` and
  *   + `C_INCLUDE_PATH=c:\MinGW\include`, the expansion returns
  *   + `c:\VC\include;c:\MinGW\include`.
+ *
+ * Also allow a variable like `%FOO`; no trailing `%`.
  */
 static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
 {
   char *p1, *p2, *rc;
-  char *env = NULL;
+  char *var = NULL;
   char  buf1 [MAX_ENV_LEN];
   char  buf2 [MAX_ENV_LEN];
   DWORD ret;
@@ -493,12 +495,12 @@ static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
   if (p1)
   {
     snprintf (buf1, sizeof(buf1), "%.*s%s%s", (int)(p1 - variable), variable, ctx->current_file, p1 + 2);
-    env = buf1;
+    var = buf1;
   }
   else if (p2)
   {
     snprintf (buf1, sizeof(buf1), "%.*s%s%s", (int)(p2 - variable), variable, ctx->current_dir, p2 + 5);
-    env = buf1;
+    var = buf1;
   }
   else
   {
@@ -508,21 +510,32 @@ static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
     ret = GetEnvironmentVariable (variable, buf1, sizeof(buf1));
     if (ret > 0 && ret < sizeof(buf1))
     {
-      env      = buf1;
+      var      = buf1;
       variable = buf1;
     }
     if (strchr(variable, '%'))
     {
       /* buf2 == variable if not expanded.
        */
-      ret = ExpandEnvironmentStrings (variable, buf2, sizeof(buf2));
+      char var2 [MAX_ENV_LEN];
+
+      strncpy (var2, variable, sizeof(var2)-1);
+      p1 = strrchr (var2, '\0') - 1;
+      if (p1 > var2 && *p1 != '%')     /* Turn `%FOO` into `%FOO%` */
+      {
+        *p1++ = '%';
+        *p1 = '\0';
+      }
+      ret = ExpandEnvironmentStrings (var2, buf2, sizeof(buf2));
+      TRACE ("var2: '%s', buf2: '%s'", var2, buf2);
+
       if (ret > 0 && ret < sizeof(buf2) && !strchr(buf2, '%'))    /* no variables still un-expanded */
       {
-        env = buf2;
+        var = buf2;
       }
     }
   }
-  rc = (env && env[0]) ? strdup(env) : NULL;
+  rc = (var && var[0]) ? strdup(var) : NULL;
   return (rc);
 }
 
