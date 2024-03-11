@@ -120,6 +120,7 @@ static void      background_tasks (void);
 static void      modeS_exit (void);
 
 static const struct cfg_table config[] = {
+    { "adsb-mode",        ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
     { "bias-t",           ARG_FUNC,    (void*) set_bias_tee },
     { "usb-bulk",         ARG_ATOB,    (void*) &Modes.sdrplay.USB_bulk_mode },
     { "calibrate",        ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },

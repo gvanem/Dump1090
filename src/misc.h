@@ -320,7 +320,7 @@ typedef struct sdrplay_conf {
         bool                             disable_DAB_notch;
         bool                             USB_bulk_mode;
         int                              gain_reduction;
-        int                              ADSB_mode;
+        int                              ADSB_mode;         /**< == sdrplay_api_ControlParamsT::adsbMode */
         int                              BW_mode;
         int                             *gains;
         int                              gain_count;

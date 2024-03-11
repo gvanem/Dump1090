@@ -268,7 +268,7 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
                                     sdrplay_api_EventParamsT *params,
                                     void                     *cb_context)
 {
-  if (sdr.cancelling)
+  if (sdr.cancelling || Modes.exit)
      return;
 
   EnterCriticalSection (&Modes.print_mutex);
@@ -691,21 +691,7 @@ int sdrplay_read_async (sdrplay_dev *device,
     sdr.ch_params->rspDuoTunerParams.rfDabNotchEnable = (1 - Modes.sdrplay.disable_DAB_notch);
   }
 
-  switch (Modes.sdrplay.ADSB_mode)
-  {
-    case 0:
-         sdr.ch_params->ctrlParams.adsbMode = sdrplay_api_ADSB_DECIMATION;
-         break;
-    case 1:
-         sdr.ch_params->ctrlParams.adsbMode = sdrplay_api_ADSB_NO_DECIMATION_LOWPASS;
-         break;
-    case 2:
-         sdr.ch_params->ctrlParams.adsbMode = sdrplay_api_ADSB_NO_DECIMATION_BANDPASS_2MHZ;
-         break;
-    case 3:
-         sdr.ch_params->ctrlParams.adsbMode = sdrplay_api_ADSB_NO_DECIMATION_BANDPASS_3MHZ;
-         break;
-  }
+  sdr.ch_params->ctrlParams.adsbMode = Modes.sdrplay.ADSB_mode;
 
   if (Modes.sdrplay.if_mode == false)  /* Zero-IF mode */
   {
@@ -724,8 +710,13 @@ int sdrplay_read_async (sdrplay_dev *device,
 
   if (Modes.sdrplay.USB_bulk_mode)
   {
-    TRACE ("Using streaming USB mode bulk.");
-    sdr.dev_params->devParams->mode = sdrplay_api_BULK;
+    TRACE ("Using USB bulk mode");
+    sdr.dev_params->devParams->mode = Modes.sdrplay.USB_bulk_mode;
+  }
+  else
+  {
+    TRACE ("Using USB isochronous mode (default)");
+    sdr.dev_params->devParams->mode = sdrplay_api_ISOCH;
   }
 
   if (sdr.ch_params == sdr.dev_params->rxChannelA)
@@ -734,8 +725,8 @@ int sdrplay_read_async (sdrplay_dev *device,
        tuner = 'B';
   else tuner = '?';
 
-  TRACE ("Tuner %c: sample-rate: %.0f MS/s, adsbMode: %s.\n"
-         "                         decimation-enable: %d, decimation-factor: %d",
+  TRACE ("'Tuner_%c': sample-rate: %.0f MS/s, adsbMode: %s.\n"
+         "                           decimation-enable: %d, decimation-factor: %d",
          tuner, sdr.dev_params->devParams->fsFreq.fsHz / 1E6,
          sdrplay_adsb_mode(sdr.ch_params->ctrlParams.adsbMode),
          sdr.ch_params->ctrlParams.decimation.enable,
@@ -761,7 +752,6 @@ int sdrplay_read_async (sdrplay_dev *device,
       TRACE ("'exit' was set");
       break;
     }
-
     TRACE ("rx_num_callbacks: %llu, sdr.max_sig: %6d, sdr.rx_data_idx: %6u",
            sdr.rx_num_callbacks, sdr.max_sig, sdr.rx_data_idx);
   }
@@ -837,7 +827,6 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   Modes.sdrplay.tuner           = sdrplay_api_Tuner_B;           /* RSPduo default */
   Modes.sdrplay.mode            = sdrplay_api_RspDuoMode_Master; /* RSPduo default */
   Modes.sdrplay.BW_mode         = 1;  /* 5 MHz */
-  Modes.sdrplay.ADSB_mode       = 1;  /* for Zero-IF */
   Modes.sdrplay.over_sample     = true;
 
   sdr.rx_data = malloc (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS * sizeof(short));
@@ -968,4 +957,26 @@ int sdrplay_exit (sdrplay_dev *device)
   }
   sdr.chosen_dev = NULL;
   return (sdr.last_rc);
+}
+
+bool sdrplay_set_adsb_mode (const char *arg)
+{
+  char   *end;
+  sdrplay_api_AdsbModeT mode = strtod (arg, &end);
+
+  if (end == arg || *end != '\0')  /* A non-numeric value */
+     goto fail;
+
+  if (mode == sdrplay_api_ADSB_DECIMATION ||
+      mode == sdrplay_api_ADSB_NO_DECIMATION_LOWPASS ||
+      mode == sdrplay_api_ADSB_NO_DECIMATION_BANDPASS_2MHZ ||
+      mode == sdrplay_api_ADSB_NO_DECIMATION_BANDPASS_3MHZ)
+  {
+    Modes.sdrplay.ADSB_mode = mode;
+    return (true);
+  }
+
+fail:
+  LOG_STDERR ("\nIllegal 'adsb-mode = %s'\n", arg);
+  return (false);
 }
