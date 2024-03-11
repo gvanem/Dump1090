@@ -5,8 +5,8 @@
  *
  * Load all needed functions from "sdrplay_api.dll" dynamically.
  */
-#include "sdrplay.h"
 #include "misc.h"
+#include "sdrplay.h"
 
 #define MODES_RSP_BUF_SIZE   (256*1024)   /* 256k, same as MODES_ASYNC_BUF_SIZE  */
 #define MODES_RSP_BUFFERS     16          /* Must be power of 2 */
