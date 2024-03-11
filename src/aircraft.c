@@ -776,7 +776,7 @@ bool aircraft_CSV_load (void)
 
     if (i != Modes.aircraft_num_CSV)
          LOG_STDOUT ("\nCreated only %u out of %u records!\n", i, Modes.aircraft_num_CSV);
-    else LOG_STDOUT ("\nCreated %u records\n", i);
+    else LOG_STDOUT ("\nCreated %u records\n", Modes.aircraft_num_CSV);
   }
 
   if (test_contains(Modes.tests, "aircraft"))
