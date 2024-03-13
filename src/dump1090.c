@@ -712,7 +712,7 @@ void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
 static void infile_exit (void)
 {
   if (Modes.infile_fd == STDIN_FILENO)
-        _setmode (STDIN_FILENO, O_TEXT);
+        SETMODE (STDIN_FILENO, O_TEXT);
   else _close (Modes.infile_fd);
 
   Modes.infile_fd = -1;
@@ -2505,8 +2505,8 @@ static bool strip_mode (int level)
   uint64_t c = 0;
   int      I, Q;
 
-  _setmode (_fileno(stdin), O_BINARY);
-  _setmode (_fileno(stdout), O_BINARY);
+  SETMODE (_fileno(stdin), O_BINARY);
+  SETMODE (_fileno(stdout), O_BINARY);
 
   while ((I = getchar()) != EOF && (Q = getchar()) != EOF)
   {
@@ -2522,8 +2522,8 @@ static bool strip_mode (int level)
     putchar (I);
     putchar (Q);
   }
-  _setmode (_fileno(stdin), O_TEXT);
-  _setmode (_fileno(stdout), O_TEXT);
+  SETMODE (_fileno(stdin), O_TEXT);
+  SETMODE (_fileno(stdout), O_TEXT);
   return (true);
 }
 
@@ -2568,7 +2568,9 @@ static const char *get_SBS_timestamp (void)
    */
   strcpy (timestamp, ts_buf);
   strcat (timestamp, ts_buf);
-  timestamp [ts_len-1] = '\0';    /* remove last ',' */
+
+  if (ts_len >= 1)
+     timestamp [ts_len - 1] = '\0';    /* remove last ',' */
   return (timestamp);
 }
 
@@ -3643,7 +3645,7 @@ int main (int argc, char **argv)
     if (Modes.infile[0] == '-' && Modes.infile[1] == '\0')
     {
       Modes.infile_fd = STDIN_FILENO;
-      _setmode (Modes.infile_fd, O_BINARY);
+      SETMODE (Modes.infile_fd, O_BINARY);
     }
     else if ((Modes.infile_fd = _open(Modes.infile, O_RDONLY | O_BINARY)) == -1)
     {

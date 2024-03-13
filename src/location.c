@@ -164,13 +164,13 @@ static bool location_init (void)
   g_CoInitializeEx_done = true;
   g_location = NULL;
 
-  CoCreateInstance (&CLSID_Location, NULL, CLSCTX_INPROC_SERVER, &IID_ILocation, (void**)&g_location);
-  TRACE ("g_location: 0x%p", g_location);
-  if (!g_location)
+  hr = CoCreateInstance (&CLSID_Location, NULL, CLSCTX_INPROC_SERVER, &IID_ILocation, (void**)&g_location);
+  if (!SUCCEEDED(hr) || !g_location)
   {
     TRACE ("CoCreateInstance() failed: %s", win_strerror(GetLastError()));
     return (false);
   }
+  TRACE ("g_location: 0x%p", g_location);
 
   /* Request permissions for this user account to receive location data
    * for the '&IID_ILatLongReport'. Could return an 'Access Denied' or

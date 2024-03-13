@@ -125,7 +125,7 @@ void modeS_logc (char c, void *param)
 /**
  * Print to `f` and optionally to `Modes.log`.
  */
-void modeS_flogf (FILE *f, const char *fmt, ...)
+void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...)
 {
   char    buf [1000];
   char   *p = buf;
@@ -1018,7 +1018,7 @@ const char *win_strerror (DWORD err)
                            LANG_NEUTRAL, err_buf, sizeof(err_buf)-1, NULL))
      strcpy (err_buf, "Unknown error");
 
-  if (hr)
+  if (hr != 0)
        snprintf (buf, sizeof(buf), "0x%08lX: %s", (u_long)hr, err_buf);
   else snprintf (buf, sizeof(buf), "%lu: %s", (u_long)err, err_buf);
 
@@ -1674,7 +1674,7 @@ static bool download_exit (download_ctx *ctx, bool rc)
 
   if (ctx->h2)
   {
-    char  buf [100];
+    char  buf [100] = "";
     DWORD len = sizeof(buf);
 
     if ((*p_HttpQueryInfoA) (ctx->h2, HTTP_QUERY_STATUS_CODE, buf, &len, NULL))

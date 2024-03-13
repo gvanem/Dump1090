@@ -123,6 +123,8 @@
                                     modeS_flogf (Modes.log, fmt, __VA_ARGS__); \
                                } while (0)
 
+#define SETMODE(fd, mode)  (void)_setmode (fd, mode)
+
 #define NO_RETURN __declspec(noreturn)
 
 typedef struct mg_http_message    mg_http_message;
