@@ -714,18 +714,23 @@ static void API_trace (unsigned line, const char *fmt, ...)
 
 static void API_trace_LOL (const char *req_resp, uint32_t num, const char *str, const flight_info *f)
 {
-  char http_status [20] = "";
+  char   http_status [20] = "";
+  size_t len = strlen (str);
 
   EnterCriticalSection (&Modes.print_mutex);
 
   if (!strcmp(req_resp, "response") && f->http_status > 0)
-     snprintf (http_status, sizeof(http_status), "HTTP %d:\n", f->http_status);
+  {
+    snprintf (http_status, sizeof(http_status), "HTTP %d:\n", f->http_status);
+    if (f->http_status >= 400 && f->http_status <= 599)   /* limit 40x - 50x responses to 400 bytes */
+       len = 400;
+  }
 
   modeS_flogf (Modes.log, "%s # %u (ICAO: 0x%06X): %s", req_resp, num, f->ICAO_addr, http_status);
 
   /* Do this since `str` could contain `%s` etc.
    */
-  fputs (str, Modes.log);
+  fprintf (Modes.log, "%.*s", (int)len, str);
   fputs ("\n-------------------------------------------------------"
          "---------------------------------------------------------\n",
          Modes.log);
@@ -905,7 +910,7 @@ static bool API_thread_worker (flight_info *f)
   /* Log complete response to log-file?
    */
   if (g_data.do_trace_LOL)
-       API_TRACE_LOL ("response", g_data.ap_stats.API_response_recv-1, response, f);
+       API_TRACE_LOL ("response", g_data.ap_stats.API_response_recv - 1, response, f);
   else API_TRACE ("Downloaded %zu bytes data for '%06X/%s': '%.50s'...",
                   strlen(response), f->ICAO_addr, f->call_sign, response);
 
