@@ -1,7 +1,15 @@
 /**
  * For '../packed_test.exe'.
+ *
+ * Disable some Mongoose features not needed here.
  */
+#undef  MG_ENABLE_EPOLL
+#undef  MG_ENABLE_FILE
+#define MG_ENABLE_EPOLL 0
+#define MG_ENABLE_FILE  0
+
 #include "misc.h"
+#include "mongoose.c"
 
 typedef const char *(*spec_func) (void);
 typedef const char *(*unlist_func) (size_t i);
@@ -18,9 +26,9 @@ extern const char *mg_unlist_2 (size_t i);
 extern const char *mg_unpack_2 (const char *name, size_t *size, time_t *mtime);
 extern const char *mg_spec_2 (void);
 
-static int          rc = 0;
-static packed_file *lookup_table = NULL;
+static file_packed *lookup_table = NULL;
 static size_t       lookup_table_sz = 0;
+static int          rc = 0;
 
 static void check_specs (spec_func spec_1, spec_func spec_2)
 {
@@ -121,16 +129,16 @@ static void check_listing (unlist_func unlist_1, unlist_func unlist_2,
 
 static int compare_on_name (const void *_a, const void *_b)
 {
-  const packed_file *a = (const packed_file*) _a;
-  const packed_file *b = (const packed_file*) _b;
+  const file_packed *a = (const file_packed*) _a;
+  const file_packed *b = (const file_packed*) _b;
   return strcmp (a->name, b->name);
 }
 
 static void create_lookup_table (unlist_func unlist, unpack_func unpack)
 {
   const char  *fname;
-  packed_file *l;
   size_t       num;
+  file_packed *l;
 
   lookup_table = l = malloc (sizeof(*lookup_table) * lookup_table_sz);
   for (num = 0; (fname = (*unlist)(num)) != NULL; num++, l++)
@@ -158,7 +166,7 @@ static double normal_test (const char *fname, unpack_func unpack)
  */
 static double bsearch_test (const char *fname)
 {
-  packed_file key;
+  file_packed key;
   double      now = get_usec_now();
   const char *data;
 
