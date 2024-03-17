@@ -10,7 +10,7 @@
 #include "misc.h"
 #include "aircraft.h"
 #include "net_io.h"
-#include "rtl_tcp.h"
+#include "rtl-tcp.h"
 
 /**
  * Handlers for the network services.
@@ -35,7 +35,7 @@ net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
 static bool use_packed_dll = false;
 static bool use_bsearch    = false;
 
-static packed_file *lookup_table = NULL;
+static file_packed *lookup_table = NULL;
 static size_t       lookup_table_sz;
 static uint32_t     num_lookups, num_misses;
 
@@ -177,7 +177,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
   mg_connection *c = NULL;
   bool           allow_udp = (service == MODES_NET_SERVICE_RAW_IN ||
                               service == MODES_NET_SERVICE_RTL_TCP);
-  bool           use_udp = (modeS_net_services[service].is_udp && !modeS_net_services[service].is_ip6);
+  bool           use_udp = (modeS_net_services [service].is_udp && !modeS_net_services [service].is_ip6);
   char          *url;
 
   /* Temporary enable important errors to go to `stderr` only.
@@ -192,8 +192,8 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
   if (use_udp && !allow_udp)
   {
     LOG_STDERR ("'udp://%s:%u' is not allowed for service %s (only TCP).\n",
-                modeS_net_services[service].host,
-                modeS_net_services[service].port,
+                modeS_net_services [service].host,
+                modeS_net_services [service].port,
                 net_service_descr(service));
     goto quit;
   }
@@ -203,8 +203,8 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
   if (listen)
   {
     url = mg_mprintf ("%s://0.0.0.0:%u",
-                      modeS_net_services[service].protocol,
-                      modeS_net_services[service].port);
+                      modeS_net_services [service].protocol,
+                      modeS_net_services [service].port);
     modeS_net_services [service].url = url;
 
     if (service == MODES_NET_SERVICE_HTTP)
@@ -220,14 +220,14 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
      */
     int timeout = MODES_CONNECT_TIMEOUT;  /* 5 sec */
 
-    if (modeS_net_services[service].is_udp)
+    if (modeS_net_services [service].is_udp)
        timeout = -1;      /* Should UDP expire? */
 
     url = mg_mprintf ("%s://%s:%u",
-                      modeS_net_services[service].protocol,
-                      modeS_net_services[service].host,
-                      modeS_net_services[service].port);
-    modeS_net_services[service].url = url;
+                      modeS_net_services [service].protocol,
+                      modeS_net_services [service].host,
+                      modeS_net_services [service].port);
+    modeS_net_services [service].url = url;
 
     DEBUG (DEBUG_NET, "Connecting to '%s' (service \"%s\").\n",
            url, net_service_descr(service));
@@ -301,7 +301,7 @@ void net_connection_send (intptr_t service, const void *msg, size_t len)
   connection *conn;
   int         found = 0;
 
-  for (conn = Modes.connections[service]; conn; conn = conn->next)
+  for (conn = Modes.connections [service]; conn; conn = conn->next)
   {
     if (conn->service != service)
        continue;
@@ -324,7 +324,7 @@ connection *connection_get (mg_connection *c, intptr_t service, bool is_server)
 
   ASSERT_SERVICE (service);
 
-  for (conn = Modes.connections[service]; conn; conn = conn->next)
+  for (conn = Modes.connections [service]; conn; conn = conn->next)
   {
     if (conn->service == service && !memcmp(&conn->rem, &c->rem, sizeof(mg_addr)))
        return (conn);
@@ -669,8 +669,8 @@ static void net_timer_add (intptr_t service, int timeout_ms, int flag)
   }
   else
   {
-    service_timers [service].id      = -1;
-    service_timers [service].timer   = NULL;
+    service_timers [service].id    = -1;
+    service_timers [service].timer = NULL;
   }
 }
 
@@ -698,6 +698,18 @@ static void net_timer_del_all (void)
       net_timer_del (service);
 }
 
+static bool net_setsockopt (mg_connection *c, int opt, int len)
+{
+  SOCKET sock;
+
+  if (!c)
+     return (false);
+  sock = (SOCKET) ((size_t) c->fd);
+  if (sock == INVALID_SOCKET)
+     return (false);
+  return (setsockopt (sock, SOL_SOCKET, opt, (const char*)&len, len) == 0);
+}
+
 static char *net_error_details (mg_connection *c, const char *in_out, const void *ev_data)
 {
   const char *err = (const char*) ev_data;
@@ -707,7 +719,7 @@ static char *net_error_details (mg_connection *c, const char *in_out, const void
   SOCKET      sock       = INVALID_SOCKET;
   bool        sock_error = (strnicmp (err, "socket error", 12) == 0);
   bool        http_error = (strnicmp (err, "HTTP parse", 10) == 0);
-  bool        get_WSAE = false;
+  bool        get_WSAE   = false;
 
   static char err_buf [200];
   int         len;
@@ -729,7 +741,7 @@ static char *net_error_details (mg_connection *c, const char *in_out, const void
         wsa_err_num = val;
         *end = '\0';
       }
-      orig_err[0] = '\0';
+      orig_err [0] = '\0';
       get_WSAE = true;
     }
   }
@@ -1066,7 +1078,7 @@ static void net_conn_free (connection *this_conn, intptr_t service)
     if (conn != this_conn)
        continue;
 
-    LIST_DELETE (connection, &Modes.connections[service], conn);
+    LIST_DELETE (connection, &Modes.connections [service], conn);
     if (this_conn->c->is_accepted)
     {
       Modes.stat.cli_removed [service]++;
@@ -1103,7 +1115,7 @@ static uint32_t net_conn_free_all (void)
   {
     connection *conn, *conn_next;
 
-    for (conn = Modes.connections[service]; conn; conn = conn_next)
+    for (conn = Modes.connections [service]; conn; conn = conn_next)
     {
       conn_next = conn->next;
       net_conn_free (conn, service);
@@ -1135,8 +1147,8 @@ static uint16_t *net_num_connections (intptr_t service)
 static uint64_t net_mem_allocated (intptr_t service, int size)
 {
   ASSERT_SERVICE (service);
-  assert (modeS_net_services[service].mem_allocated + size >= 0);
-  assert (modeS_net_services[service].mem_allocated + size < UINT64_MAX);
+  assert (modeS_net_services [service].mem_allocated + size >= 0);
+  assert (modeS_net_services [service].mem_allocated + size < UINT64_MAX);
   modeS_net_services [service].mem_allocated += size;
   return (modeS_net_services [service].mem_allocated);
 }
@@ -1162,7 +1174,7 @@ const char *net_handler_protocol (intptr_t service)
 static char *net_service_url (intptr_t service)
 {
   ASSERT_SERVICE (service);
-  return (modeS_net_services[service].url);
+  return (modeS_net_services [service].url);
 }
 
 static char *net_service_error (intptr_t service)
@@ -1277,7 +1289,7 @@ static void unique_ips_print (intptr_t service)
   ip_address       ip_addr;
   size_t           num = 0;
 
-  LOG_STDOUT ("    %8llu unique client(s):\n", Modes.stat.unique_clients[service]);
+  LOG_STDOUT ("    %8llu unique client(s):\n", Modes.stat.unique_clients [service]);
   if (!Modes.log)
      return;
 
@@ -1575,7 +1587,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   return (true);
 }
 
-/*
+/**
  * Functions for loading `web-pages.dll;[1-9]`.
  *
  * If program called with `--web-page web-pages.dll;1` for the 1st resource,
@@ -1629,8 +1641,8 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
     for (num = 0; num < DIM(web_page_funcs); num++)
     {
       web_page_funcs [num].mod_name  = web_dll;
-      web_page_funcs [num].func_name = mg_mprintf ("%s_%d", web_page_funcs[num].func_name, resource);
-      if (!web_page_funcs[num].func_name)
+      web_page_funcs [num].func_name = mg_mprintf ("%s_%d", web_page_funcs [num].func_name, resource);
+      if (!web_page_funcs [num].func_name)
       {
         LOG_STDERR ("Memory alloc for the web-page \"%s\" failed!.\n", web_dll);
         return (false);
@@ -1640,7 +1652,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
     rc = true;
     missing = (num - load_dynamic_table(web_page_funcs, num));
 
-    if (!web_page_funcs[0].mod_handle || web_page_funcs[0].mod_handle == INVALID_HANDLE_VALUE)
+    if (!web_page_funcs [0].mod_handle || web_page_funcs [0].mod_handle == INVALID_HANDLE_VALUE)
     {
       LOG_STDERR ("The web-page \"%s\" failed to load; %s.\n", web_dll, win_strerror(GetLastError()));
       rc = false;
@@ -1675,8 +1687,8 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
 
   static int compare_on_name (const void *_a, const void *_b)
   {
-    const packed_file *a = (const packed_file*) _a;
-    const packed_file *b = (const packed_file*) _b;
+    const file_packed *a = (const file_packed*) _a;
+    const file_packed *b = (const file_packed*) _b;
     int   rc = strcmp (a->name, b->name);
 
     num_lookups++;
@@ -1744,8 +1756,8 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
       }
       for (num = 0; (fname = (*p_mg_unlist)(num)) != NULL; num++)
       {
-        lookup_table[num].name = fname;
-        lookup_table[num].data = (const unsigned char*) (*p_mg_unpack) (fname, &lookup_table[num].size, &lookup_table[num].mtime);
+        lookup_table [num].name = fname;
+        lookup_table [num].data = (const unsigned char*) (*p_mg_unpack) (fname, &lookup_table [num].size, &lookup_table [num].mtime);
       }
       qsort (lookup_table, num, sizeof(*lookup_table), compare_on_name);
     }
@@ -1766,8 +1778,8 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
    */
   const char *mg_unpack (const char *fname, size_t *fsize, time_t *ftime)
   {
-    const packed_file *p;
-    packed_file        key;
+    const file_packed *p;
+    file_packed        key;
 
     if (!use_bsearch)
        return (*p_mg_unpack) (fname, fsize, ftime);
@@ -1849,12 +1861,12 @@ static bool show_raw_common (int s)
 
   LOG_STDOUT ("  %s (%s):\n", net_service_descr(s), url ? url : "none");
 
-  if (Modes.stat.bytes_recv[s] == 0)
+  if (Modes.stat.bytes_recv [s] == 0)
   {
     LOG_STDOUT ("    nothing.\n");
     return (false);
   }
-  LOG_STDOUT ("    %s bytes.\n", qword_str(Modes.stat.bytes_recv[s]));
+  LOG_STDOUT ("    %s bytes.\n", qword_str(Modes.stat.bytes_recv [s]));
   return (true);
 }
 
@@ -1866,9 +1878,9 @@ static void show_raw_RAW_IN_stats (void)
 {
   if (show_raw_common(MODES_NET_SERVICE_RAW_IN))
   {
-    LOG_STDOUT ("  %8llu good messages.\n", Modes.stat.good_raw);
-    LOG_STDOUT ("  %8llu empty messages.\n", Modes.stat.empty_raw);
-    LOG_STDOUT ("  %8llu unrecognized messages.\n", Modes.stat.unrecognized_raw);
+    LOG_STDOUT ("  %8llu good messages.\n", Modes.stat.RAW_good);
+    LOG_STDOUT ("  %8llu empty messages.\n", Modes.stat.RAW_empty);
+    LOG_STDOUT ("  %8llu unrecognized messages.\n", Modes.stat.RAW_unrecognized);
   }
 }
 
@@ -1876,9 +1888,11 @@ static void show_raw_SBS_IN_stats (void)
 {
   if (show_raw_common(MODES_NET_SERVICE_SBS_IN))
   {
-    LOG_STDOUT ("  %8llu good messages.\n", Modes.stat.good_SBS);
-    LOG_STDOUT ("  %8llu empty messages.\n", Modes.stat.empty_SBS);
-    LOG_STDOUT ("  %8llu unrecognized messages.\n", Modes.stat.unrecognized_SBS);
+    LOG_STDOUT ("  %8llu good messages.\n", Modes.stat.SBS_good);
+    LOG_STDOUT ("  %8llu MSG messages.\n", Modes.stat.SBS_MSG_msg);
+    LOG_STDOUT ("  %8llu AIR messages.\n", Modes.stat.SBS_AIR_msg);
+    LOG_STDOUT ("  %8llu STA messages.\n", Modes.stat.SBS_STA_msg);
+    LOG_STDOUT ("  %8llu unrecognized messages.\n", Modes.stat.SBS_unrecognized);
   }
 }
 
@@ -1909,18 +1923,18 @@ void net_show_stats (void)
     LOG_STDOUT ("  %s (%s):\n", net_service_descr(s), url ? url : "none");
 
     if (Modes.net_active)
-         sum = Modes.stat.srv_connected[s] + Modes.stat.srv_removed[s] + Modes.stat.srv_unknown[s];
-    else sum = Modes.stat.cli_accepted[s]  + Modes.stat.cli_removed[s] + Modes.stat.cli_unknown[s];
+         sum = Modes.stat.srv_connected [s] + Modes.stat.srv_removed [s] + Modes.stat.srv_unknown [s];
+    else sum = Modes.stat.cli_accepted [s]  + Modes.stat.cli_removed [s] + Modes.stat.cli_unknown [s];
 
-    sum += Modes.stat.bytes_sent[s] + Modes.stat.bytes_recv[s] + *net_num_connections (s);
+    sum += Modes.stat.bytes_sent [s] + Modes.stat.bytes_recv [s] + *net_num_connections (s);
     if (sum == 0ULL)
     {
       LOG_STDOUT ("    Nothing.\n");
       continue;
     }
 
-    LOG_STDOUT ("    %8llu bytes sent.\n", Modes.stat.bytes_sent[s]);
-    LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv[s]);
+    LOG_STDOUT ("    %8llu bytes sent.\n", Modes.stat.bytes_sent [s]);
+    LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv [s]);
 
     if (s == MODES_NET_SERVICE_HTTP)
     {
@@ -1934,16 +1948,16 @@ void net_show_stats (void)
 
     if (Modes.net_active)
     {
-      LOG_STDOUT ("    %8llu server connections done.\n", Modes.stat.srv_connected[s]);
-      LOG_STDOUT ("    %8llu server connections removed.\n", Modes.stat.srv_removed[s]);
-      LOG_STDOUT ("    %8llu server connections unknown.\n", Modes.stat.srv_unknown[s]);
+      LOG_STDOUT ("    %8llu server connections done.\n", Modes.stat.srv_connected [s]);
+      LOG_STDOUT ("    %8llu server connections removed.\n", Modes.stat.srv_removed [s]);
+      LOG_STDOUT ("    %8llu server connections unknown.\n", Modes.stat.srv_unknown [s]);
       LOG_STDOUT ("    %8u server connections now.\n", *net_num_connections(s));
     }
     else
     {
-      LOG_STDOUT ("    %8llu client connections accepted.\n", Modes.stat.cli_accepted[s]);
-      LOG_STDOUT ("    %8llu client connections removed.\n", Modes.stat.cli_removed[s]);
-      LOG_STDOUT ("    %8llu client connections unknown.\n", Modes.stat.cli_unknown[s]);
+      LOG_STDOUT ("    %8llu client connections accepted.\n", Modes.stat.cli_accepted [s]);
+      LOG_STDOUT ("    %8llu client connections removed.\n", Modes.stat.cli_removed [s]);
+      LOG_STDOUT ("    %8llu client connections unknown.\n", Modes.stat.cli_unknown [s]);
       LOG_STDOUT ("    %8u client(s) now.\n", *net_num_connections(s));
     }
     unique_ips_print (s);
@@ -2040,9 +2054,9 @@ static char *net_init_dns (void)
   }
 
   DEBUG (DEBUG_NET, "  Host Name:   %s\n", fi->HostName);
-  DEBUG (DEBUG_NET, "  Domain Name: %s\n", fi->DomainName[0] ? fi->DomainName : "<None>");
+  DEBUG (DEBUG_NET, "  Domain Name: %s\n", fi->DomainName [0] ? fi->DomainName : "<None>");
   DEBUG (DEBUG_NET, "  Node Type:   %u\n", fi->NodeType);
-  DEBUG (DEBUG_NET, "  DHCP scope:  %s\n", fi->ScopeId[0] ? fi->ScopeId : "<None>");
+  DEBUG (DEBUG_NET, "  DHCP scope:  %s\n", fi->ScopeId [0] ? fi->ScopeId : "<None>");
   DEBUG (DEBUG_NET, "  Routing:     %s\n", fi->EnableRouting ? "Enabled" : "Disabled");
   DEBUG (DEBUG_NET, "  ARP proxy:   %s\n", fi->EnableProxy   ? "Enabled" : "Disabled");
   DEBUG (DEBUG_NET, "  DNS enabled: %s\n", fi->EnableDns     ? "Yes"     : "No");
@@ -2173,40 +2187,40 @@ bool net_init (void)
 
   /* Setup the RTL_TCP service and possibly rename if '--device udp://host:port' was used.
    */
-  if (modeS_net_services[MODES_NET_SERVICE_RTL_TCP].host[0])
+  if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].host [0])
   {
     if (!connection_setup_active(MODES_NET_SERVICE_RTL_TCP, &Modes.rtl_tcp_in))
         return (false);
 
-    if (modeS_net_services[MODES_NET_SERVICE_RTL_TCP].is_udp)
+    if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].is_udp)
     {
-      strcpy (modeS_net_services[MODES_NET_SERVICE_RTL_TCP].descr, "RTL-UDP input");
-      strcpy (modeS_net_services[MODES_NET_SERVICE_RTL_TCP].protocol, "udp");
+      strcpy (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].descr, "RTL-UDP input");
+      strcpy (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].protocol, "udp");
     }
   }
 
   /* If RAW-IN is UDP, rename description and protocol.
    */
-  if (modeS_net_services[MODES_NET_SERVICE_RAW_IN].is_udp)
+  if (modeS_net_services [MODES_NET_SERVICE_RAW_IN].is_udp)
   {
-    strcpy (modeS_net_services[MODES_NET_SERVICE_RAW_IN].descr, "Raw UDP input");
-    strcpy (modeS_net_services[MODES_NET_SERVICE_RAW_IN].protocol, "udp");
+    strcpy (modeS_net_services [MODES_NET_SERVICE_RAW_IN].descr, "Raw UDP input");
+    strcpy (modeS_net_services [MODES_NET_SERVICE_RAW_IN].protocol, "udp");
   }
 
   if (Modes.net_active)
   {
-    if (!modeS_net_services[MODES_NET_SERVICE_RAW_IN].host[0] &&
-        !modeS_net_services[MODES_NET_SERVICE_SBS_IN].host[0])
+    if (!modeS_net_services [MODES_NET_SERVICE_RAW_IN].host [0] &&
+        !modeS_net_services [MODES_NET_SERVICE_SBS_IN].host [0])
     {
       LOG_STDERR ("No hosts for any `--net-active' services specified.\n");
       return (false);
     }
 
-    if (modeS_net_services[MODES_NET_SERVICE_RAW_IN].host[0] &&
+    if (modeS_net_services [MODES_NET_SERVICE_RAW_IN].host [0] &&
         !connection_setup_active(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in))
        return (false);
 
-    if (modeS_net_services[MODES_NET_SERVICE_SBS_IN].host[0] &&
+    if (modeS_net_services [MODES_NET_SERVICE_SBS_IN].host [0] &&
         !connection_setup_active(MODES_NET_SERVICE_SBS_IN, &Modes.sbs_in))
        return (false);
   }
@@ -2288,9 +2302,6 @@ void net_poll (void)
   if (tc_now - tc_last >= 30000)  /* approx. every 30 sec */
   {
     tc_last = tc_now;
-    if (Modes.debug & DEBUG_NET)
-       LOG_FILEONLY ("mem_alloc: %llu\n", net_mem_allocated (MODES_NET_SERVICE_HTTP, 0));
-
     if (Modes.log)
     {
       fflush (Modes.log);
@@ -2321,15 +2332,15 @@ static const char *get_tuner_type (int type)
  */
 static bool get_gain_values (const RTL_TCP_info *info, int **gains, int *gain_count)
 {
-  static int e4k_gains[]    = { -10,  15,  40,  65,  90, 115, 140,
-                                165, 190, 215, 240, 290, 340, 420
+  static int e4k_gains []    = { -10,  15,  40,  65,  90, 115, 140,
+                                 165, 190, 215, 240, 290, 340, 420
+                               };
+  static int fc0012_gains [] = { -99, -40,  71, 179, 192 };
+  static int fc0013_gains [] = { -99, -73, -65, -63, -60, -58, -54,  58,
+                                  61,  63,  65,  67,  68,  70,  71, 179,
+                                 181, 182, 184, 186, 188, 191, 197
                               };
-  static int fc0012_gains[] = { -99, -40,  71, 179, 192 };
-  static int fc0013_gains[] = { -99, -73, -65, -63, -60, -58, -54,  58,
-                                 61,  63,  65,  67,  68,  70,  71, 179,
-                                181, 182, 184, 186, 188, 191, 197
-                              };
-  static int r82xx_gains[]  = {   0,   9,  14,  27,  37,  77,  87, 125,
+  static int r82xx_gains [] = {   0,   9,  14,  27,  37,  77,  87, 125,
                                 144, 157, 166, 197, 207, 229, 254, 280,
                                 297, 328, 338, 364, 372, 386, 402, 421,
                                 434, 439, 445, 480, 496
@@ -2402,12 +2413,12 @@ static bool set_nearest_gain (RTL_TCP_info *info, uint16_t *target_gain)
   for (i = 0; i < Modes.rtltcp.gain_count; i++)
   {
     err1 = abs (gain_in - nearest);
-    err2 = abs (gain_in - Modes.rtltcp.gains[i]);
+    err2 = abs (gain_in - Modes.rtltcp.gains [i]);
 
-    p += snprintf (p, left, "%.1f, ", Modes.rtltcp.gains[i] / 10.0);
+    p += snprintf (p, left, "%.1f, ", Modes.rtltcp.gains [i] / 10.0);
     left = sizeof(gbuf) - (p - gbuf) - 1;
     if (err2 < err1)
-       nearest = Modes.rtltcp.gains[i];
+       nearest = Modes.rtltcp.gains [i];
   }
   p [-2] = '\0';
   LOG_STDOUT ("Supported gains: %s.\n", gbuf);
