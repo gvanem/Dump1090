@@ -1713,12 +1713,12 @@ static flight_info *flight_info_find_by_addr (uint32_t addr)
 }
 
 /**
- * Find `flight_info` for a call_sign in either
+ * Find `flight_info` for a `call_sign` in either
  * `route_records[]` or the `g_data.flight_info` cache.
  *
  * If `Modes.prefer_ADSB_LOL == true` (from the config-file), search in
  * `g_data.flight_info` cache. If not found there, we return NULL to create
- * a new AIRPORT_API_PENDING record handled by 'API_thread_worker()'.
+ * a new `AIRPORT_API_PENDING` record handled by 'API_thread_worker()'.
  */
 static flight_info *find_by_callsign (const char *call_sign, bool *fixed)
 {

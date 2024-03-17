@@ -67,7 +67,7 @@
     #pragma warning (disable: 4312)
   #endif
 
-  #ifdef COMPILING_SQLITE3_SHELL
+  #if defined(COMPILING_SQLITE3_SHELL)
     /*
      * warning C4100: 'argv': unreferenced formal parameter
      */
@@ -158,7 +158,7 @@
   #error "Setting 'USE_CRT_DEBUG=1' and 'USE_MIMALLOC=1' is not supported"
 #endif
 
-/*
+/**
  * Options for `_DEBUG` / `-MDd` mode:
  */
 #if defined(_DEBUG)
@@ -169,7 +169,7 @@
   #include <crtdbg.h>
 
 #elif defined(USE_MIMALLOC)
-  /*
+  /**
    * Options for `externals/mimalloc/` code. Can not be used with `_DEBUG`.
    * 'mimalloc-override.h' will redefine most of these functions to 'mi_xx()'.
    */
@@ -186,7 +186,7 @@
   #define realpath(file, real_name)  mi_realpath (file, real_name)
 
 #else
-  /*
+  /**
    * Drop the dependency on 'oldnames.lib'
    */
   #define strdup(s)  _strdup (s)
@@ -209,13 +209,13 @@
     #pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
   #else
     /*
-     *  warning C4311: 'type cast': pointer truncation from 'HANDLE' to 'int'
+     * warning C4311: 'type cast': pointer truncation from 'HANDLE' to 'int'
      */
     #pragma warning (disable: 4311)
   #endif
 #endif
 
-/*
+/**
  * Options for `externals/sqlite3.c`:
  */
 #define SQLITE_API
@@ -226,7 +226,7 @@
 #define SQLITE_OMIT_AUTOINIT     1
 #define SQLITE_DEFAULT_MEMSTATUS 0
 
-/*
+/**
  * For `net_io.c` and the "Packed Web FileSystem":
  */
 #if defined(USE_PACKED_DLL)
@@ -234,7 +234,7 @@
   #define MG_ENABLE_PACKED_FS 1
 #endif
 
-/*
+/**
  * Common stuff for compiling .rc files
  */
 #if defined(RC_INVOKED)
@@ -252,8 +252,6 @@
     #define RC_FILEFLAGS  0
   #endif
 
-  /** \todo Add 'USE_ASAN' etc. stuff into this
-   */
   #if defined(USE_ASAN) || defined(USE_UBSAN)
     #define RC_FILEFLAGS2     VS_FF_SPECIALBUILD
 
@@ -272,7 +270,6 @@
 
   /**
    * 'RC_BITS' is defined Makefile.Windows to '32' or '64'.
-   * \todo Add more feature strings like `RC_USE_ASAN`, `RC_USE_UBSAN` etc.
    */
   #define RC_VER_STRING  PROG_VERSION  " (" RC_BUILDER ", " _STR(RC_BITS) "-bits," RC_DBG_REL ")"
   #define RC_VERSION     VER_MAJOR, VER_MINOR, VER_MICRO, 0

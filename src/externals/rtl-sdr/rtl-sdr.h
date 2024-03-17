@@ -17,6 +17,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/**\file    rtl-sdr.h
+ * \ingroup Samplers
+ *
+ * Handles a local RTLSDR device.
+ */
 #ifndef __RTL_SDR_H
 #define __RTL_SDR_H
 

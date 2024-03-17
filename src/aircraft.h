@@ -35,12 +35,12 @@
 
 /**
  * \enum a_show_t
- * The "show-state" for an aircraft.
+ * The "show-state" for an aircraft in the interactive TUI-screen.
  */
 typedef enum a_show_t {
-        A_SHOW_FIRST_TIME = 1,
-        A_SHOW_LAST_TIME,
-        A_SHOW_NORMAL,
+        A_SHOW_FIRST_TIME = 1,  /**< print in green colour when shown for the first time */
+        A_SHOW_LAST_TIME,       /**< print in red colour when shown for the last time */
+        A_SHOW_NORMAL,          /**< print in default colour when shown as a normal live aircraft */
         A_SHOW_NONE,
       } a_show_t;
 
