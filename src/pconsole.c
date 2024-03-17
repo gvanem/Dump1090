@@ -7,7 +7,7 @@
 /**
  * Launch ourself with a pseudo console.
  *
- * Rewritten from: https://github.com/arakiken/mlterm/commit/1c823122018564c0fffa010abefaf0273914296d
+ * Rewritten from: https://github.com/arakiken/mlterm/blob/master/vtemu/vt_pty_win32.c
  *
  * \ref
  *  https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session/
