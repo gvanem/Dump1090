@@ -99,8 +99,8 @@ static DWORD WINAPI pconsole_read (void *arg)
     }
     pconsole_trigger_read();
 
-    WaitForSingleObject (pty->read_ev, INFINITE);
-    if (!pty->child_proc)
+    if (WaitForSingleObject (pty->read_ev, INFINITE) == WAIT_OBJECT_0 ||
+        !pty->child_proc)
        break;
   }
 
@@ -132,6 +132,7 @@ static bool pconsole_init (pconsole_t *pty)
     DEBUG (DEBUG_GENERAL, "CreateThread() failed; %s.\n", win_strerror(GetLastError()));
     return (false);
   }
+
   return (true);
 }
 
@@ -139,7 +140,12 @@ static void pconsole_exit (pconsole_t *pty)
 {
   unload_dynamic_table (kernel32_funcs, DIM(kernel32_funcs));
   if (pty->read_thrd)
-     TerminateThread (pty->read_thrd, 0);
+  {
+    SetEvent (pty->read_ev);
+    WaitForSingleObject (pty->read_ev, 500);
+    CloseHandle (pty->read_ev);
+    CloseHandle (pty->read_thrd);
+  }
 }
 
 bool pconsole_create (struct pconsole_t *pty, const char *cmd_path, const char **cmd_argv)
