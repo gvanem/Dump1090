@@ -8,6 +8,10 @@
 #include "misc.h"
 #include "sdrplay.h"
 
+#ifdef __clang__
+static_assert (SDRPLAY_API_VERSION >= 3.14F, "Need SDRPlay API >= 3.14 to compile");
+#endif
+
 #define MODES_RSP_BUF_SIZE   (256*1024)   /* 256k, same as MODES_ASYNC_BUF_SIZE  */
 #define MODES_RSP_BUFFERS     16          /* Must be power of 2 */
 
@@ -39,6 +43,7 @@
         } while (0)
 
 struct sdrplay_priv {
+       mg_file_path                   dll_name;
        HANDLE                         handle;
        float                          version;
        bool                           API_locked;
@@ -118,18 +123,18 @@ static struct dyn_struct sdrplay_funcs [] = {
 
 #undef ADD_FUNC
 
-static bool sdrplay_load_funcs (const char *dll_name)
+static bool sdrplay_load_funcs (void)
 {
   mg_file_path full_name;
   size_t       i, num;
 
   for (i = 0; i < DIM(sdrplay_funcs); i++)
-      sdrplay_funcs[i].mod_name = dll_name;
+      sdrplay_funcs[i].mod_name = Modes.sdrplay.dll_name;
 
   SetLastError (0);
 
   num = load_dynamic_table (sdrplay_funcs, DIM(sdrplay_funcs));
-  if (num < DIM(sdrplay_funcs) - 1)
+  if (num < DIM(sdrplay_funcs) - 1 || !sdrplay_funcs[0].mod_handle)
   {
     DWORD err = GetLastError();
 
@@ -138,17 +143,20 @@ static bool sdrplay_load_funcs (const char *dll_name)
      * And vice-versa.
      */
     if (err == ERROR_BAD_EXE_FORMAT)
-         snprintf (sdr.last_err, sizeof(sdr.last_err), "\"%s\" is not a %d bit version", dll_name, 8*(int)sizeof(void*));
+         snprintf (sdr.last_err, sizeof(sdr.last_err), "\"%s\" is not a %d bit DLL", Modes.sdrplay.dll_name, 8*(int)sizeof(void*));
     else if (err == ERROR_MOD_NOT_FOUND)
-         snprintf (sdr.last_err, sizeof(sdr.last_err), "\"%s\" not found on PATH", dll_name);
-    else snprintf (sdr.last_err, sizeof(sdr.last_err), "Failed to load \"%s\"; %s", dll_name, win_strerror(err));
+         snprintf (sdr.last_err, sizeof(sdr.last_err), "\"%s\" not found on PATH", Modes.sdrplay.dll_name);
+    else snprintf (sdr.last_err, sizeof(sdr.last_err), "Failed to load \"%s\"; %s", Modes.sdrplay.dll_name, win_strerror(err));
     return (false);
   }
 
   if (!GetModuleFileNameA(sdrplay_funcs[0].mod_handle, full_name, sizeof(full_name)))
      strcpy (full_name, "?");
 
-  TRACE ("sdrplay DLL: '%s'", full_name);
+  /* These 2 names better be the same
+   */
+  TRACE ("full_name: '%s'", full_name);
+  TRACE ("dll_name:  '%s'", Modes.sdrplay.dll_name);
   return (true);
 }
 
@@ -804,7 +812,8 @@ const char *sdrplay_strerror (int rc)
 }
 
 /**
- * Load all needed SDRplay functions dynamically.
+ * Load all needed SDRplay functions dynamically
+ * from `Modes.sdrplay.dll_name`.
  */
 int sdrplay_init (const char *name, int index, sdrplay_dev **device)
 {
@@ -840,7 +849,7 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   Modes.sdrplay.gain_count = 10;
   memcpy (Modes.sdrplay.gains, &gain_table, 10 * sizeof(int));
 
-  if (!sdrplay_load_funcs("sdrplay_api.dll"))
+  if (!sdrplay_load_funcs())
      goto failed;
 
   TRACE ("Optional (ver. 3.14) function 'sdrplay_api_GetLastErrorByType()' %sfound",
@@ -858,16 +867,17 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   if (sdr.last_rc != sdrplay_api_Success)
      goto failed;
 
-  TRACE ("sdrplay_api_ApiVersion(): '%.2f', build version: '%.2f'",
-         sdr.version, SDRPLAY_API_VERSION);
+  TRACE ("sdrplay_api_ApiVersion(): '%.2f', min_version: '%.2f', build version: '%.2f'",
+         sdr.version, Modes.sdrplay.min_version, SDRPLAY_API_VERSION);
 
   if (sdr.version == 3.10F && SDRPLAY_API_VERSION == 3.11F)
      TRACE ("ver 3.10 and ver 3.11 should be compatible.");
 
-  else if (sdr.version != SDRPLAY_API_VERSION || sdr.version < 3.06F)
+  else if (sdr.version < Modes.sdrplay.min_version)
   {
-    snprintf (sdr.last_err, sizeof(sdr.last_err), "Wrong sdrplay_api_ApiVersion(): '%.2f', build version: '%.2f'.\n",
-              sdr.version, SDRPLAY_API_VERSION);
+    snprintf (sdr.last_err, sizeof(sdr.last_err),
+              "Wrong sdrplay_api_ApiVersion(): '%.2f', minimum version: '%.2f'.\n",
+              sdr.version, Modes.sdrplay.min_version);
     goto failed;
   }
 
@@ -935,7 +945,9 @@ static int sdrplay_release (sdrplay_dev *device)
 }
 
 /**
- *
+ * Exit-function for this module:
+ *  \li Release the device.
+ *  \li Unload the handle of `Modes.sdrplay.dll_name`.
  */
 int sdrplay_exit (sdrplay_dev *device)
 {
@@ -945,7 +957,7 @@ int sdrplay_exit (sdrplay_dev *device)
   free (sdr.rx_data);
   sdr.rx_data = NULL;
 
-  if (!sdrplay_funcs[0].mod_handle || sdrplay_funcs[0].mod_handle == INVALID_HANDLE_VALUE)
+  if (!sdrplay_funcs[0].mod_handle)
   {
     strcpy_s (sdr.last_err, sizeof(sdr.last_err), "No DLL loaded");
     sdr.last_rc = sdrplay_api_NotInitialised;
@@ -959,6 +971,10 @@ int sdrplay_exit (sdrplay_dev *device)
   return (sdr.last_rc);
 }
 
+/**
+ * Config-parser callback; <br>
+ * parses "adsb-mode" and sets `Modes.sdrplay.ADSB_mode`.
+ */
 bool sdrplay_set_adsb_mode (const char *arg)
 {
   char   *end;
@@ -977,6 +993,55 @@ bool sdrplay_set_adsb_mode (const char *arg)
   }
 
 fail:
-  LOG_STDERR ("\nIllegal 'adsb-mode = %s'\n", arg);
+  LOG_STDERR ("\nIllegal 'adsb-mode = %s'.\n", arg);
   return (false);
+}
+
+/**
+ * Config-parser callback; <br>
+ * parses "sdrplay-dll" and sets `Modes.sdrplay.dll_name`.
+ */
+bool sdrplay_set_dll_name (const char *arg)
+{
+  mg_file_path dll = "?";
+  DWORD        len, attr;
+
+  if (!strpbrk(arg, "/\\"))  /* not absolute or relative; assume on PATH */
+  {
+    strcpy_s (Modes.sdrplay.dll_name, sizeof(Modes.sdrplay.dll_name), arg);
+    return (true);
+  }
+
+  attr = INVALID_FILE_ATTRIBUTES;
+  len  = GetFullPathName (arg, sizeof(dll), dll, NULL);
+
+  TRACE ("dll: '%s', len: %lu, attr: 0x%08lx", dll, len, attr);
+  if (len > 0)
+     attr = GetFileAttributes (dll);
+  else if (attr != FILE_ATTRIBUTE_NORMAL)
+  {
+    LOG_STDERR ("\nThe \"sdrplay-dll = %s\" was not found. "
+                "Using the default \"%s\"\n", arg, Modes.sdrplay.dll_name);
+    return (false);
+  }
+  strcpy_s (Modes.sdrplay.dll_name, sizeof(Modes.sdrplay.dll_name), dll);
+  return (true);
+}
+
+/**
+ * Config-parser callback; <br>
+ * parses "sdrplay-minver" and sets `Modes.sdrplay.min_version`.
+ */
+bool sdrplay_set_minver (const char *arg)
+{
+  char *end;
+  float ver = strtof (arg, &end);
+
+  if (end == arg || *end != '\0')
+  {
+    LOG_STDERR ("\nIllegal 'sdrplay-minver = %s'.\n", arg);
+    return (false);
+  }
+  Modes.sdrplay.min_version = ver;
+  return (true);
 }

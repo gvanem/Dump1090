@@ -13,6 +13,8 @@ typedef void (*sdrplay_cb) (uint8_t *buf, uint32_t len, void *ctx);
 extern int  sdrplay_init (const char *name, int index, sdrplay_dev **device);
 extern int  sdrplay_exit (sdrplay_dev *device);
 extern bool sdrplay_set_adsb_mode (const char *arg);
+extern bool sdrplay_set_dll_name (const char *arg);
+extern bool sdrplay_set_minver (const char *arg);
 extern int  sdrplay_set_gain (sdrplay_dev *device, int gain);
 extern int  sdrplay_cancel_async (sdrplay_dev *device);
 extern int  sdrplay_read_async (sdrplay_dev *device,
