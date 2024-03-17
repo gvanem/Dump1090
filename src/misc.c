@@ -567,6 +567,42 @@ char *str_tokenize (char *ptr, const char *sep, char **end)
 }
 
 /**
+ * From `man strsep`:
+ *   Locate the first occurrence of any character in the string `delim`
+ *   and replace it with a '\0'. The location of the next character after
+ *   the `delim` character (or NULL, if the end of the string was reached)
+ *   is stored in `*stringp`. The original value of `*stringp` is returned.
+ */
+char *str_sep (char **stringp, const char *delim)
+{
+  char       *s, *tok;
+  const char *span;
+  int         c, sc;
+
+  s = *stringp;
+  if (!s)
+     return (NULL);
+
+  for (tok = s; ;)
+  {
+    c = *s++;
+    span = delim;
+    do
+    {
+      sc = *span++;
+      if (sc == c)
+      {
+        if (c == 0)
+             s = NULL;
+        else s [-1] = 0;
+        *stringp = s;
+        return (tok);
+      }
+    } while (sc != 0);
+  }
+}
+
+/**
  * Strip drive-letter, directory and suffix from a filename.
  */
 char *basename (const char *fname)
@@ -1514,7 +1550,7 @@ int load_dynamic_table (struct dyn_struct *tab, int tab_size)
          mod_handle = prev->mod_handle;
     else mod_handle = LoadLibraryA (tab->mod_name);
 
-    if (mod_handle && mod_handle != INVALID_HANDLE_VALUE)
+    if (mod_handle)
     {
       func_addr = GetProcAddress (mod_handle, tab->func_name);
       *tab->func_addr = func_addr;
@@ -1532,9 +1568,9 @@ int unload_dynamic_table (struct dyn_struct *tab, int tab_size)
 
   for (i = 0; i < tab_size; tab++, i++)
   {
-    if (tab->mod_handle && tab->mod_handle != INVALID_HANDLE_VALUE)
+    if (tab->mod_handle)
        FreeLibrary (tab->mod_handle);
-    tab->mod_handle = INVALID_HANDLE_VALUE;
+    tab->mod_handle = 0;
     *tab->func_addr = NULL;
   }
   return (i);
@@ -1553,10 +1589,9 @@ const char *wininet_strerror (DWORD err)
 
   Modes.wininet_last_error = NULL;
 
-  if (mod && mod != INVALID_HANDLE_VALUE &&
-      FormatMessageA (FORMAT_MESSAGE_FROM_HMODULE,
-                      mod, err, MAKELANGID(LANG_NEUTRAL,SUBLANG_DEFAULT),
-                      buf, sizeof(buf), NULL))
+  if (mod && FormatMessageA (FORMAT_MESSAGE_FROM_HMODULE,
+                             mod, err, MAKELANGID(LANG_NEUTRAL,SUBLANG_DEFAULT),
+                             buf, sizeof(buf), NULL))
   {
     static char err_buf [512];
     char   wininet_err_buf [200];
