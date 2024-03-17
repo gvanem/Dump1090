@@ -275,12 +275,15 @@ typedef struct statistics {
 
         /* Network statistics for receiving RAW and SBS messages:
          */
-        uint64_t  good_SBS;
-        uint64_t  good_raw;
-        uint64_t  unrecognized_SBS;
-        uint64_t  unrecognized_raw;
-        uint64_t  empty_SBS;
-        uint64_t  empty_raw;
+        uint64_t  SBS_good;
+        uint64_t  SBS_unrecognized;
+        uint64_t  SBS_MSG_msg;
+        uint64_t  SBS_AIR_msg;
+        uint64_t  SBS_STA_msg;
+
+        uint64_t  RAW_good;
+        uint64_t  RAW_unrecognized;
+        uint64_t  RAW_empty;
       } statistics;
 
 /**
@@ -313,7 +316,8 @@ typedef struct rtltcp_conf {
  * The device configuration for a SDRplay device.
  */
 typedef struct sdrplay_conf {
-        char                            *name;               /**< Name of SDRplay instance to use */
+        mg_file_path                     dll_name;           /**< Name and (relative) path of the "sdrplay_api.dll" to use */
+        char                            *name;               /**< Name of the SDRplay device to use */
         int                              index;              /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"` */
         void                            *device;             /**< Device-handle from `sdrplay_init()` */
         bool                             if_mode;
@@ -326,6 +330,7 @@ typedef struct sdrplay_conf {
         int                              BW_mode;
         int                             *gains;
         int                              gain_count;
+        float                            min_version;
         sdrplay_api_Rsp2_AntennaSelectT  antenna_port;
         sdrplay_api_RspDx_AntennaSelectT DX_antenna_port;
         sdrplay_api_TunerSelectT         tuner;
@@ -557,6 +562,13 @@ typedef struct modeS_message {
          */
         int           altitude;
         metric_unit_t unit;
+
+        /** For messages from a TCP SBS source (basestation input)
+         */
+        bool SBS_in;          /**< true for a basestation input message */
+        int  SBS_msg_type;    /**< "MSG,[1-8],...". \ref http://woodair.net/sbs/article/barebones42_socket_data.htm */
+        bool SBS_pos_valid;
+
       } modeS_message;
 
 /*
@@ -573,12 +585,12 @@ struct dyn_struct {
 /*
  * For `$(OBJ_DIR)/web-page-*.c` files:
  */
-typedef struct packed_file {
+typedef struct file_packed {
         const unsigned char *data;
         size_t               size;
         time_t               mtime;
         const char          *name;
-      } packed_file;
+      } file_packed;
 
 /*
  * Defined in MSVC's <sal.h>.
@@ -614,6 +626,7 @@ char       *str_rtrim (char *s);
 char       *str_trim (char *s);
 char       *str_join (char *const *array, const char *sep);
 char       *str_tokenize (char *ptr, const char *sep, char **end);
+char       *str_sep (char **stringp, const char *delim);
 int         hex_digit_val (int c);
 const char *unescape_hex (const char *value);
 char       *basename (const char *fname);
