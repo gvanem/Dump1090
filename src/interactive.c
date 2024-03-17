@@ -549,15 +549,16 @@ void interactive_show_data (uint64_t now)
   static int old_count = -1;
   int        row = 1, count = 0;
   aircraft  *a = Modes.aircrafts;
-  bool       no_clear = (Modes.debug & ~DEBUG_ADSB_LOL);
+  bool       clear_screen = ((Modes.debug & ~DEBUG_ADSB_LOL) == 0);
 
-  no_clear |= (Modes.raw > 0);
+  if (Modes.raw > 0)
+     clear_screen = false;
 
-  /* If `--debug X` and `--raw` mode is not active, clear the screen to remove old info.
+  /* Unless `--debug X` or `--raw` mode is active, clear the screen to remove old info.
    * But only if current number of aircrafts is less than last time. This is to
    * avoid an annoying blinking of the console.
    */
-  if (!no_clear)
+  if (clear_screen)
   {
     if (old_count == -1 || aircraft_numbers() < old_count)
        (*api->clr_scr)();
