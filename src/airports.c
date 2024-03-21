@@ -714,8 +714,9 @@ static void API_trace (unsigned line, const char *fmt, ...)
 
 static void API_trace_LOL (const char *req_resp, uint32_t num, const char *str, const flight_info *f)
 {
-  char   http_status [20] = "";
-  size_t len = strlen (str);
+  char        http_status [20] = "";
+  const char *more = "";
+  size_t      len = strlen (str);
 
   EnterCriticalSection (&Modes.print_mutex);
 
@@ -723,14 +724,18 @@ static void API_trace_LOL (const char *req_resp, uint32_t num, const char *str, 
   {
     snprintf (http_status, sizeof(http_status), "HTTP %d:\n", f->http_status);
     if (f->http_status >= 400 && f->http_status <= 599)   /* limit 40x - 50x responses to 400 bytes */
-       len = 400;
+    {
+      if (len > 400)
+         more = "\n...";
+      len = 400;
+    }
   }
 
   modeS_flogf (Modes.log, "%s # %u (ICAO: 0x%06X): %s", req_resp, num, f->ICAO_addr, http_status);
 
   /* Do this since `str` could contain `%s` etc.
    */
-  fprintf (Modes.log, "%.*s", (int)len, str);
+  fprintf (Modes.log, "%.*s%s", (int)len, str, more);
   fputs ("\n-------------------------------------------------------"
          "---------------------------------------------------------\n",
          Modes.log);
