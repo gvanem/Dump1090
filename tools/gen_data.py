@@ -14,6 +14,9 @@ from GitHub: 'https://github.com/vradarserver/standing-data.git'
 import os, sys, stat, struct, time, csv, argparse
 import fnmatch, msvcrt, shutil
 
+#
+# Globals:
+#
 opt        = None
 temp_dir   = os.getenv ("TEMP").replace("\\", "/") + "/dump1090/standing-data"
 result_dir = temp_dir + "/results"
@@ -81,7 +84,7 @@ def clean_dir (d):
   sys.exit (0)
 
 #
-# Recursively descend the directory tree at top, adding all
+# Recursively descend the directory tree from top, adding all
 # '*.csv' files to '_dict'.
 #
 def walk_csv_tree (top, _dict):
@@ -90,7 +93,7 @@ def walk_csv_tree (top, _dict):
       st = os.stat (fqfn)
       if stat.S_ISDIR(st.st_mode):
          walk_csv_tree (fqfn, _dict)
-      elif fnmatch.fnmatch (fqfn, "*.csv") and stat.S_ISREG(st.st_mode):
+      elif fnmatch.fnmatch (fqfn, "*.csv") and stat.S_ISREG(st.st_mode): # A regular '.csv' file
          _dict [fqfn] = { "header": "?",
                           "fsize" : st.st_size,
                           "fname" : fqfn
@@ -440,13 +443,13 @@ int main (void)
 # Compile the above .c-file to .exe.
 #
 def compile_to_exe (c_file, exe_file, define):
-  obj_file = c_file.replace(".c", ".obj")
+  obj_file = c_file.replace (".c", ".obj")
   if opt.clang:
      cmd = "clang-cl"
   else:
      cmd = "cl"
 
-  cmd += " -nologo -MDd -W3 -Zi -I%s -Fe%s -Fo%s -D%s %s -link -nologo -incremental:no" % \
+  cmd += " -nologo -MDd -W3 -Zi -I%s -Fe%s -Fo%s %s %s -link -nologo -incremental:no" % \
           (result_dir, exe_file, obj_file, define, c_file)
   rc = os.system (cmd)
   if rc:
@@ -464,6 +467,12 @@ def run_exe (exe_file):
   rc = os.system (exe_file)
   print ("-" * 80, flush=True)
   return rc
+
+def run_git (cmd):
+  print ("Running '%s'..." % cmd)
+  sys.stdout.flush()
+  if os.system (cmd) != 0:
+     error ("'git' failed")
 
 ##############################################################################
 
@@ -496,11 +505,9 @@ def do_init():
 
 def do_init_git():
   if os.path.exists (git_config):
-     if os.system ("git.exe -C %s pull > NUL" % temp_dir) != 0:
-        error ("'git pull' failed")
+     run_git ("git.exe -C %s pull" % temp_dir)
   else:
-     if os.system ("git.exe clone --depth=1 %s %s" % (git_url, temp_dir)) != 0:
-        error ("'git clone' failed")
+     run_git ("git.exe clone --depth=1 %s %s" % (git_url, temp_dir))
 
 def main():
   global opt
@@ -542,9 +549,9 @@ def main():
   airports_exe  = c_to_exe (airports_c)
   routes_exe    = c_to_exe (routes_c)
 
-  compile_to_exe (aircrafts_c, aircrafts_exe, "AIRCRAFT_LOOKUP")
-  compile_to_exe (airports_c,  airports_exe,  "AIRPORT_LOOKUP")
-  compile_to_exe (routes_c,    routes_exe,    "ROUTE_LOOKUP")
+  compile_to_exe (aircrafts_c, aircrafts_exe, "-DAIRCRAFT_LOOKUP")
+  compile_to_exe (airports_c,  airports_exe,  "-DAIRPORT_LOOKUP")
+  compile_to_exe (routes_c,    routes_exe,    "-DROUTE_LOOKUP")
 
   if opt.test:
      rc  = run_exe (aircrafts_exe)
