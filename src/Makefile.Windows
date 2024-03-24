@@ -18,7 +18,7 @@ MAKEFLAGS += --warn-undefined-variables
 USE_CRT_DEBUG ?= 0
 
 #
-# Use '../tools/gen_routes_data.py' to generate '$(OBJDIR)/routes.c' from '../routes.csv'?
+# Use '../tools/gen_routes_data.py' to generate '$(OBJ_DIR)/routes.c' from '../routes.csv'?
 #
 USE_GEN_ROUTES ?= 1
 
@@ -37,17 +37,17 @@ USE_BIN_FILES ?= 1
 #   USE_NET_POLLER=WSAPOLL: use 'WSAPoll()'
 #   USE_NET_POLLER=SELECT:  use 'select()'
 #
-USE_NET_POLLER ?= SELECT
+USE_NET_POLLER ?= WSAPOLL
 
 #
-# Enable bundling *all* web_root pages inside 'web-pages.dll' as multiple resources.
-# Use e.g. as 'web-pages.dll;2' for '../web_root-FlightAware/*' as web-root.
+# Enable bundling *all* web_root pages inside '../web-pages.dll' as multiple resources.
+# Use e.g. as '../web-pages.dll;2' for '../web_root-FlightAware/*' as web-root.
 #
 USE_PACKED_DLL ?= 0
 
 #
-# Pack 'web-pages.dll' using UPX.EXE? Needs an up-to-date version.
-# E.g: https://github.com/upx/upx/releases/download/v4.1.0/upx-4.1.0-win64.zip
+# Pack '../web-pages.dll' using UPX.EXE? Needs an up-to-date version
+# found under https://github.com/upx/upx/releases
 #
 USE_UPX ?= 0
 
@@ -73,14 +73,15 @@ USE_ASAN ?= 0
 USE_UBSAN ?= 0
 
 #
-# Enable the "mimalloc" code in 'externals/mimalloc/*.c'?
+# Enable the alternative malloc() library "mimalloc"
+# in 'externals/mimalloc/*.c'?
 #
 USE_MIMALLOC ?= 1
 
 #
 # Compile using 'cl -MP ...'. For MSVC only.
 #
-USE_MP_COMPILE ?= 0
+USE_MP_COMPILE ?= 1
 
 #
 # For my private build; use the tracing Winsock library?
@@ -180,7 +181,7 @@ LDFLAGS = -nologo -map -debug -verbose -incremental:no \
 RCFLAGS = -nologo
 
 ifeq ($(USE_CRT_DEBUG),1)
-  CFLAGS  += -MDd -GS -Oy- -RTCu -RTCs -DMI_DEBUG=4
+  CFLAGS  += -MDd -GS -Oy- -RTCu -RTCs
   RCFLAGS += -D_DEBUG
 else
   CFLAGS += -MD -GS- -Zo -Oy- -Ox -Gs0
@@ -364,14 +365,17 @@ ifeq ($(USE_MIMALLOC),1)
   #
   CFLAGS += -DMI_TRACK_ASAN=$(USE_ASAN)
 
-  #
-  # Enable "Event Tracing for Windows" in _DEBUG-mode
-  #
-  CFLAGS += -DMI_TRACK_ETW=$(USE_CRT_DEBUG)
+  ifeq ($(USE_CRT_DEBUG),1)
+    #
+    # Set debug-level 4 and enable "Event Tracing for Windows" in '_DEBUG' mode
+    #
+    CFLAGS += -DMI_TRACK_ETW=1 \
+              -DMI_DEBUG=4
+  endif
 endif
 
 #
-# For 'web-pages.dll':
+# For '../web-pages.dll':
 #
 WEB_SUFFIXES ?= 1 2 3 4 5
 
@@ -385,7 +389,7 @@ ifeq ($(USE_PACKED_DLL),1)
 endif
 
 ifeq ($(USE_NET_POLLER),EPOLL)
-  CFLAGS += -DMG_ENABLE_EPOLL=1
+  CFLAGS  += -DMG_ENABLE_EPOLL=1
   SOURCES += externals/wepoll.c
 
 else ifeq ($(USE_NET_POLLER),WSAPOLL)
@@ -397,7 +401,7 @@ else ifeq ($(USE_NET_POLLER),SELECT)
   #
   CFLAGS += -DMG_ENABLE_SELECT=1
 else
-  $(error Illegal 'USE_NET_POLLER' value)
+  $(error Illegal 'USE_NET_POLLER=$(USE_NET_POLLER)' value)
 endif
 
 ifeq ($(USE_READSB_DEMOD),1)
@@ -460,18 +464,8 @@ $(OBJ_DIR) doxy-docs:
 $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args
 	$(call C_compile, $@, -DCOMPILING_SQLITE3_SHELL $<)
 
-#
-# Problem with '-fsanitize*' flags for ASAN/UBSAN here.
-# Hence drop these flags.
-#
-# $(WEB_OBJ): CFLAGS := $(filter-out -fsanitize%, $(CFLAGS))
-
 ../web-pages.dll: $(WEB_OBJ) $(OBJ_DIR)/web-pages.res
 	$(call link_web_DLL, $@, $^ $(ASAN_LIBS), $(WEB_SUFFIXES))
-ifeq ($(USE_UPX),1)
-	$(call green_msg, Compressing $@ will take some time...)
-	upx -v $@
-endif
 
 $(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
 	$(call generate, $@, //)
@@ -530,16 +524,14 @@ packed_test_OBJ = $(addprefix $(OBJ_DIR)/, \
                     packed_webfs_main.obj  \
                     packed_webfs_1.obj     \
                     packed_webfs_2.obj     \
-                    misc.obj               \
-                    mongoose.obj)
+                    misc.obj)
 
 ifeq ($(USE_MIMALLOC),1)
-  ../packed_test.exe: $(packed_test_OBJ) $(OBJ_DIR)/mimalloc-amalgamation.obj
-	$(call link_EXE, $@, -nodefaultlib:uuid.lib advapi32.lib $^)
-else
-  ../packed_test.exe: $(packed_test_OBJ)
-	$(call link_EXE, $@, -nodefaultlib:uuid.lib $^)
+  packed_test_OBJ += $(OBJ_DIR)/mimalloc-amalgamation.obj
 endif
+
+../packed_test.exe: $(packed_test_OBJ)
+	$(call link_EXE, $@, -nodefaultlib:uuid.lib advapi32.lib $^)
 
 $(OBJ_DIR)/packed_webfs_main.obj: ../tools/packed_webfs_main.c | $(CC).args
 	$(call C_compile, $@, $<)
@@ -693,13 +685,24 @@ define func_exports
   $(foreach e, $(1), -export:mg_spec_$(e))
 endef
 
+#
+# This will typically shrink '../web-pages.dll' from 125 MBytes to 25 MBytes.
+# 5 times smaller!
+#
+ifeq ($(USE_UPX),1)
+  upx_pack = $(call green_msg, Compressing $(1) will take some time...) && \
+             upx -v $(1)
+else
+  upx_pack = @echo
+endif
+
 define link_web_DLL
   $(call green_msg, Linking $(1))
   $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2) oldnames.lib)
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.dll=.map)
   @rm -f $(1:.dll=.exp) $(1:.dll=.lib)
-  @echo
+  $(call upx_pack, $(1))
 endef
 
 define Warning
@@ -762,7 +765,16 @@ define C_preprocess
   $(_CC) -E @$(CC).args $(d1PP) $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(C_FORMATER) >> $(1)
 endef
 
-doxy_SOURCES = $(addprefix ../, $(SOURCES))
+#
+# No doxygen tags in these:
+#
+doxy_SOURCES = $(filter-out $(OBJ_DIR)/routes.c              \
+                            externals/sqlite3.c              \
+                            externals/Curses/amalgamation.c, \
+                            $(SOURCES))
+
+doxy_SOURCES := $(addprefix ../, $(doxy_SOURCES))
+
 doxy_HEADERS = ../aircraft.h                  \
                ../airports.h                  \
                ../cfg_file.h                  \
@@ -773,15 +785,14 @@ doxy_HEADERS = ../aircraft.h                  \
                ../misc.h                      \
                ../net_io.h                    \
                ../sdrplay.h                   \
-               ../externals/Curses/curses.h   \
-               ../externals/rtl-sdr/rtl_tcp.h \
+               ../externals/rtl-sdr/rtl-sdr.h \
+               ../externals/rtl-sdr/rtl-tcp.h \
                ../externals/miniz.h           \
-               ../externals/sqlite3.h         \
                ../externals/zip.h
 
 define dump1090_Doxyfile
   PROJECT_NAME          = "Dump1090"
-  PROJECT_LOGO          = # to-do
+  PROJECT_LOGO          = ../dump1090.ico
   STRIP_FROM_PATH       = $(CURDIR)/
   OPTIMIZE_OUTPUT_FOR_C = yes
   FORCE_LOCAL_INCLUDES  = yes
@@ -789,6 +800,10 @@ define dump1090_Doxyfile
   PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1
   INPUT                 = $(doxy_SOURCES) \
                           $(doxy_HEADERS)
+  #
+  # Do not document the huge '$(OBJ_DIR)/routes.c' file
+  #
+  # EXCLUDE               = routes.c
 
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = .. ../..
@@ -796,6 +811,7 @@ define dump1090_Doxyfile
   SOURCE_BROWSER        = yes
   CALL_GRAPH            = yes
   CALLER_GRAPH          = yes
+  EXTRACT_STATIC        = yes
   HAVE_DOT              = yes
   OUTPUT_DIRECTORY      = $(CURDIR)/doxy-docs
   HTML_OUTPUT           = .
