@@ -347,7 +347,7 @@ typedef struct sdrplay_conf {
 
 /*
  * Forwards:
- * Details in "aircraft.h", "airports".h", "externals/sqlite3.c" and "misc.c"
+ * Details in "aircraft.h", "airports".h" and "externals/sqlite3.c"
  */
 struct aircraft;
 struct aircraft_info;
