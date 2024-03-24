@@ -24,6 +24,12 @@
   #pragma clang diagnostic ignored "-Wpragma-pack"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
 
+  /*
+   * Cause a compile-error for these warnings:
+   */
+  #pragma clang diagnostic error "-Wformat"
+  #pragma clang diagnostic error "-Wformat-insufficient-args"
+
   #ifdef COMPILING_SQLITE3_SHELL
     #pragma clang diagnostic ignored "-Wunused-parameter"
     #pragma clang diagnostic ignored "-Wsign-compare"
