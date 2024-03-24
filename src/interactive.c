@@ -595,6 +595,8 @@ void interactive_show_data (uint64_t now)
 /**
  * Handle a new ModeS message and add (or update) the
  * aircraft data with more info.
+ *
+ * \todo Rename to `aircraft_fill_data()` and move to aircraft.c.
  */
 aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
 {

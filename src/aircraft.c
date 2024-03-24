@@ -114,7 +114,7 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
   if (from_sql)
   {
     /* Need to duplicate record from `sqlite3_exec()`.
-     * free it on `aircraft_exit (true)`.
+     * Free it on `aircraft_exit (true)`.
      */
     a->SQL = malloc (sizeof(*a->SQL));
     if (a->SQL)
@@ -1553,6 +1553,9 @@ void aircraft_remove_stale (uint64_t now)
     else if (diff > Modes.interactive_ttl)
     {
       /* Remove the element from the linked list.
+       * \todo
+       * Perhaps copy it to a `aircraft_may_reenter` list?
+       * Or leave it in the list with show-state as `A_SHOW_NONE`.
        */
       LIST_DELETE (aircraft, &Modes.aircrafts, a);
       free (a->SQL);
