@@ -29,6 +29,7 @@
 #define TSIZE (int)(sizeof("HH:MM:SS.MMM: ") - 1)
 
 static bool modeS_log_reinit (const SYSTEMTIME *st);
+static bool modeS_log_ignore (const char *msg);
 
 /**
  * Log a message to the `Modes.log` file with a timestamp.
@@ -48,6 +49,9 @@ void modeS_log (const char *buf)
   {
     static WORD day = (WORD)-1;
     SYSTEMTIME  now;
+
+    if (modeS_log_ignore(buf))
+       return;
 
     assert (Modes.start_SYSTEMTIME.wYear);
 
@@ -224,6 +228,74 @@ bool modeS_log_init (void)
      LOG_STDERR ("Failed to create/append to \"%s\" (%s). Continuing anyway.\n",
                  Modes.logfile_current, strerror(errno));
   return (rc);
+}
+
+/**
+ * Close the current .log-file and free the `Modes.logfile_ignore` list.
+ */
+void modeS_log_exit (void)
+{
+  log_ignore *i_next;
+  log_ignore *i = Modes.logfile_ignore;
+
+  if (Modes.log)
+  {
+    if (!Modes.home_pos_ok)
+       LOG_FILEONLY ("A valid home-position was not used.\n");
+    fclose (Modes.log);
+    Modes.log = NULL;
+  }
+
+  for (i = Modes.logfile_ignore; i; i = i_next)
+  {
+    i_next = i->next;
+    LIST_DELETE (log_ignore, &Modes.logfile_ignore, i);
+    free (i);
+  }
+}
+
+/**
+ * Add a `*msg` to the `Modes.logfile_ignore` list. <br>
+ * Also remove quotes, trailing `#` and leading / trailing spaces.
+ */
+bool modeS_log_add_ignore (const char *msg)
+{
+  log_ignore *ignore = *msg ? calloc (sizeof(*ignore), 1) : NULL;
+  size_t      i;
+
+  if (ignore)
+  {
+    char *p = ignore->msg + 0;
+
+    for (i = 0; i < sizeof(ignore->msg) - 1; i++, msg++)
+        if (*msg != '"')
+           *p++ = *msg;
+
+    *p = '\0';
+    p = strrchr (ignore->msg, '#');
+    if (p)
+       *p = '\0';
+
+    str_trim (ignore->msg);
+    LIST_ADD_TAIL (log_ignore, &Modes.logfile_ignore, ignore);
+  }
+
+  for (i = 0, ignore = Modes.logfile_ignore; ignore; ignore = ignore->next, i++)
+      DEBUG (DEBUG_GENERAL, "%zd: '%s'\n", i, ignore->msg);
+  return (true);
+}
+
+/**
+ * Check for a message `msg` to be ignored.
+ */
+static bool modeS_log_ignore (const char *msg)
+{
+  const log_ignore *ignore;
+
+  for (ignore = Modes.logfile_ignore; ignore; ignore = ignore->next)
+      if (str_startswith(msg, ignore->msg))
+         return (true);
+  return (false);
 }
 
 /**

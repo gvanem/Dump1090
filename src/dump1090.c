@@ -123,6 +123,8 @@ static const struct cfg_table config[] = {
     { "adsb-mode",        ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
     { "bias-t",           ARG_FUNC,    (void*) set_bias_tee },
     { "usb-bulk",         ARG_ATOB,    (void*) &Modes.sdrplay.USB_bulk_mode },
+    { "sdrplay-dll",      ARG_FUNC,    (void*) sdrplay_set_dll_name },
+    { "sdrplay-minver",   ARG_FUNC,    (void*) sdrplay_set_minver },
     { "calibrate",        ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
     { "deny4",            ARG_FUNC,    (void*) net_deny4 },
     { "deny6",            ARG_FUNC,    (void*) net_deny6 },
@@ -144,6 +146,7 @@ static const struct cfg_table config[] = {
     { "keep-alive",       ARG_ATOB,    (void*) &Modes.keep_alive },
     { "logfile",          ARG_FUNC,    (void*) set_logfile },
     { "logfile-daily",    ARG_ATOB,    (void*) &Modes.logfile_daily },
+    { "logfile-ignore",   ARG_FUNC,    (void*) modeS_log_add_ignore },
     { "loops",            ARG_FUNC,    (void*) set_loops },
     { "max-messages",     ARG_ATO_U64, (void*) &Modes.max_messages },
     { "max-frames",       ARG_ATO_U64, (void*) &Modes.max_frames },
@@ -382,6 +385,11 @@ static void modeS_init_config (void)
 
   snprintf (Modes.airport_freq_db, sizeof(Modes.airport_freq_db), "%s\\%s", Modes.where_am_I, AIRPORT_FREQ_CSV);
   snprintf (Modes.airport_cache, sizeof(Modes.airport_cache), "%s\\%s", Modes.tmp_dir, AIRPORT_DATABASE_CACHE);
+
+  /* Defaults for SDRPlay:
+   */
+  strcpy (Modes.sdrplay.dll_name, "sdrplay_api.dll");  /* Assumed to be on PATH */
+  Modes.sdrplay.min_version = SDRPLAY_API_VERSION;     /* = 3.14F */
 
   Modes.infile_fd       = -1;      /* no --infile */
   Modes.gain_auto       = true;
@@ -791,7 +799,7 @@ static int infile_read (void)
 /**
  * We read RTLSDR or SDRplay data using a separate thread, so the main
  * thread only handles decoding without caring about data acquisition.
- * Ref. `main_data_loop()` below.
+ * \ref `main_data_loop()` below.
  */
 static unsigned int __stdcall data_thread_fn (void *arg)
 {
@@ -2144,7 +2152,7 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
  * and of size `mlen` bytes. Every detected Mode S message is converted
  * into a stream of bits and passed to the function to display it.
  *
- * In the outer loop to find a data-frame:
+ * In the outer loop to find the preamble and a data-frame:
  *   `mlen == 131310` bits, but `j == [0 .. mlen - (2*120)]`.
  *   Hence `j == [0 .. 131070]`.
  *
@@ -2164,18 +2172,32 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
   bool     use_correction = false;
   uint32_t rc = 0;  /**\todo fix this */
 
-  /* The Mode S preamble is made of impulses of 0.5 microseconds at
-   * the following time offsets:
+  /**
+   * The Mode S preamble is made of pulses of 0.5 microseconds
+   * at the following time offsets:
    *
-   * 0   - 0.5 usec: first impulse.
-   * 1.0 - 1.5 usec: second impulse.
-   * 3.5 - 4   usec: third impulse.
-   * 4.5 - 5   usec: last impulse.
+   * 0   - 0.5 usec: first pulse.
+   * 1.0 - 1.5 usec: second pulse.
+   * 3.5 - 4   usec: third pulse.
+   * 4.5 - 5   usec: last pulse.
+   *
+   * Like this  (\ref ../docs/The-1090MHz-riddle.pdf, "1.4.2 Mode S replies"):
+   *  ```
+   *    < ----------- 8 usec / 16 bits ---------> < ---- data -- ... >
+   *    __  __         __  __
+   *    | | | |        | | | |
+   *    | |_| |________| |_| |__________________  ....
+   *
+   *    ----|----|----|----|----|----|----|----|
+   *    10   10   00   01   01   00   00   00
+   * j: 0 1 2 3 4 5 6 7 8 9 10 ...
+   * ```
    *
    * If we are sampling at 2 MHz, every sample in our magnitude vector
    * is 0.5 usec. So the preamble will look like this, assuming there is
-   * an impulse at offset 0 in the array:
+   * an pulse at offset 0 in the array:
    *
+   * ```
    *   0   -----------------
    *   1   -
    *   2   ------------------
@@ -2186,6 +2208,7 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
    *   7   ------------------
    *   8   --
    *   9   -------------------
+   * ```
    */
   for (j = 0; j < mlen - 2*MODES_FULL_LEN; j++)
   {
@@ -2221,7 +2244,7 @@ static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
       continue;
     }
 
-    /* The samples between the two spikes must be < than the average
+    /* The samples between the two spikes must be lower than the average
      * of the high spikes level. We don't test bits too near to
      * the high levels as signals can be out of phase so part of the
      * energy can be in the near samples.
@@ -2453,8 +2476,8 @@ good_preamble:
 
 /**
  * When a new message is available, because it was decoded from the
- * RTLSDR/SDRplay device, file, or received in a TCP input port, or any other
- * way we can receive a decoded message, we call this function in order
+ * RTLSDR/SDRplay device, file, or received on a TCP input port
+ * (from a SBS-IN or RAW-IN service), we call this function in order
  * to use the message.
  *
  * Basically this function passes a raw message to the upper layers for
@@ -2469,9 +2492,9 @@ static void modeS_user_message (const modeS_message *mm)
   a = interactive_receive_data (mm, now);
 
   if (a &&
-      Modes.stat.cli_accepted[MODES_NET_SERVICE_SBS_OUT] > 0 && /* If we have accepted >=1 client */
-      net_handler_sending(MODES_NET_SERVICE_SBS_OUT))           /* and we're still sending */
-     modeS_send_SBS_output (mm, a);                             /* Feed SBS output clients. */
+      Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS_OUT] > 0 && /* If we have accepted >=1 client */
+      net_handler_sending(MODES_NET_SERVICE_SBS_OUT))            /* and we're still sending */
+     modeS_send_SBS_output (mm, a);                              /* Feed SBS output clients. */
 
   /* In non-interactive mode, display messages on standard output.
    * In silent-mode, do nothing just to consentrate on network traces.
@@ -2668,6 +2691,21 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
 }
 
 /**
+ * \def LOG_GOOD_RAW()
+ *      if `--debug g` is active, log a good RAW message.
+ */
+#define LOG_GOOD_RAW(fmt, ...)  TRACE ("RAW(%d): " fmt, \
+                                       loop_cnt, __VA_ARGS__)
+
+/**
+ * \def LOG_BOGUS_RAW()
+ *      if `--debug g` is active, log a bad / bogus RAW message.
+ */
+#define LOG_BOGUS_RAW(_msg, fmt, ...)  TRACE ("RAW(%d), Bogus msg %d: " fmt, \
+                                              loop_cnt, _msg, __VA_ARGS__);  \
+                                       Modes.stat.RAW_unrecognized++
+
+/**
  * This function decodes a string representing a Mode S message in
  * raw hex format like: `*8D4B969699155600E87406F5B69F;<eol>`
  *
@@ -2684,10 +2722,6 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
  *
  * on accepting a new client. Hence check for that too.
  */
-#define LOG_GOOD_RAW(fmt, ...)         TRACE ("RAW(%d): " fmt, loop_cnt, __VA_ARGS__)
-#define LOG_BOGUS_RAW(_msg, fmt, ...)  TRACE ("RAW(%d), Bogus msg %d: " fmt, loop_cnt, _msg, __VA_ARGS__); \
-                                       Modes.stat.unrecognized_raw++
-
 bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
 {
   modeS_message mm;
@@ -2711,7 +2745,7 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
 
   if (msg->len >= 2 && end[-2] == '\r')
   {
-    end[-2] = '\0';
+    end [-2] = '\0';
     len--;
   }
 
@@ -2720,7 +2754,7 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
   if (!strcmp((const char*)hex, MODES_RAW_HEART_BEAT))
   {
     LOG_GOOD_RAW ("Got heart-beat signal");
-    Modes.stat.good_raw++;
+    Modes.stat.RAW_good++;
     mg_iobuf_del (msg, 0, msg->len);
     return (true);
   }
@@ -2740,7 +2774,7 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
    */
   if (len < 2)
   {
-    Modes.stat.empty_raw++;
+    Modes.stat.RAW_empty++;
     LOG_BOGUS_RAW (1, "'%.*s'", (int)msg->len, msg->buf);
     mg_iobuf_del (msg, 0, end - msg->buf);
     return (false);
@@ -2758,7 +2792,7 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
   hex++;     /* Skip `*` and `;` */
   len -= 2;
 
-  if (len > 2*MODES_LONG_MSG_BYTES)   /* Too long message (> 28 bytes)... broken. */
+  if (len > 2 * MODES_LONG_MSG_BYTES)   /* Too long message (> 28 bytes)... broken. */
   {
     LOG_BOGUS_RAW (3, "len=%d, '%.*s'", len, len, hex);
     mg_iobuf_del (msg, 0, end - msg->buf);
@@ -2780,7 +2814,7 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
   }
 
   mg_iobuf_del (msg, 0, end - msg->buf);
-  Modes.stat.good_raw++;
+  Modes.stat.RAW_good++;
 
   decode_modeS_message (&mm, bin_msg);
   if (mm.CRC_ok)
@@ -2788,69 +2822,174 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
   return (true);
 }
 
-/**
- * \todo
- * Ref: http://woodair.net/sbs/article/barebones42_socket_data.htm
- */
-static int modeS_recv_SBS_input (mg_iobuf *msg, modeS_message *mm)
-{
-  memset (mm, '\0', sizeof(*mm));
+#define USE_str_sep 1
 
-#if 0
-  /* decode 'msg' and fill 'mm'
+/**
+ * The decoder for SBS input of `MSG,x` messages.
+ * Details at: http://woodair.net/sbs/article/barebones42_socket_data.htm
+ */
+static void modeS_recv_SBS_input (char *msg, modeS_message *mm)
+{
+  char  *fields [23]; /* leave 0 indexed entry empty, place 22 tokens into array */
+  char  *p = msg;
+  size_t i;
+
+  fields [0] = "?";
+
+  /* E.g.:
+   *   MSG,5,111,11111,45D068,111111,2024/03/16,18:53:45.000,2024/03/16,18:53:45.000,,7125,,,,,,,,,,0
    */
-  if (mm->CRC_ok)
-     modeS_user_message (&mm);
+#if (USE_str_sep == 0)
+  strtok (p, ", ");
 #endif
 
+  for (i = 1; i < DIM(fields); i++)
+  {
+#if USE_str_sep
+    fields [i] = str_sep (&p, ",");
+    if (!p && i < DIM(fields) - 1)
+#else
+    fields [i] = strtok (NULL, ",");
+    if (!fields[i] && i < DIM(fields) - 1)
+#endif
+    {
+      TRACE ("Missing field %zd: ", i);
+      goto SBS_invalid;
+    }
+  }
+
+//TRACE ("field-2: '%s', field-5: '%s' ", fields[2], fields[5]);
+  memset (mm, '\0', sizeof(*mm));
+  mm->CRC_ok = true;
+  Modes.stat.SBS_good++;
+
+#if 0
+  /**\todo
+   * Decode 'msg' and fill 'mm'. Use `decodeSbsLine()` from readsb.
+   */
+  modeS_user_message (&mm);
+#else
   MODES_NOTUSED (msg);
-  return (0);
+#endif
+  return;
+
+SBS_invalid:
+  Modes.stat.SBS_unrecognized++;
 }
 
 /**
- * This function decodes a string representing a Mode S message in
- * SBS format (Base Station) like:
+ * \def LOG_GOOD_SBS()
+ *      if `--debug g` is active, log a good SBS message.
+ */
+#define LOG_GOOD_SBS(fmt, ...)  TRACE ("SBS(%d): " fmt, loop_cnt, __VA_ARGS__)
+
+/**
+ * \def LOG_BOGUS_SBS()
+ *      if `--debug g` is active, log a bad / bogus SBS message.
+ */
+#define LOG_BOGUS_SBS(fmt, ...)  TRACE ("SBS(%d), Bogus msg: " fmt, loop_cnt, __VA_ARGS__); \
+                                 Modes.stat.SBS_unrecognized++
+
+/**
+ * From http://woodair.net/sbs/article/barebones42_socket_data.htm:
+ * ```
+ *  Message Types:
+ *  There are six message types - MSG, SEL, ID, AIR, STA, CLK
+ * ```
+ */
+static bool modeS_SBS_valid_msg (const mg_iobuf *io, bool *ignore)
+{
+  const char *m = (const char*) io->buf;
+
+  *ignore = true;   /* Assume we ignore */
+
+  if (io->len < 4)
+     return (false);
+
+  if (!strncmp(m, "MSG,", 4))
+  {
+    *ignore = false;
+    Modes.stat.SBS_MSG_msg++;
+  }
+
+  if (strncmp(m, "AIR,", 4) == 0)
+  {
+    Modes.stat.SBS_AIR_msg++;
+    return (true);
+  }
+  if (strncmp(m, "STA,", 4) == 0)
+  {
+    Modes.stat.SBS_STA_msg++;
+    return (true);
+  }
+  return (!strncmp(m, "MSG,", 4) || !strncmp(m, "SEL,", 4) ||
+          !strncmp(m, "CLK,", 4) || !strncmp(m, "ID,", 3));
+}
+
+/**
+ * This function is called from `net_io.c` on a `MG_EV_READ` event
+ * from Mongoose. Potentially multiple times until all lines in the
+ * event-chunk gets consumes; `loop_cnt` is at-least 0.
+ *
+ * This function shall decode a string representing a Mode S message
+ * in SBS format (Base Station) like:
  * ```
  * MSG,5,1,1,4CC52B,1,2021/09/20,23:30:43.897,2021/09/20,23:30:43.901,,38000,,,,,,,0,,0,
  * ```
  *
  * It accepts both '\n' and '\r\n' terminated records.
+ * It checks for all 6 valid Message Types, but it handles only `"MSG"` records.
+ *
+ * \todo Move the handling of SBS-IN data to the `data_thread_fn()`.
+ *       Add a `struct mg_queue *sbs_in_data` to `ModeS.sbs_in::fn_data`?
  */
-#define LOG_GOOD_SBS(fmt, ...)  TRACE ("SBS(%d): " fmt, loop_cnt, __VA_ARGS__)
-#define LOG_BOGUS_SBS(fmt, ...) TRACE ("SBS(%d): " fmt, loop_cnt, __VA_ARGS__); \
-                                Modes.stat.unrecognized_SBS++
-
 bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
 {
   modeS_message mm;
   uint8_t      *end;
+  bool          ignore;
 
-  TRACE ("SBS(%d), len: %zu", loop_cnt, msg->len);
   if (Modes.debug & DEBUG_NET2)
-     mg_hexdump (msg->buf, msg->len);
+  {
+    /* with '--debug N', the trace will look like this
+     *   net_io.c(938): MG_EV_READ: 703 bytes from 127.0.0.1:30003 (service "SBS TCP input")
+     *   0000   4d 53 47 2c 35 2c 31 31 31 2c 31 31 31 31 31 2c   MSG,5,111,11111,
+     *   0010   33 43 36 35 38 36 2c 31 31 31 31 31 31 2c 32 30   3C6586,111111,20
+     *   0020   32 34 2f 30 33 2f 31 36 2c 30 36 3a 31 35 3a 33   24/03/16,06:15:3
+     *   0030   39 2e 30 30 30 2c 32 30 32 34 2f 30 33 2f 31 36   9.000,2024/03/16
+     *   0040   2c 30 36 3a 31 35 3a 33 39 2e 30 30 30 2c 2c 34   ,06:15:39.000,,4
+     *   0050   31 37 35 2c 2c 2c 2c 2c 2c 2c 2c 2c 2c 30 0d 0a   175,,,,,,,,,,0..
+     *                                                    ^_ end of this line
+     *   0060   4d 53 47 2c 36 2c 31 31 31 2c 31 31 31 31 31 2c   MSG,6,111,11111,
+     */
+    mg_hexdump (msg->buf, msg->len);
+  }
 
   if (msg->len == 0)  /* all was consumed */
      return (false);
 
   end = memchr (msg->buf, '\n', msg->len);
   if (!end)
-  {
-    LOG_BOGUS_SBS ("Bogus msg: '%.*s'", (int)msg->len, msg->buf);
-    mg_iobuf_del (msg, 0, msg->len);
-    return (false);
-  }
+     return (true);   /* The end-of-line could come in next message */
 
   *end++ = '\0';
-  if (msg->len >= 2 && end[-2] == '\r')
-     end[-2] = '\0';
+  if (end [-2] == '\r')
+     end [-2] = '\0';
 
-  if (!strncmp((char*)msg->buf, "MSG,", 4))
+  if (modeS_SBS_valid_msg(msg, &ignore))
   {
-    modeS_recv_SBS_input (msg, &mm);
-    Modes.stat.good_SBS++;
+    if (!ignore)
+    {
+      LOG_GOOD_SBS ("'%.*s'", (int)(end - msg->buf), msg->buf);
+      modeS_recv_SBS_input ((char*) msg->buf, &mm);
+    }
+    mg_iobuf_del (msg, 0, end - msg->buf);
+    return (true);
   }
-  mg_iobuf_del (msg, 0, end - msg->buf);
-  return (true);
+
+  LOG_BOGUS_SBS ("'%.*s'", (int)(end - msg->buf), msg->buf);
+  mg_iobuf_del (msg, 0, msg->len);  /* recover */
+  return (false);
 }
 
 /**
@@ -3169,13 +3308,7 @@ static void modeS_exit (void)
   if (Modes.win_location)
      location_exit();
 
-  if (Modes.log)
-  {
-    if (!Modes.home_pos_ok)
-       LOG_FILEONLY ("A valid home-position was not used.\n");
-    fclose (Modes.log);
-    Modes.log = NULL;
-  }
+  modeS_log_exit();
 
 #if defined(USE_MIMALLOC)
   mimalloc_exit();

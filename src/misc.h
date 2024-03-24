@@ -123,6 +123,14 @@
                                     modeS_flogf (Modes.log, fmt, __VA_ARGS__); \
                                } while (0)
 
+/**
+ * A structure for things to ignore in `modeS_log()`
+ */
+typedef struct log_ignore {
+        char               msg [100];
+        struct log_ignore *next;
+      } log_ignore;
+
 #define SETMODE(fd, mode)  (void)_setmode (fd, mode)
 
 #define NO_RETURN __declspec(noreturn)
@@ -339,7 +347,7 @@ typedef struct sdrplay_conf {
 
 /*
  * Forwards:
- * Details in "aircraft.h", "airports".h" and "externals/sqlite3.c"
+ * Details in "aircraft.h", "airports".h", "externals/sqlite3.c" and "misc.c"
  */
 struct aircraft;
 struct aircraft_info;
@@ -414,6 +422,7 @@ typedef struct global_data {
         mg_file_path logfile_current;            /**< Write debug/info to file with option `--logfile file`. */
         mg_file_path logfile_initial;            /**< The initial `--logfile file` w/o the below pattern. */
         bool         logfile_daily;              /**< Create a new `logfile` at midnight; pattern always `x-<YYYY-MM-DD>.log`. */
+        log_ignore  *logfile_ignore;             /**< Messages to ignore when writing to`logfile` */
         FILE        *log;                        /**< Open it for exclusive write access. */
         uint64_t     loops;                      /**< Read input file in a loop. */
         uint32_t     debug;                      /**< `DEBUG()` mode bits. */
@@ -610,6 +619,8 @@ void        modeS_logc (char c, void *param);
 void        modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
 void        modeS_log_set (void);
 bool        modeS_log_init (void);
+void        modeS_log_exit (void);
+bool        modeS_log_add_ignore (const char *msg);
 void        modeS_err_set (bool on);
 char       *modeS_err_get (void);
 char       *modeS_SYSTEMTIME_to_str (const SYSTEMTIME *st, bool show_YMD);
