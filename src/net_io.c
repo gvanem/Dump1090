@@ -398,8 +398,8 @@ static char *receiver_to_json (void)
   return mg_mprintf ("{\"version\": \"%s\", "
                       "\"refresh\": %llu, "
                       "\"history\": %d, "
-                      "\"lat\": %.6g, "          /* if 'Modes.home_pos_ok == false', this is 0. */
-                      "\"lon\": %.6g}",          /* ditto */
+                      "\"lat\": %.8g, "       /* if 'Modes.home_pos_ok == false', this is 0. */
+                      "\"lon\": %.8g}",       /* ditto */
                       PROG_VERSION,
                       Modes.json_interval,
                       history_size,
