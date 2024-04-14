@@ -249,7 +249,7 @@ bool location_poll (pos_t *pos)
   }
   pos->lat = g_pos.lat;
   pos->lon = g_pos.lon;
-  TRACE ("VALID_POS()=1: Latitude: %.6f, Longitude: %.6f", pos->lat, pos->lon);
+  TRACE ("VALID_POS()=1: Latitude: %.8f, Longitude: %.8f", pos->lat, pos->lon);
   return (true);
 }
 

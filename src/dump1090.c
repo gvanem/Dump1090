@@ -3094,7 +3094,7 @@ static void background_tasks (void)
     spherical_to_cartesian (&Modes.home_pos, &Modes.home_pos_cart);
     if (Modes.home_pos_ok)
        LOG_FILEONLY ("Ignoring the 'homepos' config value since we use the 'Windows Location API':"
-                     " Latitude: %.6f, Longitude: %.6f.\n",
+                     " Latitude: %.8f, Longitude: %.8f.\n",
                      Modes.home_pos.lat, Modes.home_pos.lon);
     Modes.home_pos_ok = true;
   }
