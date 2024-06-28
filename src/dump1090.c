@@ -2593,7 +2593,7 @@ static const char *get_SBS_timestamp (void)
   strcat (timestamp, ts_buf);
 
   if (ts_len >= 1)
-     timestamp [ts_len - 1] = '\0';    /* remove last ',' */
+     timestamp [strlen(timestamp) - 1] = '\0';    /* remove last ',' */
   return (timestamp);
 }
 
