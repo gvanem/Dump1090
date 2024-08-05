@@ -1736,19 +1736,17 @@ static flight_info *find_by_callsign (const char *call_sign, bool *fixed)
 
   *fixed = false;
 
-  if (Modes.prefer_adsb_lol)
-     goto cache_lookup;
-
 #if defined(USE_GEN_ROUTES)
-  f = routes_find_by_callsign (call_sign);
-  if (f)
+  if (!Modes.prefer_adsb_lol)
   {
-    *fixed = true;
-    return (f);
+    f = routes_find_by_callsign (call_sign);
+    if (f)
+    {
+      *fixed = true;
+      return (f);
+    }
   }
 #endif
-
-  cache_lookup:
 
   for (f = g_data.flight_info; f; f = f->next)
   {
