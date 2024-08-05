@@ -120,7 +120,7 @@
 
 /** Support various features in `externals/mongoose.c`:
  */
-#define MG_ENABLE_ASSERT        1  /* Enable `assert()` calls */
+#define MG_ENABLE_ASSERT        1  /* Enable `assert()` calls (unless 'USE_MUNIT=1') */
 #define MG_ENABLE_IPV6          0  /* No IPv6 code */
 #define MG_ENABLE_MD5           0  /* No need for MD5 code */
 #define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
@@ -162,6 +162,20 @@
  */
 #if defined(_DEBUG) && defined(USE_MIMALLOC)
   #error "Setting 'USE_CRT_DEBUG=1' and 'USE_MIMALLOC=1' is not supported"
+#endif
+
+/**
+ * Enable 'externals/munit.c' test framework?
+ */
+#if defined(USE_MUNIT)
+  #include <assert.h>
+
+  #undef  MG_ENABLE_ASSERT
+  #define MG_ENABLE_ASSERT            0
+  #define MUNIT_ENABLE_ASSERT_ALIASES 1
+  #define MUNIT_NO_BUFFER             1 /* avoid close() in 'externals/munit.c' */
+  #define MUNIT_DISABLE_TIMING        1 /* disable timing information */
+  #include "externals/munit.h"
 #endif
 
 /**

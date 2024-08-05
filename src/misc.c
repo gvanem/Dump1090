@@ -30,6 +30,8 @@
 
 static bool modeS_log_reinit (const SYSTEMTIME *st);
 static bool modeS_log_ignore (const char *msg);
+static BOOL WINAPI console_handler (DWORD event);
+extern void PDC_scr_close (void);
 
 /**
  * Log a message to the `Modes.log` file with a timestamp.
@@ -1100,10 +1102,14 @@ static const char *mimalloc_version (void)
 }
 #endif  /* _DEBUG */
 
-/* A dummy for `show_version_info()`
+/* Dummies for `show_version_info()`
  */
 #if !defined(USE_MIMALLOC)
 #define mimalloc_version() ""
+#endif
+
+#if !defined(USE_MUNIT)
+#define munit_version() ""
 #endif
 
 /**
@@ -1496,6 +1502,19 @@ static void print_LDFLAGS (void)
 #endif
 }
 
+#if defined(USE_MUNIT)
+static const char *munit_version (void)
+{
+  static char buf [30];
+
+  snprintf (buf, sizeof(buf), "munit ver:   %d.%d.%d\n",
+            (MUNIT_CURRENT_VERSION >> 16) & 0xff,
+            (MUNIT_CURRENT_VERSION >> 8) & 0xff,
+            (MUNIT_CURRENT_VERSION >> 0) & 0xff);
+  return (buf);
+}
+#endif
+
 static const char *__DATE__str (void)
 {
 #if 0
@@ -1548,7 +1567,7 @@ void show_version_info (bool verbose)
     printf ("PDCurses ver: %s\n", PDC_VERDOT);
     printf ("Mongoose ver: %s\n", MG_VERSION);
     printf ("Miniz ver:    %s\n", mz_version());
-    printf ("%s", mimalloc_version());
+    printf ("%s%s", mimalloc_version(), munit_version());
     print_packed_web_info();
     print_sql_info();
     print_CFLAGS();
@@ -2837,3 +2856,40 @@ int getopt_long_only (int nargc, char * const *nargv, const char *options,
   return getopt_internal (nargc, nargv, options, long_options, idx,
                           FLAG_PERMUTE|FLAG_LONGONLY);
 }
+
+/*
+ * Return the name for the console-events we might receive.
+ */
+static const char *ws_event_name (DWORD event)
+{
+  return (event == CTRL_C_EVENT        ? "CTRL_C_EVENT"        :
+          event == CTRL_BREAK_EVENT    ? "CTRL_BREAK_EVENT"    :
+          event == CTRL_CLOSE_EVENT    ? "CTRL_CLOSE_EVENT"    :
+          event == CTRL_LOGOFF_EVENT   ? "CTRL_LOGOFF_EVENT"   :
+          event == CTRL_SHUTDOWN_EVENT ? "CTRL_SHUTDOWN_EVENT" : "UNKNOWN EVENT");
+}
+
+static BOOL WINAPI console_handler (DWORD event)
+{
+  LOG_FILEONLY ("\nGot event: %s\n", ws_event_name(event));
+
+  if (event == CTRL_BREAK_EVENT || event == CTRL_C_EVENT)
+  {
+    PDC_scr_close();
+    return (FALSE);
+  }
+
+  if (event == CTRL_CLOSE_EVENT || event == CTRL_LOGOFF_EVENT || event == CTRL_SHUTDOWN_EVENT)
+  {
+    MessageBeep (MB_OK);
+    Sleep (500);
+    return (TRUE);
+  }
+  return (FALSE);
+}
+
+void misc_init (void)
+{
+  SetConsoleCtrlHandler (console_handler, TRUE);
+}
+

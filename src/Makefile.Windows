@@ -32,6 +32,11 @@ USE_GEN_ROUTES ?= 1
 USE_BIN_FILES ?= 1
 
 #
+# Enable the 'externals/munit.c' test framework?
+#
+USE_MUNIT ?= 0
+
+#
 # Option for polling of network events in 'externals/mongoose.c':
 #   USE_NET_POLLER=EPOLL:   use a Windows version of 'epoll()' from https://github.com/piscisaureus/wepoll
 #   USE_NET_POLLER=WSAPOLL: use 'WSAPoll()'
@@ -175,8 +180,7 @@ CFLAGS = -nologo -c -Zi -W4        \
 #
 CFLAGS += -volatile:iso
 
-LDFLAGS = -nologo -map -debug -verbose -incremental:no \
-          -nodefaultlib:oldnames.lib -machine:$(CPU)
+LDFLAGS = -nologo -map -debug -verbose -incremental:no -machine:$(CPU)
 
 RCFLAGS = -nologo
 
@@ -345,6 +349,13 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_fc001x.c                \
              tuner_fc2580.c                \
              tuner_r82xx.c)
+
+ifeq ($(USE_MUNIT),1)
+  SOURCES += externals/munit.c
+  CFLAGS  += -DUSE_MUNIT
+else
+  LDFLAGS += -nodefaultlib:oldnames.lib
+endif
 
 ifeq ($(USE_GEN_ROUTES),1)
   SOURCES += $(OBJ_DIR)/routes.c
@@ -638,6 +649,10 @@ vclean realclean: clean
 	rm -f $(TARGETS) ../packed_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
+ubsan-issue.exe: $(OBJ_DIR)/ubsan-issue-with-32-bit-build.obj $(OBJ_DIR)/mongoose.obj $(OBJ_DIR)/wepoll.obj
+	$(call link_EXE, $@, $^ -nodefaultlib:uuid.lib $(ASAN_LIBS))
+
+
 #
 # GNU-make macros:
 #
@@ -800,10 +815,11 @@ define dump1090_Doxyfile
   PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1
   INPUT                 = $(doxy_SOURCES) \
                           $(doxy_HEADERS)
+
   #
   # Do not document the huge '$(OBJ_DIR)/routes.c' file
   #
-  # EXCLUDE               = routes.c
+  # EXCLUDE             = routes.c
 
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = .. ../..
@@ -832,7 +848,7 @@ define web_pages_RC
   VS_VERSION_INFO VERSIONINFO
     FILEVERSION     RC_VERSION
     PRODUCTVERSION  RC_VERSION
-    FILEFLAGSMASK   0x3fL
+    FILEFLAGSMASK   0x3FL
     FILEOS          VOS__WINDOWS32
     FILETYPE        VFT_DLL
     FILESUBTYPE     0x0L
