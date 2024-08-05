@@ -21,7 +21,7 @@ typedef void *HANDLE;
 
 // Application code should check that it is compiled against the same API version
 // sdrplay_api_ApiVersion() returns the API version 
-#define SDRPLAY_API_VERSION                   (float)(3.14)
+#define SDRPLAY_API_VERSION                   (float)(3.15)
 
 // API Constants
 #define SDRPLAY_MAX_DEVICES                   (16)
@@ -36,6 +36,7 @@ typedef void *HANDLE;
 #define SDRPLAY_RSPduo_ID                     (3)
 #define SDRPLAY_RSPdx_ID                      (4)
 #define SDRPLAY_RSP1B_ID                      (6)
+#define SDRPLAY_RSPdxR2_ID                    (7)
 
 // Enum types
 typedef enum
