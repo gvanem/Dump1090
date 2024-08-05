@@ -174,7 +174,7 @@ and a `web-page = web-pages.dll;N` in the [**config-file**](dump1090.cfg).
 ## Using RTL1090 as RAW source
 
 And when using the excellent *[RTL1090](https://rtl1090.com/) V3 Scope* program by [**JetVision**](https://jetvision.de/) as
-the collector and generator of **RAW-IN** messages, and Dump1090 starting like:
+the collector and generator of **RAW-IN** messages, and Dump1090 started like:
  ```
  dump1090.exe --net-active --interactive --config host-raw.cfg
  ```
