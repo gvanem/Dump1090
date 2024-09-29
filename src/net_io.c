@@ -392,7 +392,7 @@ static char *receiver_to_json (void)
 
   /* work out number of valid history entries
    */
-  if (!Modes.json_aircraft_history [history_size].ptr)
+  if (!Modes.json_aircraft_history [history_size].buf)
      history_size = Modes.json_aircraft_history_next;
 
   return mg_mprintf ("{\"version\": \"%s\", "
@@ -423,21 +423,21 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   /* Make a copy of the URI for the caller
    */
   len = min (sizeof(mg_http_uri) - 1, hm->uri.len);
-  uri = strncpy (request_uri, hm->uri.ptr, len);
+  uri = strncpy (request_uri, hm->uri.buf, len);
   request_uri [len] = '\0';
 
-  first_nl = strchr (hm->head.ptr, '\r');
+  first_nl = strchr (hm->head.buf, '\r');
   len = hm->head.len;
 
-  if (first_nl > hm->head.ptr - 1)
-     len = first_nl - hm->head.ptr;
+  if (first_nl > hm->head.buf - 1)
+     len = first_nl - hm->head.buf;
 
   DEBUG (DEBUG_NET2, "\n"
          "  MG_EV_HTTP_MSG: (conn-id: %lu)\n"
          "    head:    '%.*s' ...\n"     /* 1st line in request */
          "    uri:     '%s'\n"
          "    method:  '%.*s'\n",
-         c->id, (int)len, hm->head.ptr, uri, (int)hm->method.len, hm->method.ptr);
+         c->id, (int)len, hm->head.buf, uri, (int)hm->method.len, hm->method.buf);
 
   is_GET  = (mg_vcasecmp(&hm->method, "GET") == 0);
   is_HEAD = (mg_vcasecmp(&hm->method, "HEAD") == 0);
@@ -445,7 +445,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   if (!is_GET && !is_HEAD)
   {
     DEBUG (DEBUG_NET, "Bad Request: '%.*s %s' from %s (conn-id: %lu)\n",
-           (int)hm->method.len, hm->method.ptr, uri,
+           (int)hm->method.len, hm->method.buf, uri,
            net_str_addr(&c->rem, addr_buf, sizeof(addr_buf)), c->id);
 
     Modes.stat.HTTP_400_responses++;
@@ -461,7 +461,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   header = mg_http_get_header (hm, "Connection");
   if (header && !mg_vcasecmp(header, "keep-alive"))
   {
-    DEBUG (DEBUG_NET2, "Connection: '%.*s'\n", (int)header->len, header->ptr);
+    DEBUG (DEBUG_NET2, "Connection: '%.*s'\n", (int)header->len, header->buf);
     Modes.stat.HTTP_keep_alive_recv++;
     cli->keep_alive = true;
   }
@@ -469,7 +469,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   header = mg_http_get_header (hm, "Accept-Encoding");
   if (header && !mg_vcasecmp(header, "gzip"))
   {
-    DEBUG (DEBUG_NET2, "Accept-Encoding: '%.*s'\n", (int)header->len, header->ptr);
+    DEBUG (DEBUG_NET2, "Accept-Encoding: '%.*s'\n", (int)header->len, header->buf);
     cli->encoding_gzip = true;  /**\todo Add gzip compression */
   }
 
@@ -490,7 +490,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
    */
   if (!stricmp(uri, "/echo"))
   {
-    DEBUG (DEBUG_NET, "Got WebSocket echo:\n'%.*s'.\n", (int)hm->head.len, hm->head.ptr);
+    DEBUG (DEBUG_NET, "Got WebSocket echo:\n'%.*s'.\n", (int)hm->head.len, hm->head.buf);
     mg_ws_upgrade (c, hm, "WS test");
     return (200);
   }
@@ -615,17 +615,17 @@ static int net_handler_websocket (mg_connection *c, const mg_ws_message *ws, int
   if (ev == MG_EV_WS_OPEN)
   {
     DEBUG (DEBUG_MONGOOSE2, "WebSock open from conn-id: %lu:\n", c->id);
-    HEX_DUMP (ws->data.ptr, ws->data.len);
+    HEX_DUMP (ws->data.buf, ws->data.len);
   }
   else if (ev == MG_EV_WS_MSG)
   {
     DEBUG (DEBUG_MONGOOSE2, "WebSock message from conn-id: %lu:\n", c->id);
-    HEX_DUMP (ws->data.ptr, ws->data.len);
+    HEX_DUMP (ws->data.buf, ws->data.len);
   }
   else if (ev == MG_EV_WS_CTL)
   {
     DEBUG (DEBUG_MONGOOSE2, "WebSock control from conn-id: %lu:\n", c->id);
-    HEX_DUMP (ws->data.ptr, ws->data.len);
+    HEX_DUMP (ws->data.buf, ws->data.len);
     Modes.stat.HTTP_websockets++;
   }
   return (1);
@@ -1013,7 +1013,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
       status = net_handler_http (c, hm, request_uri);
 
       DEBUG (DEBUG_NET2, "HTTP %d for '%.*s' (conn-id: %lu)\n",
-             status, (int)hm->uri.len, hm->uri.ptr, c->id);
+             status, (int)hm->uri.len, hm->uri.buf, c->id);
     }
     else
       DEBUG (DEBUG_NET, "Ignoring HTTP event '%s' (conn-id: %lu)\n",
@@ -1565,7 +1565,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   addr.port = mg_url_port (host_port);
   mg_aton (str, &addr);
   is_ip6 = addr.is_ip6;
-  snprintf (name, sizeof(name), "%.*s", (int)str.len, str.ptr);
+  snprintf (name, sizeof(name), "%.*s", (int)str.len, str.buf);
 
   if (addr.port == 0)
      addr.port = def_port;

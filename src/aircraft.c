@@ -603,7 +603,7 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
 
   if (ctx->field_num == 0)        /* "icao24" field */
   {
-    rec.addr = mg_unhexn (value, strlen(value));
+    rec.addr = mg_unhex (value);
   }
   else if (ctx->field_num == 1)   /* "registration" field */
   {

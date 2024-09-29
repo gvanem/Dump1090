@@ -676,8 +676,16 @@ double      closest_to (double val, double val1, double val2);
 void        decode_CPR (struct aircraft *a);
 const char *mz_version (void);                 /* in 'externals/zip.c' */
 void        rx_callback (uint8_t *buf, uint32_t len, void *ctx);
+void        show_version_info (bool verbose);
 
-void show_version_info (bool verbose);
+/*
+ * Functions removed from Mongoose ver 7.15
+ */
+uint32_t mg_unhex  (const char *str);
+uint32_t mg_unhexn (const char *str, size_t len);
+char    *mg_hex (const void *buf, size_t len, char *to);
+int      mg_ncasecmp (const char *s1, const char *s2, size_t len);
+int      mg_vcasecmp (const struct mg_str *str1, const char *str2);
 
 #if defined(USE_MIMALLOC)
   void mimalloc_init (void);

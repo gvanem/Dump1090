@@ -30,8 +30,8 @@
 
 static bool modeS_log_reinit (const SYSTEMTIME *st);
 static bool modeS_log_ignore (const char *msg);
-static BOOL WINAPI console_handler (DWORD event);
 extern void PDC_scr_close (void);
+static BOOL WINAPI console_handler (DWORD event);
 
 /**
  * Log a message to the `Modes.log` file with a timestamp.
@@ -1007,6 +1007,8 @@ void init_timings (void)
   get_FILETIME_now (&Modes.start_FILETIME);
   modeS_FILETIME_to_loc_str (&Modes.start_FILETIME, true);
   GetLocalTime (&Modes.start_SYSTEMTIME);
+
+//SetConsoleCtrlHandler (console_handler, TRUE);
 }
 
 /**
@@ -1094,10 +1096,11 @@ void mimalloc_stats (void)
 
 static const char *mimalloc_version (void)
 {
-  static char buf [30];
+  static char buf [80];
   int    ver = mi_version();
 
-  snprintf (buf, sizeof(buf), "mimalloc ver: %d.%d\n", ver / 100, ver % 100);
+  snprintf (buf, sizeof(buf), "mimalloc ver: %d.%d    from https://github.com/microsoft/mimalloc\n",
+            ver / 100, ver % 100);
   return (buf);
 }
 #endif  /* _DEBUG */
@@ -1252,17 +1255,19 @@ static void print_sql_info (void)
   const char *opt;
   int   i, sz = 0;
 
-  printf ("Sqlite3 ver:  %s. Build options: ", sqlite3_libversion());
+  printf ("Sqlite3 ver:  %-7s  from http://www.sqlite.org.\n"
+          "  Build options: ", sqlite3_libversion());
+
   for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
   {
-    const char *opt_next = sqlite3_compileoption_get (i+1);
+    const char *opt_next = sqlite3_compileoption_get (i + 1);
 
     sz += printf ("SQLITE_%s%s", opt, opt_next ? ", " : "\n");
     if (opt_next)
        sz += sizeof(", SQLITE_") + strlen (opt_next);
     if (sz >= 140)
     {
-      fputs ("\n              ", stdout);
+      fputs ("\n                 ", stdout);
       sz = 0;
     }
   }
@@ -1505,9 +1510,9 @@ static void print_LDFLAGS (void)
 #if defined(USE_MUNIT)
 static const char *munit_version (void)
 {
-  static char buf [30];
+  static char buf [60];
 
-  snprintf (buf, sizeof(buf), "munit ver:   %d.%d.%d\n",
+  snprintf (buf, sizeof(buf), "munit ver:    %d.%d.%d   from https://github.com/nemequ/munit\n",
             (MUNIT_CURRENT_VERSION >> 16) & 0xff,
             (MUNIT_CURRENT_VERSION >> 8) & 0xff,
             (MUNIT_CURRENT_VERSION >> 0) & 0xff);
@@ -1564,9 +1569,9 @@ void show_version_info (bool verbose)
   {
     printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s.\n",
             RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, RTL_VER_ID);
-    printf ("PDCurses ver: %s\n", PDC_VERDOT);
-    printf ("Mongoose ver: %s\n", MG_VERSION);
-    printf ("Miniz ver:    %s\n", mz_version());
+    printf ("PDCurses ver: %-7s from https://github.com/wmcbrine/PDCurses\n", PDC_VERDOT);
+    printf ("Mongoose ver: %-7s from https://github.com/cesanta/mongoose\n", MG_VERSION);
+    printf ("Miniz ver:    %-7s from https://github.com/kuba--/zip\n", mz_version());
     printf ("%s%s", mimalloc_version(), munit_version());
     print_packed_web_info();
     print_sql_info();
@@ -2888,8 +2893,72 @@ static BOOL WINAPI console_handler (DWORD event)
   return (FALSE);
 }
 
-void misc_init (void)
+static uint8_t unhex_nimble (uint8_t c)
 {
-  SetConsoleCtrlHandler (console_handler, TRUE);
+  return (c >= '0' && c <= '9')  ? (uint8_t) (c - '0') :
+          (c >= 'A' && c <= 'F') ? (uint8_t) (c - '7') : (uint8_t) (c - 'W');
+}
+
+uint32_t mg_unhexn (const char *str, size_t len)
+{
+  uint32_t val = 0;
+  size_t   i;
+
+  for (i = 0; i < len; i++)
+  {
+    val <<= 4;
+    val |= unhex_nimble (*str++);
+  }
+  return (val);
+}
+
+uint32_t mg_unhex (const char *str)
+{
+  return mg_unhexn (str, strlen(str));
+}
+
+char *mg_hex (const void *buf, size_t len, char *to)
+{
+  const uint8_t *p   = (const uint8_t*) buf;
+  const char    *hex = "0123456789abcdef";
+  size_t         i;
+
+  for (i = 0; len--; p++)
+  {
+    to [i++] = hex [p[0] >> 4];
+    to [i++] = hex [p[0] & 0x0f];
+  }
+  to [i] = '\0';
+  return (to);
+}
+
+int mg_ncasecmp (const char *s1, const char *s2, size_t len)
+{
+  int diff = 0;
+
+  if (len > 0)
+     do
+     {
+       int c = *s1++, d = *s2++;
+
+       if (c >= 'A' && c <= 'Z')
+          c += 'a' - 'A';
+       if (d >= 'A' && d <= 'Z')
+          d += 'a' - 'A';
+       diff = c - d;
+     }
+     while (diff == 0 && s1[-1] != '\0' && --len > 0);
+  return (diff);
+}
+
+int mg_vcasecmp (const struct mg_str *str1, const char *str2)
+{
+  size_t n2 = strlen (str2);
+  size_t n1 = str1->len;
+  int    rc = mg_ncasecmp (str1->buf, str2, (n1 < n2) ? n1 : n2);
+
+  if (rc == 0)
+     return (int) (n1 - n2);
+  return (rc);
 }
 
