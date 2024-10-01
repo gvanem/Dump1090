@@ -18,6 +18,7 @@
 #define _CRT_NONSTDC_NO_WARNINGS        1
 
 #if defined(__clang__)
+  #pragma clang diagnostic ignored "-Wignored-attributes"
   #pragma clang diagnostic ignored "-Wunused-value"
   #pragma clang diagnostic ignored "-Wunused-variable"
   #pragma clang diagnostic ignored "-Wunused-function"
@@ -60,6 +61,12 @@
    * externals\zip.c(224):    warning C4706: assignment within conditional expression
    */
   #pragma warning (disable: 4127 4706)
+
+  /*
+   * externals/mongoose.c(16208): warning C4310: cast truncates constant value
+   * externals/mongoose.c(17251): warning C4310: cast truncates constant value
+   */
+  #pragma warning (disable: 4310)
 
   /*
    * warning C4702: unreachable code
