@@ -411,6 +411,7 @@ else ifeq ($(USE_NET_POLLER),SELECT)
   # No code checks for this, but for '../dump1090.exe -VV' only
   #
   CFLAGS += -DMG_ENABLE_SELECT=1
+
 else
   $(error Illegal 'USE_NET_POLLER=$(USE_NET_POLLER)' value)
 endif
@@ -735,8 +736,8 @@ endef
 
 define generate_py
   $(call generate, $(1), #)
-  $(file >> $@,if 1:)
-  $(file >> $@,$(2))
+  $(file >> $(1),if 1:)
+  $(file >> $(1),$(2))
 endef
 
 define generate_cflags_h
