@@ -184,7 +184,7 @@ static int fc2580_write(void *dev, unsigned char reg, unsigned char val)
 {
 	int rc = rtlsdr_i2c_write_fn(dev, FC2580_I2C_ADDR, reg, &val, 1);
 	if (rc != 1) {
-		printf( "%s: i2c wr failed=%d reg=%02x len=1\n",
+		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=1\n",
 			   __FUNCTION__, rc, reg);
 		if (rc < 0)
 			return rc;
@@ -209,7 +209,7 @@ static int fc2580_read(void *dev, unsigned char reg, unsigned char *data)
 {
 	int rc = rtlsdr_i2c_read_fn(dev, FC2580_I2C_ADDR, reg, data, 1);
 	if (rc != 1) {
-		printf( "%s: i2c wr failed=%d reg=%02x len=1\n",
+		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=1\n",
 			   __FUNCTION__, rc, reg);
 		if (rc < 0)
 			return rc;
@@ -272,8 +272,6 @@ static int fc2580_get_rssi(unsigned char *data)
 	int ofs_csf = -6*(s_cfs & 7);
 	int ofs_ifvga = s_ifvga*10/4;
 	int rssi = (OFS_RSSI+ofs_lna+ofs_rfvga+ofs_csf) * 10 + ofs_ifvga;
-	//printf("rssi=%d, ofs_lna=%d, ofs_rfvga=%d, ofs_csf=%d, ofs_ifvga=%d\n",
-	//	rssi, ofs_lna, ofs_rfvga, ofs_csf, ofs_ifvga);
 	return rssi;
 }
 
@@ -299,16 +297,16 @@ int fc2580_get_i2c_register(void *dev, uint8_t *data, int *len, int *strength)
 	uint8_t data = 0;
 	unsigned int i, j;
 
-	printf("   0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
+	fprintf(stderr, "   0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
 	for(i=0; i<8; i++)
 	{
-		printf("%01x ", i);
+		fprintf(stderr, "%01x ", i);
 		for(j=0; j<16; j++)
 		{
 			fc2580_read(dev, i*16+j, &data);
-			printf("%02x ", data);
+			fprintf(stderr, "%02x ", data);
 		}
-		printf("\n");
+		fprintf(stderr, "\n");
 	}
 	return 0;
 }*/
@@ -333,7 +331,7 @@ int fc2580_init(void *dev)
 	//print_registers(dev);
 	return 0;
 err:
-	printf( "%s: failed=%d\n", __FUNCTION__, ret);
+	fprintf(stderr,  "%s: failed=%d\n", __FUNCTION__, ret);
 	return ret;
 }
 
@@ -397,7 +395,7 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 	k_cw = (f_vco % uitmp) * 0x100000 / uitmp;
 
 #if 0
-	printf(	"frequency=%u f_vco=%llu freq_xtal=%.1f div_ref=%u div_n=%u div_out=%u k_cw=%0x\n",
+	fprintf(stderr, "frequency=%u f_vco=%llu freq_xtal=%.1f div_ref=%u div_n=%u div_out=%u k_cw=%0x\n",
 		frequency, f_vco, freq_xtal, div_ref, div_n, div_out, k_cw);
 #endif
 
@@ -421,7 +419,7 @@ int fc2580_set_freq(void *dev, unsigned int frequency)
 
 	return 0;
 err:
-	printf( "%s: failed=%d\n", __FUNCTION__, ret);
+	fprintf(stderr,  "%s: failed=%d\n", __FUNCTION__, ret);
 	return ret;
 }
 

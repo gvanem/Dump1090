@@ -113,7 +113,7 @@ static int fc001x_write(void *dev, uint8_t reg, uint8_t *buf, int len)
 {
 	int rc = rtlsdr_i2c_write_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
 	if (rc != len) {
-		printf( "%s: i2c wr failed=%d reg=%02x len=%d\n",
+		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
 			__FUNCTION__, rc, reg, len);
 		if (rc < 0)
 			return rc;
@@ -132,7 +132,7 @@ static int fc001x_read(void *dev, uint8_t reg, uint8_t *buf, int len)
 {
 	int rc = rtlsdr_i2c_read_fn(dev, FC001X_I2C_ADDR, reg, buf, len);
 	if (rc != len) {
-		printf( "%s: i2c rd failed=%d reg=%02x len=%d\n",
+		fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
 			__FUNCTION__, rc, reg, len);
 		if (rc < 0)
 			return rc;
@@ -171,8 +171,8 @@ static int fc001x_write_reg_mask(void *dev, uint8_t reg, uint8_t data, uint8_t b
 	if (fc001x_read(dev, 0, data, sizeof(data)) < 0)
 		return -1;
 	for(i=0; i<22; i++)
-		printf("%02x ", data[i]);
-	printf("\n");
+		fprintf(stderr, "%02x ", data[i]);
+	fprintf(stderr, "\n");
 	return 0;
 }*/
 
@@ -182,12 +182,11 @@ int RSSI_Calibration(void *dev)
 	int ret;
 	ret = fc001x_write_reg_mask(dev, 0x09, 0x10, 0x10);	// set the register 9 bit4 EN_CAL_RSSI as 1
 	ret |= fc001x_write_reg_mask(dev, 0x06, 0x01, 0x01);	// set the register 6 bit 0 LNA_POWER_DOWN as 1
-	Sleep(100);									// delay 100ms
+	usleep(100000);									// delay 100ms
 	// read DC value from RSSI pin as rssi_calibration
 	RSSI_Calibration_Value = rtlsdr_demod_read_reg(dev, 3, 0x01, 1);
 	ret |= fc001x_write_reg_mask(dev, 0x09, 0x00, 0x10);	// set the register 9 bit4 EN_CAL_RSSI as 0
 	ret |= fc001x_write_reg_mask(dev, 0x06, 0x00, 0x01);	// set the register 6 bit 0 LNA_POWER_DOWN as 0
-	//printf("RSSI=%d\n",RSSI_Calibration_Value);
 	return ret;
 }
 
@@ -413,7 +412,7 @@ static int fc001x_set_freq(void *dev, uint32_t freq)
 	}
 
 	if ((reg[1] > 15) || (reg[2] < 0x0b)) {
-		printf( "[FC001X] no valid PLL combination "
+		fprintf(stderr, "[FC001X] no valid PLL combination "
 				"found for %u Hz!\n", freq);
 		return -1;
 	}
@@ -489,13 +488,9 @@ static int fc001x_set_freq(void *dev, uint32_t freq)
 	{
 		int64_t actual_vco = xtal_freq_div_2 * xdiv + xtal_freq_div_2 * xin / 32768;
 		int tuning_error = (f_vco - actual_vco) / multi;
-		//printf("f_vco=%llu, xin=%d, xdiv=%u, am=%u, pm=%u\n", f_vco, xin, xdiv, am, pm);
-		//printf("actual_vco = %lld, tuning_error = %d\n", actual_vco, tuning_error);
 		ret = rtlsdr_set_if_freq(dev, tuning_error);
 	}
 	abs_gain = interpolate(freq/1000000, ARRAY_SIZE(abs_gains), abs_freqs, abs_gains);
-	//printf("abs_gain = %d\n", abs_gain);
-
 
 exit:
 	return ret;

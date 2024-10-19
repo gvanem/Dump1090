@@ -547,7 +547,7 @@ static int r82xx_write(struct r82xx_priv *priv, uint8_t reg, uint8_t *buf, int l
 
 	rc = rtlsdr_i2c_write_fn(priv->rtl_dev, priv->cfg->i2c_addr, reg, buf, len);
 	if (rc != len) {
-		printf( "%s: i2c wr failed=%d reg=%02x len=%d\n",
+		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
 			   __FUNCTION__, rc, reg, len);
 		if (rc < 0)
 			return rc;
@@ -604,7 +604,7 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t *buf, int len)
 
 	rc = rtlsdr_i2c_read_fn(priv->rtl_dev, priv->cfg->i2c_addr, 0, buf, len);
 	if (rc != len) {
-		printf( "%s: i2c rd failed=%d len=%d\n",
+		fprintf(stderr, "%s: i2c rd failed=%d len=%d\n",
 			   __FUNCTION__, rc, len);
 		if (rc < 0)
 			return rc;
@@ -628,10 +628,10 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t *buf, int len)
 	if (rc < 0)
 		return;
 	for(i=0; i<sizeof(data); i++)
-		printf("%02x ", data[i]);
+		fprintf(stderr, "%02x ", data[i]);
 	for(i=sizeof(data); i<32; i++)
-		printf("%02x ", r82xx_read_cache_reg(priv, i));
-	printf("\n");
+		fprintf(stderr, "%02x ", r82xx_read_cache_reg(priv, i));
+	fprintf(stderr, "\n");
 }*/
 
 //RTL-SDR.COM
@@ -663,7 +663,6 @@ static void calculate_abs_gain(struct r82xx_priv *priv)
 	}
 	else
 		priv->abs_gain = interpolate(priv->freq, ARRAY_SIZE(abs_gains_r820t), abs_freqs_r820t, abs_gains_r820t);
-	//printf("abs_gain = %d\n", priv->abs_gain);
 }
 
 /*
@@ -708,7 +707,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	uint8_t data[3];
 
 	if ((freq < 25000000) || (freq > vco_min)){
-		printf( "[R82XX] No valid PLL values for %u Hz!\n", freq);
+		fprintf(stderr, "[R82XX] No valid PLL values for %u Hz!\n", freq);
 		return -1;
 	}
 
@@ -761,9 +760,8 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	 */
 
 	vco_div = (pll_ref + 65536 * vco_freq) / (2 * pll_ref);
-    nint = vco_div / 65536;
+	nint = vco_div / 65536;
 	sdm = vco_div % 65536;
-    //printf("nint = %d, sdm = %d\n", nint, sdm);
 
 	ni = (nint - 13) / 4;
 	si = nint - 4 * ni - 13;
@@ -805,7 +803,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	}
 
 	if (!(data[2] & 0x40)) {
-		printf( "[R82XX] PLL not locked for %u Hz!\n", freq);
+		fprintf(stderr, "[R82XX] PLL not locked for %u Hz!\n", freq);
 		priv->has_lock = 0;
 		return -1;
 	}
@@ -830,8 +828,8 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 		}
 		actual_vco = 2 * pll_ref * nint + 2 * pll_ref * (dither_offset + sdm) / 65536;
 		tuning_error = (int)(actual_vco - vco_freq) / mix_div;
-		//printf( "[R82XX] requested %uHz; selected mix_div=%u vco_freq=%lld nint=%u sdm=%u; actual_vco=%lld; xtal=%.1f, tuning error=%dHz\n",
-		//		freq, mix_div, vco_freq, nint, sdm, actual_vco, priv->cfg->xtal, tuning_error);
+		//fprintf(stderr, "[R82XX] requested %uHz; selected mix_div=%u vco_freq=%lld nint=%u sdm=%u; actual_vco=%lld; xtal=%.1f, tuning error=%dHz\n",
+		//	           freq, mix_div, vco_freq, nint, sdm, actual_vco, priv->cfg->xtal, tuning_error);
 		if(priv->sideband)
 			zf = priv->int_freq - tuning_error;
 		else
@@ -907,7 +905,6 @@ static int r82xx_sysfreq_sel(struct r82xx_priv *priv,
 
 int r82xx_set_gain_mode(struct r82xx_priv *priv, int set_manual_gain)
 {
-	//printf("manual_gain=%d\n", set_manual_gain);
 	return r82xx_write_reg_mask(priv, 0x0c, set_manual_gain ? 0x00 : 0x10, 0x10);
 }
 
@@ -933,13 +930,13 @@ int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsig
 		if(mask & 1)
 		{
 			rtlsdr_set_agc_mode(priv->rtl_dev, data & 1);
-			printf("set agc mode %u\n", data & 1);
+			fprintf(stderr, "set agc mode %u\n", data & 1);
 		}
 		//Reset Demod
 		if((mask & 2) && (data & 2))
 		{
 			rtlsdr_reset_demod(priv->rtl_dev);
-			printf("reset demod\n");
+			fprintf(stderr, "reset demod\n");
 		}
 		if((mask & 8) && (data & 8))
 		{
@@ -1057,6 +1054,7 @@ static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* dat
 	unsigned int lna_index, lna_gain;
 	int	slave_demod;
 	int if_gain = 0;
+	int filter_gain = 0;
 	uint8_t mixer_gain = (data[3] >> 4) & 0x0f;
 
 	/* set IMR_G */
@@ -1106,9 +1104,16 @@ static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* dat
 	else
 		lna_gain = 0;
 
-	/* Sum_of_all_gains = if_gain + lna_gain + mixer_gain + absolute gain*/
-	//printf("if_gain=%d, lna_gain=%d, mixer_gain=%d, abs_gain=%d\n", if_gain, lna_gain, r82xx_mixer_gains[mixer_gain], priv->abs_gain);
-	return if_gain + lna_gain + r82xx_mixer_gains[mixer_gain] - priv->abs_gain;
+	if(data[6] & 0x20) //filter gain is set
+	{
+		if(data[0x0b] & 0x80) //small bandwidth is set
+			filter_gain = 80;
+		else
+			filter_gain = 40;
+	}
+
+	/* Sum_of_all_gains = if_gain + lna_gain + mixer_gain + filter_gain + absolute gain */
+	return if_gain + lna_gain + r82xx_mixer_gains[mixer_gain] + filter_gain - priv->abs_gain;
 
 }
 
@@ -1256,6 +1261,11 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 			if (rc < 0)
 				goto err;
 
+			/* Control upconverter GPIO switch on newer batches */
+			rc = rtlsdr_set_bias_tee_gpio(priv->rtl_dev, 5, !cable_2_in);
+			if (rc < 0)
+				goto err;
+
 			/* activate cable 1 (VHF input) */
 			cable_1_in = (band == VHF) ? 0x40 : 0x00;
 			rc = r82xx_write_reg_mask(priv, 0x05, cable_1_in, 0x40);
@@ -1357,7 +1367,6 @@ static int r82xx_multi_read(struct r82xx_priv *priv)
 {
 	int rc, i;
 	uint8_t data[2];
-	//uint8_t buf[4];
 	int sum = 0;
 
 #ifdef _WIN32
@@ -1375,7 +1384,6 @@ static int r82xx_multi_read(struct r82xx_priv *priv)
 		Microseconds *= 1000000;
 		Microseconds /= Frequency.QuadPart;
 	};
-	//printf("Microseconds %d\n",(int)Microseconds);
 #else
 	usleep(6000);
 #endif
@@ -1385,9 +1393,7 @@ static int r82xx_multi_read(struct r82xx_priv *priv)
 			return rc;
 		data[1] &= 0x3f;
 		sum += data[1];
-		//buf[i] = data[1];
 	}
-	//printf("data[1] = %02x %02x\n", buf[0],buf[1]);
 	return sum;
 }
 
@@ -1408,7 +1414,6 @@ static int test_imrg(struct r82xx_priv *priv, int start, int end, int *min)
 		{
 			*min = rc;
 			reg8 = i;
-			//printf("Reg8=%02x, sum=%d\n", reg8, rc);
 		}
 		else
 			break;
@@ -1430,7 +1435,7 @@ static int r82xx_imr(struct r82xx_priv *priv, uint8_t range)
 	uint8_t vga;
 	uint8_t gain;
 
-	printf("IMR_G =");
+	fprintf(stderr, "IMR_G =");
 	if (priv->cfg->xtal > 24000000)
 		ring_ref = priv->cfg->xtal / 2000;
 	else
@@ -1460,7 +1465,6 @@ static int r82xx_imr(struct r82xx_priv *priv, uint8_t range)
 	rc = r82xx_set_freq(priv, ring_freq * 1000 - 2 * priv->int_freq); //Image frequency
 	if (rc < 0)
 		return rc;
-	//printf("Freq=%dkHz\n", ring_freq - priv->int_freq / 500);
 
 	for(gain=0; gain < 13; gain++)
 	{
@@ -1498,7 +1502,6 @@ static int r82xx_imr(struct r82xx_priv *priv, uint8_t range)
 				break;
 		}
 		min = rc;
-		//printf("Mixer=%d, VGA=%d\n", gain, vga);
 
 		rc = test_imrg(priv, 0x02, 0x0a, &min);
 		if(rc==0)
@@ -1510,9 +1513,9 @@ static int r82xx_imr(struct r82xx_priv *priv, uint8_t range)
 		if (rc < 0)
 			goto err;
 		priv->reg8[gain] = rc;
-		printf(" %02X", rc);
+		fprintf(stderr, " %02X", rc);
 	}
-	printf("\n");
+	fprintf(stderr, "\n");
 
 	for(gain = 13; gain < 16; gain++)
 		priv->reg8[gain] = priv->reg8[12];
@@ -1520,7 +1523,7 @@ static int r82xx_imr(struct r82xx_priv *priv, uint8_t range)
 
 err:
 	if (rc < 0)
-		printf( "%s: failed=%d\n", __FUNCTION__, rc);
+		fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, rc);
 	return rc;
 }
 
@@ -1575,13 +1578,13 @@ static int r82xx_imr_callibrate(struct r82xx_priv *priv)
 
 	/*gettimeofday(&tv, NULL);
 	EndTime = (uint64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
-	printf("%d msec\n", (int)(EndTime-StartTime));*/
+	fprintf(stderr, "%d msec\n", (int)(EndTime-StartTime));*/
 
 	return 0;
 
 err:
 	if (rc < 0)
-		printf( "%s: failed=%d\n", __FUNCTION__, rc);
+		fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, rc);
 	return rc;
 }
 
@@ -1614,6 +1617,7 @@ int r82xx_init(struct r82xx_priv *priv)
 	// read calibration results from offset 0x80 in eeprom
 	if(rtlsdr_read_eeprom(priv->rtl_dev, buf, offset, 15) == 15)
 	{
+		checksum = 0;
 		for(i=1; i<14; i++)
 			checksum += buf[i];
 		if((buf[0] == 14) && ((checksum & 0xff) == buf[14])) // checksum ok
@@ -1623,10 +1627,10 @@ int r82xx_init(struct r82xx_priv *priv)
 				priv->reg8[i] = priv->reg8[12];
 		}
 		else
-			printf("Image rejection not calibrated yet\n");
+			fprintf(stderr, "Image rejection not calibrated yet\n");
 	}
 	else
-		printf("Reading from eeprom failed\n");
+		fprintf(stderr, "Reading from eeprom failed\n");
 
 	/* Initialize registers */
 	if ((rc = r82xx_write(priv, 0x05, r82xx_init_array, sizeof(r82xx_init_array))) < 0) goto err;
@@ -1640,7 +1644,7 @@ int r82xx_init(struct r82xx_priv *priv)
 
 err:
 	if (rc < 0)
-		printf( "%s: failed=%d\n", __FUNCTION__, rc);
+		fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, rc);
 	return rc;
 }
 

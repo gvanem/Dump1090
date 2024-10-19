@@ -29,7 +29,7 @@
 extern "C" {
 #endif
 
-#if defined(_WIN32) && defined(inside_RTLSDR)
+#if defined(_WIN32)
 #define usleep(usec) Sleep ((usec)/1000)
 #endif
 

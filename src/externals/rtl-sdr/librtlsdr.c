@@ -58,10 +58,10 @@
 #define TWO_POW(n)  ((double)(1ULL<<(n)))
 #define EP_RX       0x81
 
-#define rtlsdr_read_array(dev, index, addr, array, len) \
+#define RTLSDR_READ_ARRAY(dev, index, addr, array, len) \
         usb_control_transfer (dev, CTRL_IN, addr, index, array, len, __LINE__)
 
-#define rtlsdr_write_array(dev, index, addr, array, len) \
+#define RTLSDR_WRITE_ARRAY(dev, index, addr, array, len) \
         usb_control_transfer (dev, CTRL_OUT, addr, index | 0x10, array, len, __LINE__)
 
 typedef struct rtlsdr_tuner_iface {
@@ -813,7 +813,7 @@ static int List_Devices (int index, found_device *found)
 
       strcpy (found->DevicePath, DevicePath);
       RTL_TRACE (2, "count: %d, found->mfg = %s\n"
-                    "                      DevicePath = %s\n", count, found->mfg, DevicePath);
+                    "                  DevicePath = %s\n", count, found->mfg, DevicePath);
       break;
     }
     count++;
@@ -920,8 +920,9 @@ static int usb_control_transfer (rtlsdr_dev_t *dev,      /* the active device */
   if (!rc || written != wLength)
   {
     last_error = GetLastError();
-    RTL_TRACE (1, "%u: WinUsb_ControlTransfer() wrote only %lu bytes: %s\n",
-               line, written, trace_strerror(last_error));
+    RTL_TRACE (1, "%u: WinUsb_ControlTransfer() %s only %lu bytes: %s\n",
+               line, type == CTRL_IN ? "read" : "wrote",
+               written, trace_strerror(last_error));
     return (-1);
   }
   return (int)written;
@@ -930,7 +931,7 @@ static int usb_control_transfer (rtlsdr_dev_t *dev,      /* the active device */
 static uint8_t rtlsdr_read_reg (rtlsdr_dev_t *dev, uint16_t index, uint16_t addr)
 {
   uint8_t data;
-  int r = rtlsdr_read_array (dev, index, addr, &data, 1);
+  int r = RTLSDR_READ_ARRAY (dev, index, addr, &data, 1);
 
   if (r != 1)
      RTL_TRACE (1, "%s failed with %d\n", __FUNCTION__, r);
@@ -953,7 +954,7 @@ static int rtlsdr_write_reg (rtlsdr_dev_t *dev, uint16_t index, uint16_t addr, u
     data[1] = val & 0xff;
   }
 
-  r = rtlsdr_write_array (dev, index, addr, data, len);
+  r = RTLSDR_WRITE_ARRAY (dev, index, addr, data, len);
   if (r < 0)
      RTL_TRACE (1, "%s failed with %d\n", __FUNCTION__, r);
 
@@ -974,7 +975,7 @@ static uint8_t check_tuner (rtlsdr_dev_t *dev, uint8_t i2c_addr, uint8_t reg)
 {
   uint8_t data = 0;
 
-  if (rtlsdr_read_array(dev, TUNB, reg << 8 | i2c_addr, &data, 1) != 1)
+  if (RTLSDR_READ_ARRAY(dev, TUNB, reg << 8 | i2c_addr, &data, 1) != 1)
      return (0xFF);  /* signal a read-error since the address is unsupported for this tuner */
   return (data);
 }
@@ -986,7 +987,7 @@ int rtlsdr_i2c_write_fn (void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int
   if (!dev)
      return (-1);
 
-  wr_len = rtlsdr_write_array ((rtlsdr_dev_t*)dev, TUNB, reg << 8 | addr, buf, len);
+  wr_len = RTLSDR_WRITE_ARRAY ((rtlsdr_dev_t*)dev, TUNB, reg << 8 | addr, buf, len);
   RTL_TRACE (2, "I2C-bus addr: 0x%02X, reg: 0x%02X, wr_len: %d\n", addr, reg, wr_len);
   return (wr_len);
 }
@@ -998,7 +999,7 @@ int rtlsdr_i2c_read_fn (void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int 
   if (!dev)
      return (-1);
 
-  rd_len = rtlsdr_read_array ((rtlsdr_dev_t*)dev, TUNB, reg << 8 | addr, buf, len);
+  rd_len = RTLSDR_READ_ARRAY ((rtlsdr_dev_t*)dev, TUNB, reg << 8 | addr, buf, len);
   RTL_TRACE (2, "I2C-bus addr: 0x%02X, reg: 0x%02X, rd_len: %d\n", addr, reg, rd_len);
   return (rd_len);
 }
@@ -1006,7 +1007,7 @@ int rtlsdr_i2c_read_fn (void *dev, uint8_t addr, uint8_t reg, uint8_t *buf, int 
 uint16_t rtlsdr_demod_read_reg (rtlsdr_dev_t *dev, uint16_t page, uint16_t addr, uint8_t len)
 {
   uint8_t data [2];
-  int     r = rtlsdr_read_array (dev, page, (addr << 8) | RTL2832_DEMOD_ADDR, data, len);
+  int     r = RTLSDR_READ_ARRAY (dev, page, (addr << 8) | RTL2832_DEMOD_ADDR, data, len);
 
   if (r != len)
      RTL_TRACE (1, "%s failed with %d\n", __FUNCTION__, r);
@@ -1032,7 +1033,7 @@ int rtlsdr_demod_write_reg (rtlsdr_dev_t *dev, uint8_t page, uint16_t addr, uint
     data[1] = val & 0xff;
   }
 
-  r = rtlsdr_write_array (dev, page, addr, data, len);
+  r = RTLSDR_WRITE_ARRAY (dev, page, addr, data, len);
   if (r != len)
     RTL_TRACE (1, "%s failed with %d\n", __FUNCTION__, r);
 
@@ -1310,14 +1311,14 @@ void print_demod_register (rtlsdr_dev_t *dev, uint8_t page)
   int i, j;
   int reg = 0;
 
-  printf ("Page %d\n", page);
-  printf ("     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
+  fprintf (stderr, "Page %d\n", page);
+  fprintf (stderr, "     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
   for (i = 0; i < 16; i++)
   {
-    printf ("%02x: ", reg);
+    fprintf (stderr, "%02x: ", reg);
     for (j = 0; j < 16; j++)
-        printf ("%02x ", rtlsdr_demod_read_reg(dev, page, reg++, 1));
-    printf ("\n");
+        fprintf (stderr, "%02x ", rtlsdr_demod_read_reg(dev, page, reg++, 1));
+    fprintf (stderr, "\n");
   }
 }
 
@@ -1327,16 +1328,16 @@ void print_rom (rtlsdr_dev_t *dev)
   FILE   *pFile;
   int     i, r, addr = 0, len = sizeof(data);
 
-  printf ("writing file: 'rtl2832.bin'\n");
+  fprintf (stderr, "writing file: 'rtl2832.bin'\n");
   pFile = fopen ("rtl2832.bin", "wb");
   if (pFile)
   {
     for (i = 0; i < 1024; i++)
     {
-      r = rtlsdr_read_array (dev, ROMB, addr, data, len);
+      r = RTLSDR_READ_ARRAY (dev, ROMB, addr, data, len);
       if (r)
       {
-        printf ("Error reading ROM, r: %d.\n", r);
+        fprintf (stderr, "Error reading ROM, r: %d.\n", r);
         break;
       }
       fwrite (data, 1, sizeof(data), pFile);
@@ -1351,7 +1352,7 @@ void print_usb_register (rtlsdr_dev_t *dev, uint16_t addr)
   uint8_t data [16];
   int     i, j, index, len = sizeof(data);
 
-  printf ("       0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
+  fprintf (stderr, "       0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f\n");
 
   if (addr < 0x2000)
      index = ROMB;
@@ -1364,13 +1365,13 @@ void print_usb_register (rtlsdr_dev_t *dev, uint16_t addr)
 
   for (i = 0; i < 16; i++)
   {
-    printf ("%04x: ", addr);
-    rtlsdr_read_array (dev, index, addr, data, len);
+    fprintf (stderr, "%04x: ", addr);
+    RTLSDR_READ_ARRAY (dev, index, addr, data, len);
 
     for (j = 0; j < 16; j++)
-        printf ("%02x ", data[j]);
+        fprintf (stderr, "%02x ", data[j]);
     addr += sizeof(data);
-    printf ("\n");
+    fprintf (stderr, "\n");
   }
 }
 #endif  /* DEBUG || rtlsdr_DEBUG */
@@ -1496,15 +1497,15 @@ int rtlsdr_write_eeprom (rtlsdr_dev_t *dev, uint8_t *data, uint8_t offset, uint1
   for (i = 0; i < len; i++)
   {
     cmd [0] = i + offset;
-    r = rtlsdr_write_array (dev, IICB, EEPROM_ADDR, cmd, 1);
-    r = rtlsdr_read_array (dev, IICB, EEPROM_ADDR, &cmd[1], 1);
+    r = RTLSDR_WRITE_ARRAY (dev, IICB, EEPROM_ADDR, cmd, 1);
+    r = RTLSDR_READ_ARRAY (dev, IICB, EEPROM_ADDR, &cmd[1], 1);
 
     /* only write the byte if it differs */
     if (cmd[1] == data[i])
       continue;
 
     cmd[1] = data[i];
-    r = rtlsdr_write_array (dev, IICB, EEPROM_ADDR, cmd, 2);
+    r = RTLSDR_WRITE_ARRAY (dev, IICB, EEPROM_ADDR, cmd, 2);
 
     if (r != sizeof(cmd))
     {
@@ -1533,7 +1534,7 @@ int rtlsdr_read_eeprom (rtlsdr_dev_t *dev, uint8_t *data, uint8_t offset, uint16
   else if (len + offset > 256)
      r = -2;
   else
-     r = rtlsdr_read_array (dev, TUNB, offset << 8 | EEPROM_ADDR, data, len);
+     r = RTLSDR_READ_ARRAY (dev, TUNB, offset << 8 | EEPROM_ADDR, data, len);
 
   if (r < 0)
      r = -3;
@@ -2180,7 +2181,7 @@ int rtlsdr_get_offset_tuning (rtlsdr_dev_t *dev)
 
 uint32_t rtlsdr_get_device_count (void)
 {
-  RTL_TRACE (2, "Calling 'List_Devices (-1, NULL)'\n");
+  RTL_TRACE (2, "%s(): calling 'List_Devices (-1, NULL)'\n", __FUNCTION__);
   return List_Devices (-1, NULL);
 }
 
@@ -2189,7 +2190,7 @@ const char *rtlsdr_get_device_name (uint32_t index)
   found_device found;
   const rtlsdr_dongle_t *device = NULL;
 
-  RTL_TRACE (2, "Calling 'List_Devices (%d, &found)'\n", index);
+  RTL_TRACE (2, "%s(): calling 'List_Devices (%d, &found)'\n", __FUNCTION__, index);
   if (List_Devices(index, &found) < 0 || !found.DevicePath[0])
      return (NULL);
 
@@ -2206,7 +2207,7 @@ int rtlsdr_get_device_usb_strings (uint32_t index, char *manufact, char *product
   int          r, count;
 
   count = List_Devices (index, &found);
-  RTL_TRACE (1, "Calling 'List_Devices (%d, &found)' returned %d\n", index, count);
+  RTL_TRACE (1, "%s(): calling 'List_Devices (%d, &found)' returned %d\n", __FUNCTION__, index, count);
 
   if (count < 0 || !found.DevicePath[0])
      return (-1);
@@ -2294,7 +2295,7 @@ int rtlsdr_get_index_by_serial (const char *serial)
   if (!serial || serial[0] == '\0')
      return (-1);
 
-  RTL_TRACE (2, "Calling 'List_Devices (-1, NULL)'.\n");
+  RTL_TRACE (2, "%s(): calling 'List_Devices (-1, NULL)'.\n", __FUNCTION__);
   count = List_Devices (-1, NULL);
   if (count < 0)
      return (-2);
@@ -2336,7 +2337,7 @@ int rtlsdr_open (rtlsdr_dev_t **out_dev, uint32_t index)
 
   /* Find number of devices
    */
-  RTL_TRACE (1, "%s(): Calling 'List_Devices (%d, &found)'.\n", __FUNCTION__, index);
+  RTL_TRACE (1, "%s(): calling 'List_Devices (%d, &found)'.\n", __FUNCTION__, index);
   if (List_Devices(index, &found) < 0 || !found.DevicePath[0])
      goto err;
 
@@ -3039,7 +3040,7 @@ int rtlsdr_ir_query (rtlsdr_dev_t *d, uint8_t *buf, size_t buf_len)
   if (len > 0)
   {
     /* read raw code from HW */
-    ret = rtlsdr_read_array (d, IRB, IR_RX_BUF, buf, len);
+    ret = RTLSDR_READ_ARRAY (d, IRB, IR_RX_BUF, buf, len);
     if (ret < 0)
        goto err;
 

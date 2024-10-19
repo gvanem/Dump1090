@@ -4,39 +4,48 @@
  */
 #include <stdio.h>
 #include <string.h>
-#include <windows.h>
 
 #include "trace.h"
 #include "version.h"
 
-static int                        show_version = 0;
-static int                        show_winusb = 0;
+static BOOL                       show_version = FALSE;
+static BOOL                       show_winusb = FALSE;
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
-static HANDLE                     stdout_hnd;
-static CRITICAL_SECTION           cs;
+static HANDLE                     console_hnd = INVALID_HANDLE_VALUE;
+static FILE                      *console_file = NULL;
+static CRITICAL_SECTION           console_cs;
+static void set_color (unsigned short col);
+
+static void trace_exit (void)
+{
+  set_color (0);
+  console_hnd = INVALID_HANDLE_VALUE;
+  console_file = NULL;
+  DeleteCriticalSection (&console_cs);
+}
 
 static int trace_init (void)
 {
   char *env = getenv ("RTLSDR_TRACE");
-  char *winusb = env ? strstr(env, ",winusb") : NULL;
+  char *winusb = env ? strstr (env, ",winusb") : NULL;
   int   rc = 0;
 
-  InitializeCriticalSection (&cs);
-  stdout_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
-  GetConsoleScreenBufferInfo (stdout_hnd, &console_info);
+  InitializeCriticalSection (&console_cs);
+  console_hnd = trace_file (FALSE);
+  atexit (trace_exit);
 
   /* Supported syntax: "level[,winsub]"
    */
   if (env)
   {
-    if (winusb >= env+1)
+    if (winusb >= env + 1)
     {
-      show_winusb = 1;
+      show_winusb = TRUE;
       *winusb = '\0';
     }
     rc = atoi (env);
     if (rc > 0)
-       show_version = 1;
+       show_version = TRUE;
   }
   return (rc);
 }
@@ -50,13 +59,21 @@ int trace_level (void)
   return (level);
 }
 
+HANDLE trace_file (BOOL use_stderr)
+{
+  console_file = (use_stderr ? stderr : stdout);
+  console_hnd = GetStdHandle (use_stderr ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
+  GetConsoleScreenBufferInfo (console_hnd, &console_info);
+  return (console_hnd);
+}
+
 static void set_color (unsigned short col)
 {
-  fflush (stdout);
+  fflush (console_file);
 
   if (col == 0)
-       SetConsoleTextAttribute (stdout_hnd, console_info.wAttributes);
-  else SetConsoleTextAttribute (stdout_hnd, (console_info.wAttributes & ~7) | col);
+       SetConsoleTextAttribute (console_hnd, console_info.wAttributes);
+  else SetConsoleTextAttribute (console_hnd, (console_info.wAttributes & ~7) | col);
 }
 
 /**
@@ -82,18 +99,44 @@ const char *trace_strerror (DWORD err)
   return (buf);
 }
 
-void trace_printf (const char *file, unsigned line, const char *fmt, ...)
+/**
+ * Strip drive-letter, directory and suffix from a filename.
+ */
+static const char *basename (const char *fname)
+{
+  const char *base = fname;
+
+  if (fname && *fname)
+  {
+    if (fname[0] && fname[1] == ':')
+    {
+      fname += 2;
+      base = fname;
+    }
+    while (*fname)
+    {
+      if (*fname == '\\' || *fname == '/')
+         base = fname + 1;
+      fname++;
+    }
+  }
+  return (base);
+}
+
+void trace_printf (const char *fname, unsigned line, const char *fmt, ...)
 {
   va_list args;
 
-  EnterCriticalSection (&cs);
+  EnterCriticalSection (&console_cs);
 
   set_color (FOREGROUND_INTENSITY | 3);  /* bright cyan */
-  printf ("%s(%u): ", file , line);
-  if (show_version)
+  fprintf (console_file, "%s(%u): ", basename(fname), line);
+
+  if (show_version)  /* show the version-info on 1st call only */
   {
-    printf ("Version \"%d.%d.%d.%d\". Compiled \"%s\".\n", RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, __DATE__);
-    show_version = 0;
+    fprintf (console_file, "Version \"%d.%d.%d.%d\". Compiled \"%s\". ",
+             RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, __DATE__);
+    show_version = FALSE;
   }
 
   va_start (args, fmt);
@@ -111,10 +154,10 @@ void trace_printf (const char *file, unsigned line, const char *fmt, ...)
   else
     set_color (FOREGROUND_INTENSITY | 7);  /* bright white */
 
-  vprintf (fmt, args);
+  vfprintf (console_file, fmt, args);
   va_end (args);
   set_color (0);
-  LeaveCriticalSection (&cs);
+  LeaveCriticalSection (&console_cs);
 }
 
 void trace_winusb (const char *file, unsigned line, const char *func, DWORD win_err)

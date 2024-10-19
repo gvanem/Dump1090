@@ -1,5 +1,5 @@
-#ifndef _TRACE_WIN32H
-#define _TRACE_WIN32H
+#pragma once
+#include <windows.h>
 
 /*
  * Trace printer controlled by env-var "set RTLSDR_TRACE=level":
@@ -11,11 +11,10 @@
         } while (0)
 
 #define RTL_TRACE_WINUSB(func, win_err) \
-        trace_winusb(__FILE__, __LINE__, func, win_err)
+        trace_winusb (__FILE__, __LINE__, func, win_err)
 
 int         trace_level (void);
-void        trace_winusb (const char *file, unsigned line, const char *func, DWORD win_err);
-void        trace_printf (const char *file, unsigned line, const char *fmt, ...);
+void        trace_winusb (const char *fname, unsigned line, const char *func, DWORD win_err);
+void        trace_printf (const char *fname, unsigned line, const char *fmt, ...);
+HANDLE      trace_file (BOOL use_stderr);
 const char *trace_strerror (DWORD err);
-
-#endif

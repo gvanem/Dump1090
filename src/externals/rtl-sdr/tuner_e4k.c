@@ -61,7 +61,7 @@ static int e4k_write_array(struct e4k_state *e4k, uint8_t reg, uint8_t *buf, int
 {
 	int rc = rtlsdr_i2c_write_fn(e4k->rtl_dev, e4k->i2c_addr, reg, buf, len);
 	if (rc != len) {
-		printf( "%s: i2c wr failed=%d reg=%02x len=%d\n",
+		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
 			   __FUNCTION__, rc, reg, len);
 		if (rc < 0)
 			return rc;
@@ -86,7 +86,7 @@ static int e4k_read_array(struct e4k_state *e4k, uint8_t reg, uint8_t *buf, int 
 {
 	int rc = rtlsdr_i2c_read_fn(e4k->rtl_dev, e4k->i2c_addr, reg, buf, len);
 	if (rc != len) {
-		printf( "%s: i2c rd failed=%d reg=%02x len=%d\n",
+		fprintf(stderr,  "%s: i2c rd failed=%d reg=%02x len=%d\n",
 			   __FUNCTION__, rc, reg, len);
 		if (rc < 0)
 			return rc;
@@ -377,12 +377,10 @@ int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
 
 	/* check PLL lock */
 	if (!(e4k_reg_read(e4k, E4K_REG_SYNTH1) & 0x01)) {
-		printf( "[E4K] PLL not locked for %u Hz!\n", freq);
+		fprintf(stderr, "[E4K] PLL not locked for %u Hz!\n", freq);
 		return -1;
 	}
 
-	//printf( "[E4K] freq=%u, R=%u, flo=%u, tuning_error=%d\n",
-	//		freq, r, flo, tuning_error);
 	return rtlsdr_set_if_freq(e4k->rtl_dev, tuning_error);
 }
 
@@ -729,7 +727,6 @@ static int e4k_get_signal_strength(struct e4k_state *e4k, uint8_t *data)
 	if_gain += if_stage4_gain[(data[0x16] >> 5) & 3];
 	if_gain += if_stage56_gain[data[0x17] & 7];
 	if_gain += if_stage56_gain[(data[0x17] >> 3) & 7];
-	//printf("freq=%d,lna=%d, mix=%d, if=%d, abs=%d\n", freq, lna_gain, mixer_gain, if_gain, abs_gain);
 	return abs_gain + if_gain + mixer_gain + lna_gain;
 }
 
