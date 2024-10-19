@@ -25,6 +25,6 @@ jobs:
 
 # test:
 #   steps:
-#    run:  start dump1090 --max-messages 20 --debug Gn --net --logfile dump1090.log
-#          py.exe -3 tools\SBS_client.py --host localhost --wait 10 --port 30001 raw-out
+#    run: start dump1090.exe --config dump1090-ci.cfg --debug Gn --net --logfile dump1090-ci.log
+#         py.exe -3 tools\SBS_client.py --host localhost --wait 10 --port 30001 raw-out
 #
