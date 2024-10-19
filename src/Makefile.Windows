@@ -470,8 +470,15 @@ $(OBJ_DIR) doxy-docs:
 ../dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
 	$(call link_EXE, $@, $^ $(OS_LIBS) $(ASAN_LIBS))
 
-../sqlite3.exe: $(OBJ_DIR)/sqlite3-shell.obj $(OBJ_DIR)/sqlite3.obj
-	$(call link_EXE, $@, $^ -nodefaultlib:uuid.lib oldnames.lib)
+SQLITE3_OBJ = $(OBJ_DIR)/sqlite3.obj \
+              $(OBJ_DIR)/sqlite3-shell.obj
+
+ifeq ($(USE_MIMALLOC),1)
+  SQLITE3_OBJ += $(OBJ_DIR)/mimalloc-amalgamation.obj
+endif
+
+../sqlite3.exe: $(SQLITE3_OBJ)
+	$(call link_EXE, $@, $^ -nodefaultlib:uuid.lib advapi32.lib oldnames.lib $(ASAN_LIBS))
 
 $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args
 	$(call C_compile, $@, -DCOMPILING_SQLITE3_SHELL $<)
