@@ -42,7 +42,7 @@ gen_data_h    = "%s/gen_data.h"       % result_dir
 def error (s, prefix = ""):
   if s is None:
      s = ""
-  print ("%s%s\n" % (prefix, s), file=sys.stderr)
+  print ("%s%s\n" % (prefix, s), file = sys.stderr)
   sys.exit (1)
 
 def fatal (s):
@@ -66,7 +66,7 @@ def create_c_file (file):
  * Generated at %s by:
  * %s %s
  * DO NOT EDIT!
- */""" % (time.ctime(), sys.executable, __file__), file=f)
+ */""" % (time.ctime(), sys.executable, __file__), file = f)
   return f
 
 def make_dir (d):
@@ -76,7 +76,7 @@ def make_dir (d):
     pass
 
 def clean_dir (d):
-  print ("Remove '%s' (y/N)? " % d, end="")
+  print ("Remove '%s' (y/N)? " % d, end = "")
   sys.stdout.flush()
   yes = int (msvcrt.getch().upper()[0])
   if yes == 'Y':
@@ -134,7 +134,7 @@ def append_csv_file (f, lines, header):
 
 def create_csv_file (to_file, name, _dict):
   f = open_file (to_file, "w+t")
-  print ("Processing %-*s ... " % (len("aircraft_files"), name), end="")
+  print ("Processing %-*s ... " % (len("aircraft_files"), name), end = "")
   for i, from_file in enumerate(_dict):
       lines = read_csv_file (from_file, _dict)
       if i == 0:
@@ -183,7 +183,7 @@ def routes_record (data):
   return struct.pack (routes_format, call_sign, airports)
 
 def create_bin_file (to_file, from_file, dict_len, rec_len, rec_func):
-  print ("Creating %s... " % to_file, end="")
+  print ("Creating %s... " % to_file, end = "")
 
   f_csv = open_file (from_file, "rt", "utf-8-sig")
   data  = csv.reader (f_csv, delimiter = ",")
@@ -280,7 +280,7 @@ extern const route_record    *gen_route_lookup (const char *call_sign);
 #endif
 
 #endif /* GEN_DATA_H */
-"""  % (aircraft_format, airport_format, routes_format), file=f)
+"""  % (aircraft_format, airport_format, routes_format), file = f)
   f.close()
 
 #
@@ -307,7 +307,7 @@ typedef struct BIN_header {
 static const char *bin_file = "%s";
 
 static char buf [1000];  /* work buffer */""" % \
-  (len(bin_marker), bin_marker, rec_num, rec_len, bin_file), file=f)
+  (len(bin_marker), bin_marker, rec_num, rec_len, bin_file), file = f)
 
   print ("""
 #if defined(AIRCRAFT_LOOKUP)
@@ -362,7 +362,7 @@ static char buf [1000];  /* work buffer */""" % \
 #else
   #error "A 'x_TEST' must be defined."
 #endif
-""", file=f)
+""", file = f)
 
   print ("""
 #if defined(AIRCRAFT_LOOKUP) || defined(AIRPORT_LOOKUP) || defined(ROUTE_LOOKUP)
@@ -436,7 +436,7 @@ int main (void)
   return (num_err == 0 ? 0 : 1);
 }
 #endif /* AIRCRAFT_LOOKUP || AIRPORT_LOOKUP || ROUTE_LOOKUP */
-""", file=f)
+""", file = f)
   f.close()
 
 #
@@ -451,20 +451,17 @@ def compile_to_exe (c_file, exe_file, define):
 
   cmd += " -nologo -MDd -W3 -Zi -I%s -Fe%s -Fo%s %s %s -link -nologo -incremental:no" % \
           (result_dir, exe_file, obj_file, define, c_file)
+  print ("\ncmd: %s" % cmd)
   rc = os.system (cmd)
   if rc:
      error ("Failed to compile '%s'" % cmd)
-
-def c_to_exe (c_file):
-  exe_file = c_file.replace (".c", ".exe")
-  return exe_file.replace ("/", "\\")
 
 #
 # With 'opt.test', run the above compiled .exe
 #
 def run_exe (exe_file):
-  print ("\nRunning:\n  %s" % exe_file, file=sys.stderr)
-  rc = os.system (exe_file)
+  print ("\nRunning:\n  %s" % exe_file, file = sys.stderr)
+  rc = os.system (exe_file.replace ("/", "\\"))
   print ("-" * 80, flush=True)
   return rc
 
@@ -483,7 +480,7 @@ def show_help():
   -C, --clean:  Clean all built stuff in '%s'.
   -h, --help:   Show this help.
   -l, --list:   List all .csv-file
-  -t, --test:   Run the test .exe-programs.""" % (__file__, result_dir))
+  -r, --run:    Run the test .exe-programs.""" % (__file__, result_dir))
   sys.exit (0)
 
 def parse_cmdline():
@@ -492,7 +489,7 @@ def parse_cmdline():
   parser.add_argument ("-C", "--clean", dest = "clean", action = "store_true")
   parser.add_argument ("-h", "--help",  dest = "help",  action = "store_true")
   parser.add_argument ("-l", "--list",  dest = "list",  action = "store_true")
-  parser.add_argument ("-t", "--test",  dest = "test",  action = "store_true")
+  parser.add_argument ("-r", "--run",   dest = "run",  action = "store_true")
   return parser.parse_args()
 
 def do_init():
@@ -545,24 +542,25 @@ def main():
   create_gen_data_h()
   sys.stdout.flush()
 
-  aircrafts_exe = c_to_exe (aircrafts_c)
-  airports_exe  = c_to_exe (airports_c)
-  routes_exe    = c_to_exe (routes_c)
+  aircrafts_exe = aircrafts_c.replace (".c", ".exe")
+  airports_exe  = airports_c.replace (".c", ".exe")
+  routes_exe    = routes_c.replace (".c", ".exe")
 
   compile_to_exe (aircrafts_c, aircrafts_exe, "-DAIRCRAFT_LOOKUP")
   compile_to_exe (airports_c,  airports_exe,  "-DAIRPORT_LOOKUP")
   compile_to_exe (routes_c,    routes_exe,    "-DROUTE_LOOKUP")
 
-  if opt.test:
+  if opt.run:
      rc  = run_exe (aircrafts_exe)
      rc += run_exe (airports_exe)
      rc += run_exe (routes_exe)
      if rc == 0:
-        print ("All tests succeeded!", file=sys.stderr)
+        print ("All tests succeeded!", file = sys.stderr)
      else:
         error ("There were some errors!")
   else:
-     print ("Run %s, %s or %s to test them" % (aircrafts_exe, airports_exe, routes_exe))
+     print ("\nRun these to test them:\n  %s\n  %s\n  %s\n" % \
+            (aircrafts_exe, airports_exe, routes_exe))
 
 if __name__ == "__main__":
   main()
