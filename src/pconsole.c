@@ -57,8 +57,8 @@ typedef struct pconsole_t {
  * Handy macro to both define and declare the function-pointers
  * for `WinInet.dll`
  */
-#define DEF_FUNC(ret, f, args)  typedef ret (WINAPI *func_##f) args; \
-                                static func_##f p_##f = NULL
+#define DEF_FUNC(ret, name, args)  typedef ret (WINAPI *func_##name) args; \
+                                   static func_##name p_##name = NULL
 
 DEF_FUNC (HRESULT, CreatePseudoConsole, (COORD  size,
                                          HANDLE input,

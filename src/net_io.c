@@ -43,8 +43,8 @@ static uint32_t     num_lookups, num_misses;
  * Define the func-ptr to the `mg_unpack()` + `mg_unlist()` functions loaded
  * dynamically from the `--web-page some.dll;N` option.
  */
-#define DEF_FUNC(ret, f, args)  typedef ret (*func_##f) args; \
-                                static func_##f p_##f = NULL
+#define DEF_FUNC(ret, name, args)  typedef ret (*func_##name) args; \
+                                   static func_##name p_##name = NULL
 
 DEF_FUNC (const char *, mg_unpack, (const char *name, size_t *size, time_t *mtime));
 DEF_FUNC (const char *, mg_unlist, (size_t i));

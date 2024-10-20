@@ -1255,13 +1255,16 @@ static void print_sql_info (void)
   const char *opt;
   int   i, sz = 0;
 
-  printf ("Sqlite3 ver:  %-7s  from http://www.sqlite.org.\n"
+  printf ("Sqlite3 ver:  %-7s from http://www.sqlite.org.\n"
           "  Build options: ", sqlite3_libversion());
 
   for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
   {
     const char *opt_next = sqlite3_compileoption_get (i + 1);
 
+    /**
+     * \todo Add to a large bufer and call `puts_long_line()`
+     */
     sz += printf ("SQLITE_%s%s", opt, opt_next ? ", " : "\n");
     if (opt_next)
        sz += sizeof(", SQLITE_") + strlen (opt_next);
@@ -1442,7 +1445,7 @@ void puts_long_line (const char *start, size_t indent)
       int   ch;
 
       if (!p)
-         p = strchr (c+1, '\0');
+         p = strchr (c + 1, '\0');
       if (left < 2 || (left <= (size_t)(p - c)))
       {
         printf ("\n%*c", (int)indent, ' ');
@@ -1585,8 +1588,8 @@ void show_version_info (bool verbose)
  * Handy macro to both define and declare the function-pointers
  * for `WinInet.dll`
  */
-#define DEF_FUNC(ret, f, args)  typedef ret (WINAPI *func_##f) args; \
-                                static func_##f p_##f = NULL
+#define DEF_FUNC(ret, name, args)  typedef ret (WINAPI *func_##name) args; \
+                                   static func_##name p_##name = NULL
 
 /**
  * Download a single file using the WinInet API.
