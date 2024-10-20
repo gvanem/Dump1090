@@ -472,7 +472,7 @@ typedef enum { false = 0, true = 1 } bool;
 #pragma comment(lib, "advapi32.lib")
 #else
 #include <bcrypt.h>
-#if defined(_MSC_VER) 
+#if defined(_MSC_VER)
 #pragma comment(lib, "bcrypt.lib")
 #endif
 #endif
@@ -1112,6 +1112,15 @@ bool mg_path_is_sane(const struct mg_str path);
 #define MG_IPADDR_PARTS(ADDR) \
   MG_U8P(ADDR)[0], MG_U8P(ADDR)[1], MG_U8P(ADDR)[2], MG_U8P(ADDR)[3]
 
+#define MG_LOAD_BE16(p) ((uint16_t) ((MG_U8P(p)[0] << 8U) | MG_U8P(p)[1]))
+#define MG_LOAD_BE24(p) \
+  ((uint32_t) ((MG_U8P(p)[0] << 16U) | (MG_U8P(p)[1] << 8U) | MG_U8P(p)[2]))
+#define MG_STORE_BE16(p, n)           \
+  do {                                \
+    MG_U8P(p)[0] = ((n) >> 8U) & 255; \
+    MG_U8P(p)[1] = (n) &255;          \
+  } while (0)
+
 #define MG_REG(x) ((volatile uint32_t *) (x))[0]
 #define MG_BIT(x) (((uint32_t) 1U) << (x))
 #define MG_SET_BITS(R, CLRMASK, SETMASK) (R) = ((R) & ~(CLRMASK)) | (SETMASK)
@@ -1282,9 +1291,6 @@ int mg_tls_x25519(uint8_t out[X25519_BYTES], const uint8_t scalar[X25519_BYTES],
  *******************************************************************************/
 #ifndef TLS_AES128_H
 #define TLS_AES128_H
-
-typedef unsigned char uchar;  // add some convienent shorter types
-typedef unsigned int uint;
 
 /******************************************************************************
  *  AES_CONTEXT : cipher context / holds inter-call data
@@ -2733,6 +2739,8 @@ enum {
   MG_TCPIP_EV_ST_CHG,     // state change             uint8_t * (&ifp->state)
   MG_TCPIP_EV_DHCP_DNS,   // DHCP DNS assignment      uint32_t *ipaddr
   MG_TCPIP_EV_DHCP_SNTP,  // DHCP SNTP assignment     uint32_t *ipaddr
+  MG_TCPIP_EV_ARP,        // Got ARP packet           struct mg_str *
+  MG_TCPIP_EV_TIMER_1S,   // 1 second timer           NULL
   MG_TCPIP_EV_USER        // Starting ID for user events
 };
 
@@ -2769,13 +2777,15 @@ struct mg_tcpip_if {
   uint8_t state;                // Current state
 #define MG_TCPIP_STATE_DOWN 0   // Interface is down
 #define MG_TCPIP_STATE_UP 1     // Interface is up
-#define MG_TCPIP_STATE_REQ 2    // Interface is up and has requested an IP
-#define MG_TCPIP_STATE_READY 3  // Interface is up and has an IP assigned
+#define MG_TCPIP_STATE_REQ 2    // Interface is up, DHCP REQUESTING state
+#define MG_TCPIP_STATE_IP 3     // Interface is up and has an IP assigned
+#define MG_TCPIP_STATE_READY 4  // Interface has fully come up, ready to work
 };
 
 void mg_tcpip_init(struct mg_mgr *, struct mg_tcpip_if *);
 void mg_tcpip_free(struct mg_tcpip_if *);
 void mg_tcpip_qwrite(void *buf, size_t len, struct mg_tcpip_if *ifp);
+void mg_tcpip_arp_request(struct mg_tcpip_if *ifp, uint32_t ip, uint8_t *mac);
 
 extern struct mg_tcpip_driver mg_tcpip_driver_stm32f;
 extern struct mg_tcpip_driver mg_tcpip_driver_w5500;
