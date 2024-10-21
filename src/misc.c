@@ -1111,20 +1111,20 @@ static const char *mimalloc_version (void)
   static char buf [80];
   int    ver = mi_version();
 
-  snprintf (buf, sizeof(buf), "mimalloc ver: %d.%d    from https://github.com/microsoft/mimalloc\n",
+  snprintf (buf, sizeof(buf), "%d.%d    from https://github.com/microsoft/mimalloc\n",
             ver / 100, ver % 100);
   return (buf);
 }
-#endif  /* _DEBUG */
+#endif  /* USE_MIMALLOC */
 
 /* Dummies for `show_version_info()`
  */
 #if !defined(USE_MIMALLOC)
-#define mimalloc_version() ""
+#define mimalloc_version() "N/A"
 #endif
 
 #if !defined(USE_MUNIT)
-#define munit_version() ""
+#define munit_version() "N/A"
 #endif
 
 /**
@@ -1606,7 +1606,7 @@ static const char *munit_version (void)
 {
   static char buf [60];
 
-  snprintf (buf, sizeof(buf), "munit ver:    %d.%d.%d   from https://github.com/nemequ/munit\n",
+  snprintf (buf, sizeof(buf), "%d.%d.%d   from https://github.com/nemequ/munit\n",
             (MUNIT_CURRENT_VERSION >> 16) & 0xff,
             (MUNIT_CURRENT_VERSION >> 8) & 0xff,
             (MUNIT_CURRENT_VERSION >> 0) & 0xff);
@@ -1655,18 +1655,19 @@ static const char *__DATE__str (void)
  */
 void show_version_info (bool verbose)
 {
-  printf ("dump1090 ver: %s (%s, %s).\nBuilt on %s.\n",
-          PROG_VERSION, compiler_info(), build_features(),
+  printf ("dump1090 ver: %s (%s, %s).\n"
+          "Built on %s.\n", PROG_VERSION, compiler_info(), build_features(),
           __DATE__str());
 
   if (verbose)
   {
+    printf ("mimalloc ver: %s\n", mimalloc_version());
+    printf ("munit ver:    %s\n", munit_version());
+    printf ("Miniz ver:    %-7s from https://github.com/kuba--/zip\n", mz_version());
+    printf ("Mongoose ver: %-7s from https://github.com/cesanta/mongoose\n", MG_VERSION);
     printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s.\n",
             RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, RTL_VER_ID);
     printf ("PDCurses ver: %-7s from https://github.com/wmcbrine/PDCurses\n", PDC_VERDOT);
-    printf ("Mongoose ver: %-7s from https://github.com/cesanta/mongoose\n", MG_VERSION);
-    printf ("Miniz ver:    %-7s from https://github.com/kuba--/zip\n", mz_version());
-    printf ("%s%s", mimalloc_version(), munit_version());
     print_packed_web_info();
     print_sql_info();
     print_CFLAGS();
