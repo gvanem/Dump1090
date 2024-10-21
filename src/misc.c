@@ -1503,7 +1503,7 @@ static void test_asprintf (void)
 {
   const char **ip;
   char        *buf = NULL;
-  size_t       i, num = DIM(tests);
+  size_t       i;
   int          ret;
 
   ip = tests + 0;
