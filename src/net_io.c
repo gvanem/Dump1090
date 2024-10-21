@@ -439,8 +439,8 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
          "    method:  '%.*s'\n",
          c->id, (int)len, hm->head.buf, uri, (int)hm->method.len, hm->method.buf);
 
-  is_GET  = (mg_vcasecmp(&hm->method, "GET") == 0);
-  is_HEAD = (mg_vcasecmp(&hm->method, "HEAD") == 0);
+  is_GET  = (strnicmp(hm->method.buf, "GET", hm->method.len) == 0);
+  is_HEAD = (strnicmp(hm->method.buf, "HEAD", hm->method.len) == 0);
 
   if (!is_GET && !is_HEAD)
   {
@@ -459,7 +459,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   Modes.stat.HTTP_get_requests++;
 
   header = mg_http_get_header (hm, "Connection");
-  if (header && !mg_vcasecmp(header, "keep-alive"))
+  if (header && !strnicmp(header->buf, "keep-alive", header->len))
   {
     DEBUG (DEBUG_NET2, "Connection: '%.*s'\n", (int)header->len, header->buf);
     Modes.stat.HTTP_keep_alive_recv++;
@@ -467,7 +467,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   }
 
   header = mg_http_get_header (hm, "Accept-Encoding");
-  if (header && !mg_vcasecmp(header, "gzip"))
+  if (header && !strnicmp(header->buf, "gzip", header->len))
   {
     DEBUG (DEBUG_NET2, "Accept-Encoding: '%.*s'\n", (int)header->len, header->buf);
     cli->encoding_gzip = true;  /**\todo Add gzip compression */
@@ -1286,7 +1286,6 @@ static bool client_is_unique (const mg_addr *addr, intptr_t service, unique_IP *
 static void unique_ips_print (intptr_t service)
 {
   const unique_IP *ip;
-  ip_address       ip_addr;
   size_t           num = 0;
 
   LOG_STDOUT ("    %8llu unique client(s):\n", Modes.stat.unique_clients [service]);
@@ -1295,7 +1294,8 @@ static void unique_ips_print (intptr_t service)
 
   for (ip = g_unique_ips; ip; ip = ip->next)
   {
-    char denied [20] = "";
+    ip_address ip_addr;
+    char       denied [20] = "";
 
     if (ip->service != service)
        continue;
@@ -1312,8 +1312,8 @@ static void unique_ips_print (intptr_t service)
     num++;
   }
   if (num == 0)
-       fprintf (Modes.log, "%*s\n", 27+6, "None!?");
-  else fputc ('\n', Modes.log);
+     fprintf (Modes.log, "%*s", 27+6, "None!?");
+  fputc ('\n', Modes.log);
 }
 
 static void unique_ips_free (void)

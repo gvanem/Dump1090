@@ -3034,36 +3034,3 @@ char *mg_hex (const void *buf, size_t len, char *to)
   to [i] = '\0';
   return (to);
 }
-
-#if defined(USE_mg_vcasecmp)
-int mg_ncasecmp (const char *s1, const char *s2, size_t len)
-{
-  int diff = 0;
-
-  if (len > 0)
-     do
-     {
-       int c = *s1++, d = *s2++;
-
-       if (c >= 'A' && c <= 'Z')
-          c += 'a' - 'A';
-       if (d >= 'A' && d <= 'Z')
-          d += 'a' - 'A';
-       diff = c - d;
-     }
-     while (diff == 0 && s1[-1] != '\0' && --len > 0);
-  return (diff);
-}
-
-int mg_vcasecmp (const struct mg_str *str1, const char *str2)
-{
-  size_t n2 = strlen (str2);
-  size_t n1 = str1->len;
-  int    rc = mg_ncasecmp (str1->buf, str2, (n1 < n2) ? n1 : n2);
-
-  if (rc == 0)
-     return (int) (n1 - n2);
-  return (rc);
-}
-#endif
-
