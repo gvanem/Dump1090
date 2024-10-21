@@ -1265,27 +1265,18 @@ void *memdup (const void *from, size_t size)
 static void print_sql_info (void)
 {
   const char *opt;
+  char *buf = NULL;
   int   i, sz = 0;
 
   printf ("Sqlite3 ver:  %-7s from http://www.sqlite.org.\n"
           "  Build options: ", sqlite3_libversion());
 
   for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
-  {
-    const char *opt_next = sqlite3_compileoption_get (i + 1);
+      sz += modeS_asprintf (&buf, "SQLITE_%s, ", opt);
 
-    /**
-     * \todo Add to a large bufer and call `puts_long_line()`
-     */
-    sz += printf ("SQLITE_%s%s", opt, opt_next ? ", " : "\n");
-    if (opt_next)
-       sz += sizeof(", SQLITE_") + strlen (opt_next);
-    if (sz >= 140)
-    {
-      fputs ("\n                 ", stdout);
-      sz = 0;
-    }
-  }
+  buf [sz-2] = '\0';  /* remove last ', ' */
+  puts_long_line (buf, strlen("  Build options: "));
+  free (buf);
 }
 
 static void print_packed_web_info (void)
