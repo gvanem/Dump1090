@@ -627,6 +627,9 @@ char       *modeS_SYSTEMTIME_to_str (const SYSTEMTIME *st, bool show_YMD);
 char       *modeS_FILETIME_to_str (const FILETIME *ft, bool show_YMD);
 char       *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD);
 void        modeS_signal_handler (int sig);
+int         modeS_vasprintf (char **bufp, _Printf_format_string_ const char *format, va_list args);
+int         modeS_asprintf  (char **bufp, _Printf_format_string_ const char *format, ...)  ATTR_PRINTF(2, 3);
+
 bool        decode_RAW_message (mg_iobuf *msg, int loop_cnt);  /* in 'dump1090.c' */
 bool        decode_SBS_message (mg_iobuf *msg, int loop_cnt);  /* in 'dump1090.c' */
 uint32_t    ato_hertz (const char *Hertz);
@@ -647,7 +650,7 @@ int        _gettimeofday (struct timeval *tv, void *timezone);
 int         get_timespec_UTC (struct timespec *ts);
 double      get_usec_now (void);
 void        get_FILETIME_now (FILETIME *ft);
-void        init_timings (void);
+bool        init_misc (void);
 void        crtdbug_init (void);
 void        crtdbug_exit (void);
 const char *win_strerror (DWORD err);

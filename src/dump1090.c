@@ -465,7 +465,8 @@ static bool modeS_init (void)
 {
   bool rc = true;
 
-  init_timings();
+  if (!init_misc())
+     return (false);
 
   if (strcmp(Modes.cfg_file, "NUL") && !cfg_open_and_parse(Modes.cfg_file, config))
      return (false);

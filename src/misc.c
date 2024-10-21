@@ -30,6 +30,7 @@
 
 static bool modeS_log_reinit (const SYSTEMTIME *st);
 static bool modeS_log_ignore (const char *msg);
+static void test_asprintf (void);
 extern void PDC_scr_close (void);
 static BOOL WINAPI console_handler (DWORD event);
 
@@ -1001,7 +1002,7 @@ double get_usec_now (void)
 /**
  * Initialize the above timing-values.
  */
-void init_timings (void)
+static void init_timings (void)
 {
   get_usec_now();
   get_FILETIME_now (&Modes.start_FILETIME);
@@ -1009,6 +1010,17 @@ void init_timings (void)
   GetLocalTime (&Modes.start_SYSTEMTIME);
 
 //SetConsoleCtrlHandler (console_handler, TRUE);
+}
+
+bool init_misc (void)
+{
+  init_timings();
+  if (test_contains(Modes.tests, "misc"))
+  {
+    test_asprintf();
+    return (false);
+  }
+  return (true);
 }
 
 /**
@@ -1464,6 +1476,94 @@ void puts_long_line (const char *start, size_t indent)
     left--;
   }
   putchar ('\n');
+}
+
+/*
+ * Test `modeS_asprintf()` with a long string (as from a .log-file):
+ *   46 unique client(s):
+ *      127.0.0.1, 154.213.184.18, 185.224.128.83, 185.224.128.67, 5.181.190.29, 61.216.35.127, 90.54.179.158,
+ *      172.169.111.144, 167.94.146.54, 194.48.251.26, ...
+ *
+ */
+static const char *tests[] = {
+                  "unique client(s):",
+                  "127.0.0.1,",
+                  "154.213.184.18,",
+                  "185.224.128.83,",
+                  "185.224.128.67,",
+                  "5.181.190.29,",
+                  "61.216.35.127,",
+                  "90.54.179.158,",
+                  "172.169.111.144,",
+                  "167.94.146.54,",
+                  "194.48.251.26"
+                };
+
+static void test_asprintf (void)
+{
+  const char **ip;
+  char        *buf = NULL;
+  size_t       i, num = DIM(tests);
+  int          ret;
+
+  ip = tests + 0;
+  for (i = 0; i < DIM(tests); i++, ip++)
+  {
+    ret = modeS_asprintf (&buf, "%s ", *ip);
+    assert (ret > 0);
+  }
+  puts_long_line (buf, strlen(tests[0]) + 1);
+  free (buf);
+}
+
+/**
+ * Formatted print and append to an alloced buffer at `*bufp`.
+ */
+int modeS_vasprintf (char **bufp, _Printf_format_string_ const char *fmt, va_list args)
+{
+  int     ret, slen;
+  size_t  len, buf_len = *bufp ? strlen (*bufp) : 0;
+  char   *str;
+  va_list _args;
+
+  /* copy `args`, as it is used twice
+   */
+  va_copy (_args, args);
+  slen = _vscprintf (fmt, _args);
+  va_end (_args);
+
+  if (slen == -1)
+     return (-1);
+
+  len = (size_t) (slen + 1);
+
+  /* If `*bufp == NULL`, this equals `malloc(len)`.
+   */
+  str = realloc (*bufp, buf_len + len);
+  if (!str)
+     return (-1);
+
+  slen = vsnprintf (str + buf_len, len, fmt, args);
+  ret = slen;
+  if (slen != (int) (len - 1))
+  {
+    free (str);
+    str = NULL;
+    ret = -1;
+  }
+  *bufp = str;
+  return (ret);
+}
+
+int modeS_asprintf (char **bufp, _Printf_format_string_ const char *fmt, ...)
+{
+  va_list args;
+  int     ret;
+
+  va_start (args, fmt);
+  ret = modeS_vasprintf (bufp, fmt, args);
+  va_end (args);
+  return (ret);
 }
 
 /**
@@ -2935,6 +3035,7 @@ char *mg_hex (const void *buf, size_t len, char *to)
   return (to);
 }
 
+#if defined(USE_mg_vcasecmp)
 int mg_ncasecmp (const char *s1, const char *s2, size_t len)
 {
   int diff = 0;
@@ -2964,4 +3065,5 @@ int mg_vcasecmp (const struct mg_str *str1, const char *str2)
      return (int) (n1 - n2);
   return (rc);
 }
+#endif
 
