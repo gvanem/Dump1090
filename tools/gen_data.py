@@ -4,24 +4,26 @@ A rewrite of https://vrs-standing-data.adsb.lol/generate-csvs.sh
 into Python. Plus some more features.
 
 Generate these files:
-  aircrafts.csv + aircrafts.bin + aircrafts-test.exe
-  airports.csv  + airports.bin  + airports-test.exe
-  routes.csv    + routes.bin    + routes-test.exe
+  aircrafts.csv + aircrafts.bin + test-aircrafts.exe
+  airports.csv  + airports.bin  + test-airports.exe
+  routes.csv    + routes.bin    + test-routes.exe
 
-from GitHub: 'https://github.com/vradarserver/standing-data.git'
+from 'https://github.com/vradarserver/standing-data/archive/refs/heads/main.zip'
 """
 
 import os, sys, stat, struct, time, csv, argparse
-import fnmatch, msvcrt, shutil
+import fnmatch, msvcrt, shutil, urllib.request, zipfile
 
 #
 # Globals:
 #
-opt        = None
-temp_dir   = os.getenv ("TEMP").replace("\\", "/") + "/dump1090/standing-data"
-result_dir = temp_dir + "/results"
-git_config = temp_dir + "/.git/config"
-git_url    = "https://github.com/vradarserver/standing-data.git"
+opt         = None
+temp_dir    = os.getenv ("TEMP").replace("\\", "/") + "/dump1090/standing-data"
+result_dir  = temp_dir + "/results"
+zip_url     = "https://github.com/vradarserver/standing-data/archive/refs/heads/main.zip"
+zip_file    = "%s/standing-data.zip" % temp_dir
+zip_dir     = temp_dir + "/standing-data-main"   # the top-level directory within 'zip_file'
+header      = "-" * 80
 
 bin_marker = "BIN-dump1090"   # magic marker
 bin_header = "<12sqII"        # must match 'struct BIN_header'
@@ -34,9 +36,9 @@ aircrafts_bin = "%s/aircrafts.bin" % result_dir
 airports_bin  = "%s/airports.bin"  % result_dir
 routes_bin    = "%s/routes.bin"    % result_dir
 
-aircrafts_c   = "%s/aircrafts-test.c" % result_dir
-airports_c    = "%s/airports-test.c"  % result_dir
-routes_c      = "%s/routes-test.c"    % result_dir
+aircrafts_c   = "%s/test-aircrafts.c" % result_dir
+airports_c    = "%s/test-airports.c"  % result_dir
+routes_c      = "%s/test-routes.c"    % result_dir
 gen_data_h    = "%s/gen_data.h"       % result_dir
 
 def error (s, prefix = ""):
@@ -52,12 +54,15 @@ def fatal (s):
 # Open a file for read or write
 #
 def open_file (fname, mode, encoding = None):
+  if mode[0] == 'w':
+     make_dir (os.path.dirname(fname))
+
   try:
     if encoding:
        return open (fname, mode, encoding = encoding)
     return open (fname, mode)
   except (IOError, NameError):
-    fatal ("Failed to open %s." % fname)
+    fatal ("Failed to open %s (mode=\"%s\")." % (fname, mode))
 
 def create_c_file (file):
   f = open_file (file, "w+t")
@@ -75,13 +80,23 @@ def make_dir (d):
   except:
     pass
 
-def clean_dir (d):
-  print ("Remove '%s' (y/N)? " % d, end = "")
-  sys.stdout.flush()
-  yes = int (msvcrt.getch().upper()[0])
-  if yes == 'Y':
-     shutil.rmtree (d)
-  sys.exit (0)
+def remove_dir (d):
+  try:
+    os.rmdir (d)
+    return True
+  except:
+    return False
+
+def nice_size (num):
+  one_mb = 1024*1024
+  one_kb = 1024
+  if num > one_mb:
+     ret = "%d.%03d MB" % (num/one_mb, (num/one_kb) % one_mb)
+  elif num > one_kb:
+     ret = "%d.%03d kB" % (num/one_kb, num % one_kb)
+  else:
+     ret = "%d B" % num
+  return ret
 
 #
 # Recursively descend the directory tree from top, adding all
@@ -108,12 +123,12 @@ def list_files (name, _dict):
   for f in _dict:
       print ("  %s" % f)
       fsize += _dict [f]["fsize"]
-  print ("  %d bytes\n" % fsize)
+  print ("  %s\n" % nice_size(fsize))
   return fsize
 
 #
-# Open and read entire file with "utf-8-sig" encoding to take care of the BOM.
-# Return content as list of lines.
+# Open and read entire file with "utf-8-sig" encoding to take
+# care of the BOM. Return content as list of lines.
 #
 def read_csv_file (fname, _dict):
   lines = []
@@ -208,7 +223,8 @@ def create_bin_file (to_file, from_file, dict_len, rec_len, rec_func):
   return rows
 
 #
-# Create gen_data.h-file for all records matching the .BIN-files.
+# Create a '%TEMP%/dump1090/standing-data/results/gen_data.h' file for all
+# records matching the .BIN-files.
 #
 def create_gen_data_h():
   f = create_c_file (gen_data_h)
@@ -256,7 +272,7 @@ typedef struct route_record {     /* matching 'routes_format = "%s"' */
       } route_record;
 
 extern const aircraft_record *gen_aircraft_lookup (const char *icao_addr);
-extern const airport_record  *gen_airport_lookup (const char *icao);
+extern const airport_record  *gen_airport_lookup (const char *icao_addr);
 extern const route_record    *gen_route_lookup (const char *call_sign);
 
 #pragma pack(pop)
@@ -282,6 +298,7 @@ extern const route_record    *gen_route_lookup (const char *call_sign);
 #endif /* GEN_DATA_H */
 """  % (aircraft_format, airport_format, routes_format), file = f)
   f.close()
+  sys.stdout.flush()
 
 #
 # Create a .c-file which tests the created .BIN-file.
@@ -411,6 +428,12 @@ int main (void)
   BIN_header hdr;
   RECORD    *rec, *start, *prev_rec = NULL;
 
+  if (!f)
+  {
+    fprintf (stderr, "Failed to open %s!\\n", bin_file);
+    return (1);
+  }
+
   fread (&hdr, 1, sizeof(hdr), f);
   printf ("bin_marker: %.*s\\n", (int)sizeof(hdr.bin_marker), hdr.bin_marker);
   printf ("created:    %.24s\\n", ctime(&hdr.created));
@@ -440,47 +463,48 @@ int main (void)
   f.close()
 
 #
-# Compile the above .c-file to .exe.
+# Spawn a command:
+#   1) 'cl.exe' or 'clang-cl.exe'
+#   2) with 'opt.test', run the above compiled .exe
 #
-def compile_to_exe (c_file, exe_file, define):
-  obj_file = c_file.replace (".c", ".obj")
-  if opt.clang:
-     cmd = "clang-cl"
-  else:
-     cmd = "cl"
-
-  cmd += " -nologo -MDd -W3 -Zi -I%s -Fe%s -Fo%s %s %s -link -nologo -incremental:no" % \
-          (result_dir, exe_file, obj_file, define, c_file)
-  print ("\ncmd: %s" % cmd)
-  rc = os.system (cmd)
-  if rc:
-     error ("Failed to compile '%s'" % cmd)
-
-#
-# With 'opt.test', run the above compiled .exe
-#
-def run_exe (exe_file):
-  print ("\nRunning:\n  %s" % exe_file, file = sys.stderr)
-  rc = os.system (exe_file.replace ("/", "\\"))
-  print ("-" * 80, flush=True)
+def run_prog (cmd, header = None):
+  print ("\ncmd:\n  %s" % cmd, file = sys.stderr, flush = True)
+  sys.stdout.flush()
+  rc = os.system (cmd.replace ("/", "\\"))
+  if header:
+     print (header, flush = True)
   return rc
 
-def run_git (cmd):
-  print ("Running '%s'..." % cmd)
-  sys.stdout.flush()
-  if os.system (cmd) != 0:
-     error ("'git' failed")
+#
+# Compile the above .c-file to .exe if it does not exist.
+#
+def compile_to_exe (c_file, exe_file, define):
+  if os.path.exists (exe_file):
+     print ("'%s' already exist. Assumed to be OK." % exe_file)
+     return
+  cmd = [ "cl.exe", "clang-cl.exe" ] [opt.clang]
+  cmd += " -nologo -MD -W3 -Zi -I%s -Fe%s -Fo%s -D%s %s" % \
+         (result_dir,
+          exe_file,
+          c_file.replace (".c", ".obj"),
+          define,
+          c_file)
+  cmd += " -link -nologo -incremental:no"
+  if run_prog (cmd) != 0:
+     error ("Failed to compile '%s'" % cmd)
 
 ##############################################################################
 
 def show_help():
-  print (__doc__[1:])
+  print (__doc__[1:], end = "")
+  print ("The above are generated under '%s'.\n" % result_dir)
+
   print ("""Usage: %s [options]
-  -c, --clang:  Use 'clang-cl' to compile (not 'cl').
+  -c, --clang:  Use 'clang-cl.exe' to compile (not 'cl.exe').
   -C, --clean:  Clean all built stuff in '%s'.
   -h, --help:   Show this help.
   -l, --list:   List all .csv-file
-  -r, --run:    Run the test .exe-programs.""" % (__file__, result_dir))
+  -t, --test:   Run the test-programs '%s/*.exe'.""" % (__file__, result_dir, result_dir))
   sys.exit (0)
 
 def parse_cmdline():
@@ -489,7 +513,7 @@ def parse_cmdline():
   parser.add_argument ("-C", "--clean", dest = "clean", action = "store_true")
   parser.add_argument ("-h", "--help",  dest = "help",  action = "store_true")
   parser.add_argument ("-l", "--list",  dest = "list",  action = "store_true")
-  parser.add_argument ("-r", "--run",   dest = "run",  action = "store_true")
+  parser.add_argument ("-t", "--test",  dest = "test",  action = "store_true")
   return parser.parse_args()
 
 def do_init():
@@ -497,35 +521,70 @@ def do_init():
   if opt.help:
      show_help()
   if opt.clean:
-     clean_dir (result_dir)
+     print ("Cleaning '%s/**':" % temp_dir)
+     shutil.rmtree (temp_dir, ignore_errors = True)
   return opt
 
-def do_init_git():
-  if os.path.exists (git_config):
-     run_git ("git.exe -C %s pull" % temp_dir)
+def do_zip_extract (zip_file, to_dir):
+  print ("Extracting '%s' to '%s'" % (zip_file, to_dir))
+  zf = zipfile.ZipFile (zip_file, "r")
+  zf.extractall (to_dir)
+  zf.close()
+
+def do_zip_list():
+  print ("Listing of '%s':" % zip_file)
+  print ("  Size Date     Filename")
+  print (header)
+
+  CSV_num = CSV_size = 0
+  zf = zipfile.ZipFile (zip_file, "r")
+  for f in zf.infolist():
+      if not f.filename.lower().endswith(".csv"):
+         continue
+      date = "%4d%02d%02d" % (f.date_time[0:3])
+      print ("%6d %s %s"  % (f.file_size, date, f.filename))
+      CSV_num  += 1
+      CSV_size += f.file_size
+  print ("CSV_num: %d, CSV_size: %s\n" % (CSV_num, nice_size(CSV_size)))
+
+def do_zip_download():
+  print ("Downloading %s..." % zip_url, end = "")
+  data = urllib.request.urlopen (zip_url)
+  print()
+  f = open_file (zip_file, "w+b")
+  f.write (data.read())
+  f.close()
+
+def do_init_zip():
+  if os.path.exists (zip_file):
+     print ("'%s' already exist. Assumed to be unzipped OK." % zip_file)
   else:
-     run_git ("git.exe clone --depth=1 %s %s" % (git_url, temp_dir))
+     do_zip_download()
+     do_zip_extract (zip_file, temp_dir)
 
 def main():
   global opt
   opt = do_init()
-  do_init_git()
 
-  make_dir (result_dir)
+  make_dir (temp_dir)
+  do_init_zip()
+
+  if opt.list:
+     do_zip_list()
 
   aircraft_files = dict()
   airport_files  = dict()
   route_files    = dict()
 
-  walk_csv_tree ("%s/aircraft" % temp_dir, aircraft_files)
-  walk_csv_tree ("%s/airports" % temp_dir, airport_files)
-  walk_csv_tree ("%s/routes"   % temp_dir, route_files)
+  walk_csv_tree ("%s/aircraft" % zip_dir, aircraft_files)
+  walk_csv_tree ("%s/airports" % zip_dir, airport_files)
+  walk_csv_tree ("%s/routes"   % zip_dir, route_files)
 
   if opt.list:
      total_fsize  = list_files ("aircraft_files", aircraft_files)
      total_fsize += list_files ("airport_files", airport_files)
      total_fsize += list_files ("route_files", route_files)
-     print ("total_fsize: %.2f MB" % (float(total_fsize) / 1E6))
+     print ("total_fsize: %s" % nice_size(total_fsize))
      sys.exit (0)
 
   create_csv_file (aircrafts_csv, "aircraft_files", aircraft_files)
@@ -540,27 +599,26 @@ def main():
   create_c_test_file (airports_c,  airports_bin,  airport_rec_len,  num_airports)
   create_c_test_file (routes_c,    routes_bin,    routes_rec_len,   num_routes)
   create_gen_data_h()
-  sys.stdout.flush()
 
   aircrafts_exe = aircrafts_c.replace (".c", ".exe")
   airports_exe  = airports_c.replace (".c", ".exe")
   routes_exe    = routes_c.replace (".c", ".exe")
 
-  compile_to_exe (aircrafts_c, aircrafts_exe, "-DAIRCRAFT_LOOKUP")
-  compile_to_exe (airports_c,  airports_exe,  "-DAIRPORT_LOOKUP")
-  compile_to_exe (routes_c,    routes_exe,    "-DROUTE_LOOKUP")
+  compile_to_exe (aircrafts_c, aircrafts_exe, "AIRCRAFT_LOOKUP")
+  compile_to_exe (airports_c,  airports_exe,  "AIRPORT_LOOKUP")
+  compile_to_exe (routes_c,    routes_exe,    "ROUTE_LOOKUP")
 
-  if opt.run:
-     rc  = run_exe (aircrafts_exe)
-     rc += run_exe (airports_exe)
-     rc += run_exe (routes_exe)
+  if opt.test:
+     rc  = run_prog (aircrafts_exe, header)
+     rc += run_prog (airports_exe, header)
+     rc += run_prog (routes_exe, header)
      if rc == 0:
         print ("All tests succeeded!", file = sys.stderr)
      else:
         error ("There were some errors!")
   else:
-     print ("\nRun these to test them:\n  %s\n  %s\n  %s\n" % \
-            (aircrafts_exe, airports_exe, routes_exe))
+     print ("\nRun '%s %s --test' to test these:\n  %s\n  %s\n  %s\n" % \
+            (sys.executable, __file__, aircrafts_exe, airports_exe, routes_exe))
 
 if __name__ == "__main__":
   main()
