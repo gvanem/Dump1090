@@ -850,7 +850,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
   if (Modes.exit)
      return;
 
-  if (ev == MG_EV_POLL || ev == MG_EV_OPEN)    /* Ignore these events */
+  if (ev == MG_EV_POLL || ev == MG_EV_OPEN)     /* Ignore these events */
      return;
 
   if (ev == MG_EV_ERROR)
@@ -2031,26 +2031,33 @@ static void unique_ip_tests (void)
 }
 
 /**
- * Replace the "udp://8.8.8.8:53" DNS server address set in Mongoose
- * with the default DNS server in Windows's IPHelper API.
+ * Find the DNSv4 and DNSv6 server address(es).
+ * Use Windows's IPHelper API.
  */
-static char *net_init_dns (void)
+static bool net_init_dns (char **dns4_p, char **dns6_p)
 {
   FIXED_INFO     *fi = alloca (sizeof(*fi));
   DWORD           size = 0;
   IP_ADDR_STRING *ip;
+  FILE           *f;
   int             i;
+  const char     *ping6;
+  char            ping6_buf [500];
+  char            ping6_addr[50];
+
+  *dns4_p = NULL;
+  *dns6_p = NULL;
 
   if (GetNetworkParams(fi, &size) != ERROR_BUFFER_OVERFLOW)
   {
     LOG_STDERR ("  error: %s\n", win_strerror(GetLastError()));
-    return (NULL);
+    return (false);
   }
   fi = alloca (size);
   if (GetNetworkParams(fi, &size) != ERROR_SUCCESS)
   {
     LOG_STDERR ("  error: %s\n", win_strerror(GetLastError()));
-    return (NULL);
+    return (false);
   }
 
   DEBUG (DEBUG_NET, "  Host Name:   %s\n", fi->HostName);
@@ -2068,7 +2075,34 @@ static char *net_init_dns (void)
 
   /* Return a malloced string of the primary DNS server
    */
-  return mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
+  *dns4_p = mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
+
+  /* Fake alert:
+   *  If a `system ("ping -6 -n 1 dns.google")` works, just assume that
+   *  the `Reply from <ping6_addr> time=zz sec' will work as the DNS6 address.
+   */
+  ping6 = "ping -6 -n 1 dns.google";
+  f = _popen (ping6, "r");
+  if (!f)
+     TRACE ("%s failed; errno: %d/%s", ping6, errno, strerror(errno));
+  else
+  {
+    while (fgets(ping6_buf, sizeof(ping6_buf)-1, f))
+    {
+      str_rtrim (ping6_buf);
+      if (!ping6_buf[0] || ping6_buf[0] == '\n')
+         continue;
+      TRACE ( "_popen(): '%s'", ping6_buf);
+      if (sscanf(ping6_buf, "Reply from %s", ping6_addr) == 1)
+      {
+        TRACE ("ping6_addr: '%s'", ping6_addr);
+        *dns6_p = strdup (ping6_addr);
+        break;
+      }
+    }
+    _pclose (f);
+  }
+  return (true);
 }
 
 /**
@@ -2178,9 +2212,12 @@ bool net_init (void)
   wakeup_hnd = _beginthreadex (NULL, 0, background_tasks_thread, &t, 0, &wakeup_tid);
 #endif
 
-  Modes.dns = net_init_dns();
-  if (Modes.dns)
-     Modes.mgr.dns4.url = Modes.dns;
+  net_init_dns (&Modes.dns4, &Modes.dns6);
+
+  if (Modes.dns4)
+     Modes.mgr.dns4.url = Modes.dns4;
+  if (Modes.dns6)
+     Modes.mgr.dns4.url = Modes.dns6;
 
   LOG_FILEONLY ("Added %zu IPv4 and %zu IPv6 addresses to deny.\n",
                deny_list_num4(), deny_list_num6());
@@ -2259,7 +2296,7 @@ bool net_exit (void)
   unique_ips_free();
   deny_list_free();
 
-#ifdef USE_PACKED_DLL
+#if defined(USE_PACKED_DLL)
   unload_web_dll();
   free (lookup_table);
 #endif
@@ -2267,14 +2304,17 @@ bool net_exit (void)
   net_flush_all();
   mg_mgr_free (&Modes.mgr); /* This calls free() on all timers */
 
-  if (Modes.dns)
-     free (Modes.dns);
+  if (Modes.dns4)
+     free (Modes.dns4);
+
+  if (Modes.dns6)
+     free (Modes.dns6);
 
   if (Modes.rtltcp.info)
      free (Modes.rtltcp.info);
 
   Modes.mgr.conns = NULL;
-  Modes.dns = NULL;
+  Modes.dns4 = Modes.dns6 = NULL;
 
   if (num > 0)
      Sleep (100);

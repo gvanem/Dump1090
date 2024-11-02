@@ -408,7 +408,8 @@ typedef struct global_data {
         mg_connection *http_out;                    /**< HTTP listening connection. */
         mg_connection *rtl_tcp_in;                  /**< RTL_TCP active connection. */
         mg_mgr         mgr;                         /**< Only one Mongoose connection manager. */
-        char          *dns;                         /**< Use default Windows DNS server (not 8.8.8.8) */
+        char          *dns4;                        /**< Use default Windows DNSv4 server (not 8.8.8.8) */
+        char          *dns6;                        /**< Or a IPv6 server */
 
         /** Aircraft history
          */
