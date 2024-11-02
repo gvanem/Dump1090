@@ -2041,7 +2041,7 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
   IP_ADDR_STRING *ip;
   FILE           *f;
   int             i;
-  const char     *ping6;
+  const char     *ping6_cmd = "ping.exe -6 -n 1 dns.google 2> NUL";
   char            ping6_buf [500];
   char            ping6_addr[50];
 
@@ -2078,30 +2078,31 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
   *dns4_p = mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
 
   /* Fake alert:
-   *  If a `system ("ping -6 -n 1 dns.google")` works, just assume that
+   *  If a `system ("ping.exe -6 -n 1 dns.google")` works, just assume that
    *  the `Reply from <ping6_addr> time=zz sec' will work as the DNS6 address.
    */
-  ping6 = "ping -6 -n 1 dns.google";
-  f = _popen (ping6, "r");
+  _set_errno (0);
+  f = _popen (ping6_cmd, "r");
   if (!f)
-     TRACE ("%s failed; errno: %d/%s", ping6, errno, strerror(errno));
-  else
   {
-    while (fgets(ping6_buf, sizeof(ping6_buf)-1, f))
-    {
-      str_rtrim (ping6_buf);
-      if (!ping6_buf[0] || ping6_buf[0] == '\n')
-         continue;
-      TRACE ( "_popen(): '%s'", ping6_buf);
-      if (sscanf(ping6_buf, "Reply from %s", ping6_addr) == 1)
-      {
-        TRACE ("ping6_addr: '%s'", ping6_addr);
-        *dns6_p = strdup (ping6_addr);
-        break;
-      }
-    }
-    _pclose (f);
+    DEBUG (DEBUG_NET, "_popen() failed: errno: %d/%s\n", errno, strerror(errno));
+    return (true);
   }
+
+  while (fgets(ping6_buf, sizeof(ping6_buf)-1, f))
+  {
+    str_rtrim (ping6_buf);
+    if (!ping6_buf[0] || ping6_buf[0] == '\n')
+       continue;
+    DEBUG (DEBUG_NET, "_popen(): '%s'\n", ping6_buf);
+    if (sscanf(ping6_buf, "Reply from %s", ping6_addr) == 1)
+    {
+      DEBUG (DEBUG_NET, "ping6_addr: '%s'\n", ping6_addr);
+      *dns6_p = strdup (ping6_addr);
+      break;
+    }
+  }
+  _pclose (f);
   return (true);
 }
 
