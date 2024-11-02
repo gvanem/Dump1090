@@ -31,7 +31,7 @@
   #pragma clang diagnostic error "-Wformat"
   #pragma clang diagnostic error "-Wformat-insufficient-args"
 
-  #ifdef COMPILING_SQLITE3_SHELL
+  #if defined(COMPILING_SQLITE3_SHELL)
     #pragma clang diagnostic ignored "-Wunused-parameter"
     #pragma clang diagnostic ignored "-Wsign-compare"
     #pragma clang diagnostic ignored "-Wformat-security"
@@ -73,7 +73,7 @@
    */
   #pragma warning (disable: 4702)
 
-  #ifdef _WIN64
+  #if defined(_WIN64)
     /*
      * 'type cast': conversion from 'int' to 'void *' of greater size
      */

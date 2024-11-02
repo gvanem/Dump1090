@@ -243,7 +243,7 @@ static bool nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
   return (true);
 }
 
-#ifdef NOT_USED_YET
+#if defined(NOT_USED_YET)
 /**
  * Enable RTLSDR direct sampling mode.
  */
@@ -3235,7 +3235,7 @@ static void show_statistics (void)
   if (Modes.airports_priv)
      airports_show_stats();
 
-#ifdef USE_MIMALLOC
+#if defined(USE_MIMALLOC)
   mimalloc_stats();
 #endif
 }

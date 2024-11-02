@@ -2081,7 +2081,7 @@ static double geocentric_latitude (double lat)
  */
 static void assert_cart (const cartesian_t *cpos, double heading, unsigned line)
 {
-#ifdef _DEBUG
+#if defined(_DEBUG)
   if (fabs(cpos->c_x) > EARTH_RADIUS || fabs(cpos->c_y) > EARTH_RADIUS)
   {
     double x = cpos->c_x / 1E3;

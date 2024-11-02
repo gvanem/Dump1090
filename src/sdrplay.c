@@ -8,7 +8,7 @@
 #include "misc.h"
 #include "sdrplay.h"
 
-#ifdef __clang__
+#if defined(__clang__)
 static_assert (SDRPLAY_API_VERSION >= 3.14F, "Need SDRPlay API >= 3.14 to compile");
 #endif
 

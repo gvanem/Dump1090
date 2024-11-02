@@ -1104,7 +1104,6 @@ static bool airports_init_API (void)
     return (false);
   }
 
-
   exists = (stat(Modes.airport_cache, &st) == 0 && st.st_size > 0);
   if (!exists)
      airports_cache_open (NULL);
