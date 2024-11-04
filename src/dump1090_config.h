@@ -127,7 +127,7 @@
 
 /** Support various features in `externals/mongoose.c`:
  */
-#define MG_ENABLE_ASSERT        1  /* Enable `assert()` calls (unless 'USE_MUNIT=1') */
+#define MG_ENABLE_ASSERT        1  /* Enable `assert()` calls */
 #define MG_ENABLE_IPV6          0  /* No IPv6 code */
 #define MG_ENABLE_MD5           0  /* No need for MD5 code */
 #define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
@@ -165,27 +165,6 @@
 #define fileno(stream)       _fileno (stream)
 
 /**
- * Check for illegal settings.
- */
-#if defined(_DEBUG) && defined(USE_MIMALLOC)
-  #error "Setting 'USE_CRT_DEBUG=1' and 'USE_MIMALLOC=1' is not supported"
-#endif
-
-/**
- * Enable 'externals/munit.c' test framework?
- */
-#if defined(USE_MUNIT)
-  #include <assert.h>
-
-  #undef  MG_ENABLE_ASSERT
-  #define MG_ENABLE_ASSERT            0
-  #define MUNIT_ENABLE_ASSERT_ALIASES 1
-  #define MUNIT_NO_BUFFER             1 /* avoid close() in 'externals/munit.c' */
-  #define MUNIT_DISABLE_TIMING        1 /* disable timing information */
-  #include "externals/munit.h"
-#endif
-
-/**
  * Options for `_DEBUG` / `-MDd` mode:
  */
 #if defined(_DEBUG)
@@ -194,24 +173,6 @@
   #undef  _malloca          /* Avoid MSVC-9 <malloc.h>/<crtdbg.h> name-clash */
   #define _CRTDBG_MAP_ALLOC
   #include <crtdbg.h>
-
-#elif defined(USE_MIMALLOC)
-  /**
-   * Options for `externals/mimalloc/` code. Can not be used with `_DEBUG`.
-   * 'mimalloc-override.h' will redefine most of these functions to 'mi_xx()'.
-   */
-  #include <mimalloc/mimalloc-override.h>
-
-  /*
-   * Since 'realpath()' gets defined in 'externals/mongoose.h' too.
-   * Safer to use 'mi_realpath()'
-   */
-  #undef  realpath
-  #include <externals/mongoose.h>
-
-  #undef  realpath
-  #define realpath(file, real_name)  mi_realpath (file, real_name)
-
 #else
   /**
    * Drop the dependency on 'oldnames.lib'

@@ -689,12 +689,6 @@ uint32_t mg_unhex  (const char *str);
 uint32_t mg_unhexn (const char *str, size_t len);
 char    *mg_hex (const void *buf, size_t len, char *to);
 
-#if defined(USE_MIMALLOC)
-  void mimalloc_init (void);
-  void mimalloc_exit (void);
-  void mimalloc_stats (void);
-#endif
-
 /*
  * in 'pconsole.c'. Not used yet.
  */

@@ -1016,10 +1016,7 @@ bool init_misc (void)
 {
   init_timings();
   if (test_contains(Modes.tests, "misc"))
-  {
-    test_asprintf();
-    return (false);
-  }
+     test_asprintf();
   return (true);
 }
 
@@ -1069,62 +1066,6 @@ void crtdbug_init (void)
   _CrtSetDbgFlag (flags | _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG));
   _CrtMemCheckpoint (&start_state);
 }
-
-#elif defined(USE_MIMALLOC)
-/**
- * Setting for the `mimalloc` code
- */
-void mimalloc_init (void)
-{
-  mi_option_enable (mi_option_show_errors);
-
-  if (Modes.debug & DEBUG_GENERAL)
-  {
-    mi_option_enable (mi_option_show_stats);
-    mi_option_enable (mi_option_destroy_on_exit);
-    mi_option_enable (mi_option_verbose);
-  }
-}
-
-void mimalloc_exit (void)
-{
-}
-
-static void mi_cdecl stats_cb (const char *msg, void *arg)
-{
-  FILE *f = arg;
-
-  modeS_flogf (f, "!%s", msg);
-}
-
-void mimalloc_stats (void)
-{
-  if (Modes.log && mi_option_is_enabled(mi_option_show_stats))
-  {
-    modeS_flogf (Modes.log, "MIMALLOC stats:\n");
-    mi_stats_print_out (stats_cb, Modes.log);
-  }
-}
-
-static const char *mimalloc_version (void)
-{
-  static char buf [80];
-  int    ver = mi_version();
-
-  snprintf (buf, sizeof(buf), "%d.%d    from https://github.com/microsoft/mimalloc\n",
-            ver / 100, ver % 100);
-  return (buf);
-}
-#endif  /* USE_MIMALLOC */
-
-/* Dummies for `show_version_info()`
- */
-#if !defined(USE_MIMALLOC)
-#define mimalloc_version() "N/A"
-#endif
-
-#if !defined(USE_MUNIT)
-#define munit_version() "N/A"
 #endif
 
 /**
@@ -1268,7 +1209,7 @@ static void print_sql_info (void)
   char *buf = NULL;
   int   i, sz = 0;
 
-  printf ("Sqlite3 ver:  %-7s from http://www.sqlite.org.\n"
+  printf ("Sqlite3 ver:  %-7s from http://www.sqlite.org\n"
           "  Build options: ", sqlite3_libversion());
 
   for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
@@ -1341,9 +1282,6 @@ static const char *build_features (void)
   #endif
   #if defined(USE_UBSAN)
     "UBSAN",
-  #endif
-  #if defined(USE_MIMALLOC)
-    "MIMALLOC",
   #endif
   #if defined(USE_GEN_ROUTES)
     "GEN_ROUTES",
@@ -1601,19 +1539,6 @@ static void print_LDFLAGS (void)
 #endif
 }
 
-#if defined(USE_MUNIT)
-static const char *munit_version (void)
-{
-  static char buf [60];
-
-  snprintf (buf, sizeof(buf), "%d.%d.%d   from https://github.com/nemequ/munit\n",
-            (MUNIT_CURRENT_VERSION >> 16) & 0xff,
-            (MUNIT_CURRENT_VERSION >> 8) & 0xff,
-            (MUNIT_CURRENT_VERSION >> 0) & 0xff);
-  return (buf);
-}
-#endif
-
 static const char *__DATE__str (void)
 {
 #if 0
@@ -1661,11 +1586,9 @@ void show_version_info (bool verbose)
 
   if (verbose)
   {
-    printf ("mimalloc ver: %s\n", mimalloc_version());
-    printf ("munit ver:    %s\n", munit_version());
     printf ("Miniz ver:    %-7s from https://github.com/kuba--/zip\n", mz_version());
     printf ("Mongoose ver: %-7s from https://github.com/cesanta/mongoose\n", MG_VERSION);
-    printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s.\n",
+    printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s\n",
             RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, RTL_VER_ID);
     printf ("PDCurses ver: %-7s from https://github.com/wmcbrine/PDCurses\n", PDC_VERDOT);
     print_packed_web_info();

@@ -3234,10 +3234,6 @@ static void show_statistics (void)
 
   if (Modes.airports_priv)
      airports_show_stats();
-
-#if defined(USE_MIMALLOC)
-  mimalloc_stats();
-#endif
 }
 
 /**
@@ -3311,10 +3307,7 @@ static void modeS_exit (void)
 
   modeS_log_exit();
 
-#if defined(USE_MIMALLOC)
-  mimalloc_exit();
-
-#elif defined(_DEBUG)
+#if defined(_DEBUG)
   crtdbug_exit();
 #endif
 }
@@ -3741,10 +3734,7 @@ int main (int argc, char **argv)
   bool init_error = true;   /* assume some 'x_init()' failure */
   int  rc;
 
-#if defined(USE_MIMALLOC)
-  mimalloc_init();
-
-#elif defined(_DEBUG)
+#if defined(_DEBUG)
   crtdbug_init();
 #endif
 
