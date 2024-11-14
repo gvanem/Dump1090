@@ -3223,8 +3223,10 @@ static void show_decoder_stats (void)
   interactive_clreol();
 
   LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
-  if (Modes.stat.addr_filtered > 0)
+
+  if (Modes.icao_spec)
      LOG_STDOUT (" %8llu ICAO-addresses filtered.\n", Modes.stat.addr_filtered);
+
   interactive_clreol();
 
   /**\todo Move to `aircraft_show_stats()`

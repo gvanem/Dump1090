@@ -1181,6 +1181,9 @@ bool aircraft_match_init (const char *arg)
   char *s, *spec = strdup (arg);
   bool  legal;
 
+  if (!spec)
+     return (false);
+
   strupr (spec);
   Modes.icao_spec = spec;
 
@@ -1220,17 +1223,17 @@ bool aircraft_match (const uint8_t *_a)
 
   assert (Modes.icao_filter.len > 0);
 
-  if (Modes.icao_invert)
-       snprintf (addr, sizeof(addr), "!%06X", aircraft_get_addr(_a[0], _a[1], _a[2]));
-  else snprintf (addr, sizeof(addr), "%06X", aircraft_get_addr(_a[0], _a[1], _a[2]));
-
+  snprintf (addr, sizeof(addr), "%06X", aircraft_get_addr(_a[0], _a[1], _a[2]));
   rc = mg_match (mg_str(addr), Modes.icao_filter, NULL);
+  if (Modes.icao_invert)
+     rc ^= true;
+
   if (!rc)
-  {
-    DEBUG (DEBUG_GENERAL2, "0x%s != 0x%.*s, invert: %d\n",
-           addr, (int)Modes.icao_filter.len, Modes.icao_filter.buf, Modes.icao_invert);
-    Modes.stat.addr_filtered++;
-  }
+       Modes.stat.addr_filtered++;
+  else DEBUG (DEBUG_GENERAL2, "0x%s matches%s0x%.*s\n",
+              addr, Modes.icao_invert ? " !" : " ",
+              (int)Modes.icao_filter.len, Modes.icao_filter.buf);
+
   return (rc);
 }
 
