@@ -1178,7 +1178,7 @@ const char *aircraft_get_details (const uint8_t *_a)
  */
 bool aircraft_match_init (const char *arg)
 {
-  char *s, *ret, *spec = strdup (arg);
+  char *s, *spec = strdup (arg);
   bool  legal;
 
   strupr (spec);
