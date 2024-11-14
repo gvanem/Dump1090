@@ -30,7 +30,7 @@ void     airports_exit (bool free_airports);
 void     airports_show_stats (void);
 void     airports_background (uint64_t now);
 bool     airports_update_CSV (const char *file);
-
+bool     airports_update_BIN (void);
 bool     airports_API_get_flight_info (const char *call_sign, uint32_t addr,
                                        const char **departure, const char **destination);
 bool     airports_API_flight_log_entering (const aircraft *a);

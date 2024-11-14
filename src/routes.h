@@ -5,12 +5,47 @@
  */
 #pragma once
 
-typedef struct route_record {
-        char  call_sign    [10];  /**< Call-sign for this route (or flight) */
-        char  departure    [10];  /**< ICAO departure airport for this route */
-        char  destination  [10];  /**< Final ICAO destination airport for this route */
-        char  stop_over [5][10];  /**< 5 possible stop-over airports. Or "" for none */
-      } route_record;
+#if defined(USE_BIN_FILES)
+  #include <stdint.h>
+  #include <time.h>
 
-extern const route_record route_records[];
-extern size_t             route_records_num;
+  #pragma pack(push, 1)
+
+  /*
+   * Copied from '$(TMP)/dump1090/standing-data/results/gen_data.h'
+   */
+  typedef struct route_record {     /* matching 'routes_format = "<8s20s"' */
+          char  call_sign [8];
+
+          /* this is really `airports[20]`. Like "EGCC-LTBS".
+           * Or "KCLT-KRSW-KCLT" with one stop-over airport.
+           * Or "KJFK-EBBR-ZSYT-RKSI" with two stop-over airport.
+           * Airport names are always 4 letter ICAO.
+           */
+          char  departure   [10];
+          char  destination [10];
+        } route_record;
+
+  /*
+   * Copied from '$(TMP)/dump1090/standing-data/results/test-routes.c'
+   */
+  typedef struct BIN_header {
+          char     bin_marker [12];   /* BIN-file marker == "BIN-dump1090" */
+          time_t   created;           /* time of creation (64-bits) */
+          uint32_t rec_num;           /* number of records in .BIN-file == 534513 */
+          uint32_t rec_len;           /* sizeof(record) in .BIN-file == 28 */
+        } BIN_header;
+
+  #pragma pack(pop)
+
+#else
+  typedef struct route_record {
+          char  call_sign    [10];  /**< Call-sign for this route (or flight) */
+          char  departure    [10];  /**< ICAO departure airport for this route */
+          char  destination  [10];  /**< Final ICAO destination airport for this route */
+          char  stop_over [5][10];  /**< 5 possible stop-over airports. Or "" for none */
+        } route_record;
+
+  extern const route_record route_records[];
+  extern size_t             route_records_num;
+#endif

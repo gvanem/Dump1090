@@ -52,8 +52,8 @@ typedef enum airport_t {
  * `# ICAO, IATA, Full_name, Continent, Location, Longitude, Latitude`
  */
 typedef struct airport {
-        char            ICAO [10];       /**< ICAO code */
-        char            IATA [10];       /**< IATA code */
+        char            ICAO [10];       /**< ICAO code (4 characters) */
+        char            IATA [10];       /**< IATA code  (3 characters) */
         char            continent [3];   /**< ISO-3166 2 letter continent code */
         char            location  [30];  /**< location or city */
         char            full_name [50];  /**< Full name */
@@ -161,6 +161,13 @@ typedef struct airports_priv {
         bool              init_done;
         uint32_t          last_rc;
 
+       /**
+        * Only effective if `USE_BIN_FILES` is defined.
+        */
+        mg_file_path      routes_bin;
+        mg_file_path      aircrafts_bin;
+        mg_file_path      airports_bin;
+
         /**
          * \todo
          * Add the WinInet handles here for faster loading of it's functions.
@@ -188,6 +195,11 @@ static const char  *find_airport_location (const char *IATA_or_ICAO);
 
 static airports_priv g_data;
 
+#if defined(USE_BIN_FILES)
+  static route_record *route_records;
+  static size_t        route_records_num;
+#endif
+
 /**
  * Used in `airport_API_test_1()` and `airport_API_test_2()`.
  *
@@ -209,9 +221,10 @@ static const char *call_signs_tests[] = {
 /*
  * For generic trace in `--debug` + `--test` modes.
  */
-#define API_TRACE(fmt, ...) do {                                         \
-                              if (g_data.do_trace)                       \
-                                 API_trace (__LINE__, fmt, __VA_ARGS__); \
+#define API_TRACE(fmt, ...) do {                             \
+                              if (g_data.do_trace)           \
+                                 API_trace (__LINE__, fmt,   \
+                                            ## __VA_ARGS__); \
                             } while (0)
 
 /**
@@ -548,12 +561,81 @@ static void airports_exit_freq_CSV (void)
 {
 }
 
-#if defined(USE_GEN_ROUTES)
+#if defined(USE_GEN_ROUTES) || defined(USE_BIN_FILES)
 static int routes_compare (const void *a, const void *b)
 {
   return stricmp ((const char*)a, (const char*)b);
 }
+#endif
 
+#if defined(USE_BIN_FILES)
+/**
+ * Look in `*route_records` before posting a requst to the ADSB-LOL API.
+ */
+static flight_info *routes_find_by_callsign (const char *call_sign)
+{
+  static flight_info  f;
+  const route_record *r = NULL;
+  route_record        r_copy;
+  char                departure [10];
+  char                destination [10];
+  char                intermediate1 [10];
+  char                intermediate2 [10];
+  const airport      *dep  = NULL;
+  const airport      *dest = NULL;
+  const airport      *int1 = NULL;
+  const airport      *int2 = NULL;
+
+  if (route_records_num > 0)
+     r = bsearch (call_sign, route_records, route_records_num,
+                  sizeof(route_record), routes_compare);
+
+  if (!r)
+     return (NULL);
+
+  memcpy (&r_copy, r, sizeof(r_copy));
+
+  if (sscanf(r_copy.departure, "%4[^-]-%4s", departure, destination) == 2)
+  {
+    intermediate1 [0] = '\0';
+    intermediate2 [0] = '\0';
+  }
+  else if (sscanf(r_copy.departure, "%4[^-]-%4[^-]-%4s", departure, intermediate1, destination) == 3)
+  {
+    intermediate2 [0] = '\0';
+  }
+  else
+    assert (sscanf (r_copy.departure, "%4[^-]-%4[^-]-%4[^-]-%4s",
+            departure, intermediate1, intermediate2, destination) == 4);
+
+  /* Rewrite 'r' into a 'f' record.
+   * Convert ICAO names to IATA if possible.
+   */
+  memset (&f, '\0', sizeof(f));
+  strncpy (f.call_sign, call_sign, sizeof(f.call_sign)-1);
+  f.type    = AIRPORT_API_CACHED;
+  f.created = Modes.start_FILETIME;
+
+  if (departure[0])
+     dep = CSV_lookup_ICAO (departure);
+
+  if (destination[0])
+     dest = CSV_lookup_ICAO (destination);
+
+  if (intermediate1[0])
+     int1 = CSV_lookup_ICAO (intermediate1);
+
+  if (intermediate2[0])
+     int2 = CSV_lookup_ICAO (intermediate2);
+
+  strncpy (f.departure,   dep  ? dep->IATA  : r_copy.departure, sizeof(f.departure)-1);
+  strncpy (f.destination, dest ? dest->IATA : r_copy.destination, sizeof(f.destination)-1);
+//strncpy (f.intermediate1, int1 ? int1 : "?", sizeof(f.intermediate1)-1);
+//strncpy (f.intermediate1, int2 ? int2 : "?", sizeof(f.intermediate2)-1);
+  return (&f);
+}
+
+#elif defined(USE_GEN_ROUTES)
 /**
  * Look in `route_records[]` before posting a requst to the ADSB-LOL API.
  */
@@ -628,6 +710,59 @@ static void routes_find_test_1 (void)
             dep ? dep : "?", dest ? dest : "?");
   }
 #endif /* USE_GEN_ROUTES */
+  puts ("");
+}
+
+static void routes_find_test_2 (void)
+{
+#if !defined(USE_BIN_FILES)
+  printf ("%s(): '-DUSE_BIN_FILES' not defined.\n", __FUNCTION__);
+
+#else
+  size_t num = min (50, route_records_num);
+  size_t i, rec_num;
+
+  if (!route_records)
+  {
+    printf ("\7%s(): 'route_records == NULL!?'.\n"
+            "Run 'py -3 ../tools/gen_data.py' again.\n", __FUNCTION__);
+    return;
+  }
+
+  printf ("%s():\n  Checking %zu random records among %zu records.\n", __FUNCTION__, num, route_records_num);
+  printf ("  Record  call-sign  DEP   DEST   Departure            Destination             usec\n"
+          "  --------------------------------------------------------------------------------------\n");
+
+  for (i = 0; i < num; i++)
+  {
+    const flight_info *f;
+    const char        *call_sign, *start;
+    const char        *dep, *dest;
+    double             start_t = get_usec_now();
+
+    rec_num = (size_t) random_range (0, route_records_num - 1);
+    call_sign = route_records [rec_num].call_sign;
+    start     = route_records [rec_num].departure;
+
+    f = routes_find_by_callsign (call_sign);
+
+    /* `f` should never be NULL here
+     */
+    dep = find_airport_location (f->departure);
+    if (!dep)
+        dep = "?";
+
+    dest = find_airport_location (f->destination);
+    if (!dest)
+        dest = "?";
+
+    printf ("  %6zu  %-7s    %.4s  %.4s   %ws %ws    %7.3lf\n",
+            rec_num, call_sign, start, start + 5,
+            u8_format(dep, 20),
+            u8_format(dest, 20),
+            get_usec_now() - start_t);
+  }
+#endif  /* USE_BIN_FILES */
   puts ("");
 }
 
@@ -1151,6 +1286,142 @@ uint32_t airports_rc (void)
   return (g_data.last_rc);
 }
 
+#if defined(USE_BIN_FILES)
+static void *read_route_records (FILE *f, const BIN_header *hdr)
+{
+  size_t size = hdr->rec_len * hdr->rec_num;
+  void  *mem = malloc (size);
+
+  if (!mem)
+  {
+    fprintf (stderr, "Failed to allocate %zu bytes for %s!\n", size, g_data.routes_bin);
+    return (NULL);
+  }
+  if (fread(mem, 1, size, f) != size)
+  {
+    fprintf (stderr, "Failed to read %zu bytes for %s!\n", size, g_data.routes_bin);
+    return (NULL);
+  }
+  route_records_num = hdr->rec_num;
+  return (mem);
+}
+
+/**
+ * Check if the `airports.bin` or `routes.bin` databases are older than 10 days.
+ * If so, run `py -3 ../tools/gen_data.py` to update them.
+ */
+static bool airports_update_BIN_file (const char *fname)
+{
+  struct stat st;
+  bool        force_it = false;
+  char        cmd [200];
+
+  if (stat(fname, &st) != 0)
+  {
+    LOG_STDERR ("\nForce updating '%s' since it does not exist.\n", fname);
+    force_it = true;
+  }
+
+  if (!force_it)
+  {
+    time_t when, now = time (NULL);
+    time_t expiry = now - 10 * 24 * 3600;
+
+    if (st.st_mtime > expiry)
+    {
+      when = now + 10 * 24 * 3600;  /* 10 days into the future */
+      if (Modes.update)
+         LOG_STDERR ("\nUpdate of '%s' not needed before %.24s.\n", fname, ctime(&when));
+      return (true);
+    }
+  }
+
+  snprintf (cmd, sizeof(cmd), "py.exe -3 %s\\tools\\gen_data.py", Modes.where_am_I);
+
+  LOG_STDERR ("%supdating '%s' by '%s'\n", force_it ? "Force " : "", fname, cmd);
+  return (system (cmd) == 0);
+}
+
+bool airports_update_BIN (void)
+{
+  return (airports_update_BIN_file(g_data.airports_bin) &&
+          airports_update_BIN_file(g_data.routes_bin));
+}
+
+static bool airports_set_BIN_file (mg_file_path *file, const char *bin_file)
+{
+  struct stat st;
+  bool   exist;
+
+  snprintf (*file, sizeof(*file), "%s\\%s", Modes.results_dir, bin_file);
+  exist = (stat(*file, &st) == 0);
+  TRACE ("file: '%s', exist: %d", *file, exist);
+  return (exist && st.st_size > 0);
+}
+
+static FILE *airports_init_one_BIN (const char *fname, BIN_header *hdr)
+{
+  FILE  *f = fopen (fname, "rb");
+  time_t created;
+
+  if (!f)
+  {
+    fprintf (stderr, "Failed to open %s! errno: %d/%s\n", fname, errno, strerror(errno));
+    return (NULL);
+  }
+  if (fread(hdr, 1, sizeof(*hdr), f) != sizeof(*hdr))
+  {
+    fprintf (stderr, "Failed to read header for %s!\n", fname);
+    fclose (f);
+    return (NULL);
+  }
+
+  created = hdr->created;
+  TRACE ("bin_marker: %.*s", (int)sizeof(hdr->bin_marker), hdr->bin_marker);
+  TRACE ("created:    %.24s", ctime(&created));
+  TRACE ("rec_len:    %u", hdr->rec_len);
+  TRACE ("rec_num:    %u\n", hdr->rec_num);
+  return (f);
+}
+
+static bool airports_init_BIN (void)
+{
+  BIN_header hdr;
+  FILE      *f;
+
+  if (!airports_set_BIN_file (&g_data.aircrafts_bin, "aircrafts.bin") ||
+      !airports_set_BIN_file (&g_data.airports_bin, "airports.bin") ||
+      !airports_set_BIN_file (&g_data.routes_bin, "routes.bin"))
+     return (false);
+
+  f = airports_init_one_BIN(g_data.routes_bin, &hdr);
+  if (!f)
+     return (false);
+
+  route_records = read_route_records (f, &hdr);
+  route_records_num = hdr.rec_num;
+  fclose (f);
+
+  f = airports_init_one_BIN(g_data.aircrafts_bin, &hdr);
+  // ...
+  if (f)
+     fclose (f);
+
+  f = airports_init_one_BIN(g_data.airports_bin, &hdr);
+  // ...
+  if (f)
+     fclose (f);
+
+  return (route_records ? true : false);
+}
+
+#else
+static bool airports_init_BIN (void)
+{
+  return (true);
+}
+#endif
+
 /**
  * Main init function for this module.
  */
@@ -1168,9 +1439,17 @@ uint32_t airports_init (void)
 
   Modes.airports_priv = &g_data;
 
-  rc = (airports_init_CSV() &&
+  rc = (airports_init_BIN() &&
+        airports_init_CSV() &&
         airports_init_freq_CSV() &&
         airports_init_API());
+
+  if (Modes.update)
+  {
+    airports_update_BIN();
+    rc = false;
+    goto done;
+  }
 
   if (test_contains(Modes.tests, "airport"))
   {
@@ -1185,6 +1464,7 @@ uint32_t airports_init (void)
     airport_API_test_1();
     airport_API_test_2();
     routes_find_test_1();
+    routes_find_test_2();
     airports_show_stats();
   }
 
@@ -1199,6 +1479,7 @@ uint32_t airports_init (void)
    * If we have 0 airports, it's little point showing these columns
    * allthough the ADSB-LOL API does not need that information.
    */
+done:
   g_data.init_done = true;
   g_data.last_rc = rc ? g_data.ap_stats.CSV_numbers : 0;
   return (g_data.last_rc);
@@ -1319,22 +1600,8 @@ static void airport_print_rec (const airport *a, const char *ICAO, size_t idx, d
      snprintf (val_buf, sizeof(val_buf), usec_fmt, val);
 
   if (UTF8_decode)
-  {
-    wchar_t full_name_w [50] = L"?";
-    wchar_t location_w  [30] = L"?";
-    size_t  width;
-
-    MultiByteToWideChar (CP_UTF8, 0, full_name, -1, full_name_w, DIM(full_name_w));
-    MultiByteToWideChar (CP_UTF8, 0, location, -1, location_w, DIM(location_w));
-
-    width = 20 + (strlen (location) - wcslen (location_w)) / 2;
-    printf ("'%-*.20ws' ", (int)width, location_w);
-
-    width = 47 + (strlen (full_name) - wcslen (full_name_w)) / 2;
-    printf ("'%-*.47ws'", (int)width, full_name_w);
-  }
-  else
-    printf ("'%-20.20s' '%-47.47s'", location, full_name);
+       printf ("'%ws' '%ws' ", u8_format(location, 20), u8_format(full_name, 47));
+  else printf ("'%-20.20s' '%-47.47s'", location, full_name);
 
   printf ("  %9.3f %9.3f  %s\n", pos->lat, pos->lon, val_buf);
 }
@@ -1457,26 +1724,17 @@ static void airport_CSV_test_4 (void)
 static void location_print_rec (unsigned idx, const char *ICAO, const char *IATA, const char *cont,
                                 const char *location, const char *full_name)
 {
-  wchar_t full_name_w [50] = L"?";
-  wchar_t location_w  [30] = L"?";
-  size_t  width;
-
   if (!location)
       location = "?";
   if (!full_name)
       full_name = "?";
 
-  printf ("  %5u    '%-8s'  '%-3s'   %2s    ",
+  printf ("  %5u    '%-8s'  '%-3s'   %2s    '%ws'  %ws\n",
           idx,
           ICAO[0]   ? ICAO : "?",
           IATA[0]   ? IATA : "?",
-          cont[0]   ? cont : "?");
-
-  MultiByteToWideChar (CP_UTF8, 0, full_name, -1, full_name_w, DIM(full_name_w));
-  MultiByteToWideChar (CP_UTF8, 0, location, -1, location_w, DIM(location_w));
-
-  width = 20 + (strlen (location) - wcslen (location_w)) / 2;
-  printf ("'%-*.20ws'  %ws\n", (int)width, location_w, full_name_w);
+          cont[0]   ? cont : "?",
+          u8_format(location, 20), u8_format(full_name, 0));
 }
 
 /**
@@ -1735,7 +1993,7 @@ static flight_info *find_by_callsign (const char *call_sign, bool *fixed)
 
   *fixed = false;
 
-#if defined(USE_GEN_ROUTES)
+#if defined(USE_GEN_ROUTES) || defined(USE_BIN_FILES)
   if (!Modes.prefer_adsb_lol)
   {
     f = routes_find_by_callsign (call_sign);
@@ -1930,11 +2188,17 @@ bool airports_API_flight_log_entering (const aircraft *a)
 bool airports_API_flight_log_resolved (const aircraft *a)
 {
   char         plane_buf [100];
-  char         comment [100] = "";
+  char         comment [100];
   bool         fixed;
   ULONGLONG    ft_diff;
   double       msec;
   flight_info *f;
+
+#if defined(USE_BIN_FILES)
+  #define WHEN  "from .BIN-file"
+#else
+  #define WHEN  "at startup"
+#endif
 
   assert (a->is_helicopter == false);
 
@@ -1948,23 +2212,13 @@ bool airports_API_flight_log_resolved (const aircraft *a)
   {
     const char *dep_location = find_airport_location (f->departure);
     const char *dst_location = find_airport_location (f->destination);
-    wchar_t     dep_location_w [30] = L"?";
-    wchar_t     dst_location_w [30] = L"?";
-
-    /* Convert both from UTF-8 to wide-char
-     */
-    if (dep_location)
-       MultiByteToWideChar (CP_UTF8, 0, dep_location, -1, dep_location_w, DIM(dep_location_w));
-
-    if (dst_location)
-       MultiByteToWideChar (CP_UTF8, 0, dst_location, -1, dst_location_w, DIM(dst_location_w));
 
     if (f->type == AIRPORT_API_CACHED)
     {
       const char *when;
 
       if (fixed)
-           when = "at startup";
+           when = WHEN;
       else when = modeS_FILETIME_to_loc_str (&f->created, true);
       snprintf (comment, sizeof(comment), "cached: %s", when);
     }
@@ -1975,9 +2229,14 @@ bool airports_API_flight_log_resolved (const aircraft *a)
 
       snprintf (comment, sizeof(comment), "%.3lf ms", msec);
     }
-    LOG_FILEONLY ("%s, \"%s -> %s\" (%S -> %S, %s).\n",
+
+    /* Convert both `dep_location` and `dst_location` from UTF-8 to wide-char
+     */
+    LOG_FILEONLY ("%s, \"%s -> %s\" (%ws -> %ws, %s).\n",
                   plane_buf, f->departure, f->destination,
-                  dep_location_w, dst_location_w, comment);
+                  dep_location ? u8_format(dep_location, 0) : L"?",
+                  dst_location ? u8_format(dst_location, 0) : L"?",
+                  comment);
     return (true);
   }
 
@@ -2006,6 +2265,8 @@ bool airports_API_flight_log_leaving (const aircraft *a)
   const char  *km_nmiles = "Nm";
   const char  *m_feet    = "ft";
   const char  *call_sign = "?";
+  const char  *mil_cntry = NULL;
+  char         mil_buf [20] = { '\0' };
   uint64_t     now = MSEC_TIME();
   int          altitude = a->altitude;
   double       alt_div = 1.0;
@@ -2028,10 +2289,16 @@ bool airports_API_flight_log_leaving (const aircraft *a)
   else if (f && f->call_sign[0])
      call_sign = f->call_sign;    /* A cached plane or helicopter */
 
-  LOG_FILEONLY ("%s %06X leaving. call-sign: %s, %sactive for %.1lf s, alt: %s %s, dist: %s/%s %s.\n",
+  if (Modes.log && aircraft_is_military(a->addr, &mil_cntry))
+  {
+    if (mil_cntry)
+         snprintf (mil_buf, sizeof(mil_buf), ", Military/%.2s", mil_cntry);
+    else strcpy (mil_buf, ", Military");
+  }
+
+  LOG_FILEONLY ("%s %06X leaving. call-sign: %s%s, active for %.1lf s, alt: %s %s, dist: %s/%s %s.\n",
                 a->is_helicopter ? "helicopter" : "plane",
-                a->addr, call_sign,
-                aircraft_is_military (a->addr, NULL) ? "military, " : "",
+                a->addr, call_sign, mil_buf,
                 (double)(now - a->seen_first) / 1000.0,
                 alt_buf, m_feet,
                 a->distance_buf[0]     ? a->distance_buf     : "-",
