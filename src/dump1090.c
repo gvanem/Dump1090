@@ -3063,10 +3063,9 @@ static void NO_RETURN show_help (const char *fmt, ...)
             "  --help, -h            Show this help.\n\n",
             Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP);
 
-    printf ("  A <filter-spec>, shows only matching ICAO-addresses.\n"
-            "    E.g. `%s --only-addr 4A*`.\n", Modes.who_am_I);
-
-    printf ("  Refer the `%s` file for other settings.\n", Modes.cfg_file);
+    printf ("  Shows only matching ICAO-addresses;     `dump1090.exe --only-addr 4A*`.\n"
+            "  Shows only non-matching ICAO-addresses; `dump1090.exe --only-addr !48*`.\n\n"
+            "  Refer the `%s` file for other settings.\n", Modes.cfg_file);
   }
   modeS_exit();
   exit (0);
@@ -3311,7 +3310,7 @@ static void modeS_exit (void)
   free (Modes.sdrplay.name);
   free (Modes.aircraft_db_url);
   free (Modes.tests);
-  free (Modes.icao_filter);
+  free (Modes.icao_spec);
 
   DeleteCriticalSection (&Modes.data_mutex);
   DeleteCriticalSection (&Modes.print_mutex);

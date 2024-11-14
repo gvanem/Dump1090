@@ -1178,10 +1178,18 @@ const char *aircraft_get_details (const uint8_t *_a)
  */
 bool aircraft_match_init (const char *arg)
 {
-  char *s, *spec = strdup (arg);
+  char *s, *ret, *spec = strdup (arg);
   bool  legal;
 
   strupr (spec);
+  Modes.icao_spec = spec;
+
+  if (*spec == '!')
+  {
+    Modes.icao_invert = true;
+    spec++;
+  }
+
   Modes.icao_filter = mg_str (spec);
   legal = mg_match (Modes.icao_filter, mg_str("*"), NULL);
 
@@ -1191,12 +1199,11 @@ bool aircraft_match_init (const char *arg)
        legal = false;
   }
 
-  TRACE ("Argments '%.*s' used as ICAO-filter. legal: %d",
-         (int)Modes.icao_filter.len, Modes.icao_filter.buf, legal);
+  TRACE ("Argments '%.*s' used as ICAO-filter. legal: %d, invert: %d",
+         (int)Modes.icao_filter.len, Modes.icao_filter.buf, legal, Modes.icao_invert);
 
   if (!legal)
      LOG_STDERR ("filter: '%s' is not legal.\n", arg);
-  Modes.icao_spec = spec;
   return (legal);
 }
 
@@ -1208,16 +1215,22 @@ bool aircraft_match (const uint8_t *_a)
   char addr [10];
   int  rc;
 
-  if (!Modes.icao_filter.buf)  /* Match any ICAO addresses */
+  if (!Modes.icao_spec)  /* Match any ICAO address */
      return (true);
 
-  snprintf (addr, sizeof(addr), "%06X", aircraft_get_addr(_a[0], _a[1], _a[2]));
-  rc = mg_match (mg_str(addr), Modes.icao_filter, NULL);
-  DEBUG (DEBUG_GENERAL2, "0x%s -> 0x%.*s, rc: %d\n",
-         addr, (int)Modes.icao_filter.len, Modes.icao_filter.buf, rc);
+  assert (Modes.icao_filter.len > 0);
 
+  if (Modes.icao_invert)
+       snprintf (addr, sizeof(addr), "!%06X", aircraft_get_addr(_a[0], _a[1], _a[2]));
+  else snprintf (addr, sizeof(addr), "%06X", aircraft_get_addr(_a[0], _a[1], _a[2]));
+
+  rc = mg_match (mg_str(addr), Modes.icao_filter, NULL);
   if (!rc)
-     Modes.stat.addr_filtered++;
+  {
+    DEBUG (DEBUG_GENERAL2, "0x%s != 0x%.*s, invert: %d\n",
+           addr, (int)Modes.icao_filter.len, Modes.icao_filter.buf, Modes.icao_invert);
+    Modes.stat.addr_filtered++;
+  }
   return (rc);
 }
 
