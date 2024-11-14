@@ -1963,11 +1963,13 @@ void net_show_stats (void)
     unique_ips_print (s);
   }
 
+  EnterCriticalSection (&Modes.print_mutex);
   show_raw_SBS_IN_stats();
   show_raw_RAW_IN_stats();
   show_rtl_tcp_IN_stats();
 
   net_show_server_errors();
+  LeaveCriticalSection (&Modes.print_mutex);
 }
 
 static void unique_ip_add_hostile (const char *ip_str, int service)
@@ -2039,7 +2041,7 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
   FIXED_INFO     *fi = alloca (sizeof(*fi));
   DWORD           size = 0;
   IP_ADDR_STRING *ip;
-  FILE           *f;
+  FILE           *f = NULL;
   int             i;
   const char     *ping6_cmd = "ping.exe -6 -n 1 dns.google 2> NUL";
   char            ping6_buf [500];
@@ -2077,7 +2079,9 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
    */
   *dns4_p = mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
 
-  /* Fake alert:
+#if !defined(USE_ASAN)
+  /*
+   * Fake alert:
    *  If a `system ("ping.exe -6 -n 1 dns.google")` works, just assume that
    *  the `Reply from <ping6_addr> time=zz sec' will work as the DNS6 address.
    */
@@ -2102,7 +2106,10 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
       break;
     }
   }
-  _pclose (f);
+#endif
+
+  if (f)
+     _pclose (f);
   return (true);
 }
 
