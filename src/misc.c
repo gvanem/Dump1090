@@ -339,7 +339,6 @@ char *modeS_FILETIME_to_str (const FILETIME *ft, bool show_YMD)
 char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD)
 {
   static TIME_ZONE_INFORMATION tz_info;
-  static LONG  timezone = 0;   /* minutes */
   static bool  done = false;
   ULONGLONG    ul = *(ULONGLONG*) ft;
 
@@ -351,19 +350,19 @@ char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD)
 
     if (rc == TIME_ZONE_ID_UNKNOWN || rc == TIME_ZONE_ID_STANDARD || rc == TIME_ZONE_ID_DAYLIGHT)
     {
-      timezone   = tz_info.Bias + tz_info.StandardBias;
+      Modes.timezone = tz_info.Bias + tz_info.StandardBias;
       dst_adjust = tz_info.StandardBias - tz_info.DaylightBias;
     }
     done = true;
 
     get_FILETIME_now (&ft2);
-    DEBUG (DEBUG_GENERAL, "rc: %ld, timezone: %ld min, dst_adjust: %ld min, now: %s\n",
-           rc, timezone, dst_adjust, modeS_FILETIME_to_loc_str(&ft2, true));
+    DEBUG (DEBUG_GENERAL, "rc: %ld, Modes.timezone: %ld min, dst_adjust: %ld min, now: %s\n",
+           rc, Modes.timezone, dst_adjust, modeS_FILETIME_to_loc_str(&ft2, true));
   }
 
   /* From minutes to 100 nsec units
    */
-  ul -= 600000000ULL * (ULONGLONG) timezone;
+  ul -= 600000000ULL * (ULONGLONG) Modes.timezone;
   return modeS_FILETIME_to_str ((const FILETIME*)&ul, show_YMD);
 }
 
@@ -778,6 +777,34 @@ char *slashify (char *fname)
 }
 
 /**
+ * Return a `wchar_t *` string for a UTF-8 string with proper left
+ * adjusted width. Do it the easy way without `wcwidth()`
+ * (which is missing in WinKit).
+ */
+const wchar_t *u8_format (const char *s, int min_width)
+{
+  static wchar_t buf [4] [U8_SIZE];
+  static int     idx = 0;
+  wchar_t        s_w [U8_SIZE];
+  wchar_t       *ret = buf [idx];
+  size_t         width;
+
+  idx++;      /* use 4 buffers in round-robin */
+  idx &= 3;
+  memset (s_w, '\0', sizeof(s_w));
+  MultiByteToWideChar (CP_UTF8, 0, s, -1, s_w, U8_SIZE);
+
+  if (min_width == 0)
+     _snwprintf (ret, U8_SIZE-1, L"%s", s_w);
+  else
+  {
+    width = min_width + (strlen(s) - wcslen(s_w)) / 2;
+    _snwprintf (ret, U8_SIZE-1, L"%-*.*s", (int)width, min_width, s_w);
+  }
+  return (ret);
+}
+
+/**
  * Add or initialize a test `which` to the test-list at `*spec`.
  */
 bool test_add (char **spec, const char *which)
@@ -943,6 +970,14 @@ static uint64_t FILETIME_to_unix_epoch (const FILETIME *ft)
   return (res);
 }
 
+uint64_t unix_epoch_to_FILETIME (time_t sec)
+{
+  uint64_t ft = 10 * (DELTA_EPOCH_IN_USEC + 1000000 * sec);
+
+  ft -= 600000000ULL * (uint64_t)Modes.timezone;
+  return (ft);
+}
+
 int _gettimeofday (struct timeval *tv, void *timezone)
 {
   FILETIME ft;
@@ -1004,9 +1039,18 @@ double get_usec_now (void)
  */
 static void init_timings (void)
 {
+  FILETIME ft;
+
   get_usec_now();
   get_FILETIME_now (&Modes.start_FILETIME);
-  modeS_FILETIME_to_loc_str (&Modes.start_FILETIME, true);
+
+  /* Make a copy to avoid this UBSAN error:
+   *  runtime error: load of misaligned address 0x7ff6f5f32394 for type 'ULONGLONG'
+   *
+   * before setting `Modes.timezone`.
+   */
+  ft = Modes.start_FILETIME;
+  modeS_FILETIME_to_loc_str (&ft, true);
   GetLocalTime (&Modes.start_SYSTEMTIME);
 
 //SetConsoleCtrlHandler (console_handler, TRUE);
@@ -1286,6 +1330,9 @@ static const char *build_features (void)
   #if defined(USE_GEN_ROUTES)
     "GEN_ROUTES",
   #endif
+  #if defined(USE_BIN_FILES)
+    "BIN_FILES",
+  #endif
   #if defined(USE_PACKED_DLL)
     "Packed-Web",
   #endif
@@ -1412,7 +1459,6 @@ void puts_long_line (const char *start, size_t indent)
  *   46 unique client(s):
  *      127.0.0.1, 154.213.184.18, 185.224.128.83, 185.224.128.67, 5.181.190.29, 61.216.35.127, 90.54.179.158,
  *      172.169.111.144, 167.94.146.54, 194.48.251.26, ...
- *
  */
 static const char *tests[] = {
                   "unique client(s):",
@@ -1575,6 +1621,44 @@ static const char *__DATE__str (void)
 #endif
 }
 
+static void print_BIN_files (void)
+{
+#if defined(USE_BIN_FILES)
+  #define DATE_TIME "YYY/MM/DD, HH:MM:SS"
+  size_t      i;
+  const char *bin_files[] = { "aircrafts.bin",
+                              "airports.bin",
+                              "routes.bin"
+                            };
+
+  printf ("Generated .BIN-files:\n");
+
+  init_timings();  /* for 'Modes.timezone' */
+
+  for (i = 0; i < DIM(bin_files); i++)
+  {
+    struct stat  st;
+    mg_file_path file = { "?" };
+    char         fsize [20];
+    char         fdate [sizeof(DATE_TIME)];
+    uint64_t     ft;
+
+    fsize [0] = fdate [0] = '?';
+    fsize [1] = fdate [1] = '\0';
+
+    snprintf (file, sizeof(file), "%s\\%s", Modes.results_dir, bin_files[i]);
+    if (stat(file, &st) == 0)
+    {
+      ft = unix_epoch_to_FILETIME (st.st_mtime);
+      snprintf (fdate, sizeof(fdate), "%s", modeS_FILETIME_to_str((const FILETIME*)&ft, true));
+      snprintf (fsize, sizeof(fsize), "%5ld kB", st.st_size / 1024);
+    }
+    printf ("  %-*.*s, %-8s, %s\n", (int)sizeof(DATE_TIME), (int)sizeof(DATE_TIME), fdate, fsize, file);
+  }
+  puts ("");
+#endif
+}
+
 /**
  * Print version information.
  */
@@ -1593,6 +1677,7 @@ void show_version_info (bool verbose)
     printf ("PDCurses ver: %-7s from https://github.com/wmcbrine/PDCurses\n", PDC_VERDOT);
     print_packed_web_info();
     print_sql_info();
+    print_BIN_files();
     print_CFLAGS();
     print_LDFLAGS();
   }

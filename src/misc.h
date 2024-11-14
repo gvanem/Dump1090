@@ -369,6 +369,7 @@ typedef struct global_data {
         mg_file_path      cfg_file;                 /**< The config-file (default: "where_am_I\\dump1090.cfg") */
         FILETIME          start_FILETIME;           /**< The start-time on `FILETIME` form */
         SYSTEMTIME        start_SYSTEMTIME;         /**< The start-time on `SYSTEMTIME` form */
+        LONG              timezone;                 /**< Our time-zone in minutes */
         uintptr_t         reader_thread;            /**< Device reader thread ID. */
         CRITICAL_SECTION  data_mutex;               /**< Mutex to synchronize buffer access. */
         CRITICAL_SECTION  print_mutex;              /**< Mutex to synchronize printouts. */
@@ -462,6 +463,7 @@ typedef struct global_data {
         bool         update;                     /**< Option `--update' was used to update missing .csv-files */
         char        *icao_spec;                  /**< A ICAO-filter was specified */
         mg_str       icao_filter;
+        bool         icao_invert;
 
         /** For handling a `Modes.aircraft_db` file:
          */
