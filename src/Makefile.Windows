@@ -20,21 +20,16 @@ USE_CRT_DEBUG ?= 0
 #
 # Use '../tools/gen_routes_data.py' to generate '$(OBJ_DIR)/routes.c' from '../routes.csv'?
 #
-USE_GEN_ROUTES ?= 1
+USE_GEN_ROUTES ?= 0
 
 #
 # TODO:
-# use '../tools/gen_data.py' and 'git pull' to generate these:
+# use '../tools/gen_data.py' to generate these:
 #   $(TEMP)/dump1090/standing-data/results/aircrafts.bin
 #   $(TEMP)/dump1090/standing-data/results/airports.bin
 #   $(TEMP)/dump1090/standing-data/results/routes.bin
 #
 USE_BIN_FILES ?= 1
-
-#
-# Enable the 'externals/munit.c' test framework?
-#
-USE_MUNIT ?= 0
 
 #
 # Option for polling of network events in 'externals/mongoose.c':
@@ -76,12 +71,6 @@ USE_ASAN ?= 0
 # Currently only 'clang-cl' supports this.
 #
 USE_UBSAN ?= 0
-
-#
-# Enable the alternative malloc() library "mimalloc"
-# in 'externals/mimalloc/*.c'?
-#
-USE_MIMALLOC ?= 1
 
 #
 # Compile using 'cl -MP ...'. For MSVC only.
@@ -158,15 +147,10 @@ GENERATED = $(OBJ_DIR)/cflags_$(CC).h \
 #
 GENERATED += $(OBJ_DIR)/check-for-unused-libs.py
 
-vpath %.c externals        \
-          externals/Curses \
-          externals/rtl-sdr
-
-vpath %.rc $(OBJ_DIR)
-
 CFLAGS = -nologo -c -Zi -W4        \
          -FI./dump1090_config.h    \
          -fp:strict                \
+         -std:c17                  \
          -I.                       \
          -I./externals             \
          -I./externals/Curses      \
@@ -180,7 +164,11 @@ CFLAGS = -nologo -c -Zi -W4        \
 #
 CFLAGS += -volatile:iso
 
-LDFLAGS = -nologo -map -debug -verbose -incremental:no -machine:$(CPU)
+LDFLAGS = -nologo -map -debug -verbose    \
+          -incremental:no -machine:$(CPU) \
+          -nodefaultlib:oldnames.lib      \
+          -nodefaultlib:libcmt.lib        \
+          -nodefaultlib:uuid.lib
 
 RCFLAGS = -nologo
 
@@ -209,14 +197,12 @@ else
   $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
 endif
 
-OS_LIBS   = advapi32.lib iphlpapi.lib ole32.lib setupapi.lib user32.lib winusb.lib
+OS_LIBS   = advapi32.lib iphlpapi.lib ole32.lib setupapi.lib uuid.lib user32.lib winusb.lib
 ASAN_LIBS =
 COPY_DLLs =
 
-ifneq ($(CC),clang-cl)
-  ifeq ($(USE_UBSAN),1)
-    $(error 'USE_UBSAN' is for 'clang-cl' only)
-  endif
+ifeq ($(CC)-$(USE_UBSAN),cl-1)
+  $(error 'USE_UBSAN' is not for 'cl' only)
 endif
 
 #
@@ -310,6 +296,13 @@ ifeq ($(CC),clang-cl)
       COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-x86_64.dll
     endif
   endif
+
+else ifeq ($(USE_ASAN),1)
+  ifeq ($(CPU),x86)
+    COPY_DLLs = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/clang_rt.asan_dynamic-i386.dll
+  else
+    COPY_DLLs = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/clang_rt.asan_dynamic-x86_64.dll
+  endif
 endif
 
 RCFLAGS += -DRC_BITS=$(BITS)
@@ -326,21 +319,28 @@ endif
 #
 TARGETS = ../dump1090.exe
 
-SOURCES = aircraft.c           \
-          airports.c           \
-          cfg_file.c           \
-          csv.c                \
-          dump1090.c           \
-          interactive.c        \
-          misc.c               \
-          net_io.c             \
-          location.c           \
-          pconsole.c           \
-          sdrplay.c            \
-          externals/mongoose.c \
-          externals/sqlite3.c  \
-          externals/zip.c      \
-          externals/Curses/amalgamation.c
+SOURCES = aircraft.c    \
+          airports.c    \
+          cfg_file.c    \
+          csv.c         \
+          dump1090.c    \
+          interactive.c \
+          misc.c        \
+          net_io.c      \
+          location.c    \
+          pconsole.c    \
+          sdrplay.c
+
+vpath %.c externals \
+          externals/Curses
+
+SOURCES += $(addprefix externals/, \
+             mongoose.c            \
+             sqlite3.c             \
+             zip.c                 \
+             Curses/amalgamation.c)
+
+vpath %.c externals/rtl-sdr
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
              librtlsdr.c                   \
@@ -350,39 +350,26 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_fc2580.c                \
              tuner_r82xx.c)
 
-ifeq ($(USE_MUNIT),1)
-  SOURCES += externals/munit.c
-  CFLAGS  += -DUSE_MUNIT
-else
-  LDFLAGS += -nodefaultlib:oldnames.lib
-endif
+#
+# For $(OBJ_DIR)/web-pages.rc:'
+#
+vpath %.rc $(OBJ_DIR)
+
+#
+# For ../tools/packed_webfs_main.c'
+#
+vpath %.c ../tools
 
 ifeq ($(USE_GEN_ROUTES),1)
+  ifeq ($(USE_BIN_FILES),1)
+     $(error Cannot have both 'USE_GEN_ROUTES=1' and 'USE_BIN_FILES=1')
+  endif
+
   SOURCES += $(OBJ_DIR)/routes.c
   CFLAGS  += -DUSE_GEN_ROUTES
-endif
 
-ifeq ($(USE_MIMALLOC),1)
-  vpath %.c  externals/mimalloc
-  SOURCES += externals/mimalloc/mimalloc-amalgamation.c
-
-  CFLAGS += -DUSE_MIMALLOC=1      \
-            -DMI_STAT=2           \
-            -DMI_TRACK_VALGRIND=0 \
-            -I./externals/mimalloc
-
-  #
-  # Enable "Tracking for ASAN"
-  #
-  CFLAGS += -DMI_TRACK_ASAN=$(USE_ASAN)
-
-  ifeq ($(USE_CRT_DEBUG),1)
-    #
-    # Set debug-level 4 and enable "Event Tracing for Windows" in '_DEBUG' mode
-    #
-    CFLAGS += -DMI_TRACK_ETW=1 \
-              -DMI_DEBUG=4
-  endif
+else ifeq ($(USE_BIN_FILES),1)
+  CFLAGS += -DUSE_BIN_FILES
 endif
 
 #
@@ -467,20 +454,16 @@ all: $(GENERATED) $(TARGETS) DLL_copy
 $(OBJ_DIR) doxy-docs:
 	- mkdir $@
 
-../dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
+../dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res | $(OBJ_DIR)/check-for-unused-libs.py
 	$(call link_EXE, $@, $^ $(OS_LIBS) $(ASAN_LIBS))
 
 SQLITE3_OBJ = $(OBJ_DIR)/sqlite3.obj \
               $(OBJ_DIR)/sqlite3-shell.obj
 
-ifeq ($(USE_MIMALLOC),1)
-  SQLITE3_OBJ += $(OBJ_DIR)/mimalloc-amalgamation.obj
-endif
+../sqlite3.exe: $(SQLITE3_OBJ) | $(OBJ_DIR)/check-for-unused-libs.py
+	$(call link_EXE, $@, $^ oldnames.lib $(ASAN_LIBS))
 
-../sqlite3.exe: $(SQLITE3_OBJ)
-	$(call link_EXE, $@, $^ -nodefaultlib:uuid.lib advapi32.lib oldnames.lib $(ASAN_LIBS))
-
-$(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args
+$(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, -DCOMPILING_SQLITE3_SHELL $<)
 
 ../web-pages.dll: $(WEB_OBJ) $(OBJ_DIR)/web-pages.res
@@ -494,20 +477,22 @@ $(OBJ_DIR)/%.res: %.rc
 	$(call create_res_file, $@, $<)
 
 ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
-  $(OBJECTS): $(SOURCES) | $(CC).args
+  $(OBJECTS): $(SOURCES) | $(CC).args $(OBJ_DIR)
 	$(call green_msg, Compiling $(words $(SOURCES)) .c-files in one go...)
 	$(call C_compile, $(OBJ_DIR)\\, -MP $(SOURCES))
 
 else
-  $(OBJ_DIR)/routes.obj: $(OBJ_DIR)/routes.c | $(CC).args
+  $(OBJ_DIR)/routes.obj: $(OBJ_DIR)/routes.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile_long_time, $@, $<)
 
-  $(OBJ_DIR)/sqlite3.obj: externals/sqlite3.c | $(CC).args
+  $(OBJ_DIR)/sqlite3.obj: externals/sqlite3.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile_long_time, $@, $<)
 
-  $(OBJ_DIR)/%.obj: %.c | $(CC).args
+  $(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, $<)
 endif
+
+OpenLayers3_ARGS = --ignore "../web_root-OpenLayers3/3d/*" --ignore "../web_root-OpenLayers3/sql/*"
 
 $(OBJ_DIR)/web-page-1.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root, 1,)
@@ -516,7 +501,7 @@ $(OBJ_DIR)/web-page-2.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root-FlightAware, 2,)
 
 $(OBJ_DIR)/web-page-3.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3, 3, --ignore "../web_root-OpenLayers3/3d/*" --ignore "../web_root-OpenLayers3/sql/*")
+	$(call generate_web_page, $@, ../web_root-OpenLayers3, 3, $(OpenLayers3_ARGS))
 
 $(OBJ_DIR)/web-page-4.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root-OpenLayers3/3d, 4,)
@@ -528,10 +513,10 @@ $(OBJ_DIR)/web-page-%.obj: $(OBJ_DIR)/web-page-%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
 $(OBJ_DIR)/packed_webfs_1.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3, 1, --ignore "../web_root-OpenLayers3/3d/*" --ignore "../web_root-OpenLayers3/sql/*")
+	$(call generate_web_page, $@, ../web_root-OpenLayers3, 1, $(OpenLayers3_ARGS))
 
 $(OBJ_DIR)/packed_webfs_2.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3, 2, --ignore "../web_root-OpenLayers3/3d/*" --ignore "../web_root-OpenLayers3/sql/*" --minify)
+	$(call generate_web_page, $@, ../web_root-OpenLayers3, 2, $(OpenLayers3_ARGS) --minify)
 
 #
 # Test the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
@@ -545,15 +530,11 @@ packed_test_OBJ = $(addprefix $(OBJ_DIR)/, \
                     packed_webfs_2.obj     \
                     misc.obj)
 
-ifeq ($(USE_MIMALLOC),1)
-  packed_test_OBJ += $(OBJ_DIR)/mimalloc-amalgamation.obj
-endif
+../packed_test.exe: $(packed_test_OBJ) | $(OBJ_DIR)/check-for-unused-libs.py
+	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
-../packed_test.exe: $(packed_test_OBJ)
-	$(call link_EXE, $@, -nodefaultlib:uuid.lib advapi32.lib $^)
-
-$(OBJ_DIR)/packed_webfs_main.obj: ../tools/packed_webfs_main.c | $(CC).args
-	$(call C_compile, $@, $<)
+# $(OBJ_DIR)/packed_webfs_main.obj: ../tools/packed_webfs_main.c | $(CC).args
+#	$(call C_compile, $@, $<)
 
 #
 # When 'USE_GEN_ROUTES = 1'
@@ -657,8 +638,8 @@ vclean realclean: clean
 	rm -f $(TARGETS) ../packed_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
-ubsan-issue.exe: $(OBJ_DIR)/ubsan-issue-with-32-bit-build.obj $(OBJ_DIR)/mongoose.obj $(OBJ_DIR)/wepoll.obj
-	$(call link_EXE, $@, $^ -nodefaultlib:uuid.lib $(ASAN_LIBS))
+ubsan-issue.exe: $(OBJ_DIR)/ubsan-issue-with-32-bit-build.obj $(OBJ_DIR)/mongoose.obj | $(OBJ_DIR)/check-for-unused-libs.py
+	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
 
 #
@@ -759,7 +740,8 @@ endef
 
 define generate_web_page
   $(call green_msg, Generating $(1))
-  $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --verbose --recursive --suffix=_$(strip $(3)) $(4) --strip $(2)/ $(2)/)
+  $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --verbose --recursive \
+            --suffix=_$(strip $(3)) $(4) --strip $(2)/ $(2)/)
 endef
 
 #
@@ -1013,29 +995,7 @@ CURSES_SRC = $(addprefix externals/Curses/, \
                util.c                       \
                window.c)
 
-MIMALLOC_SRC = $(addprefix externals/mimalloc/, \
-                 alloc-aligned.c                \
-                 alloc-override.c               \
-                 alloc-posix.c                  \
-                 alloc.c                        \
-                 arena.c                        \
-                 bitmap.c                       \
-                 heap.c                         \
-                 init.c                         \
-                 mimalloc-amalgamation.c        \
-                 options.c                      \
-                 os.c                           \
-                 page-queue.c                   \
-                 page.c                         \
-                 prim.c                         \
-                 random.c                       \
-                 segment-map.c                  \
-                 segment.c                      \
-                 stats.c                        \
-                 windows-prim.c)
-
-$(OBJ_DIR)/amalgamation.obj:          $(CURSES_SRC)
-$(OBJ_DIR)/mimalloc-amalgamation.obj: $(MIMALLOC_SRC)
+$(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
 
 depend:
 	$(call generate, .depend.Windows, #)
