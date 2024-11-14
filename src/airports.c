@@ -1444,12 +1444,14 @@ uint32_t airports_init (void)
         airports_init_freq_CSV() &&
         airports_init_API());
 
+#if defined(USE_BIN_FILES)
   if (Modes.update)
   {
     airports_update_BIN();
     rc = false;
     goto done;
   }
+#endif
 
   if (test_contains(Modes.tests, "airport"))
   {
