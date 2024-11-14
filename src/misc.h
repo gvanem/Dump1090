@@ -90,11 +90,12 @@
  * \def DEBUG(bit, fmt, ...)
  * A more compact tracing macro.
  */
-#define DEBUG(bit, fmt, ...)                       \
-        do {                                       \
-          if (Modes.debug & (bit))                 \
-             modeS_flogf (stdout, "%s(%u): " fmt,  \
-                 __FILE__, __LINE__, __VA_ARGS__); \
+#define DEBUG(bit, fmt, ...)                      \
+        do {                                      \
+          if (Modes.debug & (bit))                \
+             modeS_flogf (stdout, "%s(%u): " fmt, \
+                 __FILE__, __LINE__,              \
+                 ## __VA_ARGS__);                 \
         } while (0)
 
 /**
@@ -104,7 +105,8 @@
  *
  * Ref. command-line option `--debug g`.
  */
-#define TRACE(fmt, ...) DEBUG (DEBUG_GENERAL, fmt ".\n", __VA_ARGS__)
+#define TRACE(fmt, ...) DEBUG (DEBUG_GENERAL, fmt ".\n", \
+                               ## __VA_ARGS__)
 
 /**
  * \def LOG_STDOUT(fmt, ...)
@@ -116,11 +118,12 @@
  * \def LOG_FILEONLY(fmt, ...)
  *  Print to `Modes.log` only.
  */
-#define LOG_STDOUT(fmt, ...)    modeS_flogf (stdout, fmt, __VA_ARGS__)
-#define LOG_STDERR(fmt, ...)    modeS_flogf (stderr, fmt, __VA_ARGS__)
-#define LOG_FILEONLY(fmt, ...)  do {                                           \
-                                 if (Modes.log)                                \
-                                    modeS_flogf (Modes.log, fmt, __VA_ARGS__); \
+#define LOG_STDOUT(fmt, ...)    modeS_flogf (stdout, fmt, ## __VA_ARGS__)
+#define LOG_STDERR(fmt, ...)    modeS_flogf (stderr, fmt, ## __VA_ARGS__)
+#define LOG_FILEONLY(fmt, ...)  do {                              \
+                                 if (Modes.log)                   \
+                                    modeS_flogf (Modes.log, fmt,  \
+                                                 ## __VA_ARGS__); \
                                } while (0)
 
 /**
@@ -253,6 +256,7 @@ typedef struct statistics {
         uint64_t        two_bits_fix;
         uint64_t        out_of_phase;
         uint64_t        messages_total;
+        uint64_t        addr_filtered;
         unrecognized_ME unrecognized_ME [MAX_ME_TYPE];
 
         /* Aircraft statistics: \todo Move to 'aircraft_show_stats()'
@@ -361,6 +365,7 @@ typedef struct global_data {
         mg_file_path      who_am_I;                 /**< The full name of this program. */
         mg_file_path      where_am_I;               /**< The directory of this program. */
         mg_file_path      tmp_dir;                  /**< The `%TEMP%\\dump1090` directory. (no trailing `\\`). */
+        mg_file_path      results_dir;              /**< The `%TEMP%\\dump1090\\standing-data\\results` directory. */
         mg_file_path      cfg_file;                 /**< The config-file (default: "where_am_I\\dump1090.cfg") */
         FILETIME          start_FILETIME;           /**< The start-time on `FILETIME` form */
         SYSTEMTIME        start_SYSTEMTIME;         /**< The start-time on `SYSTEMTIME` form */
@@ -438,7 +443,7 @@ typedef struct global_data {
         int          win_location;               /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
         int          only_addr;                  /**< Print only ICAO addresses. */
         int          metric;                     /**< Use metric units. */
-        int          prefer_adsb_lol;            /**< Prefer using ADSB-LOL API even with '-DUSE_GEN_ROUTES'. */
+        int          prefer_adsb_lol;            /**< Prefer using ADSB-LOL API even with '-DUSE_GEN_ROUTES' and/or '-DUSE_BIN_FILES'. */
         bool         error_correct_1;            /**< Fix 1 bit errors (default: true). */
         bool         error_correct_2;            /**< Fix 2 bit errors (default: false). */
         int          keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
@@ -455,6 +460,8 @@ typedef struct global_data {
         char        *tests;                      /**< Perform tests specified by pattern. */
         int          tui_interface;              /**< Selected `--tui` interface. */
         bool         update;                     /**< Option `--update' was used to update missing .csv-files */
+        char        *icao_spec;                  /**< A ICAO-filter was specified */
+        mg_str       icao_filter;
 
         /** For handling a `Modes.aircraft_db` file:
          */
@@ -695,13 +702,14 @@ char    *mg_hex (const void *buf, size_t len, char *to);
 struct pconsole_t;
 bool pconsole_create (struct pconsole_t *pty, const char *cmd_path, const char **cmd_argv);
 
-#if 0
-  /*
-   * in 'externals/wcwidth.c'
-   */
-  int wcwidth (wchar_t wc);
-  int wcswidth (const wchar_t *wcs, size_t n);
+#ifndef U8_SIZE
+#define U8_SIZE 100
 #endif
+
+/*
+ * For displaying UTF-8 strings.
+ */
+const wchar_t *u8_format (const char *s, int min_width);
 
 /**
  * \def MSEC_TIME()

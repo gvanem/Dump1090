@@ -23,7 +23,9 @@
   #pragma clang diagnostic ignored "-Wunused-variable"
   #pragma clang diagnostic ignored "-Wunused-function"
   #pragma clang diagnostic ignored "-Wpragma-pack"
+  #pragma clang diagnostic ignored "-Wsign-compare"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
+  #pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
 
   /*
    * Cause a compile-error for these warnings:
@@ -33,8 +35,8 @@
 
   #if defined(COMPILING_SQLITE3_SHELL)
     #pragma clang diagnostic ignored "-Wunused-parameter"
-    #pragma clang diagnostic ignored "-Wsign-compare"
     #pragma clang diagnostic ignored "-Wformat-security"
+    #pragma clang diagnostic ignored "-Wnull-pointer-subtraction"
   #endif
 
 #elif defined(_MSC_VER)

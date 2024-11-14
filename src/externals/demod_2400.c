@@ -36,9 +36,17 @@ typedef enum {
  } sdr_type_t;
 
 #define PREAMBLE_THRESHOLD_PIZERO 75
+
+#undef  MODES_SHORT_MSG_BYTES
 #define MODES_SHORT_MSG_BYTES      7
+
+#undef  MODES_LONG_MSG_BYTES
 #define MODES_LONG_MSG_BYTES      14
+
+#undef  MODES_LONG_MSG_BITS
 #define MODES_LONG_MSG_BITS       (MODES_LONG_MSG_BYTES  * 8)
+
+#undef  MODES_SHORT_MSG_BITS
 #define MODES_SHORT_MSG_BITS      (MODES_SHORT_MSG_BYTES * 8)
 
 #define MODES_MAX_BITERRORS        2
@@ -140,6 +148,16 @@ struct stats
   double distance_min; // Shortest range decoded, in *metres*
 };
 
+struct modeMessage;
+struct client;
+
+struct messageBuffer {
+    struct modesMessage *msg;
+    int len;
+    int alloc;
+    int id;
+    struct client *activeClient;
+};
 
 struct readsb_Modes {
     int8_t       nfix_crc;     // Number of crc bit error(s) to correct
@@ -150,8 +168,6 @@ struct readsb_Modes {
 
     struct stats stats_current;
     struct stats stats_15min;
-
-
 };
 
 static struct readsb_Modes extra_Modes;
@@ -487,6 +503,14 @@ static void score_phase(int try_phase, uint16_t *pa, unsigned char **bestmsg, in
         // we no longer need this copy if we found a better one)
         *msg = (*msg == msg1) ? msg2 : msg1;
     }
+}
+
+static struct modesMessage *netGetMM(struct messageBuffer *buf)
+{
+    struct modesMessage *mm = &buf->msg[buf->len];
+    memset(mm, 0x0, sizeof(struct modesMessage));
+    mm->messageBuffer = buf;
+    return mm;
 }
 
 //
