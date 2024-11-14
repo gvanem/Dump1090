@@ -343,7 +343,8 @@ static uint16_t *gen_magnitude_lut (void)
 }
 
 /**
- * Initialize our temporary directory: == `%TEMP%\\dump1090`.
+ * Initialize our temporary directory == `%TEMP%\\dump1090` and
+ * `results_dir == `%TEMP%\\dump1090\\standing-data\\results`.
  */
 static void modeS_init_temp (void)
 {
@@ -363,6 +364,15 @@ static void modeS_init_temp (void)
 
   if (!CreateDirectory(Modes.tmp_dir, 0) && GetLastError() != ERROR_ALREADY_EXISTS)
      LOG_STDERR ("'CreateDirectory(\"%s\")' failed; %s.\n", Modes.tmp_dir, win_strerror(GetLastError()));
+
+  /* And now 'results_dir'
+   */
+  strcpy (Modes.results_dir, Modes.tmp_dir);
+  strcat_s (Modes.results_dir, sizeof(Modes.results_dir), "\\standing-data\\results");
+
+  /* Do not call `CreateDirectory(Modes.results_dir, 0)`.
+   * That should be done by `Modes.where_am_I/tools/gen_data.py`.
+   */
 }
 
 /**
@@ -480,11 +490,12 @@ static bool modeS_init (void)
   if (strcmp(Modes.aircraft_db, "NUL") && (Modes.aircraft_db_url || Modes.update))
   {
     aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_url);
-    if (!aircraft_CSV_load() || Modes.update)
+    if (!aircraft_CSV_load() && !Modes.update)
        return (false);
   }
 
-  airports_init();
+  if (!airports_init())
+     return (false);
 
 #if 0
   /**
@@ -1866,6 +1877,11 @@ static void display_modeS_message (const modeS_message *mm)
   size_t left = sizeof(buf);
   int    i;
 
+  /* Did we specify a filter?
+   */
+  if (!aircraft_match(&mm->AA[0]))
+     return;
+
   /* Handle only addresses mode first.
    */
   if (Modes.only_addr)
@@ -2696,14 +2712,14 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
  *      if `--debug g` is active, log a good RAW message.
  */
 #define LOG_GOOD_RAW(fmt, ...)  TRACE ("RAW(%d): " fmt, \
-                                       loop_cnt, __VA_ARGS__)
+                                       loop_cnt, ## __VA_ARGS__)
 
 /**
  * \def LOG_BOGUS_RAW()
  *      if `--debug g` is active, log a bad / bogus RAW message.
  */
-#define LOG_BOGUS_RAW(_msg, fmt, ...)  TRACE ("RAW(%d), Bogus msg %d: " fmt, \
-                                              loop_cnt, _msg, __VA_ARGS__);  \
+#define LOG_BOGUS_RAW(_msg, fmt, ...)  TRACE ("RAW(%d), Bogus msg %d: " fmt,   \
+                                              loop_cnt, _msg, ## __VA_ARGS__); \
                                        Modes.stat.RAW_unrecognized++
 
 /**
@@ -2882,13 +2898,13 @@ SBS_invalid:
  * \def LOG_GOOD_SBS()
  *      if `--debug g` is active, log a good SBS message.
  */
-#define LOG_GOOD_SBS(fmt, ...)  TRACE ("SBS(%d): " fmt, loop_cnt, __VA_ARGS__)
+#define LOG_GOOD_SBS(fmt, ...)  TRACE ("SBS(%d): " fmt, loop_cnt, ## __VA_ARGS__)
 
 /**
  * \def LOG_BOGUS_SBS()
  *      if `--debug g` is active, log a bad / bogus SBS message.
  */
-#define LOG_BOGUS_SBS(fmt, ...)  TRACE ("SBS(%d), Bogus msg: " fmt, loop_cnt, __VA_ARGS__); \
+#define LOG_BOGUS_SBS(fmt, ...)  TRACE ("SBS(%d), Bogus msg: " fmt, loop_cnt, ## __VA_ARGS__); \
                                  Modes.stat.SBS_unrecognized++
 
 /**
@@ -3009,7 +3025,7 @@ static void NO_RETURN show_help (const char *fmt, ...)
   else
   {
     printf ("A 1090 MHz receiver, decoder and web-server for ADS-B (Automatic Dependent Surveillance - Broadcast).\n"
-            "Usage: %s [options]:\n"
+            "Usage: %s [options] <filter-spec>:\n"
             "  --config <file>       Select config-file (default: `%s')\n"
             "  --debug <flags>       A = Log the the ADSB-LOL details to log-file.\n"
             "                        c = Log frames with bad CRC.\n"
@@ -3046,6 +3062,9 @@ static void NO_RETURN show_help (const char *fmt, ...)
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
             Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP);
+
+    printf ("  A <filter-spec>, shows only matching ICAO-addresses.\n"
+            "    E.g. `%s --only-addr 4A*`.\n", Modes.who_am_I);
 
     printf ("  Refer the `%s` file for other settings.\n", Modes.cfg_file);
   }
@@ -3205,6 +3224,8 @@ static void show_decoder_stats (void)
   interactive_clreol();
 
   LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
+  if (Modes.stat.addr_filtered > 0)
+     LOG_STDOUT (" %8llu ICAO-addresses filtered.\n", Modes.stat.addr_filtered);
   interactive_clreol();
 
   /**\todo Move to `aircraft_show_stats()`
@@ -3226,7 +3247,7 @@ static void show_statistics (void)
   if (Modes.rtl_tcp_in && !modeS_net_services[MODES_NET_SERVICE_RTL_TCP].last_err)
      any_device = true;  /* connect() OK */
 
-  if (any_device)  /* assume we got some data */
+  if (any_device)        /* assume we got some data */
      show_decoder_stats();
 
   if (Modes.net)
@@ -3290,6 +3311,7 @@ static void modeS_exit (void)
   free (Modes.sdrplay.name);
   free (Modes.aircraft_db_url);
   free (Modes.tests);
+  free (Modes.icao_filter);
 
   DeleteCriticalSection (&Modes.data_mutex);
   DeleteCriticalSection (&Modes.print_mutex);
@@ -3608,7 +3630,7 @@ static bool set_prefer_adsb_lol (const char *arg)
 {
   Modes.prefer_adsb_lol = cfg_true (arg);
 
-#if !defined(USE_GEN_ROUTES)
+#if !defined(USE_GEN_ROUTES) && !defined(USE_BIN_FILES)
   DEBUG (DEBUG_GENERAL,
          "Config value 'prefer-adsb-lol=%d' has no meaning.\n"
          "Will always use ADSB-LOL API to lookup routes in 'airports.c'.\n",
@@ -3647,9 +3669,8 @@ static struct option long_options[] = {
 
 static bool parse_cmd_line (int argc, char **argv)
 {
-  int   c, show_ver = 0, idx = 0;
-  bool  rc = true;
-  char *non_options;
+  int  c, show_ver = 0, idx = 0;
+  bool rc = true;
 
   while ((c = getopt_long (argc, argv, "+h?V", long_options, &idx)) != EOF)
   {
@@ -3716,13 +3737,8 @@ static bool parse_cmd_line (int argc, char **argv)
   }
 
   argv += optind;
-  if (*argv)
-  {
-    non_options = str_join (argv, " ");
-    fprintf (stderr, "Argments ('%s') after options was unexpected!\n", non_options);
-    free (non_options);
-    rc = false;
-  }
+  if (*argv && !aircraft_match_init (*argv))
+     rc = false;
   return (rc);
 }
 

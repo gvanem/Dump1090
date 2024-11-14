@@ -53,8 +53,8 @@ static const     aircraft_info *SQL_lookup_entry (uint32_t addr);
 static bool      is_helicopter_type (const char *type);
 
 /**
- * Lookup an aircraft in the CSV `Modes.aircraft_list_CSV` or
- * do a SQLite lookup.
+ * Lookup an aircraft in the CSV `Modes.aircraft_list_CSV`,
+ * `Modes.aircrafts` cache or do a SQLite lookup.
  */
 static const aircraft_info *aircraft_lookup (uint32_t addr, bool *from_sql)
 {
@@ -425,7 +425,7 @@ static void aircraft_dump_json (char *data, const char *filename)
   if (rc == 0)
        printf ("  File %s OK.\n\n", tmp_file);
   else if (rc < 0)
-       printf ("  File %s failed; errno: %d/%s\n\n", tmp_file, errno, strerror(rc));
+       printf ("  File %s failed; errno: %d/%s\n\n", tmp_file, errno, strerror(errno));
   else printf ("  Command '%s' failed; rc: %d.\n\n", jq_cmd, rc);
 }
 
@@ -1171,6 +1171,54 @@ const char *aircraft_get_details (const uint8_t *_a)
                a->reg_num, a->manufact[0] ? a->manufact : "?", a->call_sign[0] ? a->call_sign : "?",
                aircraft_is_military(addr, NULL) ? ", Military" : "");
   return (buf);
+}
+
+/**
+ * Initialise a `filter` for `aircraft_match()`.
+ */
+bool aircraft_match_init (const char *arg)
+{
+  char *s, *spec = strdup (arg);
+  bool  legal;
+
+  strupr (spec);
+  Modes.icao_filter = mg_str (spec);
+  legal = mg_match (Modes.icao_filter, mg_str("*"), NULL);
+
+  for (s = spec; *s; s++)
+  {
+    if (*s != '*' && hex_digit_val(*s) == -1)
+       legal = false;
+  }
+
+  TRACE ("Argments '%.*s' used as ICAO-filter. legal: %d",
+         (int)Modes.icao_filter.len, Modes.icao_filter.buf, legal);
+
+  if (!legal)
+     LOG_STDERR ("filter: '%s' is not legal.\n", arg);
+  Modes.icao_spec = spec;
+  return (legal);
+}
+
+/**
+ * Match the ICAO-address in `_a` against `Modes.icao_filter`.
+ */
+bool aircraft_match (const uint8_t *_a)
+{
+  char addr [10];
+  int  rc;
+
+  if (!Modes.icao_filter.buf)  /* Match any ICAO addresses */
+     return (true);
+
+  snprintf (addr, sizeof(addr), "%06X", aircraft_get_addr(_a[0], _a[1], _a[2]));
+  rc = mg_match (mg_str(addr), Modes.icao_filter, NULL);
+  DEBUG (DEBUG_GENERAL2, "0x%s -> 0x%.*s, rc: %d\n",
+         addr, (int)Modes.icao_filter.len, Modes.icao_filter.buf, rc);
+
+  if (!rc)
+     Modes.stat.addr_filtered++;
+  return (rc);
 }
 
 /**

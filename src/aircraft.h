@@ -111,6 +111,8 @@ const char *aircraft_get_details (const uint8_t *_a);
 const char *aircraft_get_country (uint32_t addr, bool get_short);
 bool        aircraft_is_military (uint32_t addr, const char **country);
 bool        aircraft_is_helicopter (uint32_t addr, const char **code);
+bool        aircraft_match_init (const char *arg);
+bool        aircraft_match (const uint8_t *_a);
 void        aircraft_set_est_home_distance (aircraft *a, uint64_t now);
 char       *aircraft_make_json (bool extended_client);
 void        aircraft_remove_stale (uint64_t now);
