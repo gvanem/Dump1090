@@ -3,7 +3,7 @@
 [![MSBuild](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml/badge.svg?branch=main)](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml)
 
 A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<br>
-It requires a RTL-SDR USB-stick (the **librtlsdr** interface is **[built-in](src/externals/rtl-sdr/)**)).
+It requires a RTL-SDR USB-stick (the **librtlsdr** interface is **[built-in](src/externals/rtl-sdr/)**).
 
 This *Mode S* decoder is based on the original *Dump1090* by **Salvatore Sanfilippo**
 which is **[here](https://github.com/antirez/dump1090.git)**.<br>
