@@ -3,6 +3,7 @@
 
 let NBSP='\u00a0';
 let NNBSP='\u202f';
+let NUMSP='\u2007';
 let DEGREES='\u00b0'
 let ENDASH='\u2013';
 let UP_TRIANGLE='\u25b2'; // U+25B2 BLACK UP-POINTING TRIANGLE
@@ -109,10 +110,10 @@ function format_altitude_brief(alt, vr, displayUnits, withUnits) {
 	} else if (vr < -245){
 		verticalRateTriangle = DOWN_TRIANGLE;
 	} else {
-		verticalRateTriangle = NNBSP;
+		verticalRateTriangle = ''
 	}
 
-	return alt_text + verticalRateTriangle;
+	return verticalRateTriangle + alt_text.padStart(5, NUMSP);
 }
 
 // alt in feet
@@ -318,6 +319,8 @@ function format_data_source(source) {
 			return "TIS-B";
 		case 'modeS':
 			return "Mode S";
+		case 'ais':
+			return "AIS";
 		case 'mode_ac':
 			return "Mode A/C";
         case 'adsc':
@@ -647,7 +650,7 @@ function wqi(data) {
 
         if (binCraftVersion >= 20240218) {
             if (stride == 116) {
-                ac.rId = u32[27].toString(16).padStart(8, '0');
+                ac.rId = u32[28].toString(16).padStart(8, '0');
             }
         } else {
             if (stride == 112) {

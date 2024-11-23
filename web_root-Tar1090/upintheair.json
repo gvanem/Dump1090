@@ -1,0 +1,2813 @@
+<!DOCTYPE html>
+<!-- Copyright (C) 2013 Michael Kosowsky  All rights reserved. -->
+<html>
+<head>
+
+<title>HeyWhatsThat</title>
+
+<meta name="description" content="Compute summits visible from any location worldwide">
+<meta name="keywords" content="geography, hiking, GPS, sightseeing, maps, parks, summits, mountains, impunity, visibility, panorama, contours, elevation, profile, google maps, google earth">
+
+<style type="text/css">
+  html { height: 100% }
+  body { height: 100%; margin: 0; padding: 0 }
+  body { font-family: Arial,sans-serif; font-size: 13px; }
+
+  .button  { color: blue; cursor: pointer; padding: 0px 5px; -moz-user-select: none; }
+  .button_ul  { color: blue; cursor: pointer; text-decoration: underline; padding: 0px 5px; -moz-user-select: none; text-align: right }
+  :hover.button_ul  { color: black }
+  .button_comment { color: blue; cursor: pointer; padding: 0px 10px; text-align: right; -moz-user-select: none; font-style: italic }
+  .recenter { /* white-space: pre;*/ -moz-user-select: none; font-style: italic; font-size: small; padding: 0px 0px}
+  .recenterbutton { color: blue; cursor: pointer; text-decoration: underline; }
+
+  .sponsor { background-color: #404040; color: white; font-size: 20px; text-align: center;
+             position: absolute; top: 0px; left: 0px; overflow: hidden;
+             height: 100%; width: 100%; margin: auto;
+             z-index: 1000;
+             opacity: .8; -moz-opacity: .8; filter: alpha(opacity=80); }
+  .sponsorurl { color: white; }
+  .sponsorbeta    { color: white; font-size: 14px; }
+  .sponsorcomment { color: white; font-size: 10px; font-style: italic; text-align: right; padding: 0px 10px; }
+  .sponsorbutton { color: white; cursor: pointer; padding: 0px 10px; text-align: right; -moz-user-select: none; text-decoration: underline; font-size: 10px }
+  .sponsorcommentbutton { color: white; font-style: italic; cursor: pointer; text-align: right; -moz-user-select: none; text-decoration: underline; font-size: 10px }
+  :hover.sponsorbutton { color: blue; }
+  :hover.sponsorurl { color: blue; }
+  :hover.sponsorcommentbutton { color: blue; }
+
+  .emphasize_faq { color: red; cursor: pointer; /*text-decoration: none*/ }
+  .maintitle { font-weight: bold; font-size: 17px }
+  .bigtitle { font-weight: bold; font-size: 17px }
+  .littletitle { font-weight: normal; font-size: 13px }
+  .inputcomment { font-size: small; font-style: italic; }
+  .maplatlon { /*white-space: pre;*/ font-size: small; }
+  .settings { font-size: small; }
+  .error { font-style: italic }
+  .opentab { color: blue; font-size: 14px; cursor: pointer; padding: 5px 15px; white-space: pre; border: 2px solid #d0d0d0; border-bottom-width: 0; background-color: #ffffff; -moz-user-select: none; /* border-top-left-radius: 10px; border-top-right-radius: 10px */ }
+  .closedtab { color: blue; font-size: 14px; cursor: pointer; padding: 5px 15px; white-space: pre; border: 2px solid #d0d0d0; background-color: #f0f0f0; -moz-user-select: none; /* border-top-left-radius: 10px; border-top-right-radius: 10px */ }
+  .betweentabs { padding: 3px; border-bottom: 2px solid #d0d0d0; }
+  :hover.opentab { color: black }
+  :hover.closedtab { color: black }
+  .tabselect { color: blue; cursor: pointer; text-decoration: none; -moz-user-select: none }
+  .maintable { border: 2px solid #d0d0d0; border-top-width: 0 }
+  .queryheading { font-style: italic; font-size: 14px; padding: 10px 0px; color: #c60205 }
+  .ads { padding: 20px }
+  #v3_msg { font-weight: normal; font-size: 13px; padding: 3px; border: none; font-style: italic }
+</style>
+
+<script type="text/javascript" src="https://maps.google.com/maps/api/js?key=AIzaSyBVGC85vkI0AyUaznDSqhecG2e-pF1mzeA"></script>
+<script src="utils-angle-request6.js" type="text/javascript"></script>
+<script src="mapcontrols.js"></script>
+<script>
+$m = google.maps;
+//google.maps.event.addDomListener(window, 'load', go);
+
+var map;
+var infowindow;
+var contour_overlay;
+var cloak_widget;
+var upintheair_widget;
+var allsummits_widget;
+var horizonpolyline_widget;
+var query_client;
+var failsafe_id = 'battie';
+var reading_answers_done = false;
+var srtm_version = 0;  
+var check_custom_elev_files;
+  
+var answer_title_div;
+var silmarkerstyle;
+var silalt0style;
+var silalt1style;
+var sildiv;
+var sil_azalt_div;
+var sil_img0;
+var map_latlon_div;
+var map_latlon_elev_div;
+var bearing_div;
+var recenter_div;
+var recenter_text;
+var query_estimate_text;
+var list_div;
+var topbutton_div;
+var answerbutton_div;
+
+
+function go() {
+  answer_title_div    = $$("answer_title_div");
+  silmarkerstyle      = $$s("silmarker");
+  silalt0style        = $$s("silalt0");
+  silalt1style        = $$s("silalt1");
+  sildiv              = $$("sil_div");
+  sil_azalt_div       = $$("sil_azalt_div");
+  sil_img0            = $$("sil_img0");
+  map_latlon_div      = $$("map_latlon_div");
+  map_latlon_elev_div = $$("map_latlon_elev_div");
+  bearing_div         = $$("bearing_div");
+  recenter_div        = $$("recenter_div");
+  recenter_text       = $$("recenter_text");
+  query_estimate_text = $$("query_estimate_text");
+  list_div            = $$("list_div");
+  topbutton_div       = $$("topbutton_div");
+  answerbutton_div    = $$("answerbutton_div");
+
+  set_list_div_initial();
+
+	// until 8/2016, you can get old gmaps controls
+  if (boolean_param('azteca'))
+    $m.controlStyle = 'azteca';
+
+  var maptype = word_param('maptype');
+  if (maptype)
+    maptype = $m.MapTypeId[maptype.toUpperCase()];
+  if (!maptype)
+    maptype = $m.MapTypeId.ROADMAP;
+
+	// 4/1/2022 on 3/11/22 there were 7500 requests to this page from a server with user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.61 Safari/537.36 AppEngine-Google; (+http://code.google.com/appengine; appid: s~feedly-nikon3)"
+  if (!window.navigator.userAgent || !window.navigator.userAgent.match('feedly-nikon3'))
+    map = new $m.Map($$('map_div'), {
+      zoom: 3,
+      center: new $m.LatLng(0, 0),
+      draggableCursor: 'crosshair',
+      mapTypeId: maptype,
+  		// default is all 4 types, e.g.
+      // mapTypeControlOptions: { mapTypeIds: [ $m.MapTypeId.ROADMAP, $m.MapTypeId.HYBRID, $m.MapTypeId.SATELLITE, $m.MapTypeId.TERRAIN ] },
+     // overviewMapControl: true,
+     // overviewMapControlOptions: { opened: true },
+      scaleControl: true  
+    });
+
+  $m.event.addListener(map, 'click', function(e) { select_lat_lon(round6(e.latLng.lat()), round6(e.latLng.lng())); });
+
+  infowindow = new $m.InfoWindow();
+  contour_overlay = new ContourOverlay('main', $m.ControlPosition.TOP_RIGHT);
+  cloak_widget = new ToggleMapControl('Visibility&nbsp;cloak', 'Visibility cloak', $m.ControlPosition.TOP_RIGHT, function(i) { if (i == BoxControl.ON) show_cloak(); else remove_cloak(); });
+  upintheair_widget = new ToggleMapControl('Up&nbsp;in&nbsp;the&nbsp;Air', 'Up in the Air', $m.ControlPosition.TOP_RIGHT, function(i) { if (i == BoxControl.ON) show_upintheair(); else remove_upintheair(); });
+  upintheair_widget.set_onshiftclick(get_upintheair_kml);
+  allsummits_widget = {};  // has to exist BEFORE next statement because update_allsummits() will be called immediately, and it checks allsummits_widget
+  allsummits_widget = new ToggleMapControl('All&nbsp;summits', 'All summits', $m.ControlPosition.TOP_RIGHT, update_allsummits, ALLSUMMITS_MIN_ZOOM);
+  horizonpolyline_widget = new ToggleMapControl('Horizon', 'Show horizon line on map', $m.ControlPosition.TOP_RIGHT, function(i) { if (i == BoxControl.ON) show_horizon_polyline(); else remove_horizon_polyline(); });
+
+  query_client = word_param('query');
+  if (query_client)
+    document.getElementById('main_title_div').innerHTML = 'HeyWhatsThat (' + query_client + ')';
+
+  document.f_query.refraction.value = '';
+  document.f_query.visible_features.checked = 0;
+  if (boolean_param('refraction') || word_param('options') === 'all') {
+    display("optional_div", 1);
+    display("optional_notes_div", 1);
+    display("refraction_div", 1);
+    display("refraction_notes_div", 1);
+    display("visible_features_div", 1);
+  }
+
+  read_settings_cookie();
+  set_units(settings.use_metric);
+  set_degrees_format(settings.degrees_format);
+  set_decimal_places(settings.decimal_places);
+  set_use_magnetic(settings.use_magnetic);
+
+  set_lat_lon(0, 0);
+
+  reset_transect_parms(0);
+  reset_transect_parms(1);
+  if (boolean_param('hideprofiles')) {
+    $$('transect0_widget').setAttribute("data-val", 0);
+    $$('transect1_widget').setAttribute("data-val", 0);
+  }
+  wtbutton_set($$('transect0_parms_widget'), 0);
+  wtbutton_set($$('transect1_parms_widget'), 0);
+
+  // map_resize() already called a few times by the transect_widget's data-exec
+  window.onresize = map_resize;
+
+  init_upintheair();
+  init_allsummits();
+
+  var s;
+  var i = param('kml0')? 0 : 1;
+  for (;;) {
+    if (!(s = param('kml' + i)))
+      break;
+    var k = new $m.KmlLayer({ map: map, url: s, preserveViewport: false });
+    (function(layer, file) { 
+      $m.event.addListener(layer, "status_changed", function() {
+        var status = layer.getStatus();
+        if (status != $m.KmlLayerStatus.OK)
+	  alert("load " + file + " failed: " + status);
+      });
+    })(k, s);
+    i++;
+  }
+
+	// view=id[+id ...]  just view  4/2018 'id=' too
+	// add=id[+id ...]   make it yours (e.g. add it to cookie)
+	// print=id[+id ...] view in print layout
+    words_param('add')._foreach(function(id) { add_answer(id, 1); });
+   words_param('view')._foreach(function(id) { add_answer(id, 0); });
+     words_param('id')._foreach(function(id) { add_answer(id, 0); });
+  words_param('print')._foreach(function(id) { add_answer(id, 0); });
+
+  var startup_id = answers.length? answers[0].id : read_cookie('last_result') || failsafe_id;
+  add_answer(startup_id);
+
+  (read_cookie('results') || '').replace(/%20/g, ' ').split(' ')._foreach(function(id) { if (id) add_answer(id, 1); });
+
+  if (s = param('srtm_version'))
+    srtm_version = s - 0;
+  if (s = param('check_custom_elev_files'))
+    check_custom_elev_files = s - 0;
+
+  var show_all_when_ready = 0;
+
+  if (location.search.match(/\?new/)) {
+    current.show_all = 1;
+    show_query();
+
+  } else if (location.search.match(/\?all/)) {
+    show_all_when_ready = 1;
+
+  } else {
+  			// this can only fail if still pending (or they didn't specify anything and battie is gone)
+    show_result(startup_id, location.search.match(new RegExp("[\?&]print=" + startup_id)), function(ok) {
+      if (ok) {
+        var lat;
+        var lon;
+        if ((lat = angle_param('lat')) != null && (lon = angle_param('lon')) != null) {
+          set_lat_lon(lat - 0, lon - 0, null, 1);
+        }
+
+        var zoom;
+        if ((zoom = number_param('zoom')) != null)
+          map.setZoom(zoom - 0);
+      }
+    });
+  }
+
+  request_answer_data(function() {
+    request_public_answers(function() {
+      reading_answers_done = true;
+      set_answer_cookie();
+      set_view_menus();
+      if (show_all_when_ready)
+        show_all();
+    });
+  });
+}
+
+/***************
+
+nomenclature:
+
+query refers to the lat/lon/elevation/... we're putting together to request from the server
+
+answer refers to an earlier query; e.g. something we can elect to view
+       we store the answers you've received in a cookie
+       we build a list of answers from URL querystrings and your cookie and a the list of public answers
+result is an answer we're displaying
+an "answer" is just enough to help the user select (id, name, public status); a "result" is much richer
+while "answers" could be called "results", I'm hoping different words will make this a bit easier
+
+when we submit a query, it gets queued and we'll set the is_pending flag
+occassionally we'll check all the is_pending entries
+it turns out that we know enough about the answer -- name, lat, lon, ... -- for our UI,
+so checking the entry simply means potentially flipping the is_pending flag,
+and alerting the user the results are ready
+
+when viewing 'all', map markers are answers; when viewing a result, markers are peaks.
+refer to them generically as 'elements' in select_element()
+
+in each peak or answer we expect
+   id       to tie to a div in list_pane ("list_el_<id>")  (for answers this is the result id; for peaks it's just a serial number)
+   lat
+   lon
+   az	    for peaks only, to draw the line on the silhouette
+   marker   Gmarker associated with the element
+
+to each marker we add:
+  _element  the corresponding answer or peak
+  _msg_f    function to call to create InfoWindow content
+
+
+we DON'T bother with an array of markers because for answers, we want to be able to remove them at will
+
+****************/
+
+
+
+					//************************** GENERIC UI
+
+var current = {
+  show_all: true,
+  print_layout: false,
+  query_is_visible: false,
+  sponsor_is_visible: false,
+  show_transect0: false,
+  show_transect1: false,
+  allsummits_state: false,
+  sil_alt_scale: false,
+
+		  // cursor position on map
+  lat: 0,
+  lon: 0,
+  latlng: null,
+  elev: null,
+
+  viewer_marker: null,
+  latlon_marker: null,
+  transect_marker: null,
+  selected_element: null,
+  bearing: null,
+  centerline: null,
+  list_highlight: null,  // currently highlighted div in the list pane (answer or peak)
+
+  decimal_places: 0
+};
+
+var result = {
+  id: null,
+  name: '',
+  status: '',
+
+  viewer_lat: 0,
+  viewer_lon: 0,
+  viewer_latlng: null,
+
+  elev: 0,
+  elev_agl: 0,
+  ground_amsl: 0,
+  is_public: false,
+  declination: 0,
+  queued_time: 0,
+  start_time: 0,
+  end_time: 0
+};
+
+
+var answers = [];
+var answer_hash = new Object();
+var peaks = [];
+var limits = [];
+var azlimits = [];
+var sil_parms = {};	// parameters (width, height, ...) for horizontal and vertical silhouettes
+
+
+var METERS_PER_FOOT = .3048;
+var METERS_PER_MILE = 1609.344;
+
+
+function reset_display() {
+  infowindow.close();
+  remove_answer_markers();
+  if (peaks)
+    peaks._foreach(remove_stored_marker);
+  current.list_highlight = null;
+  remove_from_map(current.centerline);    current.centerline = null;
+  remove_from_map(current.viewer_marker); current.viewer_marker = null;
+  remove_from_map(current.latlon_marker); current.latlon_marker = null;
+  current.selected_element = null;
+  current.allsummits_state = false;
+  silmarkerstyle.display = 'none';
+  set_sil_alt_scale(0);
+  sil_azalt_div.innerHTML = '';
+  disable_transect(0);
+  disable_transect(1);
+  contour_overlay.set_state(BoxControl.OFF);
+  cloak_widget.set_state(BoxControl.HIDDEN);
+  upintheair_widget.set_state(BoxControl.HIDDEN);
+  clear_bearing();
+}
+
+
+function set_all_map(a, v) {
+  if (a)
+    a._foreach(function(o) { o.setMap(v); });
+}
+
+function remove_from_map(o) {
+  if (o) {
+    $m.event.clearInstanceListeners(o);
+    o.setMap(null);
+  }
+}
+
+
+function remove_stored_marker(r) {
+  if (r.marker) {
+    remove_from_map(r.marker);
+    r.marker._element = null;
+    r.marker = null;
+  }
+}
+
+
+function set_panes() {
+  var off = ['sil_pane', 'sil_print_pane',
+	     'all_top_pane', 'answer_top_pane',
+	     'list_pane', 'list_print_pane', 'title_print_pane',
+	     'query_pane', 'map_pane', 'bearing_div', 'recenter_div',
+	     'topbutton_div', 'sponsor_pane',
+	     'transect0_widget', 'transect1_widget'
+            ];
+
+  var on =  current.query_is_visible? ['query_pane', 'map_pane', 'topbutton_div']
+          : current.show_all?         ['all_top_pane', 'list_pane', 'map_pane', 'topbutton_div']
+	  : current.print_layout?     ['sil_print_pane', 'list_print_pane', 'title_print_pane']
+          :                           ['sil_pane', 'list_pane', 'answer_top_pane', 'map_pane', 'recenter_div', 'topbutton_div', 'transect0_widget', 'transect1_widget'];
+
+  off._foreach(function(s) { display(s, 0); });
+  on._foreach(function(s)  { display(s, 1); });
+}
+
+
+function set_tabs() {
+  ['all_tab', 'view_tab', 'print_tab', 'query_tab']._foreach(function(s) { document.getElementById(s).className = 'closedtab'; });
+
+  document.getElementById(
+	  current.query_is_visible? 'query_tab'
+	: current.show_all?         'all_tab'
+	: current.print_layout?     'print_tab'
+	:                           'view_tab').className = 'opentab';
+
+  document.getElementById('print_tab').style.display =
+	current.show_all || current.query_is_visible? 'none' : '';
+
+// BUG: we used to be able to set "pointer" cursor for current.show_all and current.print_layout and "crosshair" in the others, but apparently not in v3
+
+}
+
+
+
+function set_units(use_metric) {
+  settings.use_metric = use_metric - 0? 1 : 0;
+  write_settings_cookie();
+  radio_set(document.f_settings.units, settings.use_metric);
+  document.getElementById('query_elev_units').innerHTML = settings.use_metric? 'meters' : 'feet';
+  document.getElementById('query_elev_default').innerHTML = settings.use_metric? '2 meters' : '6 feet';
+  document.f_query.radius_feet.style.display   = settings.use_metric? 'none' : '';
+  document.f_query.radius_meters.style.display = settings.use_metric? '' : 'none';
+  contour_overlay.redraw();
+  redraw_for_format_change();
+  if (current.show_transect0 && document.f_transect0.axes.checked)
+    draw_transect(0); // note: don't need to clear_transect_markers()
+  if (current.show_transect1 && document.f_transect1.axes.checked)
+    draw_transect(1);
+}
+
+function set_degrees_format(degrees_format) {
+  settings.degrees_format = degrees_format % 3;
+  write_settings_cookie();
+  radio_set(document.f_settings.degrees_format, settings.degrees_format);
+  redraw_for_format_change();
+}
+
+function set_use_magnetic(x) {
+  settings.use_magnetic = x - 0? 1 : 0;
+  write_settings_cookie();
+  if (!current.show_all && !current.query_is_visible)
+    show_result(result.id, current.print_layout);
+}
+
+
+function redraw_for_format_change() {
+  update_latlon_div();
+  update_latlon_elev_div();
+  //update_profile_gndlevel();
+  allsummits_reset_units();
+
+  if (!current.show_all && !current.query_is_visible) {
+    infowindow.close();
+    add_viewer_marker();
+    write_result_title();
+    write_peak_list_div_and_markers();
+    if (current.bearing)
+	draw_bearing();
+  }
+}
+
+
+var before_query_was_show_result;
+
+function show_query() {
+  //if (current.print_layout)
+  //  show_result(result.id, false);
+  before_query_was_show_result = !current.show_all;
+  reset_display();
+  current.show_all = false;
+  current.sponsor_is_visible = false;
+  current.query_is_visible = true;
+  set_panes();
+  set_tabs();
+  update_allsummits();
+  set_lat_lon(current.lat, current.lon);
+
+  wt_async_request('bin/query_estimate.cgi', 'QUERY ESTIMATE',
+    function(minutes) {
+      query_estimate_text.innerHTML = 'Requests are taking about ' + minutes + (minutes == 1?' minute' : ' minutes');
+      document.getElementById('sponsor_estimate_text').innerHTML =
+				      'Your panorama will be ready in about ' + minutes + (minutes == 1?' minute' : ' minutes');
+    }
+  );
+}
+
+
+function hide_query() {
+  current.query_is_visible = false;
+  if (before_query_was_show_result && result.id)
+    show_result(result.id, current.print_layout);
+  else
+    show_all();
+}
+
+
+function show_sponsor(url, ad, beta) {
+  document.getElementById('sponsor_show_result').style.display = result.id? '' : 'none';
+  document.getElementById('sponsor_beta_div').style.display    = beta?      '' : 'none';
+  if (url) {
+    document.getElementById('sponsor_url_div').style.display = '';
+    document.getElementById('sponsor_url').href = url;
+  } else {
+    document.getElementById('sponsor_url_div').style.display = 'none';
+  }
+  document.getElementById('sponsor_ad_div').innerHTML = ad;
+
+  var s = document.getElementById('sponsor_pane').style;
+  s.height  = document.body.offsetHeight + 'px';
+  s.width   = '100%';
+  s.display = 'block';
+
+  current.sponsor_is_visible = true;
+}
+
+
+function show_google_earth(kmz) {
+  //location.href = results_file(result.id, 'wt.kmz');
+  location.href = 'bin/wt.' + (kmz? 'kmz' : 'kml') + '?id=' + result.id;
+}
+
+
+function show_google_sky() {
+  location.href = 'bin/planisphere_link.kml?id=' + result.id + '&tz=' + default_timezone();
+}
+
+/****
+var seen_sky_warning = 0;
+function show_google_sky() {
+  if (result.id
+      && (seen_sky_warning
+          || confirm("Click 'OK' and you'll receive a Network Link for Google Earth that will you show your horizon in the sky whenever you refresh it."))) {
+    seen_sky_warning = 1;
+    location.href = 'bin/planisphere_link.kml?id=' + result.id + '&tz=' + default_timezone();
+  }
+}
+*****/
+
+
+
+function show_all_google_earth() {
+  location.href = 'bin/update_kml.kml';
+}
+
+function email_result() {
+  if (result.id)
+    location.href = 'mailto:?subject=HeyWhatsThat panorama&body=Take a look at http://www.heywhatsthat.com/?view=' + result.id + '\n';
+}
+
+function openinfowindow(marker) {
+  if (!marker._msg_f)
+    return;
+  var s = marker._msg_f(marker);
+  if (!s)
+    return;
+  infowindow.setContent(s);
+  infowindow.open(map, marker);
+}
+
+
+function select_element(e) {
+  if (!e)
+    return;
+
+  current.selected_element = e;
+
+  var m = e.marker;		// corresponding marker
+  set_lat_lon(e.lat, e.lon, e.elev);
+
+  openinfowindow(m);
+
+  if (current.list_highlight)
+    current.list_highlight.style.backgroundColor = 'white';
+
+  current.list_highlight = document.getElementById('list_el_' + e.id);
+  if (current.list_highlight) {
+    current.list_highlight.style.backgroundColor = '#dae9be';
+    scroll_if_needed(current.list_highlight, list_div)
+  }
+
+  if (!current.show_all)
+    draw_lines(e.az, e.alt, e.range);
+}
+
+function select_home(recenter, open_info_window) {
+  if (!open_info_window)
+    infowindow.close();
+  current.selected_element = null;
+  set_lat_lon(result.lat, result.lon, null, recenter, 1, open_info_window);
+  erase_lines();
+}
+
+function select_lat_lon(lat, lon, elev) {
+  set_lat_lon(lat, lon, elev);
+  current.selected_element = null;
+  clear_list_highlight();
+  if (current.show_all || current.query_is_visible || current.print_layout)
+    return;
+
+  draw_lines();
+}
+
+
+function clear_list_highlight() {
+  if (current.list_highlight) {
+    current.list_highlight.style.backgroundColor = 'white';
+    current.list_highlight = null;
+  }
+}
+
+var set_lat_lon_timeout_id = 0;
+var draw_centerline_too = 0;
+var set_to_viewer_marker = 0;
+var open_viewer_marker_infowindow = 0;
+
+function set_lat_lon(lat, lon, elev, set_center, its_the_viewer_marker, _open_viewer_marker_infowindow) {
+  current.lat    = lat;
+  current.lon    = lon;
+  current.latlng = new $m.LatLng(lat, lon);
+  current.elev_amsl   = elev;
+  document.f_query.lat.value = lat;
+  document.f_query.lon.value = lon;
+  set_to_viewer_marker          = its_the_viewer_marker;
+  open_viewer_marker_infowindow = _open_viewer_marker_infowindow;
+
+  if (current.latlon_marker)
+    remove_from_map(current.latlon_marker);
+  current.latlon_marker = new $m.Marker({ position: current.latlng, icon: icon_plus, clickable: false, draggable: true, title: format_latlon(lat, lon, settings.degrees_format, 0) });
+  $m.event.addListener(current.latlon_marker, 'dragend', function(e) { select_lat_lon(round6(e.latLng.lat()), round6(e.latLng.lng())); });
+
+
+	  // If we addOverlay immediately, the map never sees a double-click
+  if (set_lat_lon_timeout_id)
+    clearTimeout(set_lat_lon_timeout_id);
+  set_lat_lon_timeout_id = setTimeout(set_lat_lon_timeout, 300);
+
+  if (set_center)
+    map.panTo(current.latlng); // was setCenter()
+  else if (map.getBounds() && !map.getBounds().contains(current.latlng))
+    map.panTo(current.latlng);
+
+  update_latlon_div();
+  update_latlon_elev_div();
+
+  if (current.elev_amsl == null) {
+    get_elev(current.lat, current.lon, function(lat, lon, elev) {
+      if (current.lat == lat && current.lon == lon)
+	update_elev(elev - 0);
+    });
+  } else {
+    set_elev(current.lat, current.lon, current.elev_amsl);
+  }
+}
+
+
+function update_elev(elev, by_user) {
+  current.elev_amsl = elev - 0;
+  update_latlon_elev_div();
+  current.elev_amsl_by_user = by_user;
+  if (current.elev_amsl_by_user) {
+    draw_transect(0);
+    draw_transect(1);
+  } else {
+    current.elev_amsl_before_user = current.elev_amsl;
+  }
+  if (current.bearing)
+    show_bearing(current.bearing.az, null, current.bearing.range);  // compute altitude value for current.bearing
+}
+
+
+function set_lat_lon_timeout() {
+  current.latlon_marker.setMap(map);
+
+	// Arghhh ... if we happen to place latlon_marker above viewer_marker, we can't click on the purple X!
+  if (set_to_viewer_marker && current.viewer_marker) {
+    add_viewer_marker();
+    if (open_viewer_marker_infowindow)
+      openinfowindow(current.viewer_marker);
+  }
+
+  if (draw_centerline_too) {
+    if (current.centerline)
+      current.centerline.setMap(map);
+    draw_centerline_too = 0;
+  }
+
+  set_lat_lon_timeout_id = 0;
+}
+
+
+function update_latlon_div() {
+  map_latlon_div.innerHTML      = format_latlon(current.lat, current.lon, settings.degrees_format, 1)
+			     // + (current.elev_amsl != null? ' ' + ft_or_m0(current.elev_amsl, 1) : '');
+}
+
+function update_latlon_elev_div() {
+  map_latlon_elev_div.innerHTML = current.elev_amsl != null? ft_or_m0(current.elev_amsl, 1) : '';
+}
+
+/*********
+function update_profile_gndlevel() {
+  if (current.elev_amsl != null) {
+    document.f_transect0.addl_elev.disabled = 0;
+    document.f_transect1.addl_elev.disabled = 0;
+    document.getElementById("profile0_gndlevel").innerHTML = ft_or_m0(current.elev_amsl, 1);
+    document.getElementById("profile1_gndlevel").innerHTML = ft_or_m0(current.elev_amsl, 1);
+    if (transect0_pending)
+	draw_transect(0);
+    if (transect1_pending)
+	draw_transect(1);
+  } else {
+    document.f_transect0.addl_elev.disabled = 1;
+    document.f_transect1.addl_elev.disabled = 1;
+  }
+}
+*************/
+
+				//************************** ANSWERS UI
+
+function write_answer_list_div() {
+  var s = '';
+  for (var i = 0; i < answers.length; i++) {
+    r = answers[i];
+    if (r && r.name)
+      s +=  '<div id="list_el_' + r.id + '">'
+			// can't rely on index into answers array (e.g. 'select_element(answers[i])'),
+			// because we might remove_answer()
+	  + answer_list_innerhtml(r)
+	  + '</div>';
+  }
+  set_list_div_style('300px', answers.length > 18);
+  list_div.innerHTML = s;
+}
+
+function answer_list_innerhtml(r) {
+  return '' +
+      '<div onclick="select_element(find_answer_by_id(\'' + r.id + '\'))"><b>' + r.name.substr(0,40) + '</b></div>'
+    + '&nbsp;&nbsp;'
+    + (!r.is_pending?
+	  '<span class="button_ul" onclick="show_result(\'' + r.id + '\', false)">view</span> '
+        : '')
+    + (!r.is_pending && r.is_mine && r.is_public?
+	  '<span class="button_ul" onclick="infowindow.close();set_public_by_id(\'' + r.id + '\', 0)">make private</span> '
+	: '')
+    + (!r.is_pending && r.is_mine && !r.is_public?
+	  '<span class="button_ul" onclick="infowindow.close();set_public_by_id(\'' + r.id + '\', 1)">make public</span> '
+	: '')
+    + (!r.is_pending && r.is_mine?
+	  '<span class="button_ul" onclick="infowindow.close();remove_answer_by_id(\'' + r.id + '\')">remove</span><br>'
+	: '')
+    + (r.is_pending?
+	  '<i>pending</i><br>'
+	: '');
+}
+
+
+function add_answer_markers() {
+  answers._foreach(add_answer_marker);
+}
+
+function add_answer_marker(r) {
+  var marker = new $m.Marker({ map: map, position: new $m.LatLng(r.lat, r.lon), icon: r.is_mine? r.is_public? icon_my_public_answer : icon_my_private_answer : icon_public_answer, anchorPoint: icon_my_public_answer.anchorpoint, title: r.name });
+  r.marker = marker;
+  marker._element = r;
+  marker._msg_f = answer_marker_msg;
+  $m.event.addListener(marker, 'click', function() { select_element(this._element); } );
+}
+
+function remove_answer_markers() {
+  answers._foreach(remove_stored_marker);
+}
+
+
+/*********
+function answer_marker_msg(r) {
+*****/
+function answer_marker_msg(m) {
+  var r = m._element;
+  if (!m)
+    return null;
+  return '' +
+      '<b>' + r.name + '</b><br>'
+    + format_latlon(r.lat, r.lon, settings.degrees_format, 1) + '<br>'
+        // + r.lat + '&deg; ' + r.lon + '&deg;<br>'
+    + (!r.is_pending?
+	  '<span class="button_ul" onclick="show_result(\'' + r.id + '\', false)">View</span><br>'
+	: '')
+    + (!r.is_pending && r.is_mine &&  r.is_public?
+	  '<span class="button_ul" onclick="infowindow.close();set_public_by_id(\'' + r.id + '\', 0)">Make private</span><br>'
+	: '')
+    + (!r.is_pending && r.is_mine && !r.is_public?
+	  '<span class="button_ul" onclick="infowindow.close();set_public_by_id(\'' + r.id + '\', 1)">Make public</span><br>'
+	: '')
+    + (!r.is_pending && r.is_mine?
+	  '<span class="button_ul" onclick="infowindow.close();remove_answer_by_id(\'' + r.id + '\')">Remove</span><br>'
+	: '')
+    + (r.is_pending?
+	  '<i>pending</i>'
+	: '')
+}
+
+
+				//************************** RESULT UI
+
+function write_peak_list_div_and_markers() {
+  var footer = 		     '<p><i>&nbsp;&nbsp;&nbsp;(Bearings are '
+	           + (settings.use_magnetic? 'magnetic; for true' : 'true; for magnetic')
+		   + (current.print_layout? '<br>&nbsp;&nbsp;&nbsp;bearings ' : ' bearings<br>&nbsp;&nbsp;&nbsp;')
+		   + ((result.declination >= 0) == settings.use_magnetic? 'add ' : 'subtract ')
+		   + Math.abs(result.declination)
+		   + '&deg; or click <a href="javascript:set_use_magnetic(!settings.use_magnetic)">here</a>)'
+	           + '<br><input id="show_alts_in_peak_list" type="checkbox" onclick="write_peak_list_div_and_markers()"/>show alts'
+                   + '</i>';
+
+  var s = '';
+  current.show_alts_in_peak_list = document.getElementById("show_alts_in_peak_list") && document.getElementById("show_alts_in_peak_list").checked;
+
+  for (var i = 0; i < peaks.length; i++) {
+    var p = peaks[i];
+    var marker = new $m.Marker({ map: map,
+				 position: new $m.LatLng(p.lat, p.lon),
+				 icon: type_icons[p.type] || icon_default_type,
+				 anchorPoint: icon_default_type.anchorpoint,
+				 title: p.name });
+    p.id = i;
+    p.marker = marker;
+
+    marker._element = p;
+    marker._msg_f = peak_marker_msg;
+
+    if (!current.print_layout)
+			// can't use select_element(p) because we're in a loop and the closure will effectively use the final value of p
+			// right now it seems that for a marker (maybe for everything?), the callback has this set to the marker
+      $m.event.addListener(marker, 'click', function() { select_element(this._element); } );
+
+    if (current.print_layout)
+      s += peaks.length >= 40? '<tr style="font-size:10px">' : '<tr>';
+    else
+      s += '<tr id=list_el_' + i + ' onclick=select_element(peaks[' + i + '])>';
+
+    s +=   '<td align=right>' + format_bearing(p.az)
+           + (current.show_alts_in_peak_list? '/' + format_altitude(p.alt) : '')
+         + '</td>'
+	 + '<td style="' + (type_styles[p.type] != null? type_styles[p.type] : default_type_style)
+         +            '"><b>' + p.name            + '</b></td>'
+	 + '<td align=right>' + miles_or_km(p.range, 1)    + '</td>'
+	 + '<td align=right>' + ft_or_m0(p.true_elev, 1) + '</td>'
+	 + '</tr>';
+  }
+
+
+  if (current.print_layout) {
+    document.getElementById("list_print_div").innerHTML = '<table style="border-spacing: 15px 0px">' + s + '</table>' + footer;
+  } else {
+    set_list_div_style('375px', peaks.length > 38);
+    list_div.innerHTML = '<table>' + s + '</table>' + footer;
+  }
+
+  document.getElementById("show_alts_in_peak_list").checked = current.show_alts_in_peak_list;
+}
+
+function peak_marker_msg(m) {
+  var p = m._element;
+  if (!p)
+    return null;
+
+  var gazetteer = '';
+  var where = format_latlon(p.lat, p.lon, settings.degrees_format, 1) + '&nbsp;' + ft_or_m0(p.elev, 1);
+  if (p.true_lat != p.lat || p.true_lon != p.lon)
+    where =   'peak marker at '
+            // + '<a href="javascript:select_lat_lon(' + p.lat + ',' + p.lon + ')">' // user will see spherical azimuth and range
+            + '<a href="javascript:select_element(peaks[' + p.id + '])">'			     // user will see WGS84 azimuith and range
+            + where + '</a><br>'
+            + '(gazetteer&nbsp;location&nbsp;<a href="javascript:select_lat_lon(' + p.true_lat + ',' + p.true_lon + ')">'
+	    + format_latlon(p.true_lat, p.true_lon, settings.degrees_format, 1) + '</a>&nbsp;' + ft_or_m0(p.true_elev, 1) + ')';
+  else if (p.true_elev != p.elev)
+    where = where + '<br>(gazetteer elevation ' + ft_or_m0(p.true_elev, 1) + ')';
+
+  return    '<b>' + p.name + '</b><br>'
+	  + format_bearing(p.az) + ' '
+	  + miles_or_km(p.range, 1) + '<br>'
+	  + '<small>' + where + '</small>';
+}
+
+
+function add_viewer_marker() {
+  remove_from_map(current.viewer_marker);
+  current.viewer_marker = new $m.Marker({ map: map, position: result.latlng, icon: icon_x, anchorPoint: icon_x.anchorpoint, title: result.name });
+  current.viewer_marker._msg_f = viewer_marker_msg;
+  $m.event.addListener(current.viewer_marker, 'click', function() { select_home(0, 1); });
+}
+
+function viewer_marker_msg() {
+  return   '<b>' + (result.name || 'Home') + '</b><br>'
+	 + format_latlon(result.lat, result.lon, settings.degrees_format, 1) + '<br>'
+	 + 'view is from ' + ft_or_m0(result.elev_agl, 1) + ' above ground<br>'
+         + '&nbsp;&nbsp;(' + ft_or_m0(result.elev_amsl, 1) + ' above sea level)';
+}
+
+	// you can override the az/alt/range, e.g. if using the values from peaks data rather than computed when you click on map
+	// BUG: shouldn't this be integrated with set_lat_lon(), with appropriate tests (e.g. not at viewer location, not show_query, ...)
+function draw_lines(az, alt, range, az_for_silmarker) {
+		// alt gets set in show_bearing()
+  if (az == null || range == null) {
+    var a = bearing_and_range(result.lat, result.lon, current.lat, current.lon);
+    if (az == null)
+      az = adjust_for_declination(a[0]);
+    if (range == null)
+      range = a[1];
+  }
+
+  remove_from_map(current.centerline);
+  current.centerline = new $m.Polyline({ path: [result.latlng, current.latlng], strokeColor: '#8B6914', strokeWeight: 3, strokeOpacity: .5, clickable: true, geodesic: true });
+  $m.event.addListener(current.centerline, 'click', function(e) { transect_map_click(round6(e.latLng.lat()), round6(e.latLng.lng())); });
+	// can't just current.centerline.setMap(map) here, because if the line extends under
+	// the current mouse position, it will interfere with double click detection
+	// Note that we only call draw_lines after a call to set_lat_lon, so we'll piggyback
+	// on the timer we set there
+  draw_centerline_too = 1;
+
+  var x = (az_for_silmarker != null? az_for_silmarker : az) - sil_parms.first_segment * 360 / sil_parms.n_segments;
+  if (x < 0)
+    x += 360;
+  silmarkerstyle.left = (sil_parms.az_scale * (x - sil_parms.az_min) + silmarker_offsetleft()) + 'px';
+  silmarkerstyle.display = '';
+
+  show_bearing(az, alt, range);
+  clear_transect_markers();
+  draw_transect(0);
+  draw_transect(1);
+}
+
+
+function show_bearing(az, alt, range) {
+  var a = bearing_and_range(current.lat, current.lon, result.lat, result.lon);
+  current.bearing = { az: az, alt: alt, range: range, reverse_az: adjust_for_declination(a[0]) };
+
+  if (alt == null && current.elev_amsl != null) {
+    var psi    = current.bearing.range / EARTH_RADIUS;
+    var cospsi = Math.cos(psi);
+    var sinpsi = Math.sin(psi);
+    current.bearing.alt = 1/RADIANS_PER_DEGREE
+                      * (-Math.atan2( ((result.elev_amsl + EARTH_RADIUS) - cospsi * (current.elev_amsl + EARTH_RADIUS)),
+	                              (sinpsi * (current.elev_amsl + EARTH_RADIUS)) )
+	                 + psi/2 * (result? result.refraction : .14));
+  }
+  draw_bearing();
+}
+
+function draw_bearing() {
+  bearing_div.innerHTML =   'bearing ' + format_bearing(current.bearing.az) + ' '
+                          + miles_or_km(current.bearing.range, 1)
+                          + (current.bearing.alt?
+				 // ' alt&nbsp;' + format_angle(current.bearing.alt, settings.degrees_format, '', '', 1)
+				' alt&nbsp;' + format_altitude(current.bearing.alt)
+	                      : '')
+			      /**;**/
+                          + (  current.elev_amsl == null?
+                                 ''
+			     : current.bearing.has_los == null?
+			         ' <span style="display:" class="recenterbutton" onclick="compute_los()">compute LOS</span>'
+			     : current.bearing.has_los?
+	                         ' has LOS'
+			     : (current.bearing.viewer_agl_for_los < 0 || current.bearing.dest_agl_for_los < 0)?
+	                         ' no LOS'
+			     :
+				 ' no LOS' + '&nbsp;&nbsp;(need viewer ' + ft_or_m0(current.bearing.viewer_agl_for_los) + ' agl or target ' + ft_or_m0(current.bearing.dest_agl_for_los) + ' agl)'
+                            )
+			  + (  current.bearing.horizon_alt?
+			         ' horizon&nbsp;alt&nbsp;' + format_altitude(current.bearing.horizon_alt)
+		             :   '');
+  bearing_div.title = 'reverse bearing ' + format_bearing(current.bearing.reverse_az).replace(/&deg;/,' ');
+  bearing_div.style.display = '';
+}
+
+function clear_bearing() {
+  current.bearing = null;
+  bearing_div.style.display = 'none';
+}
+
+
+
+	// 1/2018 the path quality computation, used on the server to compute the addl height needed, assumes refraction 0
+        // so setting refraction influences the forward and reverse altitude here, but not whether or not there is LOS or the add'l heights needed
+
+function compute_los() {
+    if (current.elev_amsl === null)
+	return;
+    var lat1  = current.lat;
+    var lon1  = current.lon;
+    var elev1 = current.elev_amsl;
+    wt_async_request_array(
+	'bin/get-los.cgi?lat0=' + result.lat + '&lon0=' + result.lon + '&gnd0=' + result.ground_amsl + '&agl0=' + result.elev_agl
+	   + '&lat1=' + lat1 + '&lon1=' + lon1 + '&gnd1=' + elev1 + '&agl1=0' + '&refraction=' + result.refraction,
+	'LOS',
+         function(a) {
+	  return a.length == 7;
+        },
+	function(a) {
+			// make sure we're still looking at same point
+			// GET-LOS FORMAT addl0 addl1 distance az alt reverse-az reverse-alt
+	    if (lat1 == current.lat && lon1 == current.lon && elev1 == current.elev_amsl) {
+		var vv = a[0] - 0;
+		var dd = a[1] - 0;
+		current.bearing.has_los = vv == 0 && dd == 0;
+		current.bearing.viewer_agl_for_los = vv;
+		current.bearing.dest_agl_for_los   = dd;
+		// current.bearing.viewer_agl_for_los = vv == 0? 0 : vv - result.ground_amsl;
+		// current.bearing.dest_agl_for_los   = dd == 0? 0 : dd - current.elev_amsl;
+	        current.bearing.range         = a[2] - 0;
+	        current.bearing.az            = a[3] - 0;
+	        current.bearing.alt           = a[4] - 0;
+	        current.bearing.reverse_az    = a[5] - 0;
+	        current.bearing.reverse_alt   = a[6] - 0;
+                if (current.bearing.az < 0) current.bearing.az += 360;
+                current.bearing.az = adjust_for_declination(current.bearing.az);
+                if (current.bearing.reverse_az < 0) current.bearing.reverse_az += 360;
+                current.bearing.reverse_az = adjust_for_declination(current.bearing.reverse_az);
+		draw_bearing();
+		wt_async_request('bin/horizon-alt.cgi?id=' + result.id + '&bearing=' + current.bearing.az, 'HORIZON-ALT', function(s) {
+		  current.bearing.horizon_alt = s - 0;
+		  draw_bearing();
+		});
+	    }
+        }
+    );
+}
+
+
+function erase_lines() {
+  remove_from_map(current.centerline);
+  current.centerline = null;
+  silmarkerstyle.display = 'none';
+  clear_bearing();
+  clear_transect(0);
+  clear_transect(1);
+  clear_transect_markers();
+}
+
+
+function set_sil_alt_scale(p) {
+  if (p) {
+    silalt0style.top = (sil_parms.headroom + sil_parms.alt_scale * (sil_parms.alt_max - 0)) + 'px';
+    silalt1style.top = (sil_parms.headroom + sil_parms.alt_scale * (sil_parms.alt_max - 1)) + 'px';
+    silalt0style.left = silmarker_offsetleft() + 'px';
+    silalt1style.left = silmarker_offsetleft() + 'px';
+    silalt0style.display = '';
+    silalt1style.display = '';
+  } else {
+    silalt0style.display = 'none';
+    silalt1style.display = 'none';
+  }
+  document.getElementById('show_sil_alt').checked = p;
+  current.sil_alt_scale = p;
+}
+
+function sil_div_mouseout() {
+  sil_azalt_div.innerHTML = '';
+}
+
+function sil_div_mousemove(event) {
+  if (event)
+		// NOTE: don't need to adjust_for_declination()
+    sil_azalt_div.innerHTML = 'az ' + format_bearing(sil_div_az(is_msie? event.x : event.layerX))
+                              + ' alt ' + format_altitude(sil_div_alt(is_msie? event.y : event.layerY));
+}
+
+function silmarker_mousemove(event) {
+  if (event) {
+    sil_azalt_div.innerHTML = 'az ' + format_bearing(sil_div_az(parseInt(silmarkerstyle.left)))
+                              + ' alt ' + format_altitude(sil_div_alt(is_msie? event.y : event.layerY));
+    event.cancelBubble = true;
+  }
+}
+
+	// BUG: should probably use this approach in sil_div_mousemove() and silmarker_mousemove() too
+	//      -- I don't think anyone uses layerX anymore?? -- but seems kinda computationally intensive
+	// Haven't tested ie
+        // cf. http://www.quirksmode.org/dom/w3c_cssom.html
+function silalt_mousemove(event) {
+  if (!event)
+    event = window.event;
+  if (!event)
+    return;
+//  var el = event.currentTarget? event.currentTarget : event.srcElement;
+//  if (!el)
+//    return;
+
+	// mouse position in document coordinates
+  var mx = is_msie? event.clientX + document.scrollLeft : event.pageX;
+  var my = is_msie? event.clientY + document.scrollTop  : event.pageY;
+
+	// sil_div element position in document coordinates
+  var ex = 0;
+  var ey = 0;
+  
+  var el = sildiv;
+  var next_el;
+	// top of the offsetParent tree (body element) has no offsetParent
+  while (next_el = el.offsetParent) {
+    ex += el.offsetLeft;
+    ey += el.offsetTop;
+    el = next_el;
+  }
+
+  sil_azalt_div.innerHTML =      'az ' +  format_bearing(sil_div_az(mx - ex))
+                             + ' alt ' + format_altitude(sil_div_alt(my - ey));
+  event.cancelBubble = true;
+}
+
+function sil_div_az(x) {
+  var az = (x - silmarker_offsetleft()) / sil_parms.az_scale + sil_parms.az_min;
+  az += sil_parms.first_segment * 360 / sil_parms.n_segments;
+  if (az >= 360)
+    az -= 360;
+  return az;
+}
+
+function sil_div_alt(y) {
+  return (sil_parms.height - y) / sil_parms.alt_scale + sil_parms.alt_min;
+}
+
+
+function silhouetteclick(pane, event) {
+  if (current.show_all)
+    return;
+  var az = sil_div_az(is_msie? event.x : event.layerX);
+  var az_spread =  3 / sil_parms.az_scale;
+  var alt_below = -4 / sil_parms.alt_scale;
+  var alt_above =  7 / sil_parms.alt_scale;
+
+	// if marker real close, use it
+  for (var i = 0; i < peaks.length; i++) {
+    if (peaks[i].az > az + az_spread)
+      break;
+
+		// click within several pixels of marker
+		// (note that inverted triangle's hotspot is bottom of marker)
+    if (Math.abs(az - peaks[i].az) <= az_spread) {
+      var a = sil_div_alt(is_msie? event.y : event.layerY);
+      a -= peaks[i].alt;
+      if (alt_below <= a && a <= alt_above) { 
+	select_element(peaks[i]);
+	return;
+      }
+    }
+  }
+
+	// no nearby peak.  just draw lines
+  infowindow.close();
+  current.selected_element = null;
+  var a = azlimits[Math.floor(az)];
+  set_lat_lon(a[0], a[1]);
+		// BUG: the bearing to a[0], a[1] is rarely the same as the azimuth we clicked on
+		// choices are to show, below the map, the azimuth clicked on or the azmiuth to the lat/lon on the map
+		// for azimuth clicked on
+  //draw_lines(az);
+		// for azimuth to lat/lon (but silmarker will reflect the azimuth that was clicked on)
+  draw_lines(null, null, null, az);
+
+  clear_list_highlight();
+}
+
+function show_silhouette() {
+  if (current.show_all)
+    return;
+
+  silmarkerstyle.display = 'none';
+  if (!sil_parms.n_segments)
+    return;
+
+	// NOTE: assumes segmented for 'view', non-segmented for 'print'
+  if (current.print_layout)
+    document.getElementById("sil_print_img").src = sil_parms.image_file_f();
+  else
+    for (var i = 0; i < sil_parms.n_segments; i++)
+      document.getElementById("sil_img" + i).src = sil_parms.image_file_f((i + sil_parms.first_segment) % sil_parms.n_segments);
+}
+
+function segment_rotate(i) {
+  if (i < 0)
+    i = sil_parms.n_segments + (i % sil_parms.n_segments);
+  sil_parms.first_segment = (sil_parms.first_segment + i) % sil_parms.n_segments;
+  show_silhouette();
+}
+
+function silmarker_offsetleft() {
+  return sil_img0.offsetLeft;
+}
+
+
+
+					//*****************************  CREATE THE VIEWS
+function show_all() {
+  if (!reading_answers_done)
+    return;
+  reset_display();
+  current.show_all = true;
+  current.query_is_visible = false;
+  current.sponsor_is_visible = false;
+  set_panes();
+  set_tabs();
+  update_allsummits();
+  add_answer_markers();
+  set_lat_lon(current.lat, current.lon);
+  write_answer_list_div();
+  set_view_menus_to('*');
+	// set a zoom level here??
+}
+
+
+function show_result(id, _print_layout, callback) {
+  if (id == result.id) {
+    show_current_result(_print_layout);
+    return;
+  }
+
+  wt_async_request('/bin/result.json?id=' + id, 'RESULT', function(s) {
+    if (!s) {
+      alert('unknown panorama ' + id);
+      callback(0);
+      return;
+    }
+
+    result = JSON.parse(s);
+
+    if (result.refraction == null)
+      result.refraction = .14;
+
+			// STATUS
+    if (result.status != 'ok') {
+      if (!dont_warn)
+        alert(result.name + (result.status == 'error'? ' failed (missing data)' : ' not ready'));
+      callback(0);
+      return;
+    }
+
+    peaks = result.peaks;
+    peaks._foreach(function(p) {
+      p.az_mag = p.az - result.declination;
+      if (p.az_mag  < 0) p.az_mag += 360;
+      p.az_true = p.az;
+      if (p.az_true < 0) p.az_true += 360;
+    });
+
+    limits = result.limits;
+    show_current_result(_print_layout);
+    if (callback)
+      callback(1);
+  });
+}
+
+
+function show_current_result(_print_layout) {
+  var id = result.id;
+  var filename = _print_layout? settings.use_magnetic? 'image_vm' : 'image_v' : settings.use_magnetic? 'image_m' : 'image';
+  sil_parms = result[filename];
+  sil_parms.first_segment = 0;
+  sil_parms.n_segments = sil_parms.n_segments || 1;
+  if (sil_parms.n_segments == 1) {
+    sil_parms.image_file_f = function(n) { return results_file(id, filename + '.png') };
+  } else {
+    sil_parms.image_file_f = function(n) { return results_file(id, filename + n + '.png') };
+  }
+
+  peaks._foreach(function(p) {
+    p.az = settings.use_magnetic? p.az_mag : p.az_true;
+  });
+  peaks.sort(function (a, b) { return a.az - b.az;});
+
+        // LIMITS FORMAT
+	// we use azlimits[] to map an azimuth to a lat/lon on the google map.
+	// if we're currently using magnetic bearings, then the azimuth they click
+	// on the panorama will be magnetic, so we need to adjust appropriately
+  if (settings.use_magnetic && result.declination != 0)
+    if (result.declination > 0)
+      azlimits = limits.slice(result.declination).concat(limits.slice(0, result.declination - 1));
+    else
+      azlimits = limits.slice(360 + result.declination).concat(limits.slice(0, 360 + result.declination - 1));
+  else
+    azlimits = limits;
+
+  reset_display();
+  current.show_all = false;
+  current.query_is_visible = false;
+  current.sponsor_is_visible = false;
+  current.print_layout = _print_layout;
+  set_panes();
+  set_tabs();
+  update_allsummits();
+  upintheair_widget.set_state(BoxControl.OFF);
+
+  write_cookie('last_result', id);
+  result.latlng = new $m.LatLng(result.lat, result.lon);
+  result.ground_amsl = result.elev_amsl - result.elev_agl;
+
+  if (current.print_layout) {
+    $$('scale_print_status_div').innerHTML = '(vertical scale<br>exaggerated ' + round1(sil_parms.alt_scale / sil_parms.az_scale) + 'x)';
+  } else {
+    $$('scale_status_div').innerHTML = '(vertical&nbsp;scale&nbsp;exaggerated&nbsp;' + round1(sil_parms.alt_scale / sil_parms.az_scale) + 'x)';
+    silmarkerstyle.height = sil_parms.headroom + sil_parms.alt_scale * (sil_parms.alt_max - sil_parms.alt_min) + 'px';
+  }
+
+  cloak_widget.set_state(BoxControl.ON);
+  show_silhouette();
+  set_sil_alt_scale(current.sil_alt_scale);
+  write_result_title();
+
+  add_viewer_marker();
+  map.setZoom(11);  // DEFAULT ZOOM LEVEL
+
+  write_peak_list_div_and_markers();
+  recenter_text.innerHTML = result.name;
+  wtbutton_show($$('north_widget'), settings.use_magnetic? 1 : 0);
+  set_view_menus_to(id);
+
+  set_lat_lon(result.lat, result.lon, result.elev_amsl, 1);
+
+  if (!_print_layout) {
+	// to maintain state of the transect windows between results, we use the data-val stored in the widget (current.show_transect gets set false when you leave a result)
+    wtbutton_restore($$('transect0_widget'));
+    wtbutton_restore($$('transect1_widget'));
+  }
+  return 1;
+}
+
+
+function write_result_title() {
+  var s =   '<div class="bigtitle">'
+          + result.name
+	  + '</div>'
+	  + '<div class="littletitle">'
+          + 'latitude '  + format_lat(result.lat, settings.degrees_format, 1) + ' '
+          + 'longitude ' + format_lon(result.lon, settings.degrees_format, 1) + '<br>'
+	  + 'elevation ' + ft_or_m0(result.elev_amsl, 1) + ' above sea level (' + ft_or_m0(result.elev_agl, 1) + ' above ground)'
+	  + '<br>&nbsp;&nbsp;&nbsp;&nbsp;<i>https://www.heywhatsthat.com/?view=' + result.id + '</i>'
+//	  + (current.print_layout? '<br>https://www.heywhatsthat.com/?view=' + result.id : '')
+	  + '</div>';
+
+  if (current.print_layout)
+    document.getElementById('title_print_pane').innerHTML = s;
+  else
+    answer_title_div.innerHTML = s;
+}
+
+					//******************************** QUERY HANDLING
+
+				// BUG: only jump to new lat/lon once both have changed,
+				//      or it's only a small (e.g. <1 degree) in just one of them,
+				//      or a certain amount of time has passed
+
+function handle_direct_lat_lon_entry() {
+  if (document.f_query.lat.value === '' || document.f_query.lon.value === '')
+    return;
+  var lat = read_angle(document.f_query.lat.value);
+  var lon = read_angle(document.f_query.lon.value);
+  set_lat_lon(lat, lon);
+}
+
+
+function handle_pan_location(s) {
+  if (s)
+    geocode(s, function(lat, lon) { select_lat_lon(lat, lon); } );
+}
+
+
+function handle_location() {
+  if (document.f_query.location.value)
+    geocode(document.f_query.location.value, function(lat, lon) { set_lat_lon(lat, lon, null, 1); } );
+}
+
+
+function handle_move() {
+  var radius = settings.use_metric? document.f_query.radius_meters.value : document.f_query.radius_feet.value;
+	// returns lat lon
+  wt_async_request_array('bin/highpoint.cgi?lat=' + current.lat + '&lon=' + current.lon + '&radius=' + radius,
+	      'MOVE', function(a) { return a[0] != 0 && a[1] != 0; }, function(a) { set_lat_lon(a[0], a[1], a[2]); });
+}
+
+
+var seen_default_ad = 0;
+
+let norway_blocks = new Map([
+  ["57 6",1],["57 7",1],["58 5",1],["58 6",1],["58 7",1],["58 8",1],["58 9",1],["58 10",1],["58 11",1],["59 4",1],["59 5",1],["59 6",1],["59 7",1],["59 8",1],["59 9",1],["59 10",1],["59 11",1],["59 12",1],["60 4",1],["60 5",1],["60 6",1],["60 7",1],["60 8",1],["60 9",1],["60 10",1],["60 11",1],["60 12",1],["61 4",1],["61 5",1],["61 6",1],["61 7",1],["61 8",1],["61 9",1],["61 10",1],["61 11",1],["61 12",1],["62 4",1],["62 5",1],["62 6",1],["62 7",1],["62 8",1],["62 9",1],["62 10",1],["62 11",1],["62 12",1],["63 7",1],["63 8",1],["63 9",1],["63 10",1],["63 11",1],["63 12",1],["64 9",1],["64 10",1],["64 11",1],["64 12",1],["64 13",1],["64 14",1],["65 10",1],["65 11",1],["65 12",1],["65 13",1],["65 14",1],["66 11",1],["66 12",1],["66 13",1],["66 14",1],["66 15",1],["66 16",1],["67 11",1],["67 12",1],["67 13",1],["67 14",1],["67 15",1],["67 16",1],["67 17",1],["68 12",1],["68 13",1],["68 14",1],["68 15",1],["68 16",1],["68 17",1],["68 18",1],["68 19",1],["68 20",1],["68 22",1],["68 23",1],["68 24",1],["68 25",1],["69 14",1],["69 15",1],["69 16",1],["69 17",1],["69 18",1],["69 19",1],["69 20",1],["69 21",1],["69 22",1],["69 23",1],["69 24",1],["69 25",1],["69 26",1],["69 27",1],["69 28",1],["69 29",1],["69 30",1],["70 18",1],["70 19",1],["70 20",1],["70 21",1],["70 22",1],["70 23",1],["70 24",1],["70 25",1],["70 26",1],["70 27",1],["70 28",1],["70 29",1],["70 30",1],["70 31",1],["71 23",1],["71 24",1],["71 25",1],["71 26",1],["71 27",1],["71 28",1]
+]);
+
+function in_norway(lat, lon) {
+  let la = Math.floor(lat);
+  let lo = Math.floor(lon);
+  return norway_blocks.has(la + ' ' + lo);
+}
+
+
+function handle_query() {
+  var name = document.f_query.panoramatitle.value;
+  if (!name) {
+    alert('Please enter a title');
+    return;
+  }
+
+  handle_direct_lat_lon_entry();	// in case we never got an onchange ...
+  if (current.lat === '' || current.lon === '') {
+    alert('Please enter latitude and longitude');
+    return;
+  }
+
+  //if (current.lat > 60 || current.lat < -54) {
+  //if (current.lat < -54 || current.lat >= 71 || (current.lat > 60 && (current.lon < -173 || current.lon >= -139))) {
+  if (!(   current.lat >= -54 && current.lat <= 60
+        || current.lat >=  60 && current.lat <= 71 && current.lon >= -173 && current.lon <= -139
+	|| current.lat >= 59.7777863 && current.lat <= 60.9525503 && current.lon >= -2.0018571 && current.lon <= -0.5252356
+	|| in_norway(current.lat, current.lon)
+       )) {
+    alert('Invalid latitude.\nWe currently cover latitude 60N to 54S and most of Alaska and Shetland Island and, experimentally, Norway.');
+    return;
+  }
+
+  var elev;
+  var elev_is_absolute;
+  if (document.f_query.elev.value == '') {
+    elev = settings.use_metric? 2 : 6;
+    elev_is_absolute = 0;
+  } else {
+    elev = document.f_query.elev.value - 0;
+    elev_is_absolute = radio_get(document.f_query.absolute) - 0;
+  }
+
+  $$('query_button').disabled = 1;
+
+    // HACK first line is data array, subsequent lines are sponsor div
+  wt_async_request('bin/query.cgi?'
+	+ 'lat='               + current.lat
+	+ '&lon='              + current.lon
+	+ '&elev='             + units_to_meters(elev)
+	+ '&elev_is_absolute=' + elev_is_absolute
+	+ '&name='             + encodeURI_more(name)
+	+ '&public=0'
+	+ '&return_data=1'
+        + (document.f_query.refraction.value != ''? '&refraction=' + document.f_query.refraction.value : '')
+        + (document.f_query.visible_features.checked? '&feature_options=visible' : '')
+	//+ (radio_get(document.f_query.newdata)? '&newdata=1' : '')
+	+ (query_client? '&client=' + query_client : ''),
+    'QUERY',
+    function(response) {
+      $$('query_button').disabled = 0;
+
+	// data line, optionally followed by sponsor url line and sponsor ad multiple lines
+      if (!response) 
+        return;
+      var response_parts = response.match(/(.*?)\n(?:(.*?)\n(.*))?/);
+      if (!response_parts || !response_parts[1])
+        return;
+      var data = response_parts[1].split(' ');
+      if (data.length < DATA_NAME_INDEX + 1)
+        return;
+      add_answer(data[0], 1, data.slice(1), 1);
+      set_view_menus();
+      set_answer_cookie();
+
+      document.f_query.panoramatitle.value = '';
+      document.f_query.elev.value = '';
+      radio_set(document.f_query.absolute, 0);
+
+        // if there's an ad, go to sponsor pane
+        // if not, alert and STAY ON QUERY pane
+      if (response_parts[3]) {
+        show_sponsor(response_parts[2], response_parts[3]);
+
+      } else if (!seen_default_ad) {
+        seen_default_ad = 1;
+
+	/*
+        if (Math.random() < 0)
+          show_sponsor('/bin/sponsor.cgi?sponsor=he&url=http://hopeelephants.org',
+		     //'<a class="sponsorurl" href="/bin/sponsor.cgi?sponsor=he-a&url=http://hopeelephants.org/" target="_blank"><img src="/sponsors/hope-elephants-logo.png" width="129" alt="Hope Elephants"></a><p></p><a class="sponsorurl" href="/bin/sponsor.cgi?sponsor=he-v&url=http://vimeo.com/43062158" target="_blank"><img src="/sponsors/hope-elephants-video.png"></a>',
+		     '<a class="sponsorurl" href="/bin/sponsor.cgi?sponsor=he-a&url=http://hopeelephants.org/" target="_blank"><img src="/sponsors/hope-elephants-logo.png" width="129" alt="Hope Elephants"></a>',
+		     data[DATA_NAME_INDEX] == 'beta');
+        else
+          show_sponsor('/bin/sponsor.cgi?sponsor=0&url=http://www.fiddlersgreenfarm.com',
+                     '<a href="/bin/sponsor.cgi?sponsor=0&url=http://www.fiddlersgreenfarm.com" target="_blank"><img '
+	               + (Math.random() < .5?
+			  'src="/sponsors/fiddlers_logo.jpg" width="511" height="355"'
+		        : 'src="/sponsors/fiddlers_kip.jpg" width="300" height="491"')
+                       + ' border="0" alt="Fiddler\'s Green Farm - Whole grain goodness from Maine"></a>',
+		     data[DATA_NAME_INDEX] == 'beta');
+	*/
+
+	/* 1/21 disabling /bin/sponsor.cgi
+	show_sponsor('/bin/sponsor.cgi?sponsor=wcw&url=https://waldocountywoodshed.org/',
+                     '<a href="/bin/sponsor.cgi?sponsor=0&url=https://waldocountywoodshed.org/" target="_blank"><h1 style="color: white">The Waldo County Woodshed: "Warm thy neighbor ..."</h1>',
+		     data[DATA_NAME_INDEX] == 'beta');
+	*/
+	show_sponsor('https://waldocountywoodshed.org/',
+                     '<a href="https://waldocountywoodshed.org/" target="_blank"><h1 style="color: white">The Waldo County Woodshed: "Warm thy neighbor ..."</h1>',
+		     data[DATA_NAME_INDEX] == 'beta');
+
+      } else {
+        alert('"' + name + '" submitted.\nYou\'ll be alerted when it\'s ready.'
+          + (data[DATA_NAME_INDEX] == 'beta'? '\nNote that the non-US data is still being evaluated.' : ''));
+      }
+    }
+  );
+}
+
+
+
+					//***************************** ANSWER LIST HANDLING
+function add_answer(id, is_mine, a, at_head) {
+  var r = find_answer_by_id(id);
+
+  if (!r) {
+    r = { id: id, is_mine: is_mine };
+    if (at_head)
+      answers.unshift(r);
+    else
+      answers.push(r);
+    answer_hash[id] = r;
+
+  } else if (is_mine && !r.is_mine) {
+		// if id already exists, possibly update is_mine
+    r.is_mine = 1;
+		// this isn't necessary, because is_mine settings only can change
+		// at startup (e.g. not while show_all() is active)
+    //update_answer_ui(r);
+  }
+
+  if (!a)
+    return;
+
+		// DATA
+			// STATUS
+  r.is_pending = (a[0] == 'queued' || a[0] == 'running' || a[0] == 'runningremote');
+  r.status     = a[0];
+  r.lat        = a[1] - 0;
+  r.lon        = a[2] - 0;
+  r.elev_agl = a[4] - 0;   // so f_settings.panto can set addl_elev on the transects
+  r.is_public  = a[DATA_PUBLIC_INDEX] - 0;
+  r.name       = a.slice(DATA_NAME_INDEX).join(' ') || '-';
+
+  if (r.is_pending)
+    start_pending_timer();
+
+  return 1;
+}
+
+
+function add_answer_array(a) {
+  for (var i = 0; i < a.length; i++) {
+		  // each line of data is prepended with id
+    var aa = a[i].split(' ');
+    add_answer(aa[0], 0, aa.slice(1));
+  }
+}
+
+function request_answer_data(callback) {
+  var a = [];
+  answers._foreach(function(r) { if (!r.lat) a.push(r.id); });
+  if (!a.length) {
+    if (callback)
+      callback();
+    return;
+  }
+  wt_async_request_array_of_lines('bin/get-data.cgi?ids=' + a.join(' '), 'PANORAMAS', function(a) {
+    add_answer_array(a);
+    if (callback)
+      callback();
+  });
+}
+
+function request_public_answers(callback) {
+  wt_async_request_array_of_lines('results/public', 'PUBLIC', function(a) {
+		// sort any newly added public results
+    var n = answers.length;
+    add_answer_array(a);
+    var added = answers.splice(n);
+    Array.prototype.push.apply(answers, added.sort(function(a, b) { return a.name.localeCompare(b.name); }));
+    if (callback)
+      callback();
+  });
+}
+
+
+function update_answer_ui(r) {
+  if (!current.show_all)
+    return;
+  if (current.selected_element == r)
+    infowindow.close();
+  if (r.marker) {
+    remove_stored_marker(r);
+    add_answer_marker(r);
+  }
+  var e = document.getElementById('list_el_' + r.id);
+  if (e)
+    e.innerHTML = answer_list_innerhtml(r);
+}
+
+
+function find_answer_by_id(id) {
+  return answer_hash[id];
+}
+
+function find_answer_index_by_id(id) {
+  for (var i = 0; i < answers.length; i++)
+    if (answers[i].id == id)
+      return i;
+  return null;
+}
+
+
+function remove_answer_by_id(id) {
+  var i = find_answer_index_by_id(id);
+  if (i == null)
+    return;
+  var r = answers[i];
+  wt_async_request_array('bin/remove.cgi?id=' + r.id, 'REMOVE', null, function() {
+    if (r.marker)
+      remove_from_map(r.marker);
+    if (current.selected_element == r && current.show_all)
+      infowindow.close();
+    answers.splice(i, 1);
+    write_answer_list_div();
+    set_view_menus();
+    set_answer_cookie();
+  });
+}
+
+
+function set_public_by_id(id, is_public) {
+  var r = find_answer_by_id(id);
+  if (r)
+    set_public(r, is_public);
+}
+
+	// BUG: add a layer of redirection (or an account structure) to public answers, so folks can't
+	// can't make 'em private or remove 'em once they get the ID
+function set_public(r, is_public) {
+  wt_async_request_array('bin/set_public.cgi?id=' + r.id + '&is_public=' + is_public,
+		         'SET PUBLIC',
+		         function(a) { return a.length == 1; },
+		         function(a) { if (a) { r.is_public = a[0] - 0; update_answer_ui(r);  } });
+}
+
+
+Array.prototype._remove = function(s) { for (var __i = 0; __i < this.length; ) if (this[__i] == s) this.splice(__i, 1); else __i++; };
+
+function set_answer_cookie() {
+  var old = read_cookie('results');
+  if (old)
+    old = old.split(' ');
+  else
+    old = [];
+  var a = [];
+  for (var i = 0; i < answers.length; i++) {
+    if (answers[i].is_mine) {
+      a.push(answers[i].id);
+      old._remove(answers[i].id);
+    }
+  }
+  write_cookie('results', a.join(' '));
+  if (old.length) {
+	// if we're dropping any results, add them to a one month cookie
+    var bad = read_cookie('bad');
+    write_cookie('bad', (bad? bad + ' ' : '') + old.join(' '), 31);
+  }
+}
+
+
+var pending_timer = 0;
+
+function start_pending_timer() {
+  if (!pending_timer)
+    pending_timer = setTimeout(check_pending_answers, 10000);
+}
+
+function check_pending_answers() {
+  pending_timer = 0;
+  answers._foreach(function(r) {
+    if (!r.is_pending)
+      return;
+    wt_async_request_array(
+      results_file(r.id, 'data'),
+      'PENDING DATA',
+      function(a) {
+	return a.length >= DATA_NAME_INDEX;
+      },
+      function(a) {
+		// assumes the other fields in answers[] -- lat, lon, elev_agl, is_public, name -- won't change as the query is processed on the server
+	r.is_pending = (a[0] == 'queued' || a[0] == 'running' || a[0] == 'runningremote');
+	r.status     = a[0];
+	if (r.is_pending) {
+	  start_pending_timer();
+	  return;
+        }
+		  // HACK: if status==error, we know we'll just be doing an alert, so we'll then need to break down window
+        if (current.sponsor_is_visible && r.status == 'error') {
+          show_result(r.id, false);
+	  show_query();
+	  return;
+	}
+	if (current.sponsor_is_visible || r.status == 'error' || confirm("'" + r.name + "' is ready\nView it now?"))
+          show_result(r.id, false);
+      });
+  });
+}
+
+
+					//***************************** SELECTION DROPDOWNS FOR CHOOSING RESULTS
+
+function handle_select_view(sel) {
+  if (sel.value == '*')
+    show_all();
+  else if (sel.value)
+    show_result(sel.value, false);
+}
+
+function set_view_menu(sel, include_all) {
+  if (!reading_answers_done)
+    return;
+  sel.length = 0;
+  //if (include_all)
+  //  select_add_to_end(sel, new Option('All Panoramas', '*', 1, 1));
+
+		// BUG: rather than arbitrarily limiting the number of panoramas,
+		//   do some clever cascade (e.g. by state or by distance from current)
+  for (var i = 0; i < answers.length && i < 2000; i++) {
+    //console.log(i + " " + answers[i].id + " " + answers[i].name);	
+    select_add_to_end(sel, new Option(answers[i].name /*.substr(0,30)*/, answers[i].id, 0, 0));
+  }
+}
+
+function set_view_menu_to(sel, id) {
+  var o = sel.options;
+  for (var i = 0; i < o.length; i++)
+    if (o[i].value == id) {
+      o[i].selected = 1;
+      return;
+    }
+}
+
+function set_view_menus() {
+  set_view_menu(document.f_act.sel, 0);
+	// this isn't a 'view menu', just a list of answers
+  set_view_menu(document.f_settings.panto, 0);
+}
+
+function set_view_menus_to(id) {
+  set_view_menu_to(document.f_act.sel, id);
+}
+
+
+					//****************************** VISIBILITY CLOAK
+var cloak_overlays = [];
+
+function show_cloak() {
+  cloak_overlays = [];
+  result.cloak_files._foreach(function(filename) {
+    var ll = srtm_latlon(filename);
+    if (ll)
+	// cloak PNGs are 1201x1201, each pixel covers 3", bottom-left pixel should be CENTERED on lat,lon, top-right on lat+1,lon+1
+	// alternatively, use bounds as is and add option " pixel: 'point' "
+      cloak_overlays.push(new MercatorGroundOverlay(filename, new $m.LatLngBounds(new $m.LatLng(ll[0] - .5/1200, ll[1] - .5/1200), new $m.LatLng(ll[0] + 1 + .5/1200, ll[1] + 1 + .5/1200)), { map: map }));
+  });
+}
+
+function remove_cloak() {
+  set_all_map(cloak_overlays, null);
+  cloak_overlays = [];
+}
+
+
+var srtm_re = /([NS])(\d\d)([EW])(\d\d\d)\./;
+
+function srtm_latlon(s) {
+  var a = s.match(srtm_re);
+  if (!a || a.length != 5)
+    return null;
+  return [ (a[1] == 'N'? 1 : -1) * a[2], (a[3] == 'E'? 1 : -1) * a[4] ];
+}
+
+					//*********************** UP IN THE AIR
+var n_altitudes               = 2;
+var altitude_colors           = [ 'orange', 'blue' ];
+var default_metric_altitudes  = [ 3000, 10000 ];
+var default_english_altitudes = [ 10000 * METERS_PER_FOOT, 30000 * METERS_PER_FOOT ];
+var upintheair_overlays;
+function altset(i) { return document.f_settings['altitude' + i]; }
+
+function init_upintheair() {
+  var a = settings.use_metric? default_metric_altitudes : default_english_altitudes;
+  for (var i = 0; i < n_altitudes; i++)
+    altset(i).value = round0(meters_to_units(a[i]));
+}
+
+
+function show_upintheair() {
+  remove_upintheair();
+  var sent = [];
+  var s    = '';
+
+  for (var i = 0; i < n_altitudes; i++) {
+    altset(i).style.display = 'inline';
+    var alt = units_to_meters(altset(i).value - 0);
+    if (altset(i).value != '' && alt < result.elev_amsl) {
+      alert(altitude_colors[i] + ' altitude too low');
+      continue;
+    }
+    sent.push(i);
+    s += ',' + alt;
+  }
+  s = s.substr(1);
+
+  wt_async_request('/bin/upintheair.json?id=' + result.id + '&alts=' + s, 'UpInTheAir API', function(s) {
+    upintheair_overlays = [];
+    var a = JSON.parse(s).rings;
+    for (var j = 0; j < sent.length; j++) {
+      var i = sent[j];
+      var lines = [];
+      a[i].points._foreach(function(p) { lines.push({ lat: p[0], lng: p[1] }); });
+      upintheair_overlays.push(new $m.Polyline({ map: map, path: lines, strokeColor: altitude_colors[i], strokeWeight: 2, strokeOpacity: 1, clickable: false }));
+    }
+  });
+}
+		  
+
+function remove_upintheair() {
+  for (var i = 0; i < n_altitudes; i++)
+    altset(i).style.display = 'none';
+  set_all_map(upintheair_overlays, null);
+  upintheair_overlays = null;
+}
+
+function get_upintheair_kml() {
+  let alts = '';
+  let colors='';  
+  for (let i = 0; i < n_altitudes; i++) {
+    var alt = altset(i).value - 0;
+    if (altset(i).value == '' || units_to_meters(alt) <  result.elev_amsl)
+      continue;
+    alts += ',' + alt;
+    colors += ',' + (i == 0? 'ffa500' : '0000ff');
+  }
+  if (alts == '')
+    return;
+  location.href = 'bin/aircone.kml?src=main&id=' + result.id + '&alts=' + alts.substr(1) + '&colors=' + colors.substr(1) + '&ringsonly=1' + (settings.use_metric? '&metric=1' : '');
+}
+
+					//*********************** ALL SUMMITS
+
+var allsummits_markers = [];
+var seen_allsummits_block = new Object();
+var allsummits_move_listener;
+var ALLSUMMITS_MIN_ZOOM = 11;
+
+
+function init_allsummits() {
+  allsummits_markers = [];
+  current.allsummits_state = false;
+  allsummits_move_listener = $m.event.addListener(map, 'bounds_changed', allsummits_move);
+}
+
+
+function update_allsummits() {
+  if (allsummits_widget.state == BoxControl.ON && !current.allsummits_state) {
+    current.allsummits_state = true;
+    set_all_map(allsummits_markers, map);
+    get_allsummits_data();
+  } else if (allsummits_widget.state != BoxControl.ON && current.allsummits_state) {
+    current.allsummits_state = false;
+    set_all_map(allsummits_markers, null);
+  }
+}
+
+ 
+function allsummits_move() {
+  if (current.allsummits_state)
+    get_allsummits_data();
+}
+
+
+function allsummits_reset_units() {
+  allsummits_markers._foreach(function(m) { set_allsummit_title(m) });
+}
+
+
+function get_allsummits_data() {
+  let b = map.getBounds();
+  for (let lat = Math.floor(b.getSouthWest().lat()); lat <= Math.floor(b.getNorthEast().lat()); lat++)
+    for (let lon = Math.floor(b.getSouthWest().lng()); lon <= Math.floor(b.getNorthEast().lng()); lon++)
+      get_and_show_allsummit_block(lat, lon);
+}
+
+
+function get_and_show_allsummit_block(lat, lon) {
+  if (seen_allsummits_block[lat + ' ' + lon])
+    return;
+  seen_allsummits_block[lat + ' ' + lon] = 1;
+  wt_async_request_array_of_lines('bin/namesdata.cgi?lat0=' + lat + '&lon0=' + lon,
+	      'NAMES DATA', function(a) {
+		a._foreach(function(s) {
+	          var t = s.match(/(-?[\d\.]+) (-?[\d\.]+) ([\-\d]+) \S+ \S+ (.*)/);
+		  if (t) {
+		    var m = new $m.Marker({ map: map, position: new $m.LatLng(t[1], t[2]), icon: icon_more_features });
+		    m._wt_name   = t[4];
+		    m._wt_height = t[3];
+		    set_allsummit_title(m);
+	            allsummits_markers.push(m);
+		    $m.event.addListener(m, 'click', function(e) { select_lat_lon(round6(t[1]), round6(t[2])); });
+		    m.setMap(map);
+	          }
+		});});
+}
+
+function set_allsummit_title(m) {
+  m.setTitle(m._wt_name + (m._wt_height != 0? ' (' + ft_or_m0(m._wt_height) + ')' : ''));
+}
+
+
+function getnamesdata() {
+  alert('Hit "More features" on the map to see all the summits in the database');
+}
+
+
+
+					//*********************** HORIZON LINE ON MAP
+
+var horizon_polyline;
+function show_horizon_polyline() {
+  remove_horizon_polyline();
+  wt_async_request_array_of_lines('bin/horizon-latlon.cgi?resolution=.125&id=' + result.id,
+	      'HORIZON ON MAP',
+    function(a) {
+      path = [];
+      a._foreach(function(s) {
+	var t = s.match(/(-?[\d\.]+)\s+(-?[\d\.]+)/);
+	if (t)
+	  path.push({ lat: t[1] - 0, lng: t[2] - 0 });
+      });
+      horizon_polyline = new $m.Polyline({ path: path, strokeColor: '#a0a0f0', strokeWeight: 3, strokeOpacity: .9, clickable: false, geodesic: true });
+      horizon_polyline.setMap(map);
+    }
+  );
+}
+
+function remove_horizon_polyline() {
+  if (horizon_polyline)
+    horizon_polyline.setMap();
+  horizon_polyline = null;
+}
+
+
+/*******
+	// Google Maps Bug: copyright stuff seems to only work for map types, NOT for tile overlays
+	// NB: copyright_prefix isn't enough; copyright must evaluate to true (e.g. can't be null or '')
+function TileLayer(min_zoom, max_zoom, copyright_prefix, copyright, url_function) {
+  var cc = new GCopyrightCollection(copyright_prefix);
+  cc.addCopyright(new GCopyright(2, new $m.LatLngBounds(new $m.LatLng(-54,-180), new $m.LatLng(60,180)), min_zoom, copyright));
+  var t = new GTileLayer(cc, min_zoom, max_zoom);
+  t.getTileUrl = url_function;
+  return t;
+}
+
+
+function topo_maptype() {
+		// use Microsoft Research Map's WMS server
+		// inspired by http://roadlessland.org/js/wms236.js John Deck, UC Berkeley
+		// and http://roadlessland.org/notes/wms-usgs-example.html
+  return new GMapType([
+    TileLayer(1, 17,
+	      '', 'Topo maps courtesy <a href="http://www.usgs.gov">USGS</a> via <a href="http://msrmaps.com">MRS Maps</a>',
+	      function(pt, zoom) {
+
+			// using fromPixelToLatLng is very clever; cf. bin/gmt.cgi for Perl code to do the conversion
+      var ul = G_NORMAL_MAP.getProjection().fromPixelToLatLng(new GPoint(256 *  pt.x,      256 * (pt.y + 1)), zoom);
+      var lr = G_NORMAL_MAP.getProjection().fromPixelToLatLng(new GPoint(256 * (pt.x + 1), 256 *  pt.y     ), zoom);
+
+      return   "http://www.terraserver-usa.com/ogcmap6.ashx"  // was "http://msrmaps.com/ogcmap.ashx"
+             + "?version=1.1.1"
+             + "&request=GetMap"
+             + "&layers=DRG"				      // DRG or DOQ or UrbanArea
+             + "&styles=default"                              // "Geo Grid Dark Golden"
+             + "&srs=EPSG:4326"                               // 4326 is WGS84 (Plate-Carree?)
+  							      //    cf. http://spatialreference.org/ref/epsg/4326/
+  							      // 269xx are UTM in various zones
+  							      // 3785 and 9000913 are said to be spherical mercator
+  							      //  (used by gmaps: mercator on a sphere, rather than an ellipse)
+             + "&bbox=" + [ul.x, ul.y, lr.x, lr.y].join(",")  // lon,lat (specification is x,y)
+             + "&width=256"
+             + "&height=256"
+             + "&format=image/jpeg"
+             + "&exceptions=se_inimage";
+  	     // other fields  &service=wms &reaspect=false &bgcolor=0xffffff &transparent=true &groupname=drg  &crs (in v1.3.0)
+    })
+    ], G_NORMAL_MAP.getProjection(), "Topo", { alt: "Show USGS topo maps" });
+}
+
+******************/
+
+					//***************************** TRANSECTS
+function enable_and_draw_transect(n) {
+  enable_transect(n);
+  if (!result.id || result.latlng.equals(current.latlng))
+    document.getElementById('transect' + n + '_img').src = 'images/profile-click.png';
+  else
+    draw_transect(n);
+}
+
+function enable_transect(n) {
+  document.getElementById('transect' + n + '_pane').style.display = '';
+  current['show_transect' + n] = true;
+  map_resize();
+}
+
+function disable_transect(n, workaround_reflow_bug) {
+  current['show_transect' + n] = false;
+  $$('transect' + n + '_img').src = '';
+  $$s('transect' + n + '_pane').display = 'none';
+  if (!current['show_transect' + (1 - n)])
+    clear_transect_markers();
+  else
+    clear_transect_marker(n);
+  map_resize();
+
+/****
+  if (workaround_reflow_bug && !is_msie) {
+		// REFLOW WORKAROUND
+    document.getElementById('map_pane').style.display = 'none';
+    setTimeout(function() { document.getElementById('map_pane').style.display = ''; }, 100);
+  }
+****/
+}
+
+function draw_transect(n, warn) {
+  if (!current['show_transect' + n] || result.latlng.equals(current.latlng))
+    return;
+
+  var form           = eval('document.f_transect' + n);
+  var elev           = null;
+  var groundrelative = '';
+
+  var a = form.addl_elev.value.match(/^\s*(\+?)\s*(-?[\.\d]+)$/);
+  if (a && a[0]) {
+    elev = units_to_meters(a[2] - 0);
+    if (a[1] == '+')
+      if (current.selected_element)
+	elev += current.selected_element.elev;
+      else if (current.elev_amsl_by_user)
+        elev += current.elev_amsl;
+      else
+        groundrelative = '&groundrelative=1';
+
+  } else if (current.selected_element) {
+    elev = current.selected_element.elev;
+
+  } else if (current.elev_amsl_by_user) {
+    elev = current.elev_amsl;
+  }
+
+  var yrange = '';
+  if (form.yrange.value) {
+    var a = form.yrange.value.split(',');
+    yrange = units_to_meters(a[0]) + ',' + units_to_meters(a[1]);
+  }
+
+  document.getElementById('transect' + n + '_img').src =
+	  'bin/profile-0904.cgi?src=main'
+	  + '&pt0=' + result.lat + ',' + result.lon + ',8b6914,'
+		    + (groundrelative == ''? result.elev_amsl : result.elev_agl) + ',9906ff'
+          + '&pt1=' + current.lat       + ',' + current.lon
+          + (elev? ',,' + elev : '')
+          + ( current.selected_element? ',' + (type_colors[current.selected_element.type] || default_type_color) : '')
+	+ (radio_get(form.curvature) - 0? '&curvature=1' : '')
+	+ (form.axes.checked? '&axes=1' : '')
+	+ (form.los.value - 0? '&los=1' : '')
+	+ (radio_get(form.path) - 0? '&greatcircle=1' : '')
+	+ '&metric=' + settings.use_metric
+	+ '&freq=' + form.freq.value
+	+ '&refraction=' + form.refraction.value
+	+ '&exaggeration=' + form.exaggeration.value
+	+ (yrange? '&yrange=' + yrange : '')
+        + groundrelative;
+}
+
+function clear_transect(n) {
+  if (current['show_transect' + n]) {
+    document.getElementById('transect' + n + '_img').src = 'images/no-profile.png';
+    clear_transect_marker(n);
+  }
+}
+
+function clear_transect_marker(n) {
+  document.getElementById('transect' + n + '_marker').style.display = 'none';
+}
+
+function clear_transect_markers() {
+  clear_transect_marker(0);
+  clear_transect_marker(1);
+  clear_transect_map_marker();
+}
+
+function clear_transect_marker(n) {
+  document.getElementById('transect' + n + '_marker').style.display = 'none';
+}
+
+function clear_transect_map_marker() {
+  if (current.transect_marker)
+    current.transect_marker.setMap(null);
+  current.transect_marker = null;
+}
+
+
+function radio_disable(r, v) {
+  for (var i = 0; i < r.length; i++)
+    r[i].disabled = v;
+}
+
+
+function reset_transect_parms(n) {
+  var form = eval('document.f_transect' + n);
+  form.axes.checked = 1;
+  radio_set(form.curvature, 0);
+  radio_set(form.path, 1);
+  form.los.value = 1;
+  form.freq.value = "";
+  form.refraction.value = "";
+  form.exaggeration.value = "";
+  form.yrange.value = "";
+  form.addl_elev.value = "";
+  //radio_set(form.elev_source, 0);
+  draw_transect(n);
+}
+
+
+function transect_click(n, event) {
+  if (!current['show_transect' + n] || result.latlng.equals(current.latlng))
+    return;
+
+  var img              = document.getElementById('transect' + n + '_img');
+  var form             = eval('document.f_transect' + n);
+
+  if (!(radio_get(form.path) - 0)) {
+    alert('This profile must be set to "great circle" for a click on the graph to update the map.');
+    return;
+  }
+
+	// BUG: assumes scale_width in profile.cpp is 30
+  var scalew           = form.axes.checked? 30 : 0;
+  var x                = ((is_msie? event.x : event.layerX) - img.offsetLeft - scalew) / (img.width - scalew);
+  var gc = bearing_and_range(result.lat, result.lon, current.lat, current.lon);
+  var ll = along_gc(result.lat, result.lon, gc[0], x * gc[1]);
+  mark_transects(x, ll[0], ll[1]);
+}
+
+function transect_map_click(lat, lon) {
+  if (!(current.show_transect0 || current.show_transect1) || result.latlng.equals(current.latlng))
+    return;
+  if (!(   current.show_transect0 && radio_get(document.f_transect0.path) - 0
+        || current.show_transect1 && radio_get(document.f_transect1.path) - 0 )) {
+    alert('A profile must be set to "great circle" to show the point on the profile when you click on the path');
+    return;
+  }
+
+  var gc0 = bearing_and_range(result.lat, result.lon, current.lat, current.lon);
+  var gc  = bearing_and_range(result.lat, result.lon, lat, lon);
+  mark_transects(gc[1]/gc0[1], lat, lon);
+}
+
+function mark_transects(x, lat, lon) {
+  if (current.show_transect0)
+    mark_transect(0, x);
+  if (current.show_transect1)
+    mark_transect(1, x);
+
+  var latlng = new $m.LatLng(lat, lon);
+  clear_transect_map_marker();
+  current.transect_marker = new $m.Marker({ map: map, position: latlng, icon: icon_transect, clickable: false, title: format_latlon(lat, lon, settings.degrees_format, 0) });
+  if (!map.getBounds().contains(latlng))
+    map.panTo(latlng);
+}
+
+function mark_transect(n, x) {
+  var form             = eval('document.f_transect' + n);
+  if (!(radio_get(form.path) - 0))
+    return;
+  var img              = document.getElementById('transect' + n + '_img');
+  var marker_style     = document.getElementById('transect' + n + '_marker').style;
+  var scalew           = form.axes.checked? 30 : 0;
+  marker_style.left    = (x * (img.width - scalew) + img.offsetLeft + scalew) + 'px';
+  marker_style.display = '';
+}
+
+
+
+
+
+					//**************************** ELEVATION DATA CACHE
+var elevs = new Object;
+
+function set_elev(lat, lon, elev) {
+  elevs[round6(lat) + ' ' + round6(lon)] = elev;
+}
+
+function get_elev(lat, lon, callback) {
+  var lat0 = round6(lat);
+  var lon0 = round6(lon);
+  if (elevs[lat0 + ' ' + lon0] != null)
+    callback(lat, lon, elevs[lat0 + ' ' + lon0])
+  else
+		// request_array_of_lines may be appropriate, because points will take many lat/lon pairs at once
+    wt_async_request_array('bin/points.cgi?lat0=' + lat0 + '&lon0=' + lon0, 'Elevation',
+	function(a) {
+	  return 1; //a.length == 3;
+        },
+	function(a) {
+			// points.cgi returns lat/lon with 6 digits of precision, including trailing zeroes,
+			// but round6() strips trailing zeroes
+	  if (a.length == 3) {
+	    elevs[round6(a[0]) + ' ' + round6(a[1])] = a[2];
+	    callback(a[0], a[1], a[2]);
+          }
+        });
+}
+
+
+					//***************************** DECIMAL PLACES
+function set_decimal_places(n) {
+  settings.decimal_places = Math.floor(n - 0);
+  write_settings_cookie();
+  set_rounding(settings.decimal_places);
+  document.f_settings.decimalplaces.value = settings.decimal_places;
+  redraw_for_format_change();
+}
+
+function format_bearing(x) {
+  return format_angle_dp(x, 1);
+}
+
+function format_altitude(x) {
+  if (settings.degrees_format == 0 && settings.decimal_places < 2)
+    return round2(x) + '&deg;';
+  return format_angle_dp(x, 1);
+}
+
+
+					//***************************** ICONS
+
+var p0620  = new $m.Point( 6,  20);
+var p0620a = new $m.Point( 0, -12);
+var p1212  = new $m.Point(12,  12);
+var p1212a = new $m.Point( 0, -12);
+
+
+	// plus sign is current cursor (e.g. lat/lon for next query)
+var icon_plus =          { url: 'images/black-plus.png', anchor: p1212, anchorpoint: p1212a };
+	// X marks lat/lon of viewer of current result
+var icon_x =             { url: 'images/orchid-x.png',   anchor: p1212, anchorpoint: p1212a };
+var icon_transect =      { url: 'images/green-plus.png', anchor: new $m.Point(5, 12) };
+var icon_more_features = { url: 'images/blue-plus.png',  anchor: new $m.Point(6, 6) };
+
+	// summit markers
+var icon_default_type = { url: 'images/nonsummit.png', anchor: p0620, anchorpoint: p0620a };
+
+var type_icons = {
+  summit:               { url: 'images/summit.png', anchor: p0620, anchorpoint: p0620a },
+  island:               { url: 'images/summit.png', anchor: p0620, anchorpoint: p0620a }
+}
+
+var default_type_color = '5959ff';
+var type_colors = {
+  summit: 'c60205',
+  island: 'c60205'
+};
+
+var default_type_style = '';
+var type_styles = {
+   antenna: 'color: #5959ff'
+};
+
+
+	// answers (queries we've run)
+var icon_my_private_answer = { url: 'images/google_mm_20_red.png', anchor: p0620, anchorpoint: p0620a };
+var icon_my_public_answer  = { url: 'images/mm_20_red_blue.png',   anchor: p0620, anchorpoint: p0620a };
+var icon_public_answer     = { url: 'images/google_mm_20_blue.png', anchor: p0620, anchorpoint: p0620a };
+
+
+
+					//***************************** MISCELLANEOUS
+/******************
+function read_querystring_position() {
+  var lat  = location.search.match('(?:\\?|&)' + 'lat'  + '=(-?[\\.\\d]+)');
+  if (!lat)
+     return 0;
+  var lon  = location.search.match('(?:\\?|&)' + 'lon'  + '=(-?[\\.\\d]+)');
+  if (!lon)
+     return 0;
+  var elev = location.search.match('(?:\\?|&)' + 'elev' + '=(-?[\\.\\d]+)');
+  if (!elev)
+     return 0;
+  return [ read_angle(lat[1]), read_angle(lon[1]), elev[1] - 0 ];
+}
+*****************/
+
+
+var RADIANS_PER_DEGREE = Math.PI / 180.;
+var EARTH_RADIUS = 6372798;  // was once 6367447;
+
+
+function bearing_and_range(lat0, lon0, lat1, lon1) {
+	// rotate so viewer at zero longitude
+  lon1 -= lon0;
+
+	// about 11cm. prevents NaN values below
+  if (Math.abs(lat1 - lat0) + Math.abs(lon1) < .000001)
+     return [0, 0];
+
+  lat0 *= RADIANS_PER_DEGREE;
+  lat1 *= RADIANS_PER_DEGREE;
+  lon1 *= RADIANS_PER_DEGREE;
+
+  var sinlon1 = Math.sin(lon1);
+  var coslon1 = Math.cos(lon1);
+  var sinlat0 = Math.sin(lat0);
+  var coslat0 = Math.cos(lat0);
+  var sinlat1 = Math.sin(lat1);
+  var coslat1 = Math.cos(lat1);
+
+  var x = coslat1 * coslon1;
+  var y = coslat1 * sinlon1;
+  var z = sinlat1;
+
+	// rotate about y axis so viewer at north pole
+  var xx =  x * sinlat0 - z * coslat0;
+  var yy =  y;
+  var zz =  x * coslat0 + z * sinlat0;
+
+  var theta = Math.PI - Math.atan2(yy, xx);
+  var phi   = Math.acos(zz);
+  return [ theta/RADIANS_PER_DEGREE, phi * EARTH_RADIUS ];
+}
+
+
+function along_gc(lat0, lon0, bearing, range) {
+  lat0 *= RADIANS_PER_DEGREE;
+  var sinlat0 = Math.sin(lat0);
+  var coslat0 = Math.cos(lat0);
+
+  var psi     = range / EARTH_RADIUS;
+  var sinlat1 = Math.cos(psi);
+  var coslat1 = Math.sin(psi);
+
+  var t       = (180 - bearing) * RADIANS_PER_DEGREE;
+  var sinlon1 = Math.sin(t);
+  var coslon1 = Math.cos(t);
+
+  var x = coslat1 * coslon1;
+  var y = coslat1 * sinlon1;
+  var z = sinlat1;
+
+  var xx =  x * sinlat0 + z * coslat0;
+  var yy =  y;
+  var zz = -x * coslat0 + z * sinlat0;
+  
+  return [ Math.atan2(zz, Math.sqrt(1 - zz * zz)) / RADIANS_PER_DEGREE,
+           lon0 + Math.atan2(yy, xx) / RADIANS_PER_DEGREE, ];
+}
+
+
+function adjust_for_declination(d) {
+  if (settings.use_magnetic) {
+    d -= result.declination;
+    if (d < 0)
+       d += 360;
+    else if (d > 360)
+       d -= 360;
+  }
+  return d;
+}
+
+function scroll_if_needed(e, div) {
+  var i = e.offsetTop - div.scrollTop;
+  if (i < 0)
+    e.scrollIntoView();
+  else if (i > parseInt(div.style.height) - 23)
+    e.scrollIntoView(false);
+}
+
+
+function map_resize() {
+  $m.event.trigger(map, 'resize');
+}
+
+/*
+Trying to avoid scrollbars on the list_div
+Due to silliness in CSS spec, on firefox (but interestingly
+not on IE6 and IE7), once you ask for vertical scrollbar,
+you have to specify a horizontal size. Further, layout gets
+confused on firefox if you toggle the vertical scrollbar
+on and off.
+*/
+
+function set_list_div_initial() {
+  if (is_msie) {
+    list_div.style.overflowY = 'auto';
+  } else {
+    list_div.style.overflow  = 'auto';
+    list_div.style.height    = '650px';
+  }
+}
+
+function set_list_div_style(min_width, show_vertical_scrollbar) {
+  if (is_msie) {
+    list_div.style.height    = show_vertical_scrollbar? '650px' : 'auto';
+  } else {
+    list_div.style.minWidth  = min_width;
+  //list_div.style.overflowY = show_vertical_scrollbar? 'auto'    : 'visible';
+  //list_div.style.height    = show_vertical_scrollbar? '650px'   : 'auto';
+  //list_div.style.minWidth  = show_vertical_scrollbar? min_width : 'auto';
+  }
+}
+
+/***
+function show_faq() {
+  window.open('faq.html', '_faq', 'height=600,width=500,scrollbars');
+}
+***/
+
+/**************************
+// simplify adding hacks (cf. http://www.elsewhere.org/journal/gmaptogpx)
+// just need a bookmark that looks like 'javascript:addon("hack.js")'
+
+function addon(s) {
+  var script = document.createElement('script');
+  script.src = s;
+  document.getElementsByTagName('head')[0].appendChild(script);
+}
+*****************************/
+</script>
+
+</head>
+
+<body onload="go()">
+
+<div id="sponsor_pane" class="sponsor" style="display: none">
+    <div style="height: 100px">&nbsp;</div>
+    This panorama sponsored by<p>
+    <div id="sponsor_ad_div">
+    </div><p>
+    <div id="sponsor_estimate_text">Your panorama will be ready in about 2 minutes.</div>
+    <div id="sponsor_beta_div" class="sponsorbeta">(Please note that non-US data is still being evaluated.)</div>
+    <div id="sponsor_url_div">In the meantime, why not <a id="sponsor_url" class="sponsorurl" href="" target="_blank">visit our sponsor</a>?</div>
+    <div style="height: 200px">&nbsp;</div>
+    <div class="sponsorbutton" onclick="show_query()">back to New Panorama</div>
+    <div class="sponsorbutton" onclick="show_all()">back to All Panoramas</div>
+    <div class="sponsorbutton" id="sponsor_show_result" onclick="show_result(result.id)">back to View</div>
+    <div class="sponsorcomment">Sponsors are not responsible for the content of any HeyWhatsThat.com sites.</div>
+    <div class="sponsorcomment">For more on sponsorship,
+<script>
+      document.write('<span class="sponsorcommentbutton"><a class="sponsorcommentbutton" target="_blank" href="mailto:comments-sponsorship@hey' + '' + 'what' + 'sthat.com">contact us</a></span>');
+</script>
+    </div>
+</div>
+
+
+<table width="100%" height="100%" style="border-spacing: 0px"><tr><td>
+  <table width="100%"><tr>
+  <td id="main_title_div" class="maintitle" valign="top"><a href="/faq.html"><img src="/images/hwt-logo-293-58.jpg" style="border:0"></a><span id="celebrating">celebrating a lot more than ten years on the web</span></td>
+  <td id="topbutton_div" align="right">
+    <!-- <a class="button_ul" target="_blank" href="/help-main.html">Help</a> -->
+    <!-- <img src="images/new.png"> -->
+    <a class="button_ul" href="http://wisp.heywhatsthat.com">WISP&nbsp;tools</a>
+    <a class="button_ul" href="/profiler.html">Path profiler</a>
+    <a class="button_ul" href="/sealevel.html">Sea level rise</a>
+    <a class="button_ul" href="/eclipse">Eclipse simulations</a>
+    <a class="button_ul" href="http://www.heywhatsthat.com/faq.html">Site&nbsp;map</a>
+    <br>
+    <span class="button_ul" onclick="signup()" title="Sign up for email updates">Sign up</span>
+    <script>
+      document.writeln('<a class="button_ul" href="mailto:comments-main@hey' + 'wh' + 'atsthat.com">Comments?</a>');
+    </script>
+    <br>
+    <img src="http://twitter-badges.s3.amazonaws.com/t_mini-a.png" title="Tweet about this page!" alt="Tweet about this page!" onclick="window.open('https://twitter.com/share?via=heywhatsthat&url=http%3A%2F%2Fheywhatsthat.com', '_blank', 'noopener=1')" />
+    <!-- <a href="http://www.twitter.com/heywhatsthat"><img src="http://twitter-badges.s3.amazonaws.com/t_mini-a.png" alt="Follow @heywhatsthat on Twitter"/></a> -->
+    <iframe src="//www.facebook.com/plugins/like.php?href=http%3A%2F%2Fwww.heywhatsthat.com%2Findex.html&amp;send=false&amp;layout=button_count&amp;width=47&amp;show_faces=false&amp;action=like&amp;colorscheme=light&amp;font&amp;height=21" scrolling="no" frameborder="0" style="border:none; overflow:hidden; width:50px; height:21px;" allowTransparency="true" onclick="opener.do_not_close_sponsor_pane()"></iframe>
+    &nbsp;<img src="images/dollarsign.png" onclick="window.open('http://www.heywhatsthat.com/donate.html?service=main', '_blank')" title="Make a contribution" alt="$$"/>
+  </td>
+  </tr></table>
+</td></tr><tr><td>
+&nbsp;
+</td></tr><tr><td>
+  <table style="border-spacing: 0px"><tr>
+<!--    <td class="betweentabs"></td> -->
+    <td id="all_tab" class="opentab" onclick="show_all()">All&nbsp;panoramas</td>
+    <td class="betweentabs"></td>
+    <td id="view_tab" class="closedtab"><form name=f_act onsubmit="return false"><span onclick="handle_select_view(document.f_act.sel)">View&nbsp;</span><select name=sel class="tabselect" onchange="handle_select_view(document.f_act.sel)"></select></form></td>
+    <td class="betweentabs"></td>
+    <td id="query_tab" class="closedtab" onclick="show_query()">New&nbsp;panorama</td>
+    <td class="betweentabs"></td>
+    <td id="print_tab" class="closedtab" onclick="if (!current.show_all) show_result(result.id,!current.print_layout)">Print</td>
+    <td class="betweentabs" width="100%"></td>
+  </tr></table>
+</td></tr><tr><td>
+  <table width="100%" height="100%" class="maintable" cellspacing="10">
+  <tr id="all_top_pane">
+    <td id="all_title_div" class="bigtitle"></td>
+    <td id="allbutton_div" align="right" valign="top"></td>
+  </tr>
+  <tr id="answer_top_pane">
+    <td id="answer_title_div"></td>
+    <td id="answerbutton_div" align="right" valign="top">
+      <!-- TK <a class="button_ul" href="/cosmic.html" onclick="window.open('cosmic.html?id=' + result.id)">Night view</a> -->
+      <span class="button_ul" onclick="email_result()">Email this panorama</span>
+      <br>
+      <span class="button_ul" onclick="show_google_earth(1)">View in Google Earth: day</span>
+      <span class="button_ul" onclick="show_google_sky()">night</span>
+      <span class="button_ul" onclick="display('stellarium', 1)">In Stellarium</span>
+      <br>
+      <span id="north_widget" class="button_ul wtbutton" onclick="wtbutton_toggle(this)" data-text-1="Use true north" data-text-0="Use magnetic north" data-exec="set_use_magnetic(val-0);"></span>
+    </td>
+  </tr>
+  <tr id="stellarium" style="display:none">
+      <td></td>
+      <td align="right" style="border: 4px solid #d0d0d0; padding: 10px">
+	<span class="button_ul" onclick="location.href='bin/stellarium-landscape.zip?id='+result.id">Download</span>this horizon for <a href="https://stellarium.org">Stellarium</a>
+        <p>
+	<i>Inspired by <a href="https://briandoylegit.github.io/horiZONE/">horiZONE</a></i>
+	<p>
+	<span class="button_ul" onclick="display('stellarium', 0)">Cancel</span>
+	</td>
+  </tr>
+		<!-- BUG: can't align=center because then our positioning of silmarker gets all screwy -->
+  <tr id="sil_pane" style="display:none"><td colspan=2 align="center">
+		<!-- setting this "position:relative" means (1) absolute positioning of silmarker is relative to this div
+		     and (2) click event passed to img are relative to this div
+		     i.e. otherwise, have to add about 10px in both cases -->
+    <div id="sil_div" style="position:relative" onmouseout="sil_div_mouseout()" onmousemove="sil_div_mousemove(event)">
+      <div id="silmarker" style="position:absolute;display:none;top:0px;width:1px;background-color:#8B6914;height:0px" onmousemove="silmarker_mousemove(event)"></div>
+      <div id="silalt0" style="position:absolute;display:none;left:0px;width:800px;height:1px;background-color:#8B6914" onmousemove="silalt_mousemove(event)"></div>
+      <div id="silalt1" style="position:absolute;display:none;left:0px;width:800px;height:1px;background-color:#8B6914" onmousemove="silalt_mousemove(event)"></div>
+      <img src="images/leftarrow.png" onclick="segment_rotate(-1)"><img id="sil_img0" onclick="silhouetteclick(0, event)"><img id="sil_img1" onclick="silhouetteclick(1, event)"><img id="sil_img2" onclick="silhouetteclick(2, event)"><img id="sil_img3" onclick="silhouetteclick(3, event)"><img id="sil_img4" onclick="silhouetteclick(0, event)"><img id="sil_img5" onclick="silhouetteclick(1, event)"><img id="sil_img6" onclick="silhouetteclick(2, event)"><img id="sil_img7" onclick="silhouetteclick(3, event)"><img src="images/rightarrow.png" onclick="segment_rotate(1)">
+      <br>
+      <table><tr>
+      <td id="scale_status_div" width="200"></td>
+      <td id="sil_azalt_div" align="center" width="200"></td>
+      <td align="right"><input id="show_sil_alt" type="checkbox" onchange="set_sil_alt_scale(this.checked)"/>show 0&deg; and 1&deg; alt</td>
+      </tr></table>
+    </div>
+  </td></tr>
+
+		<!-- to remember the choice of profiles across different results, we rely on the data-val. so set it here for the state at startup. -->
+  <tr><td id="transect0_widget" colspan="2" class="button_ul wtbutton" onclick="wtbutton_toggle(this)" data-val="1" data-text-0="Show profile 1" data-text-1="Hide profile 1" data-exec="if (val - 0) enable_and_draw_transect(0); else disable_transect(0,1);"></td></tr>
+  <tr id="transect0_pane"><td colspan=2 align="center">
+      <div id="transect0_div" style="position:relative">
+	<div id="transect0_marker" style="position:absolute;display:none;top:0px;width:1px;background-color:#276e01;height:160px"></div>
+	<img id="transect0_img" style="border:1px solid black" onclick="transect_click(0, event)">
+      </div>
+      <form name="f_transect0" onsubmit="return false">
+	<input type="hidden" name="los" value="1">
+	<span id="transect0_parms_widget" class="button wtbutton" onclick="wtbutton_toggle(this)" data-img-0="/images/lclpsd-blue.png" data-img-1="/images/expdd-blue.png" data-exec="display('transect0_parms_pane', val - 0); map_resize();"><img/> Parameters</span>
+	<table id="transect0_parms_pane" style="display:none" border=1 cellpadding=5>
+	  <tr><td>
+	      <input type="checkbox" name="axes" onclick="draw_transect(0)">show scale
+	    </td><td>
+	      frequency (MHz, e.g. 5800)<br><input type="text" name="freq" size=10 onchange="draw_transect(0)">
+	    </td><td>
+	      y range (e.g. -20,100) <input type="text" name="yrange" size=10 onchange="draw_transect(0)">
+	  </td></tr><tr><td>
+	      <input type="radio" name="curvature" value="0" onclick="draw_transect(0)" checked>flat Earth
+	      <br>
+	      <input type="radio" name="curvature" value="1" onclick="draw_transect(0)">curved Earth
+	    </td><td>
+	      refraction (e.g. .14)<br><input type="text" name="refraction" size=10 onchange="draw_transect(0)">
+	    </td><td>
+	      far end elevation<br>
+	      (use <i>99</i> for relative to sea level,<br>
+	      <i>+99</i> or <i>+-99</i> for relative to ground)<br>
+	      <!-- (ground is at <span id="profile0_gndlevel">0</span>)<br> -->
+	      <input type="text" name="addl_elev" size=10 onchange="draw_transect(0)">
+	  </td></tr><tr><td>
+	      <input type="radio" name="path" value="0" onclick="clear_transect_marker(0);draw_transect(0)" checked>plate car&eacute;e
+	      <br>
+	      <input type="radio" name="path" value="1" onclick="draw_transect(0)">great circle
+	    </td><td>
+	      fixed exaggeration (e.g. 2) <input type="text" name="exaggeration" size=10 onchange="draw_transect(0)">
+	    </td><td align="center">
+	      <span class="button_ul" onclick="reset_transect_parms(0)" title="Reset profile parameters">Reset</span>
+	  </td></tr>
+	</table>
+      </form>
+  </td></tr>
+
+  <tr><td id="transect1_widget" colspan="2" class="button_ul wtbutton" onclick="wtbutton_toggle(this)" data-val="0" data-text-0="Show profile 2" data-text-1="Hide profile 2" data-exec="if (val - 0) enable_and_draw_transect(1); else disable_transect(1,1);"></td></tr>
+  <tr id="transect1_pane" style="display:none"><td colspan=2 align="center">
+      <div id="transect1_div" style="position:relative">
+	<div id="transect1_marker" style="position:absolute;display:none;top:0px;width:1px;background-color:#276e01;height:160px"></div>
+	<img id="transect1_img" style="border:1px solid black" onclick="transect_click(1, event)">
+      </div>
+      <form name="f_transect1" onsubmit="return false">
+	<input type="hidden" name="los" value="1">
+	<span id="transect1_parms_widget" class="button wtbutton" onclick="wtbutton_toggle(this)" data-img-0="/images/lclpsd-blue.png" data-img-1="/images/expdd-blue.png" data-exec="display('transect1_parms_pane', val - 0); map_resize();"><img/> Parameters</span>
+	<table id="transect1_parms_pane" style="display:none" border=1 cellpadding=5>
+	  <tr><td>
+	      <input type="checkbox" name="axes" onclick="draw_transect(1)">show scale
+	    </td><td>
+	      frequency (MHz, e.g. 5800)<br><input type="text" name="freq" size=10 onchange="draw_transect(1)">
+	    </td><td>
+	      y range (e.g. -20,100) <input type="text" name="yrange" size=10 onchange="draw_transect(1)">
+	  </td></tr><tr><td>
+	      <input type="radio" name="curvature" value="0" onclick="draw_transect(1)" checked>flat Earth
+	      <br>
+	      <input type="radio" name="curvature" value="1" onclick="draw_transect(1)">curved Earth
+	    </td><td>
+	      refraction (e.g. .14)<br><input type="text" name="refraction" size=10 onchange="draw_transect(1)">
+	    </td><td>
+	      far end elevation<br>
+	      (use <i>99</i> for relative to sea level,<br>
+	      <i>+99</i> or <i>+-99</i> for relative to ground)<br>
+	      <!-- (ground is at <span id="profile1_gndlevel">0</span>)<br> -->
+	      <input type="text" name="addl_elev" size=10 onchange="draw_transect(1)">
+	  </td></tr><tr><td>
+	      <input type="radio" name="path" value="0" onclick="clear_transect_marker(1);draw_transect(1)" checked>plate car&eacute;e
+	      <br>
+	      <input type="radio" name="path" value="1" onclick="draw_transect(1)">great circle
+	    </td><td>
+	      fixed exaggeration (e.g. 2) <input type="text" name="exaggeration" size=10 onchange="draw_transect(1)">
+	    </td><td align="center">
+	      <span class="button_ul" onclick="reset_transect_parms(1)" title="Reset profile parameters">Reset</span>
+	  </td></tr>
+	</table>
+      </form>
+  </td></tr>
+
+  <tr>
+    <td id="sil_print_pane" rowspan=2 valign=center>
+      <img id="sil_print_img">
+      <center><div id=scale_print_status_div></div></center>
+    </td>
+    <td id="title_print_pane">
+    </td>
+  </tr><tr>
+    <td id="list_print_pane" valign=center>
+      <div id="list_print_div"></div>
+    </td>
+  </tr>
+  <tr><td id="query_pane" class="querypopup" align="center" style="display: none">
+    <div id="submitting_div" style="display: none">Submitting ...</div>
+    <form name=f_query onsubmit="return false">
+      <table style="border-spacing: 15px 0px">
+
+<tr><td class="queryheading" colspan="2">1. Click on the map &nbsp;&nbsp;&nbsp;&nbsp;----&gt;</td></tr>
+
+<tr><td class="queryheading" colspan="2">&nbsp;&nbsp;&nbsp;&nbsp;Or search for an address:</td></tr>
+            <tr><td colspan="2"><input name=location size=40 onchange="handle_location()"></td></tr>
+            <tr><td colspan="2" class="inputcomment" align="right">e.g. 1600 pennsylvania ave, washington dc<br>or main & elm, 04843</td></tr>
+            <tr><td></td><td><input type=button value="Find" onclick="handle_location()"></td></tr>
+        <tr><td>&nbsp;</td></tr>
+
+<tr><td class="queryheading" colspan="2">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Or enter your latitude and longitude:</td></tr>
+        <tr><td align=right>Latitude</td> <td><input name=lat size=20 onchange="handle_direct_lat_lon_entry()"></td></tr>
+        <tr><td align=right>Longitude</td><td><input name=lon size=20 onchange="handle_direct_lat_lon_entry()"></td></tr>
+        <tr><td></td><td class="inputcomment">latitude and longitude can be entered<br>as 44.36254 or 44 15.3 or 44 16 07</td></tr>
+        <tr><td>&nbsp;</td></tr>
+
+<tr><td class="queryheading" colspan="2">2. You may want to move to the highest nearby spot<br>&nbsp;&nbsp;&nbsp;&nbsp;to ensure a 360&deg; view:</td></tr>
+        <tr><td align=right>Move&nbsp;to&nbsp;highest<br>point within</td>
+            <td>
+	        <select name=radius_feet>
+                <option value=30>100 feet</option>
+                <option value=100>300 feet</option>
+                <option value=300>1000 feet</option>
+                <option value=1600>1 mile</option>
+                <option value=8050>5 miles</option>
+                <option value=24140>15 miles</option>
+                </select>
+	        <select name=radius_meters style="display: none">
+                <option value=30>30m</option>
+                <option value=100>100m</option>
+                <option value=300>300m</option>
+                <option value=2000>2 km</option>
+                <option value=10000>10 km</option>
+                <option value=25000>25 km</option>
+                </select>
+            </td></tr>
+        <tr><td></td><td><input type=button value="Move" onclick=handle_move()></td></tr>
+        <!-- <td class="inputcomment" align="right">Use this button if you're near a peak and want to make sure you're at the top</td> -->
+
+<tr><td class="queryheading" colspan="2">3. Specify your elevation or leave blank for<br>&nbsp;&nbsp;&nbsp;&nbsp;the default (<span id="query_elev_default">6 feet</span> above ground level):</td></tr>
+        <tr style="white-space: pre">
+          <td align=right>Elevation</td>
+          <td><table><tr><td><input name=elev size=10> <span id="query_elev_units">feet</span></td>
+                         <td><input name="absolute" type="radio" value="0" checked> above ground<br><input name="absolute" type="radio" value="1">above sea level</td></tr>
+  	  </table></td></tr>
+
+<tr><td class="queryheading" colspan="2">4. Enter a title:</td></tr>
+        <tr><td colspan="2"><input name=panoramatitle type=text size=30></td></tr>
+
+<tr id="optional_div" style="display:none"><td class="queryheading" colspan="2">5. Optional parameters:</td></tr>
+        <tr id="refraction_div" style="display:none"><td align="right">Refraction</td><td><input name=refraction type=text size=10></td></tr>
+        <tr id="refraction_notes_div" style="display:none"><td></td><td class="queryheading">Leave blank for default of 0.14</td></tr>
+        <tr id="visible_features_div" style="display:none"><td colspan="2">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input name="visible_features" type="checkbox"> compute all visible peaks</td></tr>
+        <tr id="optional_notes_div" style="display:none"><td></td><td class="queryheading">These optional values don't appear in the UI, so you many want to note them in the name of the panorama.</td></tr>
+
+<!--
+        <tr><td colspan="2">
+	  <hr/>
+	  <input type="radio" name="newdata" value="0">default feature data
+	  <input type="radio" name="newdata" value="1" checked>newest feature data
+	</td></tr>
+-->
+
+        <tr><td colspan="2"><hr /></td></tr>
+        <tr><td></td><td><input id="query_button" type=button value="Submit request" onclick="handle_query()"></td></tr>
+        <tr><td></td><td id="query_estimate_text" class="inputcomment" colspan="2">Requests are taking about two minutes</td></tr>
+	<tr><td>&nbsp;</td></tr>
+        <tr><td></td><td><input type=button value="Cancel" onclick="hide_query(0)"></td></tr>
+      </table>
+    </form>
+  </td>
+  <td id="map_pane" width="100%" height="100%"> <!-- valign = "top" -->
+
+<script>
+if (boolean_param('bearing_on_top'))
+  document.writeln('\
+      <div>\
+        <span id="map_latlon_div" class="maplatlon" title="click to change lat/lon format" onclick="set_degrees_format(settings.degrees_format+1)"></span>\
+	<span id="bearing_div" class="maplatlon" style="display:none; padding:0px 10px"></span>\
+      </div>\
+');
+</script>
+
+    <div id="map_div" style="height:600px"></div>
+    <div style="position: relative">
+      <table width="100%"><tr>
+
+<script>
+if (!boolean_param('bearing_on_top'))
+  document.writeln('\
+        <td>\
+	  <span id="map_latlon_div" class="maplatlon" title="click to change lat/lon format" onclick="set_degrees_format(settings.degrees_format+1)"></span>\
+	  <span id="map_latlon_elev_div" class="maplatlon" title="click to change elevation" onclick="var i=document.getElementById(\'map_latlon_elev_input\');i.value=settings.round_distance(meters_to_units(current.elev_amsl_before_user||0));i.style.display=\'\';i.focus()"></span>\
+	  <input id="map_latlon_elev_input" style="display:none" size=10 onkeydown="if (eventkey(event) == 13) this.onchange()" onchange="this.style.display=\'none\';update_elev(units_to_meters(this.value - 0), 1)" onblur="this.style.display=\'none\'"/>\
+        </td>\
+	<td id="bearing_div" class="maplatlon" style="display:none; padding:0px 10px"></td>\
+');
+</script>
+
+        <td id="recenter_div" class="recenter" align="right" style="display:none">Click <span class="recenterbutton" onclick="select_home(1, 0)">here</span> to re-center map on <span id="recenter_text"></span></td>
+      </tr><tr>
+        <td colspan="3"><form name="f_settings" class="settings" onsubmit="return false">
+<input type="radio" name="units" value="0" onclick="set_units(0)">English
+<input type="radio" name="units" value="1" onclick="set_units(1)">Metric
+&nbsp;&nbsp;&nbsp;
+<input type="radio" name="degrees_format" value="0" onclick="set_degrees_format(this.value)">DD.DDDDDD&deg;
+<input type="radio" name="degrees_format" value="1" onclick="set_degrees_format(this.value)">DD&deg; MM.MMMM'
+<input type="radio" name="degrees_format" value="2" onclick="set_degrees_format(this.value)">DD&deg; MM' SS.SS"
+<br>
+decimal places (0-6) <input type="text" name="decimalplaces" size=2 onchange="set_decimal_places(this.value)">
+&nbsp;&nbsp;&nbsp;
+Pan to&nbsp;<select name=panto class="tabselect" style="color: black" onchange="if (r=find_answer_by_id(this.value)) { f_transect0.addl_elev.value=f_transect1.addl_elev.value='+' + round0(meters_to_units(r.elev_agl)); select_lat_lon(r.lat, r.lon);}"></select>&nbsp;or&nbsp;find&nbsp;<input type="text" name="panlocation" size=10 onchange="handle_pan_location(this.value)">
+<input name="altitude0" size=7 style="background-color: #ffdcab; display: none" onchange="show_upintheair()"/> 
+<input name="altitude1" size=7 style="background-color: #bfd3ff; display: none" onchange="show_upintheair()"/>
+        </form></td>
+      </tr></table>
+
+    </div>
+  </td>
+  <td id="list_pane">
+     <div id="list_div" style="white-space: pre"></div>
+  </td>
+  </tr></table>
+</td></tr>
+<tr><td id="error_pane" class="error" align="center" style="display:none">
+   HeyWhatsThat runs most reliably on <a href="http://www.mozilla.com/firefox" target="_blank">Firefox 1.5 or later</a> at this time
+</td></tr>
+
+<tr><td id="ads_pane" class="ads" align="center">
+  <script type="text/javascript"><!--
+  google_ad_client = "pub-2630458079197795";
+  /* 728x90, created 7/21/08 */
+  google_ad_slot = "0161708191";
+  google_ad_width = 728;
+  google_ad_height = 90;
+  //-->
+  </script>
+  <script type="text/javascript" src="https://pagead2.googlesyndication.com/pagead/show_ads.js"></script>
+</td></tr>
+</table>
+</body>
+</html>
