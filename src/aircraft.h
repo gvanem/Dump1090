@@ -16,7 +16,7 @@
  * \def AIRCRAFT_DATABASE_URL
  * The default URL for the `--aircrafts-update` option.
  */
-#define AIRCRAFT_DATABASE_URL   "https://opensky-network.org/datasets/metadata/aircraftDatabase.zip"
+#define AIRCRAFT_DATABASE_URL   "https://s3.opensky-network.org/data-samples/metadata/aircraftDatabase.zip"
 
 /**
  * \def AIRCRAFT_DATABASE_TMP
