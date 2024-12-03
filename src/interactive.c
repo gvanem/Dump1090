@@ -253,9 +253,6 @@ void interactive_title_stats (void)
  */
 void interactive_other_stats (void)
 {
-  if (Modes.tui_interface != TUI_CURSES)    /* this needs PDCurses; get out */
-     return;
-
   if (stats_win)
   {
     /**
@@ -549,14 +546,11 @@ void interactive_show_data (uint64_t now)
   static int old_count = -1;
   int        row = 1, count = 0;
   aircraft  *a = Modes.aircrafts;
-  bool       clear_screen = ((Modes.debug & ~DEBUG_ADSB_LOL) == 0);
+  bool       clear_screen = (Modes.raw == 0 ? true : false);
 
-  if (Modes.raw > 0)
-     clear_screen = false;
-
-  /* Unless `--debug X` or `--raw` mode is active, clear the screen to remove old info.
-   * But only if current number of aircrafts is less than last time. This is to
-   * avoid an annoying blinking of the console.
+  /* Unless `--raw` mode is active, clear the screen to remove old info.
+   * But only if current number of aircrafts is less than last time.
+   * This is to avoid an annoying blinking of the console.
    */
   if (clear_screen)
   {
@@ -721,8 +715,8 @@ static int wincon_init (void)
 
 static void wincon_exit (void)
 {
-  (*api->gotoxy) (Modes.interactive_rows-1, 0);
-  (*api->set_colour) (0);
+  wincon_gotoxy (Modes.interactive_rows-1, 0);
+  wincon_set_colour (0);
   if (console_hnd != INVALID_HANDLE_VALUE)
      SetConsoleMode (console_hnd, console_mode);
   console_hnd = INVALID_HANDLE_VALUE;
@@ -796,7 +790,7 @@ static int wincon_refresh (int y, int x)
 static int wincon_print_line (int y, int x, const char *str)
 {
   puts (str);
-  (void) x; /* Cursor already set */
+  (void) x;    /* Cursor already set */
   (void) y;
   return (0);
 }
@@ -806,10 +800,9 @@ static char spinner[] = "|/-\\";
 
 static void wincon_print_header (void)
 {
-  (*api->set_colour) (COLOUR_REVERSE);
-  printf (HEADER "\n", show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
-  (*api->set_colour) (0);
-
+  wincon_set_colour (COLOUR_REVERSE);
+  printf (HEADER, show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
+  wincon_set_colour (0);
   spin_idx++;
 }
 
@@ -921,8 +914,8 @@ static int curses_refresh (int y, int x)
 
 static void curses_print_header (void)
 {
-  (*api->set_colour) (COLOUR_REVERSE);
+  curses_set_colour (COLOUR_REVERSE);
   mvprintw (0, 0, HEADER, show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
-  (*api->set_colour) (0);
+  curses_set_colour (0);
   spin_idx++;
 }
