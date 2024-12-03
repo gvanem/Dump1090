@@ -135,6 +135,7 @@
 #define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
 #define MG_ENABLE_DIRLIST       0  /* No need for directory listings in HTTP */
 #define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
+#define _CRT_RAND_S             1  /* To pull in 'rand_s()' */
 
 /** Drop some stuff not needed in `externals/zip.c`:
  */
