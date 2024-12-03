@@ -33,7 +33,6 @@ USE_BIN_FILES ?= 1
 
 #
 # Option for polling of network events in 'externals/mongoose.c':
-#   USE_NET_POLLER=EPOLL:   use a Windows version of 'epoll()' from https://github.com/piscisaureus/wepoll
 #   USE_NET_POLLER=WSAPOLL: use 'WSAPoll()'
 #   USE_NET_POLLER=SELECT:  use 'select()'
 #
@@ -386,11 +385,7 @@ ifeq ($(USE_PACKED_DLL),1)
   GENERATED += $(WEB_SRC)
 endif
 
-ifeq ($(USE_NET_POLLER),EPOLL)
-  CFLAGS  += -DMG_ENABLE_EPOLL=1
-  SOURCES += externals/wepoll.c
-
-else ifeq ($(USE_NET_POLLER),WSAPOLL)
+ifeq ($(USE_NET_POLLER),WSAPOLL)
   CFLAGS += -DMG_ENABLE_POLL=1
 
 else ifeq ($(USE_NET_POLLER),SELECT)

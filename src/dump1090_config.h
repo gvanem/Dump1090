@@ -184,29 +184,6 @@
 #endif
 
 /**
- * Enable "Windows epoll()"?
- */
-#if defined(MG_ENABLE_EPOLL)
-  #undef  _WIN32_WINNT
-  #define _WIN32_WINNT 0x0602
-
-  #include <wepoll.h>
-
-  #define close(fd)      epoll_close (fd)
-  #define EPOLL_CLOEXEC  0  /* For 'epoll_create1(flags)' */
-
-  #if defined(__clang__)
-    #pragma clang diagnostic ignored "-Wint-to-void-pointer-cast"
-    #pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
-  #else
-    /*
-     * warning C4311: 'type cast': pointer truncation from 'HANDLE' to 'int'
-     */
-    #pragma warning (disable: 4311)
-  #endif
-#endif
-
-/**
  * Options for `externals/sqlite3.c`:
  */
 #define SQLITE_API

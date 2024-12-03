@@ -7,5 +7,4 @@ Keep most externals here. Only in source form:
  * `SDRplay-API/*.h -------` : The *SDRPlay API* (v. 3.09) `.h`-files from **[SDRplay Ltd](https://www.sdrplay.com)**.
  * `sqlite3.[ch] ----------` : The Embeddable **[SQLite](http://www.sqlite.org)** Database Engine. The amalgamated version.
  * `sqlite3-shell.c -------` : The source for `sqlite3.exe` shell program.
- * `wepoll.[ch] -----------` : **[Linux `epoll()`](https://github.com/piscisaureus/wepoll)** emulation for Windows.
  * `zip.[ch] + miniz.h ----` : A portable simple **[zip library](https://github.com/kuba--/zip)**.
