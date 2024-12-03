@@ -69,6 +69,22 @@
         } while (0)
 
 /**
+ * \def DEF_WIN_FUNC
+ * Handy macro to both define and declare the function-pointers
+ * for WINAPI functions.
+ */
+#define DEF_WIN_FUNC(ret, name, args)  typedef ret (WINAPI *func_##name) args; \
+                                       static func_##name p_##name = NULL
+
+/**
+ * \def DEF_C_FUNC
+ * As above, but for C-functions.
+ */
+#define DEF_C_FUNC(ret, name, args)  typedef ret (*func_##name) args; \
+                                     static func_##name p_##name = NULL
+
+
+/**
  * Bits for `Modes.debug`:
  */
 #define DEBUG_BADCRC     0x0001
@@ -265,6 +281,7 @@ typedef struct statistics {
         uint64_t        unique_aircrafts_CSV;
         uint64_t        unique_aircrafts_SQL;
         uint64_t        unique_helicopters;
+        uint64_t        cart_errors;
 
         /* Network statistics:
          */
@@ -507,12 +524,14 @@ extern global_data Modes;
 #define MODES_ASYNC_BUF_NUMBERS    12
 #define MODES_ASYNC_BUF_SIZE       (256*1024)
 
+#define MODES_SHORT_MSG_BYTES      7
+#define MODES_LONG_MSG_BYTES      14
+#define MODES_SHORT_MSG_BITS      (MODES_SHORT_MSG_BYTES * 8)
+#define MODES_LONG_MSG_BITS       (MODES_LONG_MSG_BYTES  * 8)
+
 #define MODES_PREAMBLE_US             8         /* microseconds */
-#define MODES_LONG_MSG_BITS         112
-#define MODES_SHORT_MSG_BITS         56
 #define MODES_FULL_LEN             (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS)
-#define MODES_LONG_MSG_BYTES       (MODES_LONG_MSG_BITS / 8)
-#define MODES_SHORT_MSG_BYTES      (MODES_SHORT_MSG_BITS / 8)
+
 #define MODES_MAX_SBS_SIZE          256
 
 #define MODES_ICAO_CACHE_LEN       1024   /* Power of two required. */
@@ -681,9 +700,9 @@ int         unload_dynamic_table (struct dyn_struct *tab, int tab_size);
 bool        test_add (char **pattern, const char *what);
 bool        test_contains (const char *pattern, const char *what);
 void        puts_long_line (const char *start, size_t indent);
-void        spherical_to_cartesian (const pos_t *pos, cartesian_t *cart);
-bool        cartesian_to_spherical (const cartesian_t *cart, pos_t *pos, double heading);
-double      cartesian_distance (const cartesian_t *a, const cartesian_t *b);
+void        spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, cartesian_t *cart);
+bool        cartesian_to_spherical (const struct aircraft *a, const cartesian_t *cart, pos_t *pos, double heading);
+double      cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2);
 double      great_circle_dist (pos_t pos1, pos_t pos2);
 double      closest_to (double val, double val1, double val2);
 void        decode_CPR (struct aircraft *a);

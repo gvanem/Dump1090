@@ -41,14 +41,12 @@ static uint32_t     num_lookups, num_misses;
 
 /**
  * Define the func-ptr to the `mg_unpack()` + `mg_unlist()` functions loaded
- * dynamically from the `--web-page some.dll;N` option.
+ * dynamically from the `web-page = some.dll;N` config-file setting.
  */
-#define DEF_FUNC(ret, name, args)  typedef ret (*func_##name) args; \
-                                   static func_##name p_##name = NULL
 
-DEF_FUNC (const char *, mg_unpack, (const char *name, size_t *size, time_t *mtime));
-DEF_FUNC (const char *, mg_unlist, (size_t i));
-DEF_FUNC (const char *, mg_spec,   (void));
+DEF_C_FUNC (const char *, mg_unpack, (const char *name, size_t *size, time_t *mtime));
+DEF_C_FUNC (const char *, mg_unlist, (size_t i));
+DEF_C_FUNC (const char *, mg_spec,   (void));
 
 /**
  * For handling denial of clients in `client_handler (.., MG_EV_ACCEPT)` .
@@ -366,20 +364,77 @@ static const char *set_headers (const connection *cli, const char *content_type)
  */
 #include "favicon.c"
 
-static void send_favicon (mg_connection *c,
-                          connection    *cli,
-                          const uint8_t *data,
-                          size_t         data_len,
-                          const char    *content_type)
+static int send_file_favicon (mg_connection *c, connection *cli, bool send_png)
 {
-  DEBUG (DEBUG_NET2, "Sending favicon (%s, %zu bytes, conn-id: %lu).\n",
-         content_type, data_len, c->id);
+  const char    *file;
+  const uint8_t *data;
+  size_t         data_len;
+  const char    *content_type;
+
+  if (send_png)
+  {
+    file = "favicon.png";
+    data = favicon_png;
+    data_len = favicon_png_len;
+    content_type = MODES_CONTENT_TYPE_PNG;
+  }
+  else
+  {
+    file = "favicon.ico";
+    data = favicon_ico;
+    data_len = favicon_ico_len;
+    content_type = MODES_CONTENT_TYPE_ICON;
+  }
+
+  DEBUG (DEBUG_NET2, "Sending %s (%s, %zu bytes, conn-id: %lu).\n",
+         file, content_type, data_len, c->id);
 
   mg_printf (c, "HTTP/1.1 200 OK\r\n"
                 "Content-Length: %lu\r\n"
                 "%s\r\n", data_len, set_headers(cli, content_type));
   mg_send (c, data, data_len);
   c->is_resp = 0;
+  return (200);
+}
+
+static int send_file (mg_connection *c, connection *cli, mg_http_message *hm,
+                      const char *uri, const char *content_type)
+{
+  mg_http_serve_opts opts;
+  mg_file_path       file;
+  bool               found;
+  const char        *packed = "";
+  int                rc = 200;    /* Assume status 200 OK */
+
+  memset (&opts, '\0', sizeof(opts));
+  opts.extra_headers = set_headers (cli, content_type);
+
+#if defined(USE_PACKED_DLL)
+  if (use_packed_dll)
+  {
+    snprintf (file, sizeof(file), "%s", uri+1);
+    opts.fs = &mg_fs_packed;
+    packed  = "packed ";
+    found = (mg_unpack(file, NULL, NULL) != NULL);
+  }
+  else  /* config-option 'web-page = web_rootX/index.html' used even if 'web-page.dll' was built */
+#endif
+  {
+    snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
+    found = (access(file, 0) == 0);
+  }
+
+  DEBUG (DEBUG_NET, "Serving %sfile: '%s', found: %d.\n", packed, file, found);
+  DEBUG (DEBUG_NET2, "extra-headers: '%s'.\n", opts.extra_headers);
+
+  mg_http_serve_file (c, hm, file, &opts);
+
+  if (!found)
+  {
+    Modes.stat.HTTP_404_responses++;
+    rc = 404;
+  }
+  return (rc);
 }
 
 /**
@@ -544,52 +599,13 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   dot = strrchr (uri, '.');
   if (dot)
   {
-    int rc = 200;        /* Assume status 200 OK */
-
     if (!stricmp(uri, "/favicon.png"))
-       send_favicon (c, cli, favicon_png, favicon_png_len, MODES_CONTENT_TYPE_PNG);
+       return send_file_favicon (c, cli, true);
 
-    else if (!stricmp(uri, "/favicon.ico"))   /* Some browsers may want a 'favicon.ico' file */
-       send_favicon (c, cli, favicon_ico, favicon_ico_len, MODES_CONTENT_TYPE_ICON);
+    if (!stricmp(uri, "/favicon.ico"))   /* Some browsers may want a 'favicon.ico' file */
+       return send_file_favicon (c, cli, false);
 
-    else
-    {
-      mg_http_serve_opts opts;
-      mg_file_path       file;
-      bool               found;
-      const char        *packed = "";
-
-      memset (&opts, '\0', sizeof(opts));
-      opts.page404       = NULL;
-      opts.extra_headers = set_headers (cli, content_type);
-
-#if defined(USE_PACKED_DLL)
-      if (use_packed_dll)
-      {
-        snprintf (file, sizeof(file), "%s", uri+1);
-        opts.fs = &mg_fs_packed;
-        packed  = "packed ";
-        found = (mg_unpack(file, NULL, NULL) != NULL);
-      }
-      else  /* option '--web-page foo/index.html' used even if 'web-page.dll' was built */
-#endif
-      {
-        snprintf (file, sizeof(file), "%s/%s", Modes.web_root, uri+1);
-        found = (access(file, 0) == 0);
-      }
-
-      DEBUG (DEBUG_NET, "Serving %sfile: '%s', found: %d.\n", packed, file, found);
-      DEBUG (DEBUG_NET2, "extra-headers: '%s'.\n", opts.extra_headers);
-
-      mg_http_serve_file (c, hm, file, &opts);
-
-      if (!found)
-      {
-        Modes.stat.HTTP_404_responses++;
-        rc = 404;
-      }
-    }
-    return (rc);
+    return send_file (c, cli, hm, uri, content_type);
   }
 
   mg_http_reply (c, 404, set_headers(cli, NULL), "Not found\n");
@@ -1308,7 +1324,7 @@ static void unique_ips_print (intptr_t service)
     else if (num % 7 == 0)
        fprintf (Modes.log, "\n%27s", " ");
 
-    fprintf (Modes.log, "%s%s%s", ip_addr, denied, ip->next ? ", " : "");
+    fprintf (Modes.log, "%s%s, ", ip_addr, denied);
     num++;
   }
   if (num == 0)
@@ -1355,7 +1371,7 @@ bool net_deny6 (const char *val)
 }
 
 /**
- * Loop over `g_deny_list` to check if client `addr` should be denied.
+ * Loop over `g_deny_list` to check if client `*addr` should be denied.
  * `mg_check_ip_acl()` accepts netmasks.
  */
 static bool client_deny (const mg_addr *addr, int *rc)
@@ -1456,26 +1472,25 @@ static void deny_list_free (void)
   g_deny_list = NULL;
 }
 
-static size_t deny_list_num4 (void)
+static size_t deny_list_numX (bool is_ip6)
 {
   const deny_element *d;
   size_t              num = 0;
 
   for (d = g_deny_list; d; d = d->next)
-      if (!d->is_ip6)
+      if (d->is_ip6 == is_ip6)
          num++;
   return (num);
 }
 
+static size_t deny_list_num4 (void)
+{
+  return deny_list_numX (false);
+}
+
 static size_t deny_list_num6 (void)
 {
-  const deny_element *d;
-  size_t              num = 0;
-
-  for (d = g_deny_list; d; d = d->next)
-      if (d->is_ip6)
-         num++;
-  return (num);
+  return deny_list_numX (true);
 }
 
 static bool client_is_extern (const mg_addr *addr)
@@ -2106,6 +2121,10 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
       break;
     }
   }
+#else
+  (void) ping6_cmd;
+  (void) ping6_buf;
+  (void) ping6_addr;
 #endif
 
   if (f)

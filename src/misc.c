@@ -1264,17 +1264,6 @@ static void print_sql_info (void)
   free (buf);
 }
 
-static void print_packed_web_info (void)
-{
-#if defined(USE_PACKED_DLL)
-  /**
-   * \todo
-   * Iterate over resources in `web-page.dll` and print
-   * all `mg_packed_spec_x()` descriptions.
-   */
-#endif
-}
-
 /**
  * Return the compiler info the program was built with.
  */
@@ -1299,10 +1288,8 @@ static const char *compiler_info (void)
 
 #if defined(MG_ENABLE_SELECT)
   #define NETPOLLER  "select()"
-#elif defined(MG_ENABLE_EPOLL)
-  #define NETPOLLER  "epoll"
 #elif defined(MG_ENABLE_POLL)
-  #define NETPOLLER "WSAPoll()"
+  #define NETPOLLER  "WSAPoll()"
 #else
   #error "Cannot define 'NETPOLLER'?!"
 #endif
@@ -1638,22 +1625,24 @@ static void print_BIN_files (void)
   for (i = 0; i < DIM(bin_files); i++)
   {
     struct stat  st;
-    mg_file_path file = { "?" };
-    char         fsize [20];
-    char         fdate [sizeof(DATE_TIME)];
-    uint64_t     ft;
-
-    fsize [0] = fdate [0] = '?';
-    fsize [1] = fdate [1] = '\0';
+    mg_file_path file;
 
     snprintf (file, sizeof(file), "%s\\%s", Modes.results_dir, bin_files[i]);
     if (stat(file, &st) == 0)
     {
-      ft = unix_epoch_to_FILETIME (st.st_mtime);
+      char     fsize [20];
+      char     fdate [sizeof(DATE_TIME)];
+      uint64_t ft = unix_epoch_to_FILETIME (st.st_mtime);
+
       snprintf (fdate, sizeof(fdate), "%s", modeS_FILETIME_to_str((const FILETIME*)&ft, true));
       snprintf (fsize, sizeof(fsize), "%5ld kB", st.st_size / 1024);
+      printf ("  %-*.*s, %-8s, %s\n",
+              (int)sizeof(DATE_TIME),   /* chop of 'st->wMilliseconds' */
+              (int)sizeof(DATE_TIME),
+              fdate, fsize, file);
     }
-    printf ("  %-*.*s, %-8s, %s\n", (int)sizeof(DATE_TIME), (int)sizeof(DATE_TIME), fdate, fsize, file);
+    else
+      printf ("  Not found:                      %s\n", file);
   }
   puts ("");
 #endif
@@ -1675,7 +1664,6 @@ void show_version_info (bool verbose)
     printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s\n",
             RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, RTL_VER_ID);
     printf ("PDCurses ver: %-7s from https://github.com/wmcbrine/PDCurses\n", PDC_VERDOT);
-    print_packed_web_info();
     print_sql_info();
     print_BIN_files();
     print_CFLAGS();
@@ -1684,46 +1672,38 @@ void show_version_info (bool verbose)
 }
 
 /**
- * \def DEF_FUNC
- * Handy macro to both define and declare the function-pointers
- * for `WinInet.dll`
- */
-#define DEF_FUNC(ret, name, args)  typedef ret (WINAPI *func_##name) args; \
-                                   static func_##name p_##name = NULL
-
-/**
  * Download a single file using the WinInet API.
  * Load `WinInet.dll` dynamically.
  */
-DEF_FUNC (HINTERNET, InternetOpenA, (const char *user_agent,
-                                     DWORD       access_type,
-                                     const char *proxy_name,
-                                     const char *proxy_bypass,
-                                     DWORD       flags));
+DEF_WIN_FUNC (HINTERNET, InternetOpenA, (const char *user_agent,
+                                         DWORD       access_type,
+                                         const char *proxy_name,
+                                         const char *proxy_bypass,
+                                         DWORD       flags));
 
-DEF_FUNC (HINTERNET, InternetOpenUrlA, (HINTERNET   hnd,
-                                        const char *url,
-                                        const char *headers,
-                                        DWORD       headers_len,
-                                        DWORD       flags,
-                                        DWORD_PTR   context));
+DEF_WIN_FUNC (HINTERNET, InternetOpenUrlA, (HINTERNET   hnd,
+                                            const char *url,
+                                            const char *headers,
+                                            DWORD       headers_len,
+                                            DWORD       flags,
+                                            DWORD_PTR   context));
 
-DEF_FUNC (BOOL, InternetReadFile, (HINTERNET hnd,
-                                   void     *buffer,
-                                   DWORD     num_bytes_to_read,
-                                   DWORD    *num_bytes_read));
+DEF_WIN_FUNC (BOOL, InternetReadFile, (HINTERNET hnd,
+                                       void     *buffer,
+                                       DWORD     num_bytes_to_read,
+                                       DWORD    *num_bytes_read));
 
-DEF_FUNC (BOOL, InternetGetLastResponseInfoA, (DWORD *err_code,
-                                               char  *err_buff,
-                                               DWORD *err_buff_len));
+DEF_WIN_FUNC (BOOL, InternetGetLastResponseInfoA, (DWORD *err_code,
+                                                   char  *err_buff,
+                                                   DWORD *err_buff_len));
 
-DEF_FUNC (BOOL, InternetCloseHandle, (HINTERNET handle));
+DEF_WIN_FUNC (BOOL, InternetCloseHandle, (HINTERNET handle));
 
-DEF_FUNC (BOOL, HttpQueryInfoA, (HINTERNET handle,
-                                 DWORD     info_level,
-                                 void     *buf,
-                                 DWORD    *buf_len,
-                                 DWORD    *index));
+DEF_WIN_FUNC (BOOL, HttpQueryInfoA, (HINTERNET handle,
+                                     DWORD     info_level,
+                                     void     *buf,
+                                     DWORD    *buf_len,
+                                     DWORD    *index));
 
 /**
  * \def BUF_INCREMENT
@@ -1894,11 +1874,11 @@ typedef struct download_ctx {
         bool        got_last_chunk;
       } download_ctx;
 
-static int http_status = -1;
+static int g_http_status = -1;
 
 int download_status (void)
 {
-  return (http_status);
+  return (g_http_status);
 }
 
 static bool download_exit (download_ctx *ctx, bool rc)
@@ -1912,7 +1892,7 @@ static bool download_exit (download_ctx *ctx, bool rc)
     DWORD len = sizeof(buf);
 
     if ((*p_HttpQueryInfoA) (ctx->h2, HTTP_QUERY_STATUS_CODE, buf, &len, NULL))
-       http_status = atoi (buf);
+       g_http_status = atoi (buf);
 
     (*p_InternetCloseHandle) (ctx->h2);
   }
@@ -1980,7 +1960,7 @@ static bool download_common (download_ctx *ctx,
   memset (ctx, '\0', sizeof(*ctx));
   ctx->url  = url;
   ctx->file = file;
-  http_status = -1; /* unknown now */
+  g_http_status = -1; /* unknown now */
 
   if (ctx->file)
   {
@@ -2087,24 +2067,23 @@ static double geocentric_latitude (double lat)
  * Try to figure out some issues with cartesian position going crazy.
  * Ignore the `z` axis (just print level above earth).
  */
-static void assert_cart (const cartesian_t *cpos, double heading, unsigned line)
+static void check_cart (const struct aircraft *a, const cartesian_t *c, double heading, unsigned line)
 {
-#if defined(_DEBUG)
-  if (fabs(cpos->c_x) > EARTH_RADIUS || fabs(cpos->c_y) > EARTH_RADIUS)
+  if (fabs(c->c_x) > EARTH_RADIUS || fabs(c->c_y) > EARTH_RADIUS)
   {
-    double x = cpos->c_x / 1E3;
-    double y = cpos->c_y / 1E3;
-    double z = (EARTH_RADIUS - cpos->c_z) / 1E3;
+    double x = c->c_x / 1E3;
+    double y = c->c_y / 1E3;
+    double z = (EARTH_RADIUS - c->c_z) / 1E3;
+    char   ICAO [10] = { "?" };
 
-    fprintf (stderr, "assertion at 'misc.c(%u)': x=%.2f, y=%.2f, z=%.2f, heading=%.2f.\n",
-             line, x, y, z, TWO_PI * heading / 360);
-    abort();
+    Modes.stat.cart_errors++;
+    if (a)
+       snprintf (ICAO, sizeof(ICAO), "%06X", a->addr);
+
+    LOG_FILEONLY ("misc.c(%u): ICAO: %s, x=%.0f, y=%.0f, z=%.0f, heading=%.0f.\n",
+                  line, ICAO, x, y, z, M_PI * heading / 180);
+//  abort();
   }
-#else
-  MODES_NOTUSED (cpos);
-  MODES_NOTUSED (heading);
-  MODES_NOTUSED (line);
-#endif
 }
 
 /**
@@ -2114,54 +2093,62 @@ static void assert_cart (const cartesian_t *cpos, double heading, unsigned line)
  * \param in  pos   The position on the Geoid.
  * \param out cart  The position on Cartesian form.
  */
-void spherical_to_cartesian (const pos_t *pos, cartesian_t *cart)
+void spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, cartesian_t *cart)
 {
   double lat, lon, geo_lat;
   pos_t _pos = *pos;
 
   ASSERT_POS (_pos);
-  lat  = TWO_PI * _pos.lat / 360.0;
-  lon  = TWO_PI * _pos.lon / 360.0;
+  lat  = (M_PI * _pos.lat) / 180.0;
+  lon  = (M_PI * _pos.lon) / 180.0;
   geo_lat = geocentric_latitude (lat);
 
   cart->c_x = EARTH_RADIUS * cos (lon) * cos (geo_lat);
   cart->c_y = EARTH_RADIUS * sin (lon) * cos (geo_lat);
   cart->c_z = EARTH_RADIUS * sin (geo_lat);
-  assert_cart (cart, 0.0, __LINE__);
+  check_cart (a, cart, 0.0, __LINE__);
 }
 
 /**
  * \ref https://keisan.casio.com/exec/system/1359533867
  */
-bool cartesian_to_spherical (const cartesian_t *cart, pos_t *pos_out, double heading)
+bool cartesian_to_spherical (const struct aircraft *a, const cartesian_t *cart, pos_t *pos, double heading)
 {
-  pos_t pos;
+  pos_t  _pos;
+  double h = hypot (cart->c_x, cart->c_y);
 
-  assert_cart (cart, heading, __LINE__);
+  if (h < SMALL_VAL)
+  {
+    LOG_FILEONLY ("misc.c(%u): ICAO: %06X, c_x=%.0f, c_y=%.0f, heading=%.0f.\n",
+                  __LINE__, a ? a->addr : 0, cart->c_x, cart->c_y, M_PI * heading / 180);
+    return (false);
+  }
+
+  check_cart (a, cart, heading, __LINE__);
 
   /* We do not need this; close to EARTH_RADIUS.
    *
    * double radius = sqrt (cart->c_x * cart->c_x + cart->c_y * cart->c_y + cart->c_z * cart->c_z);
    */
-  pos.lon = 360.0 * atan2 (cart->c_y, cart->c_x) / TWO_PI;
-  pos.lat = 360.0 * atan2 (hypot(cart->c_x, cart->c_y), cart->c_z) / TWO_PI;
-  *pos_out = pos;
-  return (VALID_POS(pos));
+  _pos.lon = 180.0 * atan2 (cart->c_y, cart->c_x) / M_PI;
+  _pos.lat = 180.0 * atan2 (h, cart->c_z) / M_PI;
+  *pos = _pos;
+  return (VALID_POS(_pos));
 }
 
 /**
  * Return the distance between 2 Cartesian points.
  */
-double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
+double cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2)
 {
   static double old_rc = 0.0;
   double delta_X, delta_Y, rc;
 
-  assert_cart (a, 0.0, __LINE__);
-  assert_cart (b, 0.0, __LINE__);
+  check_cart (a, c1, 0.0, __LINE__);
+  check_cart (a, c2, 0.0, __LINE__);
 
-  delta_X = b->c_x - a->c_x;
-  delta_Y = b->c_y - a->c_y;
+  delta_X = c2->c_x - c1->c_x;
+  delta_Y = c2->c_y - c1->c_y;
 
   rc = hypot (delta_X, delta_Y);   /* sqrt (delta_X*delta_X, delta_Y*delta_Y) */
 
@@ -2191,10 +2178,10 @@ double closest_to (double val, double val1, double val2)
  */
 double great_circle_dist (pos_t pos1, pos_t pos2)
 {
-  double lat1 = TWO_PI * pos1.lat / 360.0;  /* convert to radians */
-  double lon1 = TWO_PI * pos1.lon / 360.0;
-  double lat2 = TWO_PI * pos2.lat / 360.0;
-  double lon2 = TWO_PI * pos2.lon / 360.0;
+  double lat1 = (TWO_PI * pos1.lat) / 360.0;  /* convert to radians */
+  double lon1 = (TWO_PI * pos1.lon) / 360.0;
+  double lat2 = (TWO_PI * pos2.lat) / 360.0;
+  double lon2 = (TWO_PI * pos2.lon) / 360.0;
   double angle;
 
   /* Avoid a 'NaN'

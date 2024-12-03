@@ -52,22 +52,14 @@ typedef struct pconsole_t {
 #define ADD_VALUE(func)  { false, NULL, "kernel32.dll", #func, (void**) &p_##func }
                         /* ^ no functions are optional */
 
-/**
- * \def DEF_FUNC
- * Handy macro to both define and declare the function-pointers
- * for `WinInet.dll`
- */
-#define DEF_FUNC(ret, name, args)  typedef ret (WINAPI *func_##name) args; \
-                                   static func_##name p_##name = NULL
+DEF_WIN_FUNC (HRESULT, CreatePseudoConsole, (COORD  size,
+                                             HANDLE input,
+                                             HANDLE output,
+                                             DWORD  flags,
+                                             HPCON *hnd));
 
-DEF_FUNC (HRESULT, CreatePseudoConsole, (COORD  size,
-                                         HANDLE input,
-                                         HANDLE output,
-                                         DWORD  flags,
-                                         HPCON *hnd));
-
-DEF_FUNC (HRESULT, ClosePseudoConsole,  (HPCON *hnd));
-DEF_FUNC (HRESULT, ResizePseudoConsole, (HPCON *hnd, COORD size));
+DEF_WIN_FUNC (HRESULT, ClosePseudoConsole,  (HPCON *hnd));
+DEF_WIN_FUNC (HRESULT, ResizePseudoConsole, (HPCON *hnd, COORD size));
 
 static struct dyn_struct kernel32_funcs[] = {
                          ADD_VALUE (CreatePseudoConsole),
