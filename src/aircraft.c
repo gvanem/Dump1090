@@ -1657,7 +1657,7 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
      speed = a->speed_last;
 
   epos = a->EST_position;
-  spherical_to_cartesian (&epos, &cpos);
+  spherical_to_cartesian (a, &epos, &cpos);
 
   /* Ensure heading is in range '[-Phi .. +Phi]'
    */
@@ -1676,7 +1676,7 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   cpos.c_x += delta_X;
   cpos.c_y += delta_Y;
 
-  if (!cartesian_to_spherical(&cpos, &epos, heading))
+  if (!cartesian_to_spherical(a, &cpos, &epos, heading))
   {
     LOG_FILEONLY ("addr %04X: Invalid epos: %+7.03f lon, %+8.03f lat from heading: %+7.1lf. delta_X: %+8.3lf, delta_Y: %+8.3lf.\n",
                   a->addr, epos.lon, epos.lat, 360.0*heading/TWO_PI, delta_X, delta_Y);
@@ -1688,7 +1688,7 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   ASSERT_POS (a->EST_position);
 
   gc_distance     = great_circle_dist (a->EST_position, Modes.home_pos);
-  cart_distance   = cartesian_distance (&cpos, &Modes.home_pos_cart);
+  cart_distance   = cartesian_distance (a, &cpos, &Modes.home_pos_cart);
   a->EST_distance = closest_to (a->EST_distance, gc_distance, cart_distance);
 
 #if 0
