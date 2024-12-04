@@ -148,7 +148,7 @@ typedef struct airports_priv {
         airport          *airports;       /**< Linked list of airports */
         airport          *airport_CSV;    /**< List of airports sorted on ICAO address. From CSV-file only */
         char            **IATA_to_ICAO;   /**< List of IATA to ICAO airport codes sorted on IATA address */
-        flight_info      *flight_info;    /**< Linked list of flights information */
+        flight_info      *flight_info;    /**< Linked list of flight information */
         airport_freq     *freq_CSV;       /**< List of airport freuency information. Not yet */
         CSV_context       csv_ctx;        /**< Structure for the CSV parser */
         airports_stats    ap_stats;       /**< Accumulated statistics for airports */
@@ -399,7 +399,7 @@ static double   hit_rate;
 const char     *usec_fmt;
 
 /**
- * The compare function for `qsort()` and `bsearch()`.
+ * The compare functions for `qsort()` and `bsearch()`.
  */
 static int CSV_compare_on_ICAO (const void *_a, const void *_b)
 {
@@ -411,6 +411,11 @@ static int CSV_compare_on_ICAO (const void *_a, const void *_b)
   if (rc)
      num_misses++;
   return (rc);
+}
+
+static int CSV_compare_on_ICAO_str (const void *a, const void *b)
+{
+  return stricmp ((const char*)a, (const char*)b);
 }
 
 /**
@@ -439,11 +444,6 @@ static const airport *CSV_lookup_ICAO (const char *ICAO)
     }
   }
   return (a);
-}
-
-static int CSV_compare_on_ICAO_str (const void *a, const void *b)
-{
-  return stricmp ((const char*)a, (const char*)b);
 }
 
 /**
@@ -585,6 +585,7 @@ static flight_info *routes_find_by_callsign (const char *call_sign)
   const airport      *dest = NULL;
   const airport      *int1 = NULL;
   const airport      *int2 = NULL;
+  int                 rc;
 
   if (route_records_num > 0)
      r = bsearch (call_sign, route_records, route_records_num,
@@ -605,8 +606,11 @@ static flight_info *routes_find_by_callsign (const char *call_sign)
     intermediate2 [0] = '\0';
   }
   else
-    assert (sscanf (r_copy.departure, "%4[^-]-%4[^-]-%4[^-]-%4s",
-            departure, intermediate1, intermediate2, destination) == 4);
+  {
+    rc = sscanf (r_copy.departure, "%4[^-]-%4[^-]-%4[^-]-%4s",
+                 departure, intermediate1, intermediate2, destination);
+    assert (rc == 4);
+  }
 
   /* Rewrite 'r' into a 'f' record.
    * Convert ICAO names to IATA if possible.
@@ -833,6 +837,19 @@ static void API_trace (unsigned line, const char *fmt, ...)
 
   EnterCriticalSection (&Modes.print_mutex);
 
+#if 0
+  char *buf2 = NULL;
+
+  modeS_asprintf (&buf2, "%s(%u, %s): ", __FILE__, line,
+                  GetCurrentThreadId() == g_data.thread_id ? "API-thread" : "main-thread");
+
+  va_start (args, fmt);
+  modeS_vasprintf (&buf2, fmt, args);
+  va_end (args);
+  modeS_flogf (stdout, "%s\n", buf2);
+  free (buf2);
+
+#else
   len = snprintf (ptr, left, "%s(%u, %s): ",
                   __FILE__, line, GetCurrentThreadId() == g_data.thread_id ?
                   "API-thread" : "main-thread");
@@ -843,6 +860,7 @@ static void API_trace (unsigned line, const char *fmt, ...)
   vsnprintf (ptr, left, fmt, args);
   va_end (args);
   modeS_flogf (stdout, "%s\n", buf);
+#endif
 
   LeaveCriticalSection (&Modes.print_mutex);
 }
@@ -1108,7 +1126,7 @@ static unsigned int __stdcall API_thread_func (void *arg)
       continue;
     }
 
-    for (f = g_data.flight_info; f; f = f->next)
+    for (f = data->flight_info; f; f = f->next)
     {
       if (f->type == AIRPORT_API_PENDING)
       {
@@ -1118,13 +1136,13 @@ static unsigned int __stdcall API_thread_func (void *arg)
         if (API_thread_worker(f))
         {
           f->type = AIRPORT_API_LIVE;
-          g_data.fs_stats.live++;
-          g_data.fs_stats.pending--;
+          data->fs_stats.live++;
+          data->fs_stats.pending--;
         }
         else   /* Otherwise it's a dead record */
         {
           f->type = AIRPORT_API_DEAD;
-          g_data.fs_stats.dead++;
+          data->fs_stats.dead++;
         }
       }
     }
@@ -2298,7 +2316,7 @@ bool airports_API_flight_log_leaving (const aircraft *a)
     else strcpy (mil_buf, ", Military");
   }
 
-  LOG_FILEONLY ("%s %06X leaving. call-sign: %s%s, active for %.1lf s, alt: %s %s, dist: %s/%s %s.\n",
+  LOG_FILEONLY ("%s %06X leaving. call-sign: %s%s, active for %.1lf s, alt: %s %s, dist: %s/%s (EST) %s.\n",
                 a->is_helicopter ? "helicopter" : "plane",
                 a->addr, call_sign, mil_buf,
                 (double)(now - a->seen_first) / 1000.0,
