@@ -433,6 +433,7 @@ typedef struct global_data {
         mg_mgr         mgr;                         /**< Only one Mongoose connection manager. */
         char          *dns4;                        /**< Use default Windows DNSv4 server (not 8.8.8.8) */
         char          *dns6;                        /**< Or a IPv6 server */
+        bool           show_host_name;              /**< Try to show the hostname too in `net_str_addr()` */
 
         /** Aircraft history
          */

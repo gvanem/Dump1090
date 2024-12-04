@@ -157,6 +157,7 @@ static const struct cfg_table config[] = {
     { "prefer-adsb-lol",  ARG_FUNC,    (void*) set_prefer_adsb_lol },
     { "rtl-reset",        ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
     { "samplerate",       ARG_FUNC,    (void*) set_sample_rate },
+    { "show-hostname",    ARG_ATOB,    (void*) &Modes.show_host_name },
     { "silent",           ARG_ATOB,    (void*) &Modes.silent },
     { "ppm",              ARG_FUNC,    (void*) set_ppm },
     { "host-raw-in",      ARG_FUNC,    (void*) set_host_port_raw_in },
@@ -2155,6 +2156,7 @@ static void apply_phase_correction (uint16_t *m)
 static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
 {
   struct mag_buf mag;
+  uint32_t rc = 0;  /**\todo fix this */
 
   memset (&mag, '\0', sizeof(mag));
   mag.data   = m;
@@ -2990,7 +2992,7 @@ bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
      return (true);   /* The end-of-line could come in next message */
 
   *end++ = '\0';
-  if (end [-2] == '\r')
+  if ((end - 2 > msg->buf) && end [-2] == '\r')
      end [-2] = '\0';
 
   if (modeS_SBS_valid_msg(msg, &ignore))
@@ -3110,7 +3112,7 @@ static void background_tasks (void)
     location_exit();
     Modes.home_pos = pos;
 
-    spherical_to_cartesian (&Modes.home_pos, &Modes.home_pos_cart);
+    spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
     if (Modes.home_pos_ok)
        LOG_FILEONLY ("Ignoring the 'homepos' config value since we use the 'Windows Location API':"
                      " Latitude: %.8f, Longitude: %.8f.\n",
@@ -3226,6 +3228,9 @@ static void show_decoder_stats (void)
 
   if (Modes.icao_spec)
      LOG_STDOUT (" %8llu ICAO-addresses filtered.\n", Modes.stat.addr_filtered);
+
+  if (Modes.stat.cart_errors)
+     LOG_STDOUT (" %8llu Cartesian errors.\n", Modes.stat.cart_errors);
 
   interactive_clreol();
 
@@ -3431,6 +3436,7 @@ static void set_debug_bits (const char *flags)
   {
     switch (*flags)
     {
+      case 'a':
       case 'A':
            Modes.debug |= DEBUG_ADSB_LOL;
            break;
@@ -3497,7 +3503,7 @@ static bool set_home_pos (const char *arg)
     }
     Modes.home_pos    = pos;
     Modes.home_pos_ok = true;
-    spherical_to_cartesian (&Modes.home_pos, &Modes.home_pos_cart);
+    spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
   }
   return (true);
 }
@@ -3710,7 +3716,7 @@ static bool parse_cmd_line (int argc, char **argv)
       case 'S':
            Modes.strip_level = atoi (optarg);
            if (Modes.strip_level == 0)
-              show_help ("Illegal level for `--strip %d'.\n", Modes.strip_level);
+              show_help ("Illegal level for `--strip %s'.\n", optarg);
            break;
 
       case 'T':

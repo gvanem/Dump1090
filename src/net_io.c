@@ -1545,11 +1545,27 @@ static bool client_handler (const mg_connection *c, intptr_t service, int ev)
 }
 
 /**
- * Since 'mg_straddr()' was removed in latest version
+ * Since 'mg_straddr()' was removed in latest version.
+ * Optionally print the hostname if found in `/etc/hosts` or
+ * DNS cache.
  */
 static char *net_str_addr (const mg_addr *a, char *buf, size_t len)
 {
-  mg_snprintf (buf, len, "%M", mg_print_ip_port, a);
+  const char *h_name = NULL;
+  size_t      h_len = len - 7;  /* make room for ":port" */
+  size_t      mg_len;
+
+  if (Modes.show_host_name)
+  {
+    const struct hostent *h = gethostbyaddr ((char*)&a->ip, sizeof(a->ip), AF_INET);
+    h_name = h ? h->h_name : NULL;
+  }
+
+  if (h_name)
+       mg_len = mg_snprintf (buf, h_len, "%s", h_name);
+  else mg_len = mg_snprintf (buf, h_len, "%M", mg_print_ip, a);
+
+  mg_snprintf (buf + mg_len, len - mg_len, ":%hu", mg_ntohs(a->port));
   return (buf);
 }
 
