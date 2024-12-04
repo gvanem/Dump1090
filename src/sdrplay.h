@@ -18,10 +18,10 @@ extern bool sdrplay_set_minver (const char *arg);
 extern int  sdrplay_set_gain (sdrplay_dev *device, int gain);
 extern int  sdrplay_cancel_async (sdrplay_dev *device);
 extern int  sdrplay_read_async (sdrplay_dev *device,
-                               sdrplay_cb   cb,
-                               void        *ctx,
-                               uint32_t     buf_num,
-                               uint32_t     buf_len);
+                                sdrplay_cb   cb,
+                                void        *ctx,
+                                uint32_t     buf_num,
+                                uint32_t     buf_len);
 
 extern const char *sdrplay_strerror (int rc);
 

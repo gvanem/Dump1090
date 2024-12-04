@@ -859,7 +859,7 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   if (sdr.last_rc != sdrplay_api_Success)
   {
     fprintf (stderr, "The SDRPlay API is not responding. A service restart could help:\n");
-    fprintf (stderr, "  sc stop SDRplayAPIService & ping -w1 -n2 0.0.0.0 > NUL & sc start SDRplayAPIService\n");
+    fprintf (stderr, "  sc.exe stop SDRplayAPIService & ping.exe -w1 -n2 0.0.0.0 > NUL & sc.exe start SDRplayAPIService\n");
     goto failed;
   }
 
