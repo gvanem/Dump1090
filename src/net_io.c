@@ -2106,7 +2106,6 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
    */
   *dns4_p = mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
 
-#if !defined(USE_ASAN) || 1
   /*
    * Fake alert:
    *  If a `system ("ping.exe -6 -n 1 dns.google")` works, just assume that
@@ -2133,11 +2132,6 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
       break;
     }
   }
-#else
-  (void) ping6_cmd;
-  (void) ping6_buf;
-  (void) ping6_addr;
-#endif
 
   if (f)
      _pclose (f);
