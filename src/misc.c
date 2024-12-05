@@ -1383,11 +1383,11 @@ const char *__ubsan_default_options (void)
 #endif
 
 /**
- * Print a long string to screen.
+ * Print a long string to `FILE *f` (normally `stdout`).
  * Try to wrap nicely according to the screen-width.
  * Multiple spaces ("  ") are collapsed into one space.
  */
-void puts_long_line (const char *start, size_t indent)
+void fputs_long_line (FILE *f, const char *start, size_t indent)
 {
   static size_t width = 0;
   size_t        left;
@@ -1423,7 +1423,7 @@ void puts_long_line (const char *start, size_t indent)
          p = strchr (c + 1, '\0');
       if (left < 2 || (left <= (size_t)(p - c)))
       {
-        printf ("\n%*c", (int)indent, ' ');
+        fprintf (f, "\n%*c", (int)indent, ' ');
         left  = width - indent;
         start = ++c;
         continue;
@@ -1435,11 +1435,17 @@ void puts_long_line (const char *start, size_t indent)
         continue;
       }
     }
-    putchar (*c++);
+    putc (*c++, f);
     left--;
   }
-  putchar ('\n');
+  putc ('\n', f);
 }
+
+void puts_long_line (const char *start, size_t indent)
+{
+  fputs_long_line (stdout, start, indent);
+}
+
 
 /*
  * Test `modeS_asprintf()` with a long string (as from a .log-file):

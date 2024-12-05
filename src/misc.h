@@ -192,7 +192,6 @@ typedef struct net_service {
         uint16_t         port;             /**< The port number */
         mg_host_name     host;             /**< The host name/address if `Modes.net_active == true` */
         uint16_t         num_connections;  /**< Number of clients/servers connected to this service */
-        uint64_t         mem_allocated;    /**< Number of bytes allocated total for this service */
         bool             active_send;      /**< We are the sending side. Never duplex */
         bool             is_ip6;           /**< The above `host` address is an IPv6 address */
         bool             is_udp;           /**< The above `host` address was prefixed with `udp://` */
@@ -701,6 +700,7 @@ int         unload_dynamic_table (struct dyn_struct *tab, int tab_size);
 bool        test_add (char **pattern, const char *what);
 bool        test_contains (const char *pattern, const char *what);
 void        puts_long_line (const char *start, size_t indent);
+void        fputs_long_line (FILE *file, const char *start, size_t indent);
 void        spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, cartesian_t *cart);
 bool        cartesian_to_spherical (const struct aircraft *a, const cartesian_t *cart, pos_t *pos, double heading);
 double      cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2);
