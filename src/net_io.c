@@ -93,7 +93,6 @@ static char       *net_store_error (intptr_t service, const char *err);
 static char       *net_error_details (mg_connection *c, const char *in_out, const void *ev_data);
 static char       *net_str_addr (const mg_addr *a, char *buf, size_t len);
 static uint16_t   *net_num_connections (intptr_t service);
-static uint64_t    net_mem_allocated (intptr_t service, int size);
 static const char *net_service_descr (intptr_t service);
 static char       *net_service_error (intptr_t service);
 static char       *net_service_url (intptr_t service);
@@ -894,7 +893,8 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 
   if (ev == MG_EV_RESOLVE)
   {
-    DEBUG (DEBUG_NET, "MG_EV_RESOLVE: address %s (service: \"%s\")\n", remote, net_service_url(service));
+    DEBUG (DEBUG_NET, "MG_EV_RESOLVE: address %s (service: \"%s\")\n",
+           remote, net_service_url(service));
     return;
   }
 
@@ -913,7 +913,8 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     conn->service = service;
     strcpy (conn->rem_buf, remote_buf);
 
-    DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\")\n", remote, net_service_descr(service));
+    DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\")\n",
+           remote, net_service_descr(service));
     net_timer_del (service);
 
     if (service == MODES_NET_SERVICE_RTL_TCP && !rtl_tcp_connect(c))
@@ -921,7 +922,6 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 
     LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
     ++ (*net_num_connections (service));  /* should never go above 1 */
-    net_mem_allocated (service, sizeof(*conn));
 
     Modes.stat.srv_connected [service]++;
     return;
@@ -951,7 +951,6 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 
     LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
     ++ (*net_num_connections (service));
-    net_mem_allocated (service, (int)sizeof(*conn));
 
     Modes.stat.cli_accepted [service]++;
     return;
@@ -1083,7 +1082,6 @@ static void net_conn_free (connection *this_conn, intptr_t service)
   connection  *conn;
   int          is_server = -1;
   ULONG        id = 0;
-  uint64_t     mem_now = 0ULL;
   mg_host_name addr;
 
   if (!this_conn)
@@ -1108,15 +1106,13 @@ static void net_conn_free (connection *this_conn, intptr_t service)
     id = conn->id;
     strcpy (addr, conn->rem_buf);
     free (conn);
-
-    mem_now = net_mem_allocated (service, - (int)sizeof(*conn));
     break;
   }
 
-  DEBUG (DEBUG_NET, "Freeing %s at %s (conn-id: %lu, url: %s, service: \"%s\", mem_now: %llu).\n",
+  DEBUG (DEBUG_NET, "Freeing %s at %s (conn-id: %lu, url: %s, service: \"%s\").\n",
          is_server == 1 ? "server" :
          is_server == 0 ? "client" : "?", addr, id,
-         net_service_url(service), net_service_descr(service), mem_now);
+         net_service_url(service), net_service_descr(service));
 }
 
 /*
@@ -1158,15 +1154,6 @@ static uint16_t *net_num_connections (intptr_t service)
 {
   ASSERT_SERVICE (service);
   return (&modeS_net_services [service].num_connections);
-}
-
-static uint64_t net_mem_allocated (intptr_t service, int size)
-{
-  ASSERT_SERVICE (service);
-  assert (modeS_net_services [service].mem_allocated + size >= 0);
-  assert (modeS_net_services [service].mem_allocated + size < UINT64_MAX);
-  modeS_net_services [service].mem_allocated += size;
-  return (modeS_net_services [service].mem_allocated);
 }
 
 static const char *net_service_descr (intptr_t service)
@@ -1303,33 +1290,42 @@ static void unique_ips_print (intptr_t service)
 {
   const unique_IP *ip;
   size_t           num = 0;
+  size_t           indent = 13;
+  char            *buf = NULL;
+  FILE            *save = Modes.log;
 
   LOG_STDOUT ("    %8llu unique client(s):\n", Modes.stat.unique_clients [service]);
+
+  if (test_contains(Modes.tests, "net"))
+     Modes.log = stdout;
+
   if (!Modes.log)
      return;
 
   for (ip = g_unique_ips; ip; ip = ip->next)
   {
     ip_address ip_addr;
-    char       denied [20] = "";
 
     if (ip->service != service)
        continue;
 
     mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, ip->addr);
-    if (ip->denied > 0)
-       snprintf (denied, sizeof(denied), " (%u)", ip->denied);
-    if (num == 0)
-       fprintf (Modes.log, "%27s", " ");
-    else if (num % 7 == 0)
-       fprintf (Modes.log, "\n%27s", " ");
+    modeS_asprintf (&buf, "%s", ip_addr);
 
-    fprintf (Modes.log, "%s%s, ", ip_addr, denied);
+    if (ip->denied > 0)
+         modeS_asprintf (&buf, " (%u), ", ip->denied);
+    else modeS_asprintf (&buf, ", ");
     num++;
   }
+
   if (num == 0)
-     fprintf (Modes.log, "%*s", 27+6, "None!?");
-  fputc ('\n', Modes.log);
+       modeS_asprintf (&buf, "%*sNone!?", indent+6, " ");
+  else *(strrchr (buf, '\0') - 2) = '\0';      /* remove last "," */
+
+  printf ("%*s", (int)indent, " ");
+  fputs_long_line (Modes.log, buf, indent);
+  free (buf);
+  Modes.log = save;
 }
 
 static void unique_ips_free (void)
@@ -1541,7 +1537,7 @@ static bool client_handler (const mg_connection *c, intptr_t service, int ev)
     LOG_FILEONLY ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
                   net_str_addr(addr, addr_buf, sizeof(addr_buf)), c->id, net_service_descr(service));
   }
-  return (true); /* ret-val ignore for MG_EV_CLOSE */
+  return (true); /* ret-val ignored for MG_EV_CLOSE */
 }
 
 /**
@@ -2110,7 +2106,7 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
    */
   *dns4_p = mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
 
-#if !defined(USE_ASAN)
+#if !defined(USE_ASAN) || 1
   /*
    * Fake alert:
    *  If a `system ("ping.exe -6 -n 1 dns.google")` works, just assume that
