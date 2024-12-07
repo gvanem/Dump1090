@@ -1,3 +1,7 @@
+/*
+ * Copied from:
+ *  $(MONGOOSE_ROOT)/examples/zephyr/http-server/src/certs.h
+ */
 static const char *s_ssl_cert =
 "-----BEGIN CERTIFICATE-----\r\n"                                       \
 "MIIBhzCCASygAwIBAgIUbnMoVd8TtWH1T09dANkK2LU6IUswCgYIKoZIzj0EAwIw\r\n"  \

@@ -1,3 +1,7 @@
+/*
+ * Copied from:
+ *  $(MONGOOSE_ROOT)/examples/zephyr/http-client/src/certs.h
+ */
 static const char *s_ca =
 "-\n"
 "Subject: C=US, O=DigiCert Inc, OU=www.digicert.com, CN=DigiCert High Assurance EV Root CA\n"
