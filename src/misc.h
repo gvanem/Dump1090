@@ -297,6 +297,7 @@ typedef struct statistics {
         uint64_t  HTTP_keep_alive_recv;
         uint64_t  HTTP_keep_alive_sent;
         uint64_t  HTTP_websockets;
+        uint64_t  HTTP_tls_handshakes;
         uint64_t  HTTP_400_responses;
         uint64_t  HTTP_404_responses;
         uint64_t  HTTP_500_responses;
@@ -433,6 +434,7 @@ typedef struct global_data {
         char          *dns4;                        /**< Use default Windows DNSv4 server (not 8.8.8.8) */
         char          *dns6;                        /**< Or a IPv6 server */
         bool           show_host_name;              /**< Try to show the hostname too in `net_str_addr()` */
+        bool           https_enable;                /**< Enable TLS (MG_TLS_BUILTIN) for HTTP server */
 
         /** Aircraft history
          */

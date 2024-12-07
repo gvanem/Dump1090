@@ -545,6 +545,7 @@ $(CC).args: $(THIS_FILE)
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.
+# Cannot assume everybody has the 'xxd' program.
 #
 gen_favicons: favicon.png favicon.ico
 	$(call generate, favicon.c, //)
@@ -629,7 +630,7 @@ clean: docs_clean DLL_clean VS_clean
 	rm -f $(OBJ_DIR)/*.obj $(OBJ_DIR)/*.res
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
-vclean realclean: clean
+realclean vclean: clean
 	rm -f $(TARGETS) ../packed_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
@@ -991,6 +992,7 @@ CURSES_SRC = $(addprefix externals/Curses/, \
                window.c)
 
 $(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
+$(OBJ_DIR)/net_io.obj:       server-cert-key.h
 
 depend:
 	$(call generate, .depend.Windows, #)

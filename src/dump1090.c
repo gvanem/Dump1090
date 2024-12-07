@@ -158,6 +158,7 @@ static const struct cfg_table config[] = {
     { "rtl-reset",        ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
     { "samplerate",       ARG_FUNC,    (void*) set_sample_rate },
     { "show-hostname",    ARG_ATOB,    (void*) &Modes.show_host_name },
+    { "https-enable",     ARG_ATOB,    (void*) &Modes.https_enable },
     { "silent",           ARG_ATOB,    (void*) &Modes.silent },
     { "ppm",              ARG_FUNC,    (void*) set_ppm },
     { "host-raw-in",      ARG_FUNC,    (void*) set_host_port_raw_in },

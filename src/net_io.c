@@ -11,6 +11,8 @@
 #include "aircraft.h"
 #include "net_io.h"
 #include "rtl-tcp.h"
+#include "server-cert-key.h"
+#include "client-cert-key.h"
 
 /**
  * Handlers for the network services.
@@ -96,7 +98,7 @@ static uint16_t   *net_num_connections (intptr_t service);
 static const char *net_service_descr (intptr_t service);
 static char       *net_service_error (intptr_t service);
 static char       *net_service_url (intptr_t service);
-static bool        client_handler (const mg_connection *c, intptr_t service, int ev);
+static bool        client_handler (mg_connection *c, intptr_t service, int ev);
 const char        *mg_unpack (const char *path, size_t *size, time_t *mtime);
 
 /**
@@ -155,13 +157,13 @@ static const char *event_name (int ev)
           ev == MG_EV_WS_OPEN    ? "MG_EV_WS_OPEN" :
           ev == MG_EV_WS_MSG     ? "MG_EV_WS_MSG" :
           ev == MG_EV_WS_CTL     ? "MG_EV_WS_CTL" :
+          ev == MG_EV_TLS_HS     ? "MG_EV_TLS_HS" :
           ev == MG_EV_MQTT_CMD   ? "MG_EV_MQTT_CMD" :   /* Can never occur here */
           ev == MG_EV_MQTT_MSG   ? "MG_EV_MQTT_MSG" :   /* Can never occur here */
           ev == MG_EV_MQTT_OPEN  ? "MG_EV_MQTT_OPEN" :  /* Can never occur here */
           ev == MG_EV_SNTP_TIME  ? "MG_EV_SNTP_TIME" :  /* Can never occur here */
-          ev == MG_EV_TLS_HS     ? "MG_EV_TLS_HS" :     /* Can never occur here */
           ev == MG_EV_WAKEUP     ? "MG_EV_WAKEUP"       /* Can never occur here */
-                                 : "?");                /* Ref: https://mongoose.ws/documentation/tutorials/multi-threaded/ */
+                                 : "?");                /* Ref: https://mongoose.ws/documentation/tutorials/core/multi-threaded/ */
 }
 
 /**
@@ -232,6 +234,9 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     net_timer_add (service, timeout, MG_TIMER_ONCE);
     c = mg_connect (&Modes.mgr, url, net_handler, (void*)service);
   }
+
+  if (Modes.https_enable && service == MODES_NET_SERVICE_HTTP)
+     strcpy (modeS_net_services [MODES_NET_SERVICE_HTTP].descr, "HTTP(S) Server");
 
   if (c && (Modes.debug & DEBUG_MONGOOSE2))
      c->is_hexdumping = 1;
@@ -423,7 +428,7 @@ static int send_file (mg_connection *c, connection *cli, mg_http_message *hm,
     found = (access(file, 0) == 0);
   }
 
-  DEBUG (DEBUG_NET, "Serving %sfile: '%s', found: %d.\n", packed, file, found);
+  DEBUG (DEBUG_NET, "Serving %sfile: '%s', found: %d.\n", packed, slashify(file), found);
   DEBUG (DEBUG_NET2, "extra-headers: '%s'.\n", opts.extra_headers);
 
   mg_http_serve_file (c, hm, file, &opts);
@@ -851,6 +856,32 @@ static void connection_failed_accepted (mg_connection *c, intptr_t service, cons
   net_conn_free (conn, service);
 }
 
+static void tls_handler (mg_connection *c, const char *host)
+{
+  struct mg_tls_opts opts;
+
+  memset (&opts, '\0', sizeof(opts));
+  if (host)
+  {
+    opts.ca   = mg_str (s_ca);
+    opts.name = mg_url_host (host);
+  }
+  else
+  {
+    opts.cert = mg_str (s_ssl_cert);
+    opts.key  = mg_str (s_ssl_key);
+    opts.skip_verification = true;
+  }
+  mg_tls_init (c, &opts);
+  LOG_FILEONLY ("%s (\"%s\"): conn-id: %lu.\n",
+                __FUNCTION__, host ? host : "NULL", c->id);
+}
+
+static void tls_error (const char *err)
+{
+  LOG_FILEONLY ("%s(): %s.\n", __FUNCTION__, err);
+}
+
 /**
  * The event handler for ALL network I/O.
  */
@@ -858,6 +889,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 {
   connection  *conn;
   char        *remote;
+  const char  *is_tls = "";
   mg_host_name remote_buf;
   long         bytes;                           /* bytes read or written */
   INT_PTR      service = (INT_PTR) c->fn_data;  /* 'fn_data' is arbitrary user data */
@@ -868,9 +900,17 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
   if (ev == MG_EV_POLL || ev == MG_EV_OPEN)     /* Ignore these events */
      return;
 
+  if (ev == MG_EV_TLS_HS)
+  {
+    Modes.stat.HTTP_tls_handshakes++;
+  }
+
   if (ev == MG_EV_ERROR)
   {
     remote = modeS_net_services [service].host;
+
+    if (c->tls)
+       tls_error (ev_data);
 
     if (service >= MODES_NET_SERVICE_FIRST && service <= MODES_NET_SERVICE_LAST)
     {
@@ -913,14 +953,21 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     conn->service = service;
     strcpy (conn->rem_buf, remote_buf);
 
-    DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\")\n",
-           remote, net_service_descr(service));
+    if (Modes.https_enable && service == MODES_NET_SERVICE_HTTP)
+    {
+      tls_handler (c, remote);
+      is_tls = ", TLS";
+    }
+
+    DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\"%s).\n",
+           remote, net_service_descr(service), is_tls);
     net_timer_del (service);
 
     if (service == MODES_NET_SERVICE_RTL_TCP && !rtl_tcp_connect(c))
        return;
 
     LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
+
     ++ (*net_num_connections (service));  /* should never go above 1 */
 
     Modes.stat.srv_connected [service]++;
@@ -931,7 +978,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
   {
     if (!client_handler(c, service, MG_EV_ACCEPT))    /* Drop this remote? */
     {
-      shutdown ((SOCKET) ((size_t) c->fd), SD_BOTH);
+      shutdown ((SOCKET) ((size_t)c->fd), SD_BOTH);
       c->is_closing = 1;
       return;
     }
@@ -961,8 +1008,8 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     bytes = *(const long*) ev_data;
     Modes.stat.bytes_recv [service] += bytes;
 
-    DEBUG (DEBUG_NET2, "MG_EV_READ: %lu bytes from %s (service \"%s\")\n",
-           bytes, remote, net_service_descr(service));
+    DEBUG (DEBUG_NET2, "%s: %lu bytes from %s (service \"%s\")\n",
+           event_name(ev), bytes, remote, net_service_descr(service));
 
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
@@ -989,8 +1036,8 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
   {
     bytes = *(const long*) ev_data;
     Modes.stat.bytes_sent [service] += bytes;
-    DEBUG (DEBUG_NET2, "MG_EV_WRITE: %ld bytes to %s (\"%s\").\n",
-           bytes, remote, net_service_descr(service));
+    DEBUG (DEBUG_NET2, "%s: %ld bytes to %s (\"%s\").\n",
+           event_name(ev), bytes, remote, net_service_descr(service));
     return;
   }
 
@@ -1019,19 +1066,14 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     {
       status = net_handler_websocket (c, ws, ev);
     }
-    else if (ev == MG_EV_HTTP_HDRS)
-    {
-      DEBUG (DEBUG_NET2, "Ignoring MG_EV_HTTP_HDRS (conn-id: %lu)\n", c->id);
-    }
     else if (ev == MG_EV_HTTP_MSG)
     {
       status = net_handler_http (c, hm, request_uri);
-
       DEBUG (DEBUG_NET2, "HTTP %d for '%.*s' (conn-id: %lu)\n",
              status, (int)hm->uri.len, hm->uri.buf, c->id);
     }
     else
-      DEBUG (DEBUG_NET, "Ignoring HTTP event '%s' (conn-id: %lu)\n",
+      DEBUG (DEBUG_NET2, "Ignoring HTTP event '%s' (conn-id: %lu)\n",
              event_name(ev), c->id);
   }
 }
@@ -1290,14 +1332,15 @@ static void unique_ips_print (intptr_t service)
 {
   const unique_IP *ip;
   size_t           num = 0;
-  size_t           indent = 13;
+  size_t           indent = 12;
   char            *buf = NULL;
   FILE            *save = Modes.log;
 
   LOG_STDOUT ("    %8llu unique client(s):\n", Modes.stat.unique_clients [service]);
 
   if (test_contains(Modes.tests, "net"))
-     Modes.log = stdout;
+       Modes.log = stdout;
+  else indent += strlen ("HH:MM:SS.MMM:");
 
   if (!Modes.log)
      return;
@@ -1319,10 +1362,10 @@ static void unique_ips_print (intptr_t service)
   }
 
   if (num == 0)
-       modeS_asprintf (&buf, "%*sNone!?", indent+6, " ");
+       modeS_asprintf (&buf, "None!?");
   else *(strrchr (buf, '\0') - 2) = '\0';      /* remove last "," */
 
-  printf ("%*s", (int)indent, " ");
+  fprintf (Modes.log, "%*s", (int)indent, " ");
   fputs_long_line (Modes.log, buf, indent);
   free (buf);
   Modes.log = save;
@@ -1373,6 +1416,10 @@ bool net_deny6 (const char *val)
 static bool client_deny (const mg_addr *addr, int *rc)
 {
   const deny_element *d;
+  int   dummy_rc;
+
+  if (!rc)
+     rc = &dummy_rc;
 
   *rc = -3;      /* unknown */
 
@@ -1500,23 +1547,32 @@ static bool client_is_extern (const mg_addr *addr)
   return (ip4 != INADDR_LOOPBACK);    /* ip4 !== 127.0.0.1 */
 }
 
-static bool client_handler (const mg_connection *c, intptr_t service, int ev)
+static bool client_handler (mg_connection *c, intptr_t service, int ev)
 {
   const mg_addr *addr = &c->rem;
+  const char    *is_tls = "";
   mg_host_name   addr_buf;
   unique_IP     *unique;
 
   assert (ev == MG_EV_ACCEPT || ev == MG_EV_CLOSE);
+
+  if (Modes.debug & DEBUG_MONGOOSE2)
+     c->is_hexdumping = 1;
 
   if (ev == MG_EV_ACCEPT)
   {
     if (client_is_unique(addr, service, &unique))  /* Have we seen this IPv4-address before? */
        Modes.stat.unique_clients [service]++;
 
+    if (Modes.https_enable && service == MODES_NET_SERVICE_HTTP)
+    {
+      tls_handler (c, NULL);
+      is_tls = ", TLS";
+    }
+
     if (client_is_extern(addr))           /* Not from 127.0.0.1 */
     {
-      int  rc;
-      bool deny = client_deny (addr, &rc);
+      bool deny = client_deny (addr, NULL);
 
       if (deny && unique)  /* increment deny-counter for this `addr` */
          unique->denied++;
@@ -1524,10 +1580,10 @@ static bool client_handler (const mg_connection *c, intptr_t service, int ev)
       if (Modes.debug & DEBUG_NET)
          Beep (deny ? 1200 : 800, 20);
 
-      LOG_FILEONLY ("%s connection: %s (conn-id: %lu, service: \"%s\").\n",
+      LOG_FILEONLY ("%s connection: %s (conn-id: %lu, service: \"%s\"%s).\n",
                     deny ? "Denied" : "Accepted",
                     net_str_addr(addr, addr_buf, sizeof(addr_buf)),
-                    c->id, net_service_descr(service));
+                    c->id, net_service_descr(service), is_tls);
       return (!deny);
     }
   }
@@ -1537,7 +1593,7 @@ static bool client_handler (const mg_connection *c, intptr_t service, int ev)
     LOG_FILEONLY ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
                   net_str_addr(addr, addr_buf, sizeof(addr_buf)), c->id, net_service_descr(service));
   }
-  return (true); /* ret-val ignored for MG_EV_CLOSE */
+  return (true);   /* ret-val ignored for MG_EV_CLOSE */
 }
 
 /**
@@ -1727,15 +1783,13 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   static size_t count_packed_fs (bool *have_index_html)
   {
     const char *fname;
-    size_t      num;
+    size_t      num, fsize;
 
     *have_index_html = false;
     DEBUG (DEBUG_NET2, "%s():\n", __FUNCTION__);
 
     for (num = 0; (fname = (*p_mg_unlist) (num)) != NULL; num++)
     {
-      size_t fsize;
-
       (*p_mg_unpack) (fname, &fsize, NULL);
       DEBUG (DEBUG_NET2, "  %-50s -> %7zu bytes\n", fname, fsize);
       if (*have_index_html == false && !strcmp(basename(fname), "index.html"))
@@ -1969,6 +2023,7 @@ void net_show_stats (void)
       LOG_STDOUT ("    %8llu HTTP 400 replies sent.\n", Modes.stat.HTTP_400_responses);
       LOG_STDOUT ("    %8llu HTTP 404 replies sent.\n", Modes.stat.HTTP_404_responses);
       LOG_STDOUT ("    %8llu HTTP/WebSocket upgrades.\n", Modes.stat.HTTP_websockets);
+      LOG_STDOUT ("    %8llu HTP/TLS handshakes.\n", Modes.stat.HTTP_tls_handshakes);
       LOG_STDOUT ("    %8llu server connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_sent);
       LOG_STDOUT ("    %8llu client connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_recv);
     }
@@ -2187,10 +2242,13 @@ bool net_init (void)
 
   mg_mgr_init (&Modes.mgr);
 
-#if 0
+#if defined(__DOXYGEN__) || 0
   mg_wakeup_init (&Modes.mgr);
 
-  /* Replace some of background_tasks() with this:
+  /**
+   * \todo
+   * Replace some (or all?) of `background_tasks()` with `background_tasks_thread()`.
+   * Ref: https://mongoose.ws/documentation/tutorials/core/multi-threaded/
    */
   int background_tasks_thread (void *arg)
   {
@@ -2210,12 +2268,13 @@ bool net_init (void)
   {
     const thread_data *t = ev_data;
 
-    switch (t->task_num) {
+    switch (t->task_num)
+    {
       case 0:
            interactive_show_data (now);
            break;
       case 1:
-           location_poll(&pos);
+           location_poll (&pos);
            break;
       case 2:
            aircraft_remove_stale (now);
@@ -2229,7 +2288,7 @@ bool net_init (void)
            interactive_other_stats();
            break;
        default:
-           assert(0);
+           assert (0);
            break;
     }
   }
