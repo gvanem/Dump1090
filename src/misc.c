@@ -805,7 +805,7 @@ const wchar_t *u8_format (const char *s, int min_width)
 }
 
 /**
- * Add or initialize a test `which` to the test-list at `*spec`.
+ * Add or initialize a test-list at `*spec` from `which`.
  */
 bool test_add (char **spec, const char *which)
 {
@@ -824,7 +824,7 @@ bool test_add (char **spec, const char *which)
 }
 
 /**
- * Check if a test `which` is in the test-list at `spec`.
+ * Check if the test-list at `spec` contains the test `which`.
  */
 bool test_contains (const char *spec, const char *which)
 {
@@ -838,7 +838,7 @@ bool test_contains (const char *spec, const char *which)
   if (!strcmp(spec, "*"))
      return (true);      /* a '*' test-spec enables all */
 
-  strncpy (spec2, spec, sizeof(spec2));
+  strcpy_s (spec2, sizeof(spec2), spec);
   for (p = str_tokenize(spec2, ",", &end); p; p = str_tokenize(NULL, ",", &end))
   {
     if (!stricmp(which, p))
