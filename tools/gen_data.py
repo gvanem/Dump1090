@@ -523,6 +523,7 @@ def do_init():
   if opt.clean:
      print ("Cleaning '%s/**':" % temp_dir)
      shutil.rmtree (temp_dir, ignore_errors = True)
+     sys.exit (0)
   return opt
 
 def do_zip_extract (zip_file, to_dir):
