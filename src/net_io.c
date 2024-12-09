@@ -877,9 +877,9 @@ static void tls_handler (mg_connection *c, const char *host)
                 __FUNCTION__, host ? host : "NULL", c->id);
 }
 
-static void tls_error (const char *err)
+static void tls_error (intptr_t service, const char *err)
 {
-  LOG_FILEONLY ("%s(): %s.\n", __FUNCTION__, err);
+  net_store_error (service, err);
 }
 
 /**
@@ -903,6 +903,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
   if (ev == MG_EV_TLS_HS)
   {
     Modes.stat.HTTP_tls_handshakes++;
+    return;
   }
 
   if (ev == MG_EV_ERROR)
@@ -910,7 +911,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     remote = modeS_net_services [service].host;
 
     if (c->tls)
-       tls_error (ev_data);
+       net_store_error (service, ev_data);
 
     if (service >= MODES_NET_SERVICE_FIRST && service <= MODES_NET_SERVICE_LAST)
     {
@@ -969,7 +970,6 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
 
     ++ (*net_num_connections (service));  /* should never go above 1 */
-
     Modes.stat.srv_connected [service]++;
     return;
   }
@@ -997,8 +997,8 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     strcpy (conn->rem_buf, remote_buf);
 
     LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
-    ++ (*net_num_connections (service));
 
+    ++ (*net_num_connections (service));
     Modes.stat.cli_accepted [service]++;
     return;
   }
@@ -1157,7 +1157,7 @@ static void net_conn_free (connection *this_conn, intptr_t service)
          net_service_url(service), net_service_descr(service));
 }
 
-/*
+/**
  * Free all connections in all services.
  */
 static uint32_t net_conn_free_all (void)
