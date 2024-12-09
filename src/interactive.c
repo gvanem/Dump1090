@@ -416,8 +416,8 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   char  speed_buf [8]     = " - ";
   char  hdg_buf [8]       = " - ";
   char  distance_buf [10] = " - ";
-  char  dep_buf [5]       = " -";
-  char  dst_buf [5]       = " -";
+  char  dep_buf [30]      = " -";
+  char  dst_buf [30]      = " -";
   char  dep_dst_buf [20]  = "  ";
   char  line_buf [120];
   bool  restore_colour    = false;
