@@ -18,13 +18,7 @@ MAKEFLAGS += --warn-undefined-variables
 USE_CRT_DEBUG ?= 0
 
 #
-# Use '../tools/gen_routes_data.py' to generate '$(OBJ_DIR)/routes.c' from '../routes.csv'?
-#
-USE_GEN_ROUTES ?= 0
-
-#
-# TODO:
-# use '../tools/gen_data.py' to generate these:
+# Use '../tools/gen_data.py' to generate these:
 #   $(TEMP)/dump1090/standing-data/results/aircrafts.bin
 #   $(TEMP)/dump1090/standing-data/results/airports.bin
 #   $(TEMP)/dump1090/standing-data/results/routes.bin
@@ -74,7 +68,7 @@ USE_UBSAN ?= 0
 #
 # Compile using 'cl -MP ...'. For MSVC only.
 #
-USE_MP_COMPILE ?= 1
+USE_MP_COMPILE ?= 0
 
 #
 # For my private build; use the tracing Winsock library?
@@ -189,9 +183,13 @@ endif
 # If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
 #
 ifeq ($(CPU),x64)
-  BITS = 64
+  BITS   := 64
+  SUFFIX := x86_64
+
 else ifeq ($(CPU),x86)
-  BITS = 32
+  BITS   := 32
+  SUFFIX := i386
+
 else
   $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
 endif
@@ -228,15 +226,9 @@ ifeq ($(USE_ASAN),1)
               -fsanitize-address-globals-dead-stripping \
               -fsanitize-address-use-after-scope
 
-    ifeq ($(CPU),x86)
-      ASAN_LIBS = clang_rt.asan_dynamic-i386.lib \
-                  clang_rt.asan_dynamic_runtime_thunk-i386.lib
-    else
-      ASAN_LIBS = clang_rt.asan_dynamic-x86_64.lib \
-                  clang_rt.asan_dynamic_runtime_thunk-x86_64.lib
-    endif
-
-    ASAN_LIBS += kernel32.lib
+    ASAN_LIBS = clang_rt.asan_dynamic-$(SUFFIX).lib \
+                clang_rt.asan_dynamic_runtime_thunk-$(SUFFIX).lib \
+                kernel32.lib
   endif
 endif
 
@@ -289,19 +281,11 @@ ifeq ($(CC),clang-cl)
     #
     LDFLAGS += -libpath:$(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
 
-    ifeq ($(CPU),x86)
-      COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-i386.dll
-    else
-      COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-x86_64.dll
-    endif
+    COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-$(SUFFIX).dll
   endif
 
 else ifeq ($(USE_ASAN),1)
-  ifeq ($(CPU),x86)
-    COPY_DLLs = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/clang_rt.asan_dynamic-i386.dll
-  else
-    COPY_DLLs = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/clang_rt.asan_dynamic-x86_64.dll
-  endif
+  COPY_DLLs = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/clang_rt.asan_dynamic-$(SUFFIX).dll
 endif
 
 RCFLAGS += -DRC_BITS=$(BITS)
@@ -328,7 +312,8 @@ SOURCES = aircraft.c    \
           net_io.c      \
           location.c    \
           pconsole.c    \
-          sdrplay.c
+          sdrplay.c     \
+          speech.c
 
 vpath %.c externals \
           externals/Curses
@@ -350,24 +335,11 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_r82xx.c)
 
 #
-# For $(OBJ_DIR)/web-pages.rc:'
+# For '$(OBJ_DIR)/web-pages.rc:'
 #
 vpath %.rc $(OBJ_DIR)
 
-#
-# For ../tools/packed_webfs_main.c'
-#
-vpath %.c ../tools
-
-ifeq ($(USE_GEN_ROUTES),1)
-  ifeq ($(USE_BIN_FILES),1)
-     $(error Cannot have both 'USE_GEN_ROUTES=1' and 'USE_BIN_FILES=1')
-  endif
-
-  SOURCES += $(OBJ_DIR)/routes.c
-  CFLAGS  += -DUSE_GEN_ROUTES
-
-else ifeq ($(USE_BIN_FILES),1)
+ifeq ($(USE_BIN_FILES),1)
   CFLAGS += -DUSE_BIN_FILES
 endif
 
@@ -405,6 +377,15 @@ endif
 
 OBJECTS = $(call c_to_obj, $(SOURCES))
 WEB_OBJ = $(call c_to_obj, $(WEB_SRC))
+
+vpath %.c ../tools
+
+PACKED_TEST_SRC = ../tools/packed_webfs_main.c \
+                  $(OBJ_DIR)/packed_webfs_1.c  \
+                  $(OBJ_DIR)/packed_webfs_2.c  \
+                  misc.c
+
+PACKED_TEST_OBJ = $(call c_to_obj, $(PACKED_TEST_SRC))
 
 #
 # Select currect MSVC / clang-cl compiler without the 'vcvarsall.bat' non-sense.
@@ -477,15 +458,15 @@ ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
 	$(call C_compile, $(OBJ_DIR)\\, -MP $(SOURCES))
 
 else
-  $(OBJ_DIR)/routes.obj: $(OBJ_DIR)/routes.c | $(CC).args $(OBJ_DIR)
-	$(call C_compile_long_time, $@, $<)
-
   $(OBJ_DIR)/sqlite3.obj: externals/sqlite3.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile_long_time, $@, $<)
-
-  $(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
-	$(call C_compile, $@, $<)
 endif
+
+$(OBJ_DIR)/speech_test.obj: speech.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, -DTEST $<)
+
+$(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, $<)
 
 OpenLayers3_ARGS = --ignore "../web_root-OpenLayers3/3d/*" --ignore "../web_root-OpenLayers3/sql/*"
 
@@ -519,25 +500,11 @@ $(OBJ_DIR)/packed_webfs_2.c: ../tools/gen_packed_fs.py
 $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
-packed_test_OBJ = $(addprefix $(OBJ_DIR)/, \
-                    packed_webfs_main.obj  \
-                    packed_webfs_1.obj     \
-                    packed_webfs_2.obj     \
-                    misc.obj)
-
-../packed_test.exe: $(packed_test_OBJ) | $(OBJ_DIR)/check-for-unused-libs.py
+../packed_test.exe: $(PACKED_TEST_OBJ) | $(OBJ_DIR)/check-for-unused-libs.py
 	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
-# $(OBJ_DIR)/packed_webfs_main.obj: ../tools/packed_webfs_main.c | $(CC).args
-#	$(call C_compile, $@, $<)
-
-#
-# When 'USE_GEN_ROUTES = 1'
-#
-$(OBJ_DIR)/routes.c: ../tools/gen_routes_data.py ../routes.csv
-	$(call green_msg, Generating $@)
-	$(PYTHON) $< ../routes.csv > $@
-	@echo
+../speech_test.exe: $(OBJ_DIR)/speech_test.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj | $(OBJ_DIR)/check-for-unused-libs.py
+	$(call link_EXE, $@, $^ $(ASAN_LIBS) ole32.lib)
 
 $(CC).args: $(THIS_FILE)
 	$(call green_msg, All common CFLAGS are in $@)
@@ -579,6 +546,9 @@ docs_clean:
 doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call generate, $@, #)
 	$(file >> $@,$(dump1090_Doxyfile))
+
+speech_test.i: speech.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+	$(call C_preprocess, $@, -DTEST $<)
 
 %.i: %.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, $<)
@@ -769,8 +739,7 @@ endef
 #
 # No doxygen tags in these:
 #
-doxy_SOURCES = $(filter-out $(OBJ_DIR)/routes.c              \
-                            externals/sqlite3.c              \
+doxy_SOURCES = $(filter-out externals/sqlite3.c              \
                             externals/Curses/amalgamation.c, \
                             $(SOURCES))
 
@@ -801,11 +770,6 @@ define dump1090_Doxyfile
   PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1
   INPUT                 = $(doxy_SOURCES) \
                           $(doxy_HEADERS)
-
-  #
-  # Do not document the huge '$(OBJ_DIR)/routes.c' file
-  #
-  # EXCLUDE             = routes.c
 
   EXAMPLE_PATH          = ..
   IMAGE_PATH            = .. ../..
