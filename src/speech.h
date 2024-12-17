@@ -10,9 +10,7 @@
 
 bool speak_init (int voice, int volume);
 void speak_exit (void);
-bool speak_stringA (const char *str);
-bool speak_stringW (const wchar_t *str);
-bool speak_poll (void);
+bool speak_string (_Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(1, 2);
 
 #endif  /* _SPEECH_H */
 

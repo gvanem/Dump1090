@@ -21,9 +21,19 @@
                        __FILE__, __LINE__, ## __VA_ARGS__); \
           } while (0)
 
+  #undef  LOG_FILEONLY
+  #define LOG_FILEONLY(...)
+
 #else
-  #define TRACE(level, fmt, ...)  DEBUG (DEBUG_GENERAL, fmt ".\n", \
-                                         ## __VA_ARGS__)
+  /*
+   * Only write important stuff to the .log-file.
+   */
+  #define TRACE(level, fmt, ...)  do {          \
+          if (level <= 1)                       \
+             LOG_FILEONLY ("%s(%u): " fmt "\n", \
+                           __FILE__, __LINE__,  \
+                           ## __VA_ARGS__);     \
+          } while (0)
 #endif
 
 typedef struct speak_queue {
@@ -41,15 +51,16 @@ typedef struct search_list {
       } search_list;
 
 typedef struct speech_data {
-        speak_queue *speak_queue;
-        ISpVoice    *voice;
-        int          voice_n;
-        int          trace_level;
-        HANDLE       thread_hnd;
-        DWORD        start_id;
-        HRESULT      hr_err;
-        bool         CoInitializeEx_done;
-        bool         quit;
+        speak_queue      *speak_queue;
+        ISpVoice         *voice;
+        int               voice_n;
+        int               trace_level;
+        HANDLE            thread_hnd;
+        DWORD             start_id;
+        HRESULT           hr_err;
+        CRITICAL_SECTION  crit;
+        bool              CoInitializeEx_done;
+        bool              quit;
       } speech_data;
 
 static speech_data  g_data;
@@ -59,14 +70,14 @@ static DWORD WINAPI speak_thread (void *arg);
 static const char  *hr_strerror (HRESULT hr);
 static const char  *sp_running_state (SPRUNSTATE state);
 
-#define CALL(obj, func, ...) do {                                           \
-          hr = (*obj->lpVtbl->func) (obj, __VA_ARGS__);                     \
-          if (!SUCCEEDED(hr))                                               \
-          {                                                                 \
-            g_data.hr_err = hr;                                             \
-            TRACE (1, "%s::%s() failed: %s", #obj, #func, hr_strerror(hr)); \
-            return (false);                                                 \
-          }                                                                 \
+#define CALL(obj, func, ...) do {                                        \
+          hr = (*obj -> lpVtbl -> func) (obj, __VA_ARGS__);              \
+          if (!SUCCEEDED(hr))                                            \
+          {                                                              \
+            g_data.hr_err = hr;                                          \
+            TRACE (1, #obj "::" #func "() failed: %s", hr_strerror(hr)); \
+            return (false);                                              \
+          }                                                              \
         } while (0)
 
 #if 0
@@ -100,6 +111,7 @@ static bool enumerate_voices (int *voice_p)
   if (!SUCCEEDED(hr))
   {
     TRACE (0, "CoCreateInstance() failed: %s", hr_strerror(hr));
+    g_data.hr_err = hr;
     goto failed;
   }
 
@@ -135,7 +147,7 @@ static bool enumerate_voices (int *voice_p)
     GetLocaleInfoW (locale, LOCALE_SISO639LANGNAME, w_lang_code, locale_chars);
     GetLocaleInfoW (locale, LOCALE_SISO3166CTRYNAME, w_reg_code, region_chars);
 
-    TRACE (1, "w_id: '%S', w_lang_code: '%S' (%lu)",
+    TRACE (2, "w_id: '%S', w_lang_code: '%S' (%lu)",
            w_id, w_lang_code, locale);
 
     rc = true;
@@ -212,7 +224,6 @@ failed:
 bool speak_init (int voice, int volume)
 {
   HRESULT hr;
-  DWORD   flags = COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE;
 
   if (volume < 0 || volume > 100)
   {
@@ -220,10 +231,11 @@ bool speak_init (int voice, int volume)
     return (false);
   }
 
-  hr = CoInitializeEx (NULL, flags);
+  hr = CoInitializeEx (NULL, COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE);
   if (!SUCCEEDED(hr))
   {
     TRACE (0, "CoInitializeEx() failed: %s", hr_strerror(hr));
+    g_data.hr_err = hr;
     return (false);
   }
 
@@ -233,6 +245,7 @@ bool speak_init (int voice, int volume)
   if (!SUCCEEDED(hr))
   {
     TRACE (0, "CoCreateInstance() failed: %s", hr_strerror(hr));
+    g_data.hr_err = hr;
     return (false);
   }
 
@@ -250,8 +263,9 @@ bool speak_init (int voice, int volume)
     TRACE (0, "Already have 'thread_hnd'. Call 'speak_exit()' first");
     return (false);
   }
+  InitializeCriticalSection (&g_data.crit);
 
-  g_data.thread_hnd = CreateThread (NULL, 0, speak_thread, (void*)&g_data.speak_queue, 0, NULL);
+  g_data.thread_hnd = CreateThread (NULL, 0, speak_thread, NULL, 0, NULL);
   if (!g_data.thread_hnd)
   {
     TRACE (0, "CreateThread() failed: %s", win_strerror(GetLastError()));
@@ -266,6 +280,8 @@ void speak_exit (void)
 {
   TRACE (1, "%s()", __FUNCTION__);
 
+  DeleteCriticalSection (&g_data.crit);
+
   if (g_data.voice)
   {
     (*g_data.voice->lpVtbl->Speak) (g_data.voice, NULL, SPF_PURGEBEFORESPEAK, NULL);
@@ -279,49 +295,38 @@ void speak_exit (void)
   }
 
   if (g_data.thread_hnd)
-     CloseHandle (g_data.thread_hnd);
+  {
+    TerminateThread (g_data.thread_hnd, 0);
+    CloseHandle (g_data.thread_hnd);
+  }
 
   speak_queue_free();
   memset (&g_data, '\0', sizeof(g_data));
 }
 
 /*
- * Common stuff for adding to the global queue.
+ * Add an ASCII-string to the global queue.
  */
-static bool speak_queue_add_common (const char *ascii, const wchar_t *wide, size_t len)
+static bool speak_queue_add (const char *str)
 {
+  size_t len = strlen (str);
   speak_queue *sq = calloc (sizeof(*sq) + sizeof(*sq->wstr) * (len + 1), 1);
 
   if (!sq)
      return (false);
 
-  sq->flags = (SPF_ASYNC | SPF_PURGEBEFORESPEAK | SPF_IS_XML);
+  EnterCriticalSection (&g_data.crit);
+
+  sq->flags = (SPF_ASYNC | SPF_IS_XML /* | SPF_PURGEBEFORESPEAK */ );
   sq->id    = g_data.start_id++;
   sq->wstr  = (wchar_t*) (sq + 1);
 
-  if (ascii)
-       mbstowcs (sq->wstr, ascii, len);
-  else wcsncpy (sq->wstr, wide, len);
+  mbstowcs (sq->wstr, str, len);
   sq->wstr [len] = L'\0';
-
   LIST_ADD_TAIL (speak_queue, &g_data.speak_queue, sq);
+
+  LeaveCriticalSection (&g_data.crit);
   return (true);
-}
-
-/*
- * Add an ASCII-string to the global queue.
- */
-static bool speak_queue_addA (const char *str)
-{
-  return speak_queue_add_common (str, NULL, strlen(str));
-}
-
-/*
- * Add a Wide-string to the global queue.
- */
-static bool speak_queue_addW (const wchar_t *str)
-{
-  return speak_queue_add_common (NULL, str, wcslen(str));
 }
 
 /*
@@ -333,9 +338,9 @@ static void speak_queue_free (void)
 
   for (sq = g_data.speak_queue; sq; sq = sq_next)
   {
+    LIST_DELETE (speak_queue, &g_data.speak_queue, sq);
     sq_next = sq->next;
     free (sq);
-    LIST_DELETE (speak_queue, &g_data.speak_queue, sq);
   }
 }
 
@@ -344,8 +349,11 @@ static bool speak_finished (speak_queue *sq)
   bool    changed;
   HRESULT hr;
 
+  if (!sq)
+     return (false);
+
   memset (&sq->status, '\0', sizeof(sq->status));
-  CALL (g_data.voice, GetStatus, &sq->status, NULL);
+  CALL (g_data.voice, GetStatus, (SPVOICESTATUS*)&sq->status, NULL);
 
   changed = (sq->status.dwRunningState != sq->old_status.dwRunningState ||
              sq->status.ulInputWordPos != sq->old_status.ulInputWordPos ||
@@ -355,7 +363,7 @@ static bool speak_finished (speak_queue *sq)
   if (!changed)
      return (false);
 
-  TRACE (1, "%lu: %10.3lf ms, dwRunningState: %s, InputWordPos: %lu, PhonemeId: %d, VisemeId: %d",
+  TRACE (2, "%lu: %10.3lf ms, dwRunningState: %s, InputWordPos: %lu, PhonemeId: %d, VisemeId: %d",
          sq->id,
          (get_usec_now() - sq->start_t) / 1E3,
          sp_running_state(sq->status.dwRunningState),
@@ -363,6 +371,16 @@ static bool speak_finished (speak_queue *sq)
          sq->status.PhonemeId,
          sq->status.VisemeId);
   return (sq->status.dwRunningState == SPRS_DONE);
+}
+
+static int speak_queue_len (void)
+{
+  const speak_queue *sq;
+  int   num = 0;
+
+  for (sq = g_data.speak_queue; sq; sq = sq->next)
+      num++;
+  return (num);
 }
 
 static int speak_queue_unfinished (void)
@@ -376,7 +394,7 @@ static int speak_queue_unfinished (void)
   return (num);
 }
 
-bool speak_poll (void)
+static bool speak_poll (void)
 {
   int sq_sz = speak_queue_unfinished();
 
@@ -411,17 +429,20 @@ static bool speak_worker (speak_queue *sq)
 
 static DWORD WINAPI speak_thread (void *arg)
 {
-  speak_queue *queue = *(speak_queue**) arg;
   speak_queue *sq_active = NULL;
+
+  (void) arg;
 
   while (!g_data.quit)
   {
     speak_queue *sq;
 
+    EnterCriticalSection (&g_data.crit);
+
     /* Find first unfinished element for calling `g_data.voice::Speak()`.
      * All others must wait it's turn.
      */
-    for (sq = queue; sq; sq = sq->next)
+    for (sq = g_data.speak_queue; sq; sq = sq->next)
     {
       if (!sq_active && !sq->finished)
       {
@@ -430,12 +451,16 @@ static DWORD WINAPI speak_thread (void *arg)
         break;
       }
     }
+    LeaveCriticalSection (&g_data.crit);
+    Sleep (100);
 
-    if (sq_active && speak_finished(sq_active))
+    if (speak_finished(sq_active))
     {
       sq_active->finished = true;
-      TRACE (0, "sq_active->id: %lu, SPRS_DONE, unfinished: %d",
+#if defined(TEST)
+      TRACE (1, "sq_active->id: %lu, SPRS_DONE, unfinished: %d",
              sq_active->id, speak_queue_unfinished());
+#endif
       sq_active = NULL;
     }
   }
@@ -443,18 +468,16 @@ static DWORD WINAPI speak_thread (void *arg)
   return (0);
 }
 
-bool speak_stringA (const char *str)
+bool speak_string (const char *fmt, ...)
 {
-  if (!speak_queue_addA(str))
-     return (false);
-  return (true);
-}
+  char    buf [10000];
+  char   *p = buf;
+  va_list args;
 
-bool speak_stringW (const wchar_t *str)
-{
-  if (!speak_queue_addW(str))
-     return (false);
-  return (true);
+  va_start (args, fmt);
+  vsnprintf (buf, sizeof(buf), fmt, args);
+  va_end (args);
+  return speak_queue_add (buf);
 }
 
 /**
@@ -628,10 +651,10 @@ static const char *sp_running_state (SPRUNSTATE state)
   return (buf);
 }
 
-#ifdef TEST
+#if defined(TEST)
 static void usage (const char *argv0)
 {
-  printf ("%s [-d] [-vN] <string(s) to speak (with embedded XML-codes)....>\n"
+  printf ("%s [-d] [-vN]  [-VN] <string(s) to speak (with embedded XML-codes)....>\n"
           "  -d:   trace-level; `-dd` more verbose\n"
           "  -v x: use voice x\n"
           "  -V y: use volume y; 0 - 100\n", argv0);
@@ -686,7 +709,7 @@ int main (int argc, char **argv)
        str = "This is a reasonably long string that should take a while to speak. "
              "This is some more text with <emph>embedded </emph>XML codes.";
 
-    if (!speak_stringA(str))
+    if (!speak_string("%s", str))
     {
       speak_exit();
       return (1);
@@ -703,7 +726,7 @@ int main (int argc, char **argv)
 /*
  * To allow 'misc.obj' to link in.
  */
-#ifdef __clang__
+#if defined(__clang__)
   #pragma clang diagnostic ignored "-Wunused-parameter"
 #else
   #pragma warning (disable: 4100)

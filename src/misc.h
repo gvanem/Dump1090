@@ -463,10 +463,12 @@ typedef struct global_data {
         int          win_location;               /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
         int          only_addr;                  /**< Print only ICAO addresses. */
         int          metric;                     /**< Use metric units. */
-        int          prefer_adsb_lol;            /**< Prefer using ADSB-LOL API even with '-DUSE_GEN_ROUTES' and/or '-DUSE_BIN_FILES'. */
+        int          prefer_adsb_lol;            /**< Prefer using ADSB-LOL API even with '-DUSE_BIN_FILES'. */
         bool         error_correct_1;            /**< Fix 1 bit errors (default: true). */
         bool         error_correct_2;            /**< Fix 2 bit errors (default: false). */
         int          keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
+        int          speech_enable;              /**< Enable speech for planes entering and leaving. */
+        int          speech_volume;              /**< Speech volume; 0 - 100 percent */
         mg_file_path web_page;                   /**< The base-name of the web-page to server for HTTP clients. */
         mg_file_path web_root;                   /**< And it's directory. */
         bool         web_root_touch;             /**< Touch all files in `web_root` first. */

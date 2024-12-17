@@ -11,6 +11,7 @@
 #include "aircraft.h"
 #include "net_io.h"
 #include "rtl-tcp.h"
+#include "speech.h"
 #include "server-cert-key.h"
 #include "client-cert-key.h"
 
@@ -1550,7 +1551,7 @@ static bool client_is_extern (const mg_addr *addr)
 static bool client_handler (mg_connection *c, intptr_t service, int ev)
 {
   const mg_addr *addr = &c->rem;
-  const char    *is_tls = "";
+  const char    *ip, *is_tls = "";
   mg_host_name   addr_buf;
   unique_IP     *unique;
 
@@ -1577,13 +1578,22 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
       if (deny && unique)  /* increment deny-counter for this `addr` */
          unique->denied++;
 
-      if (Modes.debug & DEBUG_NET)
-         Beep (deny ? 1200 : 800, 20);
+      net_str_addr (addr, addr_buf, sizeof(addr_buf));
+
+      if (Modes.speech_enable)
+      {
+        speak_string ("Client for %s %s.",
+                      net_service_descr(service),
+                      deny ? "denied" : "accepted");
+      }
+      else if (Modes.debug & DEBUG_NET)
+      {
+        Beep (deny ? 1200 : 800, 20);
+      }
 
       LOG_FILEONLY ("%s connection: %s (conn-id: %lu, service: \"%s\"%s).\n",
                     deny ? "Denied" : "Accepted",
-                    net_str_addr(addr, addr_buf, sizeof(addr_buf)),
-                    c->id, net_service_descr(service), is_tls);
+                    addr_buf, c->id, net_service_descr(service), is_tls);
       return (!deny);
     }
   }

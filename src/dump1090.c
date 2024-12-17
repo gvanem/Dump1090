@@ -23,6 +23,7 @@
 #include "net_io.h"
 #include "cfg_file.h"
 #include "sdrplay.h"
+#include "speech.h"
 #include "location.h"
 #include "airports.h"
 #include "interactive.h"
@@ -158,6 +159,8 @@ static const struct cfg_table config[] = {
     { "rtl-reset",        ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
     { "samplerate",       ARG_FUNC,    (void*) set_sample_rate },
     { "show-hostname",    ARG_ATOB,    (void*) &Modes.show_host_name },
+    { "speech-enable",    ARG_ATOB,    (void*) &Modes.speech_enable },
+    { "speech-volume",    ARG_ATOI,    (void*) &Modes.speech_volume },
     { "https-enable",     ARG_ATOB,    (void*) &Modes.https_enable },
     { "silent",           ARG_ATOB,    (void*) &Modes.silent },
     { "ppm",              ARG_FUNC,    (void*) set_ppm },
@@ -485,6 +488,12 @@ static bool modeS_init (void)
 
   if (Modes.logfile_initial[0])
      modeS_init_log();
+
+  if (Modes.speech_enable && !speak_init(0, Modes.speech_volume))
+  {
+    LOG_FILEONLY ("speak_init(): failed.\n");
+    Modes.speech_enable = false;
+  }
 
   modeS_log_set();
   aircraft_SQL_set_name();
@@ -3334,6 +3343,8 @@ static void modeS_exit (void)
   if (Modes.win_location)
      location_exit();
 
+  speak_exit();
+
   modeS_log_exit();
 
 #if defined(_DEBUG)
@@ -3638,7 +3649,7 @@ static bool set_prefer_adsb_lol (const char *arg)
 {
   Modes.prefer_adsb_lol = cfg_true (arg);
 
-#if !defined(USE_GEN_ROUTES) && !defined(USE_BIN_FILES)
+#if !defined(USE_BIN_FILES)
   DEBUG (DEBUG_GENERAL,
          "Config value 'prefer-adsb-lol=%d' has no meaning.\n"
          "Will always use ADSB-LOL API to lookup routes in 'airports.c'.\n",

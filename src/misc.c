@@ -26,6 +26,9 @@
 #include "misc.h"
 #include "rtl-sdr/version.h"
 
+#define __SpeechConstants_MODULE_DEFINED__
+#include <sapi.h>
+
 #define TSIZE (int)(sizeof("HH:MM:SS.MMM: ") - 1)
 
 static bool modeS_log_reinit (const SYSTEMTIME *st);
@@ -1265,6 +1268,14 @@ static void print_sql_info (void)
 }
 
 /**
+ * Print the SAPI (Speech API) version.
+ */
+static void print_SAPI_info (void)
+{
+  printf ("SAPI ver:     %x.%x\n", (_SAPI_VER & 0xF0) >> 4, _SAPI_VER & 0x0F);
+}
+
+/**
  * Return the compiler info the program was built with.
  */
 static const char *compiler_info (void)
@@ -1313,9 +1324,6 @@ static const char *build_features (void)
   #endif
   #if defined(USE_UBSAN)
     "UBSAN",
-  #endif
-  #if defined(USE_GEN_ROUTES)
-    "GEN_ROUTES",
   #endif
   #if defined(USE_BIN_FILES)
     "BIN_FILES",
@@ -1624,7 +1632,7 @@ static void print_BIN_files (void)
                               "routes.bin"
                             };
 
-  printf ("Generated .BIN-files:\n");
+  printf ("\nGenerated .BIN-files:\n");
 
   init_timings();  /* for 'Modes.timezone' */
 
@@ -1670,6 +1678,7 @@ void show_version_info (bool verbose)
     printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s\n",
             RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, RTL_VER_ID);
     printf ("PDCurses ver: %-7s from https://github.com/wmcbrine/PDCurses\n", PDC_VERDOT);
+    print_SAPI_info();
     print_sql_info();
     print_BIN_files();
     print_CFLAGS();

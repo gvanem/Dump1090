@@ -158,6 +158,7 @@
     <ClCompile Include="net_io.c" />
     <ClCompile Include="pconsole.c" />
     <ClCompile Include="sdrplay.c" />
+    <ClCompile Include="speech.c" />
     <ClCompile Include="externals\mongoose.c" />
     <ClCompile Include="externals\Curses\amalgamation.c" />
     <ClCompile Include="externals\sqlite3.c" />
@@ -179,6 +180,7 @@
     <ClInclude Include="misc.h" />
     <ClInclude Include="net_io.h" />
     <ClInclude Include="sdrplay.h" />
+    <ClInclude Include="speech.h" />
     <ClInclude Include="dump1090_config.h" />
     <ClInclude Include="externals\mongoose.h" />
     <ClInclude Include="externals\sqlite3.h" />
