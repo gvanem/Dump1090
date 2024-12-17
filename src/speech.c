@@ -80,6 +80,16 @@ static const char  *sp_running_state (SPRUNSTATE state);
           }                                                              \
         } while (0)
 
+#define CALL0(obj, func) do {                                            \
+          hr = (*obj -> lpVtbl -> func) (obj);                           \
+          if (!SUCCEEDED(hr))                                            \
+          {                                                              \
+            g_data.hr_err = hr;                                          \
+            TRACE (1, #obj "::" #func "() failed: %s", hr_strerror(hr)); \
+            return (false);                                              \
+          }                                                              \
+        } while (0)
+
 #if 0
 /**
  * A rewrite of SpGetDescription() in sphelper.h which is for C++ only
@@ -135,6 +145,8 @@ static bool enumerate_voices (int *voice_p)
     CALL (voice_tok, GetId, &w_id);
     CALL (data_attr, GetStringValue, L"Language", &w_lang);
 //  CALL (data_attr, GetStringValue, NULL, &w_name);
+
+    (void) w_name;
 
 //  SpGetDescription ((*voice_tok->lpVtbl->Get)(voice_tok), &description);
 
@@ -206,17 +218,17 @@ static bool enumerate_voices (int *voice_p)
     *       Version       REG_SZ  11.0
     */
 
-    CALL (voice_tok, Release);
+    CALL0 (voice_tok, Release);
   }
 
   *voice_p = num;
 
 failed:
   if (enum_tok)
-     CALL (enum_tok, Release);
+     CALL0 (enum_tok, Release);
 
   if (category)
-     CALL (category, Release);
+     CALL0 (category, Release);
 
   return (rc);
 }
@@ -353,7 +365,7 @@ static bool speak_finished (speak_queue *sq)
      return (false);
 
   memset (&sq->status, '\0', sizeof(sq->status));
-  CALL (g_data.voice, GetStatus, (SPVOICESTATUS*)&sq->status, NULL);
+  CALL (g_data.voice, GetStatus, &sq->status, NULL);
 
   changed = (sq->status.dwRunningState != sq->old_status.dwRunningState ||
              sq->status.ulInputWordPos != sq->old_status.ulInputWordPos ||
