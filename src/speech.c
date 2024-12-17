@@ -471,7 +471,6 @@ static DWORD WINAPI speak_thread (void *arg)
 bool speak_string (const char *fmt, ...)
 {
   char    buf [10000];
-  char   *p = buf;
   va_list args;
 
   va_start (args, fmt);

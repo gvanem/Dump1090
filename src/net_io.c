@@ -1551,7 +1551,7 @@ static bool client_is_extern (const mg_addr *addr)
 static bool client_handler (mg_connection *c, intptr_t service, int ev)
 {
   const mg_addr *addr = &c->rem;
-  const char    *ip, *is_tls = "";
+  const char    *is_tls = "";
   mg_host_name   addr_buf;
   unique_IP     *unique;
 
