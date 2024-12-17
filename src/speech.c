@@ -265,7 +265,7 @@ bool speak_init (int voice, int volume)
   }
   InitializeCriticalSection (&g_data.crit);
 
-  g_data.thread_hnd = CreateThread (NULL, 0, speak_thread, NULL, 0, NULL);
+  g_data.thread_hnd = CreateThread (NULL, 0, speak_thread, (void*)&g_data.speak_queue, 0, NULL);
   if (!g_data.thread_hnd)
   {
     TRACE (0, "CreateThread() failed: %s", win_strerror(GetLastError()));
@@ -429,9 +429,8 @@ static bool speak_worker (speak_queue *sq)
 
 static DWORD WINAPI speak_thread (void *arg)
 {
-  speak_queue *sq_active = NULL;
-
-  (void) arg;
+  speak_queue  *sq_active = NULL;
+  speak_queue **queue = (speak_queue**) arg;
 
   while (!g_data.quit)
   {
@@ -442,7 +441,7 @@ static DWORD WINAPI speak_thread (void *arg)
     /* Find first unfinished element for calling `g_data.voice::Speak()`.
      * All others must wait it's turn.
      */
-    for (sq = g_data.speak_queue; sq; sq = sq->next)
+    for (sq = *queue; sq; sq = sq->next)
     {
       if (!sq_active && !sq->finished)
       {
@@ -461,6 +460,7 @@ static DWORD WINAPI speak_thread (void *arg)
       TRACE (1, "sq_active->id: %lu, SPRS_DONE, unfinished: %d",
              sq_active->id, speak_queue_unfinished());
 #endif
+      LIST_DELETE (speak_queue, queue, sq_active);
       sq_active = NULL;
     }
   }
