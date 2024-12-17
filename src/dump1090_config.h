@@ -22,6 +22,7 @@
   #pragma clang diagnostic ignored "-Wunused-value"
   #pragma clang diagnostic ignored "-Wunused-variable"
   #pragma clang diagnostic ignored "-Wunused-function"
+  #pragma clang diagnostic ignored "-Wunused-label"
   #pragma clang diagnostic ignored "-Wpragma-pack"
   #pragma clang diagnostic ignored "-Wsign-compare"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
@@ -40,6 +41,12 @@
   #endif
 
 #elif defined(_MSC_VER)
+ /*
+  * airports.c(1502): warning C4102:
+  *   'done': unreferenced label
+  */
+  #pragma warning (disable: 4102)
+
   /*
    * misc.c(524): warning C4152: nonstandard extension,
    *   function/data pointer conversion in expression
