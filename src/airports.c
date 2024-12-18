@@ -1374,7 +1374,7 @@ uint32_t airports_init (void)
 
   if (Modes.debug & DEBUG_ADSB_LOL)
      g_data.do_trace_LOL = true;
-  else if (Modes.debug)
+  else if ((Modes.debug & DEBUG_GENERAL) || Modes.tests)
      g_data.do_trace = true;
 
   Modes.airports_priv = &g_data;
