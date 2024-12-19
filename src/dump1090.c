@@ -169,6 +169,7 @@ static const struct cfg_table config[] = {
     { "host-sbs-in",      ARG_FUNC,    (void*) set_host_port_sbs_in },
     { "error-correct1",   ARG_ATOB,    (void*) &Modes.error_correct_1 },
     { "error-correct2",   ARG_ATOB,    (void*) &Modes.error_correct_2 },
+    { "web-send-rssi",    ARG_ATOB,    (void*) &Modes.web_send_rssi },
     { NULL,               0,           NULL }
   };
 

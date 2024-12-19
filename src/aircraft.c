@@ -14,8 +14,6 @@
 #include "zip.h"
 #include "aircraft.h"
 
-#define SEND_RSSI 1 /* make this an option from `dump1090.cfg`? */
-
 /**
  * The name of Aircraft SQL file is based on the name of `Modes.aircraft_db`.
  */
@@ -1418,7 +1416,6 @@ static bool sql_add_entry (uint32_t num, const aircraft_info *rec)
   return (true);
 }
 
-#if SEND_RSSI
 static double get_signal (const aircraft *a)
 {
   double sum = 0.0;
@@ -1438,7 +1435,6 @@ static double get_signal (const aircraft *a)
   }
   return (10 * log10 (sum / 8 + 1.125E-5));
 }
-#endif
 
 /**
  * Fill the JSON buffer `p` for one aircraft.
@@ -1480,11 +1476,12 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
                       a->messages, 2, 1 /* tv_now.tv_sec - a->seen_first/1000 */);
     p    += sz;
     left -= (int)sz;
-#if SEND_RSSI
-    sz = mg_snprintf (p, left, ", \"rssi\": %.1lf", get_signal(a));
-    p    += sz;
-    left -= (int)sz;
-#endif
+    if (Modes.web_send_rssi)
+    {
+      sz = mg_snprintf (p, left, ", \"rssi\": %.1lf", get_signal(a));
+      p    += sz;
+      left -= (int)sz;
+    }
   }
 
   assert (left > 3);
