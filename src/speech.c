@@ -21,9 +21,6 @@
                        __FILE__, __LINE__, ## __VA_ARGS__); \
           } while (0)
 
-  #undef  LOG_FILEONLY
-  #define LOG_FILEONLY(...)
-
 #else
   /*
    * Only write important stuff to the .log-file.
@@ -290,8 +287,6 @@ bool speak_init (int voice, int volume)
 
 void speak_exit (void)
 {
-  TRACE (1, "%s()", __FUNCTION__);
-
   DeleteCriticalSection (&g_data.crit);
 
   if (g_data.voice)
@@ -329,7 +324,7 @@ static bool speak_queue_add (const char *str)
 
   EnterCriticalSection (&g_data.crit);
 
-  sq->flags = (SPF_ASYNC | SPF_IS_XML /* | SPF_PURGEBEFORESPEAK */ );
+  sq->flags = (SPF_ASYNC | SPF_IS_XML);
   sq->id    = g_data.start_id++;
   sq->wstr  = (wchar_t*) (sq + 1);
 
@@ -422,23 +417,6 @@ static bool speak_poll (void)
   return (!g_data.quit || sq_sz > 0);
 }
 
-static bool speak_worker (speak_queue *sq)
-{
-  HRESULT hr;
-
-  TRACE (2, "%s(): id: %lu, '%S'",
-         __FUNCTION__, sq->id, sq->wstr);
-
-  sq->start_t = get_usec_now();
-
-  CALL (g_data.voice, Speak, sq->wstr, sq->flags, NULL);
-  if (hr == CO_E_NOTINITIALIZED)   /*  What!? */
-     return (false);
-
-  TRACE (2, "g_data.voice::Speak(): %s", hr_strerror(hr));
-  return (true);
-}
-
 static DWORD WINAPI speak_thread (void *arg)
 {
   speak_queue  *sq_active = NULL;
@@ -447,6 +425,7 @@ static DWORD WINAPI speak_thread (void *arg)
   while (!g_data.quit)
   {
     speak_queue *sq;
+    HRESULT      hr;
 
     EnterCriticalSection (&g_data.crit);
 
@@ -458,7 +437,9 @@ static DWORD WINAPI speak_thread (void *arg)
       if (!sq_active && !sq->finished)
       {
         sq_active = sq;
-        speak_worker (sq_active);
+        sq_active->start_t = get_usec_now();
+        CALL (g_data.voice, Speak, sq_active->wstr, sq_active->flags, NULL);
+        TRACE (2, "g_data.voice::Speak(): %s", hr_strerror(hr));
         break;
       }
     }
@@ -595,7 +576,7 @@ static const search_list hr_errors[] = {
        ADD_VALUE (SPERR_NO_WORD_PRONUNCIATION),
        ADD_VALUE (SPERR_ALTERNATES_WOULD_BE_INCONSISTENT),
        ADD_VALUE (SPERR_NOT_SUPPORTED_FOR_SHARED_RECOGNIZER),
-       ADD_VALUE (SPERR_TIMEOUT    ),
+       ADD_VALUE (SPERR_TIMEOUT),
        ADD_VALUE (SPERR_REENTER_SYNCHRONIZE),
        ADD_VALUE (SPERR_STATE_WITH_NO_ARCS),
        ADD_VALUE (SPERR_NOT_ACTIVE_SESSION),
