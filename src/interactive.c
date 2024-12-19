@@ -602,7 +602,7 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
 
   /* Lookup our aircraft or create a new one.
    */
-  addr = aircraft_get_addr (mm->AA[0], mm->AA[1], mm->AA[2]);
+  addr = AIRCRAFT_GET_ADDR (&mm->AA);
   a = aircraft_find_or_create (addr, now);
   if (!a)
      return (NULL);

@@ -1332,7 +1332,7 @@ static bool brute_force_AP (const uint8_t *msg, modeS_message *mm)
     /* If the obtained address exists in our cache we consider
      * the message valid.
      */
-    addr = aircraft_get_addr (aux[last_byte-2], aux[last_byte-1], aux[last_byte]);
+    addr = AIRCRAFT_GET_ADDR (&aux[last_byte-2]);
     if (ICAO_address_recently_seen(addr))
     {
       mm->AA [0] = aux [last_byte-2];
@@ -1684,7 +1684,7 @@ static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
      * to the list of recently seen addresses.
      */
     if (mm->CRC_ok && mm->error_bit == -1)
-       ICAO_cache_add_address (aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]));
+       ICAO_cache_add_address (AIRCRAFT_GET_ADDR(&mm->AA));
   }
 
   /* Decode 13 bit altitude for DF0, DF4, DF16, DF20
@@ -2663,40 +2663,40 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
   if (mm->msg_type == 0)
   {
     p += sprintf (p, "MSG,5,1,1,%06X,1,%s,,%d,,,,,,,,,,",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
+                  AIRCRAFT_GET_ADDR(&mm->AA[0]),
                   date_str, mm->altitude);
   }
   else if (mm->msg_type == 4)
   {
     p += sprintf (p, "MSG,5,1,1,%06X,1,%s,,%d,,,,,,,%d,%d,%d,%d",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
+                  AIRCRAFT_GET_ADDR(&mm->AA[0]),
                   date_str, mm->altitude, alert, emergency, spi, ground);
   }
   else if (mm->msg_type == 5)
   {
     p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%d,%d,%d,%d,%d",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
+                  AIRCRAFT_GET_ADDR(&mm->AA[0]),
                   date_str, mm->identity, alert, emergency, spi, ground);
   }
   else if (mm->msg_type == 11)
   {
     p += sprintf (p, "MSG,8,1,1,%06X,1,%s,,,,,,,,,,,,",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]), date_str);
+                  AIRCRAFT_GET_ADDR(&mm->AA[0]), date_str);
   }
   else if (mm->msg_type == 17 && mm->ME_type == 4)
   {
     p += sprintf (p, "MSG,1,1,1,%06X,1,%s,%s,,,,,,,,0,0,0,0",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
+                  AIRCRAFT_GET_ADDR(&mm->AA),
                   date_str, mm->flight);
   }
   else if (mm->msg_type == 17 && mm->ME_type >= 9 && mm->ME_type <= 18)
   {
     if (!VALID_POS(a->position))
          p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,,,,,0,0,0,0",
-                       aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
+                       AIRCRAFT_GET_ADDR(&mm->AA[0]),
                        date_str, mm->altitude);
     else p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
-                       aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
+                       AIRCRAFT_GET_ADDR(&mm->AA[0]),
                        date_str, mm->altitude, a->position.lat, a->position.lon);
   }
   else if (mm->msg_type == 17 && mm->ME_type == 19 && mm->ME_subtype == 1)
@@ -2704,13 +2704,13 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
     int vr = (mm->vert_rate_sign == 0 ? 1 : -1) * 64 * (mm->vert_rate - 1);
 
     p += sprintf (p, "MSG,4,1,1,%06X,1,%s,,,%d,%d,,,%i,,0,0,0,0",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
+                  AIRCRAFT_GET_ADDR(&mm->AA[0]),
                   date_str, a->speed, a->heading, vr);
   }
   else if (mm->msg_type == 21)
   {
     p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%d,%d,%d,%d,%d",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
+                  AIRCRAFT_GET_ADDR(&mm->AA[0]),
                   date_str, mm->identity, alert, emergency, spi, ground);
   }
   else

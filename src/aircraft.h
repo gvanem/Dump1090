@@ -106,7 +106,7 @@ bool        aircraft_CSV_update (const char *db_file, const char *url);
 bool        aircraft_SQL_set_name (void);
 aircraft   *aircraft_find_or_create (uint32_t addr, uint64_t now);
 int         aircraft_numbers (void);
-uint32_t    aircraft_get_addr (uint8_t a0, uint8_t a1, uint8_t a2);
+uint32_t    aircraft_get_addr (const uint8_t *a);
 const char *aircraft_get_details (const uint8_t *_a);
 const char *aircraft_get_country (uint32_t addr, bool get_short);
 bool        aircraft_is_military (uint32_t addr, const char **country);
@@ -118,5 +118,7 @@ char       *aircraft_make_json (bool extended_client);
 void        aircraft_remove_stale (uint64_t now);
 void        aircraft_show_stats (void);
 void        aircraft_exit (bool free_aircrafts);
+
+#define AIRCRAFT_GET_ADDR(a) aircraft_get_addr ((const uint8_t*)(a))
 
 #endif /* _AIRCRAFT_H */

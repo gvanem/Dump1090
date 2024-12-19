@@ -1125,9 +1125,9 @@ bool aircraft_is_helicopter (uint32_t addr, const char **type_ptr)
 /**
  * Convert 24-bit big-endian (network order) to host order format.
  */
-uint32_t aircraft_get_addr (uint8_t a0, uint8_t a1, uint8_t a2)
+uint32_t aircraft_get_addr (const uint8_t *a)
 {
-  return ((a0 << 16) | (a1 << 8) | a2);
+  return ((a[0] << 16) | (a[1] << 8) | a[2]);
 }
 
 const char *aircraft_get_military (uint32_t addr)
@@ -1157,7 +1157,7 @@ const char *aircraft_get_details (const uint8_t *_a)
   const aircraft_info *a;
   char                *p = buf;
   size_t               sz, left = sizeof(buf);
-  uint32_t             addr = aircraft_get_addr (_a[0], _a[1], _a[2]);
+  uint32_t             addr = AIRCRAFT_GET_ADDR (_a);
 
   sz = snprintf (p, left, "%06X", addr);
   p    += sz;
@@ -1221,7 +1221,7 @@ bool aircraft_match (const uint8_t *_a)
 
   assert (Modes.icao_filter.len > 0);
 
-  snprintf (addr, sizeof(addr), "%06X", aircraft_get_addr(_a[0], _a[1], _a[2]));
+  snprintf (addr, sizeof(addr), "%06X", AIRCRAFT_GET_ADDR(_a));
   rc = mg_match (mg_str(addr), Modes.icao_filter, NULL);
   if (Modes.icao_invert)
      rc ^= true;
