@@ -472,6 +472,7 @@ typedef struct global_data {
         mg_file_path web_page;                   /**< The base-name of the web-page to server for HTTP clients. */
         mg_file_path web_root;                   /**< And it's directory. */
         bool         web_root_touch;             /**< Touch all files in `web_root` first. */
+        bool         web_send_rssi;              /**< Send the "RSSI" in the JSON-data to the web-server */
         mg_file_path aircraft_db;                /**< The `aircraft-database.csv` file. */
         char        *aircraft_db_url;            /**< Value of key `aircrafts-update = url` */
         int          strip_level;                /**< For '--strip X' mode. */
