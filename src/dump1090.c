@@ -87,8 +87,6 @@ global_data Modes;
  */
 static void      modeS_send_raw_output (const modeS_message *mm);
 static void      modeS_send_SBS_output (const modeS_message *mm, const aircraft *a);
-       void      modeS_user_message (const modeS_message *mm);
-
 static bool      set_bandwidth (const char *arg);
 static bool      set_bias_tee (const char *arg);
 static bool      set_frequency (const char *arg);
@@ -1145,7 +1143,7 @@ static uint32_t CRC_check (const uint8_t *msg, int bits)
  * Given the Downlink Format (DF) of the message, return the
  * message length in bits.
  */
-static int modeS_message_len_by_type (int type)
+int modeS_message_len_by_type (int type)
 {
   if (type == 16 || type == 17 || type == 19 || type == 20 || type == 21)
      return (MODES_LONG_MSG_BITS);
@@ -2186,7 +2184,7 @@ uint32_t demodulate_2400 (uint16_t *m, uint32_t mlen)
  * Basically this function passes a raw message to the upper layers for
  * further processing and visualization.
  */
-static void modeS_user_message (const modeS_message *mm)
+void modeS_user_message (const modeS_message *mm)
 {
   uint64_t  now = MSEC_TIME();
   aircraft *a;
