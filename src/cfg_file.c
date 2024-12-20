@@ -213,7 +213,7 @@ static int cfg_parse_file (cfg_context *ctx)
  */
 static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
 {
-  char *p, *q;
+  char *p;
 
   while (1)
   {
@@ -245,9 +245,8 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
       continue;
     }
 
-    q = strrchr (ctx->current_val, '\"');
     p = strchr (ctx->current_val, '#');
-    if (p > q)     /* Remove trailing comments */
+    if (p && isspace(p[-1]))       /* Remove trailing comments */
        *p = '\0';
 
     break;
