@@ -152,6 +152,7 @@
     <ClCompile Include="dump1090.c" />
     <ClCompile Include="cfg_file.c" />
     <ClCompile Include="csv.c" />
+    <ClCompile Include="demod-2000.c" />
     <ClCompile Include="interactive.c" />
     <ClCompile Include="location.c" />
     <ClCompile Include="misc.c" />
@@ -175,6 +176,7 @@
     <ClInclude Include="airports.h" />
     <ClInclude Include="cfg_file.h" />
     <ClInclude Include="csv.h" />
+    <ClInclude Include="demod-2000.h" />
     <ClInclude Include="interactive.h" />
     <ClInclude Include="location.h" />
     <ClInclude Include="misc.h" />

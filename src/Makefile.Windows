@@ -306,6 +306,7 @@ SOURCES = aircraft.c    \
           airports.c    \
           cfg_file.c    \
           csv.c         \
+          demod-2000.c  \
           dump1090.c    \
           interactive.c \
           misc.c        \
@@ -372,7 +373,7 @@ endif
 
 ifeq ($(USE_READSB_DEMOD),1)
   CFLAGS  += -DUSE_READSB_DEMOD
-  SOURCES += externals/demod_2400.c
+  SOURCES += externals/demod-2400.c
 endif
 
 OBJECTS = $(call c_to_obj, $(SOURCES))

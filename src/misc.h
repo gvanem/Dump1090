@@ -665,8 +665,19 @@ void        modeS_signal_handler (int sig);
 int         modeS_vasprintf (char **bufp, _Printf_format_string_ const char *format, va_list args);
 int         modeS_asprintf  (char **bufp, _Printf_format_string_ const char *format, ...)  ATTR_PRINTF(2, 3);
 
-bool        decode_RAW_message (mg_iobuf *msg, int loop_cnt);  /* in 'dump1090.c' */
-bool        decode_SBS_message (mg_iobuf *msg, int loop_cnt);  /* in 'dump1090.c' */
+/*
+ * Common decoding functions in 'dump1090.c'
+ */
+int         decode_modeS_message (modeS_message *mm, const uint8_t *_msg);
+bool        decode_RAW_message (mg_iobuf *msg, int loop_cnt);
+bool        decode_SBS_message (mg_iobuf *msg, int loop_cnt);
+void        modeS_user_message (const modeS_message *mm);
+int         detect_out_of_phase (const uint16_t *m);
+void        apply_phase_correction (uint16_t *m);
+int         modeS_message_len_by_type (int type);
+void        dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m,
+                              uint32_t offset, uint32_t frame);
+
 uint32_t    ato_hertz (const char *Hertz);
 bool        str_startswith (const char *s1, const char *s2);
 bool        str_endswith (const char *s1, const char *s2);
