@@ -1580,7 +1580,7 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
 
       net_str_addr (addr, addr_buf, sizeof(addr_buf));
 
-      if (Modes.speech_enable)
+      if (Modes.speech_enable && Modes.speech_clients)
       {
         speak_string ("Client for %s %s.",
                       net_service_descr(service),

@@ -468,6 +468,7 @@ typedef struct global_data {
         bool         error_correct_2;            /**< Fix 2 bit errors (default: false). */
         int          keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
         int          speech_enable;              /**< Enable speech for planes entering and leaving. */
+        int          speech_clients;             /**< Enable speech for clients accepted or denied */
         int          speech_volume;              /**< Speech volume; 0 - 100 percent */
         mg_file_path web_page;                   /**< The base-name of the web-page to server for HTTP clients. */
         mg_file_path web_root;                   /**< And it's directory. */
