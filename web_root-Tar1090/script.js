@@ -1332,8 +1332,8 @@ jQuery('#selected_altitude_geom1')
         setState: function(state) {
             baroUseQNH = state;
             if (baroUseQNH) {
-                jQuery('#selected_altitude1_title').updateText('Corr. baro. alt.');
-                jQuery('#selected_altitude2_title').updateText('Corr. barometric');
+                jQuery('#selected_altitude1_title').updateText('Corr. baro-alt');
+                jQuery('#selected_altitude2_title').updateText('Corr. baro.');
                 jQuery('#infoblock_altimeter').removeClass('hidden');
             } else {
                 jQuery('#selected_altitude1_title').updateText('Baro. altitude');
@@ -4699,9 +4699,7 @@ function onDisplayUnitsChanged(e) {
     refreshFilter();
 
     // Draw range rings
-    if (siteCircleLayer.getVisible()) {
-        drawSiteCircle();
-    }
+    drawSiteCircle();
 
     // Reset map scale line units
     OLMap.getControls().forEach(function(control) {
@@ -6745,7 +6743,6 @@ function geoFindMe() {
         if (loStore['geoFindMeFirstVisit'] != 'no' && !(usp.has("lat") && usp.has("lon"))) {
             OLMap.getView().setCenter(ol.proj.fromLonLat([SiteLon, SiteLat]));
             loStore['geoFindMeFirstVisit'] = 'no';
-            siteCircleLayer.setVisible(true);
         }
 
         initSitePos();
