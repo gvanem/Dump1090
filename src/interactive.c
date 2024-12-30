@@ -13,6 +13,7 @@
 #include "airports.h"
 #include "sdrplay.h"
 #include "net_io.h"
+#include "cpr.h"
 #include "misc.h"
 
 #undef MOUSE_MOVED
@@ -659,7 +660,7 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
       int64_t t_diff = (int64_t) (a->even_CPR_time - a->odd_CPR_time);
 
       if (llabs(t_diff) <= 60*10*1000)
-           decode_CPR (a);
+           cpr_decode (a, mm->odd_flag);
    /* else LOG_FILEONLY ("t_diff for '%04X' too large: %lld sec.\n", a->addr, t_diff/1000); */
     }
     else if (mm->ME_type == 19)

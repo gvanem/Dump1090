@@ -22,6 +22,7 @@
 #include "misc.h"
 #include "net_io.h"
 #include "cfg_file.h"
+#include "cpr.h"
 #include "demod-2000.h"
 #include "sdrplay.h"
 #include "speech.h"
@@ -560,6 +561,9 @@ static bool modeS_init (void)
 
   if (test_contains(Modes.tests, "net"))
      Modes.net = true;    /* Will force `net_init()` and it's tests to be called */
+
+  if (test_contains(Modes.tests, "cpr"))
+     cpr_tests();
 
   if (!rc)
      return (false);

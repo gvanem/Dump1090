@@ -142,7 +142,6 @@ GENERATED += $(OBJ_DIR)/check-for-unused-libs.py
 
 CFLAGS = -nologo -c -Zi -W4        \
          -FI./dump1090_config.h    \
-         -fp:strict                \
          -std:c17                  \
          -I.                       \
          -I./externals             \
@@ -305,6 +304,7 @@ TARGETS = ../dump1090.exe
 SOURCES = aircraft.c    \
           airports.c    \
           cfg_file.c    \
+          cpr.c         \
           csv.c         \
           demod-2000.c  \
           dump1090.c    \
@@ -749,6 +749,7 @@ doxy_SOURCES := $(addprefix ../, $(doxy_SOURCES))
 doxy_HEADERS = ../aircraft.h                  \
                ../airports.h                  \
                ../cfg_file.h                  \
+               ../cpr.h                       \
                ../csv.h                       \
                ../dump1090_config.h           \
                ../interactive.h               \

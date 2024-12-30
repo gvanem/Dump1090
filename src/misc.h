@@ -723,7 +723,6 @@ bool        cartesian_to_spherical (const struct aircraft *a, const cartesian_t 
 double      cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2);
 double      great_circle_dist (pos_t pos1, pos_t pos2);
 double      closest_to (double val, double val1, double val2);
-void        decode_CPR (struct aircraft *a);
 const char *mz_version (void);                 /* in 'externals/zip.c' */
 void        rx_callback (uint8_t *buf, uint32_t len, void *ctx);
 void        show_version_info (bool verbose);
