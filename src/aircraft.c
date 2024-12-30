@@ -411,6 +411,7 @@ static void aircraft_dump_json (char *data, const char *filename)
   if (!f)
   {
     printf ("  Creating %s failed; errno: %d/%s\n\n", tmp_file, errno, strerror(errno));
+    free (data);
     return;
   }
 
