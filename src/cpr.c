@@ -29,20 +29,20 @@
 
 static int      CPR_NL_func (double lat);
 static void     CPR_set_home_distance (aircraft *a);
-static unsigned CPR_errno;
+static unsigned CPR_error;
 static unsigned CPR_errline;
 
 #define CPR_SET_ERR(e)  do {                      \
-	                  CPR_errno = e;          \
+                          CPR_error = e;          \
                           CPR_errline = __LINE__; \
                         } while (0)
 
 
 static const char *CPR_strerror (void)
 {
-  const char *err = (CPR_errno == EINVAL ? "EINVAL" :
-                     CPR_errno == ERANGE ? "ERANGE" :
-                     CPR_errno == E2BIG  ? "E2BIG"  : "?");
+  const char *err = (CPR_error == EINVAL ? "EINVAL" :
+                     CPR_error == ERANGE ? "ERANGE" :
+                     CPR_error == E2BIG  ? "E2BIG"  : "?");
   static char buf [50];
 
   snprintf (buf, sizeof(buf), "CPR_error: %s at line %u", err, CPR_errline);
@@ -254,7 +254,7 @@ bool cpr_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat, int 
   double rlat1 = air_dlat1 * (CPR_mod_func(j, 59) + lat1 / 131072);
 
   *out_lat = *out_lon = 0.0;
-  CPR_errno = 0;
+  CPR_error = 0;
 
   if (rlat0 >= 270)
      rlat0 -= 360;
@@ -326,7 +326,7 @@ bool cpr_decode_surface (double ref_lat, double ref_lon,
   double rlat1 = air_dlat1 * (CPR_mod_func (j, 59) + lat1 / 131072);
 
   *out_lat = *out_lon = 0.0;
-  CPR_errno = 0;
+  CPR_error = 0;
 
   /*
    * Pick the quadrant that's closest to the reference location.
@@ -451,7 +451,7 @@ bool cpr_decode_relative (double ref_lat, double ref_lon, int cprlat, int cprlon
   int    j, m;
 
   *out_lat = *out_lon = 0.0;
-  CPR_errno = 0;
+  CPR_error = 0;
 
   air_dlat = (surface ? 90.0 : 360.0) / (is_odd ? 59.0 : 60.0);
 
