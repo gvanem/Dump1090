@@ -1324,15 +1324,23 @@ static bool client_is_unique (const mg_addr *addr, intptr_t service, unique_IP *
   return (unique);
 }
 
+static int compare_on_ip (const void *_a, const void *_b)
+{
+  const unique_IP *a = (const unique_IP*) _a;
+  const unique_IP *b = (const unique_IP*) _b;
+
+  return memcmp (&a->addr.ip, &b->addr.ip, sizeof(a->addr.ip));
+}
+
 /*
- * Print number of unique clients and their addresses.
+ * Print number of unique clients and their addresses sorted.
  *
  * If an IP was denied N times, print as e.g. "a.b.c.d (N)"
  */
 static void unique_ips_print (intptr_t service)
 {
   const unique_IP *ip;
-  size_t           num = 0;
+  size_t           i, num;
   size_t           indent = 12;
   char            *buf = NULL;
   FILE            *save = Modes.log;
@@ -1346,20 +1354,36 @@ static void unique_ips_print (intptr_t service)
   if (!Modes.log)
      return;
 
-  for (ip = g_unique_ips; ip; ip = ip->next)
+  for (num = 0, ip = g_unique_ips; ip; ip = ip->next)
+      if (ip->service == service)
+         num++;
+
+  if (num > 0)
   {
-    ip_address ip_addr;
+    unique_IP *_ip, *start;
 
-    if (ip->service != service)
-       continue;
+    start = _ip = calloc (sizeof(*start), num);
+    if (!start)
+       return;
 
-    mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, ip->addr);
-    modeS_asprintf (&buf, "%s", ip_addr);
+    for (ip = g_unique_ips; ip; ip = ip->next, _ip++)
+        if (ip->service == service)
+           memcpy (_ip, ip, sizeof(*_ip));
 
-    if (ip->denied > 0)
-         modeS_asprintf (&buf, " (%u), ", ip->denied);
-    else modeS_asprintf (&buf, ", ");
-    num++;
+    qsort (start, num, sizeof(*start), compare_on_ip);
+
+    for (i = 0, _ip = start; i < num; _ip++, i++)
+    {
+      ip_address ip_addr;
+
+      mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, _ip->addr);
+      modeS_asprintf (&buf, "%s", ip_addr);
+
+      if (_ip->denied > 0)
+           modeS_asprintf (&buf, " (%u), ", _ip->denied);
+      else modeS_asprintf (&buf, ", ");
+    }
+    free (start);
   }
 
   if (num == 0)
