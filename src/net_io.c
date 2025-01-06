@@ -99,6 +99,7 @@ static uint16_t   *net_num_connections (intptr_t service);
 static const char *net_service_descr (intptr_t service);
 static char       *net_service_error (intptr_t service);
 static char       *net_service_url (intptr_t service);
+static bool        client_is_extern (const mg_addr *addr);
 static bool        client_handler (mg_connection *c, intptr_t service, int ev);
 const char        *mg_unpack (const char *path, size_t *size, time_t *mtime);
 
@@ -1375,6 +1376,9 @@ static void unique_ips_print (intptr_t service)
     for (i = 0, _ip = start; i < num; _ip++, i++)
     {
       ip_address ip_addr;
+
+      if (!client_is_extern(&_ip->addr))
+         continue;
 
       mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, _ip->addr);
       modeS_asprintf (&buf, "%s", ip_addr);
