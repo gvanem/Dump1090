@@ -1703,6 +1703,11 @@ DEF_WIN_FUNC (HINTERNET, InternetOpenUrlA, (HINTERNET   hnd,
                                             DWORD       flags,
                                             DWORD_PTR   context));
 
+DEF_WIN_FUNC (BOOL, InternetSetOptionA, (HINTERNET hnd,
+                                         DWORD     option,
+                                         void     *buf,
+                                         DWORD     buf_len));
+
 DEF_WIN_FUNC (BOOL, InternetReadFile, (HINTERNET hnd,
                                        void     *buffer,
                                        DWORD     num_bytes_to_read,
@@ -1825,7 +1830,8 @@ const char *wininet_strerror (DWORD err)
  */
 static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
 {
-  DWORD url_flags;
+  DWORD url_flags, opt;
+  BOOL  rc;
 
   *h1 = (*p_InternetOpenA) ("dump1090", INTERNET_OPEN_TYPE_DIRECT,
                             NULL, NULL,
@@ -1836,6 +1842,22 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
     DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", Modes.wininet_last_error);
     return (false);
   }
+
+  /* Enable gzip and deflate decoding schemes
+   */
+  opt = TRUE;
+  rc = (*p_InternetSetOptionA) (*h1, INTERNET_OPTION_HTTP_DECODING, (void*)&opt, sizeof(opt));
+  if (!rc)
+     DEBUG (DEBUG_NET, "InternetSetOptionA (INTERNET_OPTION_HTTP_DECODING) failed: %s.\n",
+            win_strerror(GetLastError()));
+
+  /* Enable HTTP/2 protocol support
+   */
+  opt = HTTP_PROTOCOL_FLAG_HTTP2;
+  rc = (*p_InternetSetOptionA) (*h1, INTERNET_OPTION_ENABLE_HTTP_PROTOCOL, (void*)&opt, sizeof(opt));
+  if (!rc)
+     DEBUG (DEBUG_NET, "InternetSetOptionA (INTERNET_OPTION_ENABLE_HTTP_PROTOCOL) failed: %s.\n",
+            win_strerror(GetLastError()));
 
   url_flags = INTERNET_FLAG_RELOAD |
               INTERNET_FLAG_PRAGMA_NOCACHE |
@@ -1866,6 +1888,7 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
 static struct dyn_struct wininet_funcs[] = {
                          ADD_VALUE (InternetOpenA),
                          ADD_VALUE (InternetOpenUrlA),
+                         ADD_VALUE (InternetSetOptionA),
                          ADD_VALUE (InternetGetLastResponseInfoA),
                          ADD_VALUE (InternetReadFile),
                          ADD_VALUE (InternetCloseHandle),
