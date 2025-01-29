@@ -1283,7 +1283,7 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
 
   if (addr->is_ip6 ||               /* check only IPv4 addresses */
       *(uint32_t*) &addr->ip == 0)  /* Ignore 0.0.0.0 */
-     return (true);
+     return (false);
 
   for (ip = g_unique_ips; ip; ip = ip->next)
   {
@@ -1361,13 +1361,12 @@ static void unique_ips_print (intptr_t service)
 
   if (num > 0)
   {
-    unique_IP *_ip, *start;
+    unique_IP *_ip, *start = calloc (sizeof(*start), num);
 
-    start = _ip = calloc (sizeof(*start), num);
     if (!start)
        return;
 
-    for (ip = g_unique_ips; ip; ip = ip->next, _ip++)
+    for (ip = g_unique_ips, _ip = start; ip; ip = ip->next, _ip++)
         if (ip->service == service)
            memcpy (_ip, ip, sizeof(*_ip));
 
@@ -1376,9 +1375,6 @@ static void unique_ips_print (intptr_t service)
     for (i = 0, _ip = start; i < num; _ip++, i++)
     {
       ip_address ip_addr;
-
-      if (!client_is_extern(&_ip->addr))
-         continue;
 
       mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, _ip->addr);
       modeS_asprintf (&buf, "%s", ip_addr);
@@ -1396,6 +1392,11 @@ static void unique_ips_print (intptr_t service)
 
   fprintf (Modes.log, "%*s", (int)indent, " ");
   fputs_long_line (Modes.log, buf, indent);
+  if (Modes.debug & DEBUG_NET)
+  {
+    fprintf (stdout, "%*s", (int)indent, " ");
+    fputs_long_line (stdout, buf, indent);
+  }
   free (buf);
   Modes.log = save;
 }
@@ -1567,13 +1568,13 @@ static size_t deny_list_num6 (void)
 
 static bool client_is_extern (const mg_addr *addr)
 {
-  uint32_t ip4;
+  const struct in_addr *ia;
 
   if (addr->is_ip6)
      return (IN6_IS_ADDR_LOOPBACK ((const IN6_ADDR*)&addr->ip) == false);
 
-  ip4 = ntohl (*(const uint32_t*) &addr->ip);
-  return (ip4 != INADDR_LOOPBACK);    /* ip4 !== 127.0.0.1 */
+  ia = (const struct in_addr*) &addr->ip;
+  return (ia->s_net != 0 && ia->s_net != 127);   /* not 0.0.0.0 and not 127.x.y.z */
 }
 
 static bool client_handler (mg_connection *c, intptr_t service, int ev)
