@@ -194,6 +194,7 @@ static bool         flight_info_write (FILE *file, const flight_info *f);
 static void         flight_stats_now (flight_info_stats *stats);
 static const char  *find_airport_location (const char *IATA_or_ICAO);
 
+static const char   *usec_fmt;
 static airports_priv g_data;
 
 #if defined(USE_BIN_FILES)
@@ -395,22 +396,27 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
   return (rc);
 }
 
-static uint32_t num_lookups, num_misses;
-static double   hit_rate;
-const char     *usec_fmt;
+typedef struct search_stats {
+        uint32_t num_lookups;
+        uint32_t num_misses;
+        double   hit_rate;
+      } stats;
+
+static stats g_stats;
 
 /**
- * The compare functions for `qsort()` and `bsearch()`.
+ * The compare functions for `qsort_s()` and `bsearch_s()`.
  */
-static int CSV_compare_on_ICAO (const void *_a, const void *_b)
+static int CSV_compare_on_ICAO (void *context, const void *_a, const void *_b)
 {
   const airport *a = (const airport*) _a;
   const airport *b = (const airport*) _b;
-  int   rc = stricmp (a->ICAO, b->ICAO);
+  int    rc = stricmp (a->ICAO, b->ICAO);
+  stats *st = (stats*) context;
 
-  num_lookups++;
+  st->num_lookups++;
   if (rc)
-     num_misses++;
+     st->num_misses++;
   return (rc);
 }
 
@@ -426,22 +432,23 @@ static const airport *CSV_lookup_ICAO (const char *ICAO)
 {
   const airport *a = NULL;
 
-  num_lookups = num_misses = 0;
-  hit_rate = 0.0;
+  g_stats.num_lookups = 0;
+  g_stats.num_misses  = 0;
+  g_stats.hit_rate    = 0.0;
 
   if (g_data.airport_CSV)
   {
     airport key;
 
     strcpy_s (key.ICAO, sizeof(key.ICAO), ICAO);
-    a = bsearch (&key, g_data.airport_CSV, g_data.ap_stats.CSV_numbers,
-                 sizeof(*g_data.airport_CSV), CSV_compare_on_ICAO);
-    if (num_lookups)
+    a = bsearch_s (&key, g_data.airport_CSV, g_data.ap_stats.CSV_numbers,
+                   sizeof(*g_data.airport_CSV), CSV_compare_on_ICAO, &g_stats);
+    if (g_stats.num_lookups)
     {
-      if (num_misses == 0)
-           hit_rate = 1.0F;
-      else hit_rate = 1.0F - ((double)num_misses / (double)num_lookups);
-      hit_rate *= 100.0F;
+      if (g_stats.num_misses == 0)
+           g_stats.hit_rate = 1.0F;
+      else g_stats.hit_rate = 1.0F - ((double)g_stats.num_misses / (double)g_stats.num_lookups);
+      g_stats.hit_rate *= 100.0F;
     }
   }
   return (a);
@@ -516,8 +523,8 @@ static bool airports_init_CSV (void)
   {
     airport *a = g_data.airport_CSV + 0;
 
-    qsort (g_data.airport_CSV, g_data.ap_stats.CSV_numbers, sizeof(*g_data.airport_CSV),
-           CSV_compare_on_ICAO);
+    qsort_s (g_data.airport_CSV, g_data.ap_stats.CSV_numbers, sizeof(*g_data.airport_CSV),
+             CSV_compare_on_ICAO, &g_stats);
 
     for (i = 0; i < g_data.ap_stats.CSV_numbers; i++, a++)
     {
@@ -1517,7 +1524,7 @@ static const char *find_airport_location (const char *IATA_or_ICAO)
  */
 static void airport_print_header (unsigned line, bool use_usec)
 {
-  usec_fmt = use_usec ? "%.2f" : "%.2f%%";
+  usec_fmt = (use_usec ? "%.2f" : "%.2f%%");
 
   printf ("line: %u:\n"
           "  Record  ICAO       IATA       cont location               full_name                                                lat       lon  %s\n"
@@ -1603,7 +1610,7 @@ static void airport_CSV_test_2 (void)
     if (!a && !strcmp(t->ICAO, "XXXX"))   /* the "XXXX" will never be found. That's OK */
        num_ok++;
 
-    airport_print_rec (a, t->ICAO, i, hit_rate, true);
+    airport_print_rec (a, t->ICAO, i, g_stats.hit_rate, true);
   }
   printf ("  %3zu OKAY\n", num_ok);
   printf ("  %3zu FAIL\n\n", i - num_ok);
