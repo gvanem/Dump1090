@@ -160,6 +160,7 @@ LDFLAGS = -nologo -map -debug -verbose    \
           -incremental:no -machine:$(CPU) \
           -nodefaultlib:oldnames.lib      \
           -nodefaultlib:libcmt.lib        \
+          -nodefaultlib:sapi.lib          \
           -nodefaultlib:uuid.lib
 
 RCFLAGS = -nologo
@@ -198,7 +199,7 @@ ASAN_LIBS =
 COPY_DLLs =
 
 ifeq ($(CC)-$(USE_UBSAN),cl-1)
-  $(error 'USE_UBSAN' is not for 'cl' only)
+  $(error 'USE_UBSAN' is not for 'cl')
 endif
 
 #

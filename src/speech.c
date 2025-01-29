@@ -7,6 +7,7 @@
  */
 #define CINTERFACE
 #define COBJMACROS
+#define INITGUID
 
 #include "speech.h"
 #include <sapi.h>
@@ -86,6 +87,14 @@ static const char  *sp_running_state (SPRUNSTATE state);
             return (false);                                              \
           }                                                              \
         } while (0)
+
+/*
+ * Avoid linking with 'SAPI.lib' and define these here.
+ */
+DEFINE_GUID (IID_ISpObjectTokenCategory,  0x2D3D3845, 0x39AF, 0x4850, 0xBB, 0xF9, 0x40, 0xB4, 0x97, 0x80, 0x01, 0x1D);
+DEFINE_GUID (IID_ISpVoice,                0x6C44DF74, 0x72B9, 0x4992, 0xA1, 0xEC, 0xEF, 0x99, 0x6e, 0x04, 0x22, 0xD4);
+DEFINE_GUID (CLSID_SpObjectTokenCategory, 0xA910187F, 0x0C7A, 0x45AC, 0x92, 0xCC, 0x59, 0xED, 0xaf, 0xB7, 0x7B, 0x53);
+DEFINE_GUID (CLSID_SpVoice,               0x96749377, 0x3391, 0x11D2, 0x9E, 0xE3, 0x00, 0xC0, 0x4f, 0x79, 0x73, 0x96);
 
 #if 0
 /**
