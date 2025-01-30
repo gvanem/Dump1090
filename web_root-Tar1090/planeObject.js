@@ -853,6 +853,11 @@ PlaneObject.prototype.updateIcon = function() {
         if (useRouteAPI && this.routeString)
             callsign += ' - ' + this.routeString;
 
+        if (!extendedLabels && this.type == "ais") {
+            // show registration instead for ships as callsign is less useful
+            callsign = this.registration;
+        }
+
         const unknown = NBSP+NBSP+"?"+NBSP+NBSP;
 
         let alt;
@@ -1984,7 +1989,10 @@ PlaneObject.prototype.updateLines = function() {
             const date = new Date(seg.ts * 1000);
             let refDate = showTrace ? traceDate : new Date();
             if (replay) { refDate = replay.ts };
-            if (getDay(refDate) == getDay(date)) {
+            if (useLocal && historic) {
+                timestamp1 = lDateString(date);
+                timestamp1 += '\n';
+            } else if (getDay(refDate) == getDay(date)) {
                 timestamp1 = "";
             } else {
                 if (useLocal) {
@@ -2001,7 +2009,7 @@ PlaneObject.prototype.updateLines = function() {
                 timestamp2 += zuluTime(date);
             }
 
-            if (traces_high_res) {
+            if (traces_high_res || debugTracks) {
                 timestamp2 += '.' + (Math.floor((seg.ts*10)) % 10);
             }
 

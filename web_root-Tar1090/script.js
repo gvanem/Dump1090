@@ -100,7 +100,7 @@ let userScale = 1;
 let iconScale = 1;
 let labelScale = 1;
 let newWidth = lineWidth;
-let SiteOverride = false;
+let SiteOverride = (SiteLat != null && SiteLon != null);
 let onJumpInput = null;
 let labelFill = null;
 let blackFill = null;
@@ -147,7 +147,6 @@ let infoBlockWidth = baseInfoBlockWidth;
 const renderBuffer = 60;
 
 let shareLink = '';
-
 
 let CenterLat = 0;
 let CenterLon = 0;
@@ -508,6 +507,7 @@ function afterFirstFetch() {
             func();
         }
 
+
         geoMag = geoMagFactory(cof2Obj());
 
         db_load_type_cache().always(function() {
@@ -712,13 +712,10 @@ function initialize() {
                 trace_hist_only = true;
             if (receiverJson.json_trace_interval < 2)
                 traces_high_res = true;
-            if (receiverJson.lat != null) {
+            if (receiverJson.lat != null && !SiteOverride) {
                 //console.log("receiver.json lat: " + receiverJson.lat)
                 SiteLat = receiverJson.lat;
                 SiteLon = receiverJson.lon;
-                SitePosition = [SiteLon, SiteLat];
-                DefaultCenterLat = receiverJson.lat;
-                DefaultCenterLon = receiverJson.lon;
             }
             if (receiverJson.jaeroTimeout) {
                 jaeroTimeout = receiverJson.jaeroTimeout * 60;
@@ -730,6 +727,13 @@ function initialize() {
                 altitudeFilter = false;
             }
         }
+
+        if (SiteLat && SiteLon) {
+            SitePosition = [SiteLon, SiteLat];
+            DefaultCenterLat = SiteLat;
+            DefaultCenterLon = SiteLon;
+        }
+
         configureReceiver = null;
 
         // Initialize stuff
@@ -836,11 +840,9 @@ function initPage() {
         let lat = parseFloat(usp.get('SiteLat'));
         let lon = parseFloat(usp.get('SiteLon'));
         if (!isNaN(lat) && !isNaN(lon)) {
-            if (true || usp.has('SiteNosave')) {
-                SiteLat = CenterLat = DefaultCenterLat = lat;
-                SiteLon = CenterLon = DefaultCenterLon = lon;
-                SiteOverride = true;
-            }
+            SiteLat = CenterLat = DefaultCenterLat = lat;
+            SiteLon = CenterLon = DefaultCenterLon = lon;
+            SiteOverride = true;
             loStore['SiteLat'] = lat;
             loStore['SiteLon'] = lon;
         }
@@ -1710,12 +1712,8 @@ jQuery('#selected_altitude_geom1')
 
 
     if (hideButtons) {
-        jQuery('#header_top').hide();
-        jQuery('#header_side').hide();
-        jQuery('#tabs').hide();
-        jQuery('#filterButton').hide();
-        jQuery('.ol-control').hide();
-        jQuery('.ol-attribution').show();
+        showHideButtons();
+        runAfterLoad(showHideButtons);
     }
 }
 
@@ -2054,14 +2052,17 @@ function setIntervalTimers() {
 }
 
 function updateDrones() {
-    let req = jQuery.ajax({
-        url: droneJson,
-        dataType: 'json',
-    });
+    let jsons = Array.isArray(droneJson) ? droneJson : [ droneJson ];
+    for (let i in jsons) {
+        let req = jQuery.ajax({
+            url: jsons[i],
+            dataType: 'json',
+        });
 
-    req.done(function(data) {
-        handleDrones(data);
-    });
+        req.done(function(data) {
+            handleDrones(data);
+        });
+    }
 }
 
 function handleDrones(data) {
@@ -2084,7 +2085,7 @@ function processDrone(drone, now, last) {
         plane = new PlaneObject(hex);
     }
 
-    let ac = {};
+    let ac = drone;
 
     ac.type = 'other';
     ac.t = 'DRON';
@@ -2640,6 +2641,25 @@ function initMapEarly() {
     });
 }
 
+function showHideButtons() {
+    if (hideButtons) {
+        jQuery('#header_top').hide();
+        jQuery('#header_side').hide();
+        jQuery('#splitter').hide();
+        jQuery('#tabs').hide();
+        jQuery('#filterButton').hide();
+        jQuery('.ol-zoom').hide();
+        jQuery('.layer-switcher').hide();
+    } else {
+        jQuery('#header_top').show();
+        jQuery('#header_side').show();
+        jQuery('#splitter').show();
+        jQuery('#tabs').show();
+        jQuery('#filterButton').show();
+        jQuery('.ol-zoom').show();
+        jQuery('.layer-switcher').show();
+    }
+}
 
 // Initalizes the map and starts up our timers to call various functions
 function initMap() {
@@ -2964,26 +2984,8 @@ function initMap() {
                 resetMap();
                 break;
             case "H":
-                if (!hideButtons) {
-                    jQuery('#header_top').hide();
-                    jQuery('#header_side').hide();
-                    jQuery('#splitter').hide();
-                    jQuery('#tabs').hide();
-                    jQuery('#filterButton').hide();
-                    jQuery('.ol-control').hide();
-                    jQuery('.ol-attribution').show();
-                } else {
-                    jQuery('#header_top').show();
-                    jQuery('#header_side').show();
-                    jQuery('#splitter').show();
-                    jQuery('#tabs').show();
-                    jQuery('#filterButton').show();
-                    jQuery('.ol-control').show();
-                    jQuery('#expand_sidebar_control').hide();
-                    toggles['sidebar_visible'].restore();
-                    TAR.altitudeChart.render();
-                }
                 hideButtons = !hideButtons;
+                showHideButtons();
                 break;
             case "f":
                 toggleFollow();
@@ -6661,6 +6663,9 @@ function setLineWidth() {
 }
 let lastCallLocationChange = 0;
 function onLocationChange(position) {
+    if (SiteOverride) {
+        return;
+    }
     lastCallLocationChange = new Date().getTime();
     changeCenter();
     const moveMap = (Math.abs(SiteLat - CenterLat) < 0.000001 && Math.abs(SiteLon - CenterLon) < 0.000001);
@@ -6829,7 +6834,7 @@ function initSitePos() {
             if (SitePosition) {
                 TAR.planeMan.cols.sitedist.sort();
             } else {
-                planeMan.sortAscending = false;
+                TAR.planeMan.sortAscending = false;
                 TAR.planeMan.cols.altitude.sort();
             }
         }
