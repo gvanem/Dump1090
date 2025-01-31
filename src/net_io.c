@@ -1727,6 +1727,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
                            ADD_FUNC (mg_unlist),
                            ADD_FUNC (mg_spec)
                          };
+  static char *web_funcs [DIM(web_page_funcs)];
 
   static bool load_web_dll (char *web_dll)
   {
@@ -1769,6 +1770,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
         LOG_STDERR ("Memory alloc for the web-page \"%s\" failed!.\n", web_dll);
         return (false);
       }
+      web_funcs [num] = (char*) web_page_funcs [num].func_name;
     }
 
     rc = true;
@@ -1797,8 +1799,8 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
     if (!use_packed_dll)
        return;
 
-    for (i = 0; i < DIM(web_page_funcs); i++)
-        free ((char*)web_page_funcs [i].func_name);
+    for (i = 0; i < DIM(web_funcs); i++)
+       free (web_funcs [i]);
     unload_dynamic_table (web_page_funcs, DIM(web_page_funcs));
   }
 
