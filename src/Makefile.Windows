@@ -654,7 +654,6 @@ endef
 define func_exports
   $(foreach e, $(1), -export:mg_unpack_$(e))
   $(foreach e, $(1), -export:mg_unlist_$(e))
-  $(foreach e, $(1), -export:mg_spec_$(e))
 endef
 
 #

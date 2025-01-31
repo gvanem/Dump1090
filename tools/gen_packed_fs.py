@@ -57,11 +57,6 @@ const char *mg_unpack%s (const char *name, size_t *size, time_t *mtime)
   }
   return (NULL);
 }
-
-const char *mg_spec%s (void)
-{
-  return ("%s");
-}
 """
 
 def trace (level, s):
@@ -205,14 +200,14 @@ def show_help (error=None):
 
 def parse_cmdline():
   parser = argparse.ArgumentParser (add_help = False)
-  parser.add_argument ("-h", "--help",        dest = "help", action = "store_true")
-  parser.add_argument ("-i", "--ignore",      action = "append", default = [])
-  parser.add_argument ("-m", "--minify",      dest = "minify", action = "store_true")
-  parser.add_argument ("-o", "--outfile",     dest = "outfile", type = str)
-  parser.add_argument ("-r", "--recursive",   dest = "recursive", action = "store_true")
-  parser.add_argument ("-s", "--strip",       dest = "strip", default = "")
-  parser.add_argument ("-S", "--suffix",      dest = "suffix", default = "")
-  parser.add_argument ("-v", "--verbose",     dest = "verbose", action = "count", default = 0)
+  parser.add_argument ("-h", "--help",      dest = "help", action = "store_true")
+  parser.add_argument ("-i", "--ignore",    action = "append", default = [])
+  parser.add_argument ("-m", "--minify",    dest = "minify", action = "store_true")
+  parser.add_argument ("-o", "--outfile",   dest = "outfile", type = str)
+  parser.add_argument ("-r", "--recursive", dest = "recursive", action = "store_true")
+  parser.add_argument ("-s", "--strip",     dest = "strip", default = "")
+  parser.add_argument ("-S", "--suffix",    dest = "suffix", default = "")
+  parser.add_argument ("-v", "--verbose",   dest = "verbose", action = "count", default = 0)
   parser.add_argument ("spec", nargs = argparse.REMAINDER)
   return parser.parse_args()
 
@@ -285,7 +280,7 @@ for n, f in enumerate (files_dict):
 out.write (C_ARRAY)
 write_packed_files_array (out)
 
-out.write (C_BOTTOM % (opt.suffix, opt.suffix, opt.suffix, opt.spec))
+out.write (C_BOTTOM % (opt.suffix, opt.suffix))
 out.close()
 
 if opt.minify:

@@ -46,10 +46,8 @@ static uint32_t     num_lookups, num_misses;
  * Define the func-ptr to the `mg_unpack()` + `mg_unlist()` functions loaded
  * dynamically from the `web-page = some.dll;N` config-file setting.
  */
-
 DEF_C_FUNC (const char *, mg_unpack, (const char *name, size_t *size, time_t *mtime));
 DEF_C_FUNC (const char *, mg_unlist, (size_t i));
-DEF_C_FUNC (const char *, mg_spec,   (void));
 
 /**
  * For handling denial of clients in `client_handler (.., MG_EV_ACCEPT)` .
@@ -1724,8 +1722,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
 
   static struct dyn_struct web_page_funcs [] = {
                            ADD_FUNC (mg_unpack),
-                           ADD_FUNC (mg_unlist),
-                           ADD_FUNC (mg_spec)
+                           ADD_FUNC (mg_unlist)
                          };
   static char *web_funcs [DIM(web_page_funcs)];
 
@@ -1884,14 +1881,6 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
       qsort (lookup_table, num, sizeof(*lookup_table), compare_on_name);
     }
     return (true);
-  }
-
-  /*
-   * Returns the `spec` used to generate the "Packed Web" files.
-   */
-  const char *mg_spec (void)
-  {
-    return (*p_mg_spec)();
   }
 
   /*
