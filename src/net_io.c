@@ -2164,7 +2164,7 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
   IP_ADDR_STRING *ip;
   FILE           *f = NULL;
   int             i;
-  const char     *ping6_cmd = "ping.exe -6 -n 1 dns.google 2> NUL";
+  const char     *ping6_cmd = "ping.exe -6 -n 1 ipv6.google.com 2> NUL";
   char            ping6_buf [500];
   char            ping6_addr[50];
 
@@ -2202,8 +2202,11 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
 
   /*
    * Fake alert:
-   *  If a `system ("ping.exe -6 -n 1 dns.google")` works, just assume that
+   *  If a `system ("ping.exe -6 -n 1 ipv6.google.com")` works, just assume that
    *  the `Reply from <ping6_addr> time=zz sec' will work as the DNS6 address.
+   * Note:
+   *   `ipv6.google.com` does not have IPv4 address, only IPv6, therefore
+   *   it is guaranteed to hit IPv6 resolution path.
    */
   _set_errno (0);
   f = _popen (ping6_cmd, "r");
@@ -2218,6 +2221,7 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
     str_rtrim (ping6_buf);
     if (!ping6_buf[0] || ping6_buf[0] == '\n')
        continue;
+
     DEBUG (DEBUG_NET, "_popen(): '%s'\n", ping6_buf);
     if (sscanf(ping6_buf, "Reply from %s", ping6_addr) == 1)
     {
@@ -2348,7 +2352,7 @@ bool net_init (void)
   if (Modes.dns4)
      Modes.mgr.dns4.url = Modes.dns4;
   if (Modes.dns6)
-     Modes.mgr.dns4.url = Modes.dns6;
+     Modes.mgr.dns6.url = Modes.dns6;
 
   LOG_FILEONLY ("Added %zu IPv4 and %zu IPv6 addresses to deny.\n",
                deny_list_num4(), deny_list_num6());
