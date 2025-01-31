@@ -2,8 +2,8 @@
  * \ingroup Misc
  * \brief   Simple SAPI5 speech-interface.
  *
- * SAPI overview:
- *   https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ms720151(v=vs.85)
+ * SAPI 5.4 overview:
+ *   https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee125077(v=vs.85)
  */
 #define CINTERFACE
 #define COBJMACROS
@@ -328,8 +328,8 @@ void speak_exit (void)
  */
 static bool speak_queue_add (const char *str)
 {
-  size_t len = strlen (str);
-  speak_queue *sq = calloc (sizeof(*sq) + sizeof(*sq->wstr) * (len + 1), 1);
+  size_t       len = strlen (str);
+  speak_queue *sq  = calloc (sizeof(*sq) + sizeof(*sq->wstr) * (len + 1), 1);
 
   if (!sq)
      return (false);
@@ -642,10 +642,10 @@ static const char *hr_strerror (HRESULT hr)
 static const char *sp_running_state (SPRUNSTATE state)
 {
   static const search_list running_states[] = {
-                             { 0, "Waiting to speak" },
-                             ADD_VALUE (SPRS_DONE),
-                             ADD_VALUE (SPRS_IS_SPEAKING)
-                           };
+                           { 0, "Waiting to speak" },
+                           ADD_VALUE (SPRS_DONE),
+                           ADD_VALUE (SPRS_IS_SPEAKING)
+                         };
   static char buf [100];
   const char *name = search_list_name (state, running_states, DIM(running_states));
 
