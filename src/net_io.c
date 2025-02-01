@@ -1279,7 +1279,7 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
 
   *ipp = NULL;
 
-  if (addr->is_ip6 ||               /* check only IPv4 addresses */
+  if (addr->is_ip6 ||               /* ignore IPv6 addresses */
       *(uint32_t*) &addr->ip == 0)  /* Ignore 0.0.0.0 */
      return (false);
 
@@ -1364,9 +1364,10 @@ static void unique_ips_print (intptr_t service)
     if (!start)
        return;
 
-    for (ip = g_unique_ips, _ip = start; ip; ip = ip->next, _ip++)
+    _ip = start;
+    for (ip = g_unique_ips; ip; ip = ip->next)
         if (ip->service == service)
-           memcpy (_ip, ip, sizeof(*_ip));
+           memcpy (_ip++, ip, sizeof(*_ip));
 
     qsort (start, num, sizeof(*start), compare_on_ip);
 
@@ -1392,6 +1393,7 @@ static void unique_ips_print (intptr_t service)
   fputs_long_line (Modes.log, buf, indent);
   if (Modes.debug & DEBUG_NET)
   {
+    indent -= strlen ("HH:MM:SS.MMM:");
     fprintf (stdout, "%*s", (int)indent, " ");
     fputs_long_line (stdout, buf, indent);
   }
@@ -1598,7 +1600,7 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
       is_tls = ", TLS";
     }
 
-    if (client_is_extern(addr))           /* Not from 127.0.0.1 */
+    if (client_is_extern(addr))           /* Not from '127.x.y.z' or '::1' */
     {
       bool deny = client_deny (addr, NULL);
 
