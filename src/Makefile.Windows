@@ -39,12 +39,6 @@ USE_NET_POLLER ?= WSAPOLL
 USE_PACKED_DLL ?= 0
 
 #
-# Pack '../web-pages.dll' using UPX.EXE? Needs an up-to-date version
-# found under https://github.com/upx/upx/releases
-#
-USE_UPX ?= 0
-
-#
 # Enable the 2.4 MS/s decoder from 'readsb'?
 # Not possible at the moment.
 #
@@ -656,24 +650,12 @@ define func_exports
   $(foreach e, $(1), -export:mg_unlist_$(e))
 endef
 
-#
-# This will typically shrink '../web-pages.dll' from 125 MBytes to 25 MBytes.
-# 5 times smaller!
-#
-ifeq ($(USE_UPX),1)
-  upx_pack = $(call green_msg, Compressing $(1) will take some time...) && \
-             upx -v $(1)
-else
-  upx_pack = @echo
-endif
-
 define link_web_DLL
   $(call green_msg, Linking $(1))
   $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2) oldnames.lib)
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.dll=.map)
   @rm -f $(1:.dll=.exp) $(1:.dll=.lib)
-  $(call upx_pack, $(1))
 endef
 
 define Warning
