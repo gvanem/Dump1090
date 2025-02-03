@@ -28,7 +28,8 @@ net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
           { &Modes.raw_in,     "Raw TCP input",  "tcp", MODES_NET_PORT_RAW_IN  },  // MODES_NET_SERVICE_RAW_IN
           { &Modes.sbs_out,    "SBS TCP output", "tcp", MODES_NET_PORT_SBS     },  // MODES_NET_SERVICE_SBS_OUT
           { &Modes.sbs_in,     "SBS TCP input",  "tcp", MODES_NET_PORT_SBS     },  // MODES_NET_SERVICE_SBS_IN
-          { &Modes.http_out,   "HTTP server",    "tcp", MODES_NET_PORT_HTTP    },  // MODES_NET_SERVICE_HTTP
+          { &Modes.http4_out,  "HTTP4 server",   "tcp", MODES_NET_PORT_HTTP    },  // MODES_NET_SERVICE_HTTP4
+          { &Modes.http6_out,  "HTTP6 server",   "tcp", MODES_NET_PORT_HTTP    },  // MODES_NET_SERVICE_HTTP6
           { &Modes.rtl_tcp_in, "RTL-TCP input",  "tcp", MODES_NET_PORT_RTL_TCP }   // MODES_NET_SERVICE_RTL_TCP
         };
 
@@ -75,17 +76,6 @@ typedef struct unique_IP {
 
 static unique_IP *g_unique_ips = NULL;
 
-/**
- * For handling timers in each network service.
- */
-typedef struct timeout_data {
-        mg_timer *timer;
-        intptr_t  service;
-        int32_t   id;
-      } timeout_data;
-
-static timeout_data service_timers [MODES_NET_SERVICES_NUM];
-
 static void        net_handler (mg_connection *c, int ev, void *ev_data);
 static void        net_timer_add (intptr_t service, int timeout_ms, int flag);
 static void        net_timer_del (intptr_t service);
@@ -115,6 +105,12 @@ static bool rtl_tcp_decode (mg_iobuf *msg, int loop_cnt);
                            assert (s <= MODES_NET_SERVICE_LAST)
 
 /**
+ * \def HTTP_SERVICE(s)
+ * Return true for `s == MODES_NET_SERVICE_HTTP4 || s == MODES_NET_SERVICE_HTTP6`.
+ */
+#define HTTP_SERVICE(s) (s == MODES_NET_SERVICE_HTTP4 || s == MODES_NET_SERVICE_HTTP6)
+
+/**
  * \def HEX_DUMP(data, len)
  * Do a hex-dump of network data if option `--debug M` was used.
  */
@@ -127,8 +123,9 @@ static bool rtl_tcp_decode (mg_iobuf *msg, int loop_cnt);
 /**
  * For 'deny_lists_test()' and 'unique_ip_tests()'
  */
-#define HOSTILE_IP_1  "45.128.232.127"
-#define HOSTILE_IP_2  "80.94.95.226"
+#define HOSTILE_IP_1   "45.128.232.127"
+#define HOSTILE_IP_2   "80.94.95.226"
+#define HOSTILE_IP6_1  "2a00:1450:400f:803::200e"    /* ipv6.google.com :-) */
 
 /**
  * Mongoose event names.
@@ -171,13 +168,22 @@ static const char *event_name (int ev)
  * Active or passive (`listen == true`).
  * If it's active, we could use UDP.
  */
-static mg_connection *connection_setup (intptr_t service, bool listen, bool sending)
+static mg_connection *connection_setup (intptr_t service, bool listen, bool sending, bool is_ipv6)
 {
   mg_connection *c = NULL;
   bool           allow_udp = (service == MODES_NET_SERVICE_RAW_IN ||
                               service == MODES_NET_SERVICE_RTL_TCP);
   bool           use_udp = (modeS_net_services [service].is_udp && !modeS_net_services [service].is_ip6);
   char          *url;
+  const char    *listen_fmt = "%s://0.0.0.0:%u";
+
+  if (is_ipv6)
+  {
+    listen_fmt = "%s://[::]:%u";
+    modeS_net_services [service].is_ip6 = true;
+    if (!Modes.dns6)
+       LOG_STDERR ("WARNING: IPv6 support not detected. IPv6 will only work for local-LAN.\n");
+  }
 
   /* Temporary enable important errors to go to `stderr` only.
    * For both an active and listen (passive) coonection we handle
@@ -201,12 +207,12 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
 
   if (listen)
   {
-    url = mg_mprintf ("%s://0.0.0.0:%u",
+    url = mg_mprintf (listen_fmt,
                       modeS_net_services [service].protocol,
                       modeS_net_services [service].port);
     modeS_net_services [service].url = url;
 
-    if (service == MODES_NET_SERVICE_HTTP)
+    if (HTTP_SERVICE(service))
          c = mg_http_listen (&Modes.mgr, url, net_handler, (void*)service);
     else c = mg_listen (&Modes.mgr, url, net_handler, (void*)service);
   }
@@ -235,8 +241,13 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     c = mg_connect (&Modes.mgr, url, net_handler, (void*)service);
   }
 
-  if (Modes.https_enable && service == MODES_NET_SERVICE_HTTP)
-     strcpy (modeS_net_services [MODES_NET_SERVICE_HTTP].descr, "HTTP(S) Server");
+  if (Modes.https_enable)
+  {
+    if (service == MODES_NET_SERVICE_HTTP4)
+       strcpy (modeS_net_services [MODES_NET_SERVICE_HTTP4].descr, "HTTPS Server");
+    else if (service == MODES_NET_SERVICE_HTTP6)
+       strcpy (modeS_net_services [MODES_NET_SERVICE_HTTP6].descr, "HTTPS6 Server");
+  }
 
   if (c && (Modes.debug & DEBUG_MONGOOSE2))
      c->is_hexdumping = 1;
@@ -318,7 +329,8 @@ void net_connection_send (intptr_t service, const void *msg, size_t len)
 
 /**
  * Returns a `connection *` based on the remote `addr` and `service`.
- * This can be either client or server.
+ * `addr` includes port and `scope_id` for IPv6.
+ * This can be for either client or server.
  */
 connection *connection_get (mg_connection *c, intptr_t service, bool is_server)
 {
@@ -468,6 +480,7 @@ static char *receiver_to_json (void)
 
 /**
  * The event handler for all HTTP traffic.
+ * I.e. `HTTP_SERVICE(service) == true`.
  */
 static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri request_uri)
 {
@@ -478,6 +491,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   const char  *uri, *dot, *first_nl;
   mg_host_name addr_buf;
   size_t       len;
+  intptr_t     service = (c->loc.is_ip6 ? MODES_NET_SERVICE_HTTP6 : MODES_NET_SERVICE_HTTP4);
 
   /* Make a copy of the URI for the caller
    */
@@ -511,7 +525,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
     return (400);
   }
 
-  cli = connection_get (c, MODES_NET_SERVICE_HTTP, false);
+  cli = connection_get (c, service, false);
   if (!cli)
      return (505);
 
@@ -655,59 +669,47 @@ static int net_handler_websocket (mg_connection *c, const mg_ws_message *ws, int
  * The timer callback for an active `connect()`.
  * Or for data-timeout in `MODES_NET_SERVICE_RTL_TCP` service.
  */
-static void net_timeout (const timeout_data *td)
+static void net_timeout (intptr_t service)
 {
   char        err [200];
-  const char *what = "connection";
+  const char *what = "connection to";
 
-  if (td->service == MODES_NET_SERVICE_RTL_TCP)
-     what = "data";
+  if (service == MODES_NET_SERVICE_RTL_TCP)
+     what = "data from";
 
-  snprintf (err, sizeof(err), "Timeout in %s to host %s (service: \"%s\", tid: %u)",
-            what, net_service_url(td->service), net_service_descr(td->service), td->id);
-  net_store_error (td->service, err);
+  snprintf (err, sizeof(err), "Timeout in %s host %s (service: \"%s\")",
+            what, net_service_url(service), net_service_descr(service));
+  net_store_error (service, err);
 
   modeS_signal_handler (0);  /* break out of main_data_loop()  */
 }
 
 static void net_timer_add (intptr_t service, int timeout_ms, int flag)
 {
-  ASSERT_SERVICE (service);
-  assert (flag == MG_TIMER_ONCE || flag == MG_TIMER_REPEAT);
-
   if (timeout_ms > 0)
   {
-    mg_timer *t = mg_timer_add (&Modes.mgr, timeout_ms, flag,
-                                (void (*)(void*)) net_timeout,
-                                &service_timers [service]);
+    mg_timer *t = mg_timer_add (&Modes.mgr, timeout_ms, flag, (void (*)(void*)) net_timeout, (void*)service);
 
-    service_timers [service].service = service;
-    service_timers [service].id      = (int32_t) t->id;
-    service_timers [service].timer   = t;
-    DEBUG (DEBUG_NET, "Added timer-id: %ld, %d msec, %s.\n",
-           t->id, timeout_ms, flag == MG_TIMER_ONCE ? "MG_TIMER_ONCE" : "MG_TIMER_REPEAT");
-  }
-  else
-  {
-    service_timers [service].id    = -1;
-    service_timers [service].timer = NULL;
+    if (!t)
+       return;
+
+    modeS_net_services [service].timer = t;
+    DEBUG (DEBUG_NET, "Added timer-id %lu for %s, %d msec, %s.\n",
+           t->id, net_service_descr(service), timeout_ms, flag == MG_TIMER_ONCE ? "MG_TIMER_ONCE" : "MG_TIMER_REPEAT");
   }
 }
 
 static void net_timer_del (intptr_t service)
 {
-  mg_timer *t;
+  mg_timer *t = modeS_net_services [service].timer;
 
-  ASSERT_SERVICE (service);
-  t = service_timers [service].timer;
-  if (t)
-  {
-    timeout_data *td = service_timers + service;
+  if (!t)
+     return;
 
-    DEBUG (DEBUG_NET, "Stopping timer-id: %d\n", td->id);
-    mg_timer_free (&Modes.mgr.timers, t);
-    FREE (service_timers [service].timer);
-  }
+  DEBUG (DEBUG_NET, "Stopping timer-id %lu for %s\n", t->id, net_service_descr(service));
+  mg_timer_free (&Modes.mgr.timers, t);
+  modeS_net_services [service].timer = NULL;
+  free (t);
 }
 
 static void net_timer_del_all (void)
@@ -923,6 +925,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
       else if (remote)
       {
         connection_failed_active (c, service, ev_data);
+        net_conn_free (Modes.connections[service], service);
         net_timer_del (service);
         modeS_signal_handler (0);   /* break out of main_data_loop()  */
       }
@@ -954,7 +957,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     conn->service = service;
     strcpy (conn->rem_buf, remote_buf);
 
-    if (Modes.https_enable && service == MODES_NET_SERVICE_HTTP)
+    if (Modes.https_enable && HTTP_SERVICE(service))
     {
       tls_handler (c, remote);
       is_tls = ", TLS";
@@ -1055,7 +1058,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     return;
   }
 
-  if (service == MODES_NET_SERVICE_HTTP)
+  if (HTTP_SERVICE(service))
   {
     mg_http_message *hm = ev_data;
     mg_ws_message   *ws = ev_data;
@@ -1083,7 +1086,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
  */
 static bool connection_setup_active (intptr_t service, mg_connection **c)
 {
-  *c = connection_setup (service, false, false);
+  *c = connection_setup (service, false, false, false);
   if (!*c)
   {
     char *err = net_error_details (NULL, "", modeS_err_get());
@@ -1100,9 +1103,9 @@ static bool connection_setup_active (intptr_t service, mg_connection **c)
 /**
  * Setup a listen connection for a service.
  */
-static bool connection_setup_listen (intptr_t service, mg_connection **c, bool sending)
+static bool connection_setup_listen (intptr_t service, mg_connection **c, bool sending, bool is_ipv6)
 {
-  *c = connection_setup (service, true, sending);
+  *c = connection_setup (service, true, sending, is_ipv6);
   if (!*c)
   {
     char *err = net_error_details (NULL, "", modeS_err_get());
@@ -1236,20 +1239,17 @@ bool net_handler_sending (intptr_t service)
 
 static void net_flush_all (void)
 {
-  mg_connection *c;
-  mg_timer      *t = Modes.mgr.timers;
-  uint32_t       num_active  = 0;
-  uint32_t       num_passive = 0;
-  uint32_t       num_unknown = 0;
-  uint32_t       num_timers  = 0;
-  size_t         total_rx = 0;
-  size_t         total_tx = 0;
+  mg_connection  *c;
+  const mg_timer *t;
+  uint32_t        num_active  = 0;
+  uint32_t        num_passive = 0;
+  uint32_t        num_unknown = 0;
+  uint32_t        num_timers  = 0;
+  size_t          total_rx = 0;
+  size_t          total_tx = 0;
 
-  while (t)
-  {
-    num_timers++;
-    t = t->next;
-  }
+  for (t = Modes.mgr.timers; t; t = t->next)
+      num_timers++;
 
   for (c = Modes.mgr.conns; c; c = c->next)
   {
@@ -1271,24 +1271,45 @@ static void net_flush_all (void)
 }
 
 /**
+ * Check if `*a == *b`.
+ */
+static bool addr_equal (const mg_addr *a, const mg_addr *b)
+{
+  if (a->is_ip6 != b->is_ip6)
+     return (false);
+
+  if (a->is_ip6)
+     return (memcmp (&a->ip, &b->ip, sizeof(a->ip)) == 0);
+  return (*(uint32_t*)&a->ip == *(uint32_t*)&b->ip);
+}
+
+static bool addr_none (const mg_addr *a)
+{
+  if (a->is_ip6)
+     return (memcmp (&a->ip, &in6addr_any, sizeof(a->ip)) == 0);
+  return (*(uint32_t*)&a->ip == 0);
+}
+
+/**
  * Check if the client `*addr` is unique.
  */
 static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP **ipp)
 {
   unique_IP *ip;
 
-  *ipp = NULL;
+  if (ipp)
+     *ipp = NULL;
 
-  if (addr->is_ip6 ||               /* ignore IPv6 addresses */
-      *(uint32_t*) &addr->ip == 0)  /* Ignore 0.0.0.0 */
+  if (addr_none(addr))               /* ignore an ANY address */
      return (false);
 
   for (ip = g_unique_ips; ip; ip = ip->next)
   {
-    if (ip->service == service && *(uint32_t*)&ip->addr.ip == *(uint32_t*)&addr->ip)
+    if (ip->service == service && addr_equal(addr, &ip->addr))
     {
       ip->accepted++;  /* accept() counter */
-      *ipp = ip;
+      if (ipp)
+         *ipp = ip;
       return (false);
     }
   }
@@ -1302,7 +1323,8 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
   ip->accepted = 1;
   get_FILETIME_now (&ip->seen);
   LIST_ADD_TAIL (unique_IP, &g_unique_ips, ip);
-  *ipp = ip;
+  if (ipp)
+     *ipp = ip;
   return (true);
 }
 
@@ -1316,7 +1338,7 @@ static bool client_is_unique (const mg_addr *addr, intptr_t service, unique_IP *
 
     mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, addr);
 
-    if (*ipp && (*ipp)->denied > 0)
+    if (ipp && *ipp && (*ipp)->denied > 0)
          printf ("  unique: %d, ip: %-15s denied: %u\n", unique, ip_addr, (*ipp)->denied);
     else printf ("  unique: %d, ip: %s\n", unique, ip_addr);
   }
@@ -1327,6 +1349,9 @@ static int compare_on_ip (const void *_a, const void *_b)
 {
   const unique_IP *a = (const unique_IP*) _a;
   const unique_IP *b = (const unique_IP*) _b;
+
+  if (a->addr.is_ip6 != b->addr.is_ip6)
+     return (-1);    /* put IPv6 addresses last */
 
   return memcmp (&a->addr.ip, &b->addr.ip, sizeof(a->addr.ip));
 }
@@ -1375,6 +1400,7 @@ static void unique_ips_print (intptr_t service)
     {
       ip_address ip_addr;
 
+      assert (_ip->service == service);
       mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, _ip->addr);
       modeS_asprintf (&buf, "%s", ip_addr);
 
@@ -1389,11 +1415,15 @@ static void unique_ips_print (intptr_t service)
        modeS_asprintf (&buf, "None!?");
   else *(strrchr (buf, '\0') - 2) = '\0';      /* remove last "," */
 
-  fprintf (Modes.log, "%*s", (int)indent, " ");
-  fputs_long_line (Modes.log, buf, indent);
-  if (Modes.debug & DEBUG_NET)
+  if (Modes.log != stdout)
   {
-    indent -= strlen ("HH:MM:SS.MMM:");
+    fprintf (Modes.log, "%*s", (int)indent, " ");
+    fputs_long_line (Modes.log, buf, indent);
+  }
+
+  if ((Modes.debug & DEBUG_NET) || test_contains(Modes.tests, "net"))
+  {
+    indent = 13;
     fprintf (stdout, "%*s", (int)indent, " ");
     fputs_long_line (stdout, buf, indent);
   }
@@ -1499,25 +1529,32 @@ static void deny_lists_test (void)
 
   printf ("\n%s():\n", __FUNCTION__);
 
-#define DENY_LIST_ADD(dest, value) \
-        str = mg_str (value);      \
-        mg_aton (str, dest);       \
-        net_deny4 (value)
+#define DENY_LIST_ADD4(dest, value) do { \
+          str = mg_str (value);          \
+          mg_aton (str, dest);           \
+          net_deny4 (value);             \
+        } while (0)
+
+#define DENY_LIST_ADD6(dest, value) do { \
+          str = mg_str (value);          \
+          mg_aton (str, dest);           \
+          net_deny6 (value);             \
+        } while (0)
 
   memset (&addr, '\0', sizeof(addr));
 
-  DENY_LIST_ADD (addr+0, "127.0.0.1");
-  DENY_LIST_ADD (addr+1, "127.0.0.2");
-  DENY_LIST_ADD (addr+2, "127.0.1.0");
-  DENY_LIST_ADD (addr+3, "127.0.1.1");
-  DENY_LIST_ADD (addr+4, "127.0.1.2");
-  DENY_LIST_ADD (addr+5, HOSTILE_IP_1);
-  DENY_LIST_ADD (addr+6, HOSTILE_IP_2);
+  DENY_LIST_ADD4 (addr+0, "127.0.0.1");
+  DENY_LIST_ADD4 (addr+1, "127.0.0.2");
+  DENY_LIST_ADD4 (addr+2, "127.0.1.0");
+  DENY_LIST_ADD4 (addr+3, "127.0.1.1");
+  DENY_LIST_ADD4 (addr+4, "127.0.1.2");
+  DENY_LIST_ADD4 (addr+5, HOSTILE_IP_1);
+  DENY_LIST_ADD4 (addr+6, HOSTILE_IP_2);
 
   a = addr + 0;
   for (i = 0; i < DIM(addr); i++, a++)
   {
-    char abuf [30];
+    char abuf [50];
     int  rc;
     bool deny = client_deny (a, &rc);
 
@@ -1591,10 +1628,10 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
 
   if (ev == MG_EV_ACCEPT)
   {
-    if (client_is_unique(addr, service, &unique))  /* Have we seen this IPv4-address before? */
+    if (client_is_unique(addr, service, &unique))  /* Have we seen this address before? */
        Modes.stat.unique_clients [service]++;
 
-    if (Modes.https_enable && service == MODES_NET_SERVICE_HTTP)
+    if (Modes.https_enable && HTTP_SERVICE(service))
     {
       tls_handler (c, NULL);
       is_tls = ", TLS";
@@ -1713,7 +1750,8 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
  * Functions for loading `web-pages.dll;[1-9]`.
  *
  * If program called with `--web-page web-pages.dll;1` for the 1st resource,
- * load all `mg_*_1()` functions dynamically. Similar for `--web-page web-pages.dll;2`.
+ * load `mg_unpack_1()` and `mg_unlist_1()` functions dynamically.
+ * Similar for `--web-page web-pages.dll;2`.
  *
  * But if program was called with `--web-page foo/index.html`, simply skip the loading
  * of the .DLL and check the regular Web-page `foo/index.html`.
@@ -2049,7 +2087,7 @@ void net_show_stats (void)
     LOG_STDOUT ("    %8llu bytes sent.\n", Modes.stat.bytes_sent [s]);
     LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv [s]);
 
-    if (s == MODES_NET_SERVICE_HTTP)
+    if (HTTP_SERVICE(s))
     {
       LOG_STDOUT ("    %8llu HTTP GET requests received.\n", Modes.stat.HTTP_get_requests);
       LOG_STDOUT ("    %8llu HTTP 400 replies sent.\n", Modes.stat.HTTP_400_responses);
@@ -2092,7 +2130,9 @@ static void unique_ip_add_hostile (const char *ip_str, int service)
   unique_IP *ip;
   mg_str     str;
 
-  DENY_LIST_ADD (&addr, ip_str);
+  if (service == MODES_NET_SERVICE_HTTP4)
+       DENY_LIST_ADD4 (&addr, ip_str);
+  else DENY_LIST_ADD6 (&addr, ip_str);
 
   if (client_is_unique(&addr, service, &ip))
      Modes.stat.unique_clients [service]++;
@@ -2106,8 +2146,7 @@ static void unique_ip_add_hostile (const char *ip_str, int service)
 static void unique_ip_tests (void)
 {
   const unique_IP *ip;
-  unique_IP       *ip2;
-  int              i, service = MODES_NET_SERVICE_HTTP;
+  int              i, service = MODES_NET_SERVICE_HTTP4;
   uint64_t         num;
   mg_addr          addr;
 
@@ -2118,32 +2157,52 @@ static void unique_ip_tests (void)
   unique_ip_add_hostile (HOSTILE_IP_2, service);
 
   *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK);   /* == 127.0.0.1 */
-  if (client_is_unique(&addr, service, &ip2))
+  if (client_is_unique(&addr, service, NULL))
      Modes.stat.unique_clients [service]++;
 
   *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK+1); /* == 127.0.0.2 */
-  if (client_is_unique(&addr, service, &ip2))
+  if (client_is_unique(&addr, service, NULL))
      Modes.stat.unique_clients [service]++;
 
   for (i = 0; i < 50; i++)
   {
     mg_random (&addr.ip, sizeof(addr.ip));
-    if (client_is_unique(&addr, service, &ip2))
+    if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
     Modes.stat.bytes_recv [service] += 10;
   }
 
   *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK);    /* == 127.0.0.1 */
-  if (client_is_unique(&addr, service, &ip2))
+  if (client_is_unique(&addr, service, NULL))
      Modes.stat.unique_clients [service]++;
 
   *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK+1);  /* == 127.0.0.2 */
-  if (client_is_unique(&addr, service, &ip2))
+  if (client_is_unique(&addr, service, NULL))
      Modes.stat.unique_clients [service]++;
 
   for (num = 0, ip = g_unique_ips; ip; ip = ip->next)
       num++;
   assert (num == Modes.stat.unique_clients [service]);
+
+  if (Modes.http_ipv6)
+  {
+    service = MODES_NET_SERVICE_HTTP6;
+    memcpy (&addr.ip, &in6addr_any, sizeof(addr.ip));    /* == [::1] */
+    if (client_is_unique(&addr, service, NULL))
+       Modes.stat.unique_clients [service]++;
+
+    unique_ip_add_hostile (HOSTILE_IP6_1, service);
+
+    for (i = 0; i < 20; i++)
+    {
+      *(uint32_t*) &addr.ip = 0x0120;    /* 2001:xx */
+      mg_random (&addr.ip [sizeof(uint32_t)], sizeof(addr.ip) - sizeof(uint32_t));
+      addr.is_ip6 = true;
+      if (client_is_unique(&addr, service, NULL))
+         Modes.stat.unique_clients [service]++;
+      Modes.stat.bytes_recv [service] += 10;
+    }
+  }
 }
 
 /**
@@ -2279,7 +2338,11 @@ bool net_init (void)
   mg_mgr_init (&Modes.mgr);
 
 #if defined(__DOXYGEN__) || 0
-  mg_wakeup_init (&Modes.mgr);
+  if (!mg_wakeup_init (&Modes.mgr))
+  {
+    LOG_STDERR ("mg_wakeup_init() failed.\n");
+    return (false);
+  }
 
   /**
    * \todo
@@ -2298,7 +2361,7 @@ bool net_init (void)
          t->task_num = 0;
     }
   }
-  /* And in net_handler() above
+  /* And add to net_handler() above:
    */
   if (ev == MG_EV_WAKEUP)
   {
@@ -2391,20 +2454,25 @@ bool net_init (void)
   }
   else
   {
-    if (!connection_setup_listen(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in, false))
+    if (!connection_setup_listen(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in, false, false))
        return (false);
 
-    if (!connection_setup_listen(MODES_NET_SERVICE_RAW_OUT, &Modes.raw_out, true))
+    if (!connection_setup_listen(MODES_NET_SERVICE_RAW_OUT, &Modes.raw_out, true, false))
        return (false);
 
-    if (!connection_setup_listen(MODES_NET_SERVICE_SBS_OUT, &Modes.sbs_out, true))
+    if (!connection_setup_listen(MODES_NET_SERVICE_SBS_OUT, &Modes.sbs_out, true, false))
        return (false);
 
-    if (!connection_setup_listen(MODES_NET_SERVICE_HTTP, &Modes.http_out, true))
+    if (!Modes.http_ipv6_only &&
+        !connection_setup_listen(MODES_NET_SERVICE_HTTP4, &Modes.http4_out, true, false))
+       return (false);
+
+    if (Modes.http_ipv6 &&
+        !connection_setup_listen(MODES_NET_SERVICE_HTTP6, &Modes.http6_out, true, true))
        return (false);
   }
 
-  if (Modes.http_out && !check_packed_web_page() && !check_web_page())
+  if ((Modes.http4_out || Modes.http6_out) && !check_packed_web_page() && !check_web_page())
      return (false);
 
   if (test_contains(Modes.tests, "net"))
@@ -2420,7 +2488,6 @@ bool net_exit (void)
 {
   uint32_t num = net_conn_free_all();
 
-  net_timer_del_all();
   unique_ips_free();
   deny_list_free();
 
@@ -2430,6 +2497,7 @@ bool net_exit (void)
 #endif
 
   net_flush_all();
+  net_timer_del_all();
   mg_mgr_free (&Modes.mgr); /* This calls free() on all timers */
 
   if (Modes.dns4)

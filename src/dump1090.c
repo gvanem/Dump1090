@@ -143,6 +143,8 @@ static const struct cfg_table config[] = {
     { "agc",              ARG_ATOB,    (void*) &Modes.dig_agc },
     { "interactive-ttl",  ARG_FUNC,    (void*) set_interactive_ttl },
     { "keep-alive",       ARG_ATOB,    (void*) &Modes.keep_alive },
+    { "http-ipv6",        ARG_ATOB,    (void*) &Modes.http_ipv6 },
+    { "http-ipv6-only",   ARG_ATOB,    (void*) &Modes.http_ipv6_only },
     { "logfile",          ARG_FUNC,    (void*) set_logfile },
     { "logfile-daily",    ARG_ATOB,    (void*) &Modes.logfile_daily },
     { "logfile-ignore",   ARG_FUNC,    (void*) modeS_log_add_ignore },
@@ -485,6 +487,9 @@ static bool modeS_init (void)
 
   if (strcmp(Modes.cfg_file, "NUL") && !cfg_open_and_parse(Modes.cfg_file, config))
      return (false);
+
+  if (Modes.http_ipv6_only)
+     Modes.http_ipv6 = true;
 
   if (Modes.logfile_initial[0])
      modeS_init_log();
@@ -3045,6 +3050,13 @@ static void set_device (const char *arg)
     Modes.selected_dev = mg_mprintf ("%s", modeS_net_services [MODES_NET_SERVICE_RTL_TCP].descr);
     Modes.rtlsdr.index = -1;      /* select on host+port only */
     Modes.net = true;
+
+    if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].is_ip6)
+    {
+      LOG_STDERR ("IPv6 is not yet supported for RTL_TCP.\n");
+      modeS_exit();
+      exit (1);
+    }
   }
   else
   {
@@ -3271,7 +3283,10 @@ static bool set_loops (const char *arg)
 
 static bool set_port_http (const char *arg)
 {
-  modeS_net_services [MODES_NET_SERVICE_HTTP].port = (uint16_t) atoi (arg);
+  uint16_t port = atoi (arg);
+
+  modeS_net_services [MODES_NET_SERVICE_HTTP4].port = port;
+  modeS_net_services [MODES_NET_SERVICE_HTTP6].port = port;
   return (true);
 }
 
@@ -3511,9 +3526,11 @@ int main (int argc, char **argv)
     /* This will also setup a service for the remote RTL_TCP input device.
      */
     rc = net_init();
-    DEBUG (DEBUG_GENERAL, "net_init(): rc: %d.\n", rc);
     if (!rc)
-       goto quit;
+    {
+      LOG_STDERR ("net_init() failed.\n");
+      goto quit;
+    }
   }
 
   init_error = false;

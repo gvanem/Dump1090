@@ -264,8 +264,8 @@ void interactive_other_stats (void)
      */
     mvwprintw (stats_win, 20, 0, "HTTP GET:   %llu", Modes.stat.HTTP_get_requests);
     mvwprintw (stats_win, 21, 0, "HTTP bytes: %llu/%llu",
-                      Modes.stat.bytes_sent[MODES_NET_SERVICE_HTTP],
-                      Modes.stat.bytes_recv[MODES_NET_SERVICE_HTTP]);
+               Modes.stat.bytes_sent[MODES_NET_SERVICE_HTTP4] + Modes.stat.bytes_sent[MODES_NET_SERVICE_HTTP6],
+               Modes.stat.bytes_recv[MODES_NET_SERVICE_HTTP4] + Modes.stat.bytes_recv[MODES_NET_SERVICE_HTTP6]);
   }
 
   /* Refresh the sub-window for flight-information.

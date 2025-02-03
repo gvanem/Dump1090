@@ -37,8 +37,9 @@
 #define MODES_NET_SERVICE_RAW_IN    1
 #define MODES_NET_SERVICE_SBS_OUT   2
 #define MODES_NET_SERVICE_SBS_IN    3
-#define MODES_NET_SERVICE_HTTP      4
-#define MODES_NET_SERVICE_RTL_TCP   5
+#define MODES_NET_SERVICE_HTTP4     4
+#define MODES_NET_SERVICE_HTTP6     5
+#define MODES_NET_SERVICE_RTL_TCP   6
 #define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_RTL_TCP + 1)
 
 #define MODES_NET_SERVICE_FIRST     0
@@ -192,6 +193,7 @@ typedef struct net_service {
         uint16_t         port;             /**< The port number */
         mg_host_name     host;             /**< The host name/address if `Modes.net_active == true` */
         uint16_t         num_connections;  /**< Number of clients/servers connected to this service */
+        mg_timer        *timer;            /**< For handling timeout in the network service. */
         bool             active_send;      /**< We are the sending side. Never duplex */
         bool             is_ip6;           /**< The above `host` address is an IPv6 address */
         bool             is_udp;           /**< The above `host` address was prefixed with `udp://` */
@@ -428,8 +430,9 @@ typedef struct global_data {
         mg_connection *sbs_in;                      /**< SBS input active connection. */
         mg_connection *raw_out;                     /**< Raw output active/listening connection. */
         mg_connection *raw_in;                      /**< Raw input listening connection. */
-        mg_connection *http_out;                    /**< HTTP listening connection. */
-        mg_connection *rtl_tcp_in;                  /**< RTL_TCP active connection. */
+        mg_connection *http4_out;                   /**< HTTP listening connection. IPv4 */
+        mg_connection *http6_out;                   /**< HTTP listening connection. IPv6 */
+        mg_connection *rtl_tcp_in;                  /**< RTL_TCP active connection. IPv4 only */
         mg_mgr         mgr;                         /**< Only one Mongoose connection manager. */
         char          *dns4;                        /**< Use default Windows DNSv4 server (not 8.8.8.8) */
         char          *dns6;                        /**< Or a IPv6 server */
@@ -467,6 +470,8 @@ typedef struct global_data {
         bool         error_correct_1;            /**< Fix 1 bit errors (default: true). */
         bool         error_correct_2;            /**< Fix 2 bit errors (default: false). */
         int          keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
+        int          http_ipv6;                  /**< Enable IPv6 for HTTP server. */
+        int          http_ipv6_only;             /**< Allow only IPv6 for HTTP server. */
         int          speech_enable;              /**< Enable speech for planes entering and leaving. */
         int          speech_clients;             /**< Enable speech for clients accepted or denied */
         int          speech_volume;              /**< Speech volume; 0 - 100 percent */
