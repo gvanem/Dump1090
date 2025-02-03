@@ -1,7 +1,7 @@
 #
 # GNU Makefile for dump1090 (x86/x64, MSVC or clang-cl).
 #
-# By G. Vanem <gvanem@yahoo.no> 2021 - 2024.
+# By G. Vanem <gvanem@yahoo.no> 2021 - 2025.
 #
 # Ref: https://github.com/gvanem/Dump1090.git
 #
@@ -23,7 +23,7 @@ USE_CRT_DEBUG ?= 0
 #   $(TEMP)/dump1090/standing-data/results/airports.bin
 #   $(TEMP)/dump1090/standing-data/results/routes.bin
 #
-USE_BIN_FILES ?= 1
+USE_BIN_FILES ?= 0
 
 #
 # Option for polling of network events in 'externals/mongoose.c':
