@@ -1341,7 +1341,7 @@ static bool airports_init_BIN (void)
       !airports_set_BIN_file (&g_data.routes_bin, "routes.bin"))
      return (false);
 
-  f = airports_init_one_BIN(g_data.routes_bin, &hdr);
+  f = airports_init_one_BIN (g_data.routes_bin, &hdr);
   if (!f)
      return (false);
 
@@ -1349,12 +1349,12 @@ static bool airports_init_BIN (void)
   route_records_num = hdr.rec_num;
   fclose (f);
 
-  f = airports_init_one_BIN(g_data.aircrafts_bin, &hdr);
+  f = airports_init_one_BIN (g_data.aircrafts_bin, &hdr);
   // ...
   if (f)
      fclose (f);
 
-  f = airports_init_one_BIN(g_data.airports_bin, &hdr);
+  f = airports_init_one_BIN (g_data.airports_bin, &hdr);
   // ...
   if (f)
      fclose (f);

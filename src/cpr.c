@@ -485,6 +485,7 @@ bool cpr_decode_relative (double ref_lat, double ref_lon, int cprlat, int cprlon
   air_dlon = CPR_Dlong_func2 (rlat, is_odd, surface);
   m = (int) (floor (ref_lon/air_dlon) +
              floor (0.5 + CPR_mod_double(ref_lon, air_dlon)/air_dlon - fractional_lon));
+
   rlon = air_dlon * (m + fractional_lon);
   if (rlon > 180)
      rlon -= 360;
@@ -770,3 +771,4 @@ bool cpr_tests (void)
   ok = CPR_relative_test() && ok;
   return (ok);
 }
+
