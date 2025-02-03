@@ -669,10 +669,11 @@ static int net_handler_websocket (mg_connection *c, const mg_ws_message *ws, int
  * The timer callback for an active `connect()`.
  * Or for data-timeout in `MODES_NET_SERVICE_RTL_TCP` service.
  */
-static void net_timeout (intptr_t service)
+static void net_timeout (void *arg)
 {
   char        err [200];
   const char *what = "connection to";
+  intptr_t    service = (intptr_t) arg;
 
   if (service == MODES_NET_SERVICE_RTL_TCP)
      what = "data from";
@@ -688,7 +689,7 @@ static void net_timer_add (intptr_t service, int timeout_ms, int flag)
 {
   if (timeout_ms > 0)
   {
-    mg_timer *t = mg_timer_add (&Modes.mgr, timeout_ms, flag, (void (*)(void*)) net_timeout, (void*)service);
+    mg_timer *t = mg_timer_add (&Modes.mgr, timeout_ms, flag, net_timeout, (void*)service);
 
     if (!t)
        return;
@@ -2417,14 +2418,13 @@ bool net_init (void)
    */
   if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].host [0])
   {
-    if (!connection_setup_active(MODES_NET_SERVICE_RTL_TCP, &Modes.rtl_tcp_in))
-        return (false);
-
     if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].is_udp)
     {
       strcpy (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].descr, "RTL-UDP input");
       strcpy (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].protocol, "udp");
     }
+    if (!connection_setup_active(MODES_NET_SERVICE_RTL_TCP, &Modes.rtl_tcp_in))
+        return (false);
   }
 
   /* If RAW-IN is UDP, rename description and protocol.
