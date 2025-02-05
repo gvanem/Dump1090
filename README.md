@@ -152,7 +152,7 @@ Except for:
  * *Cntry* (2 letter ISO3166) taken from the *official* range of ICAO address/country mapping.
  * *RSSI* (logarithmic *Received Signal Strength Indicator*) is calculated from the 4 last messages.
 
-If a config-setting `homepos = longitude,latitude` setting is defined, the distance to the place gets
+If a config-setting `homepos = latitude,longitude` setting is defined, the distance to the place gets
 calculated. I.e. the `Dist` column above. E.g. a `homepos = 60.3016821,5.3208769`
 for Bergen/Norway. Find your location on [**FreeMapTools**](https://www.freemaptools.com/elevation-finder.htm).
 
