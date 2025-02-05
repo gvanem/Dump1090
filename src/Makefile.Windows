@@ -303,6 +303,7 @@ SOURCES = aircraft.c    \
           csv.c         \
           demod-2000.c  \
           dump1090.c    \
+          geo.c         \
           interactive.c \
           misc.c        \
           net_io.c      \
@@ -734,6 +735,7 @@ doxy_HEADERS = ../aircraft.h                  \
                ../cpr.h                       \
                ../csv.h                       \
                ../dump1090_config.h           \
+               ../geo.h                       \
                ../interactive.h               \
                ../location.h                  \
                ../misc.h                      \

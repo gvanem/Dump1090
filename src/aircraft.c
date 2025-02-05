@@ -9,6 +9,7 @@
 #include <assert.h>
 
 #include "misc.h"
+#include "geo.h"
 #include "interactive.h"
 #include "sqlite3.h"
 #include "zip.h"
@@ -1634,7 +1635,7 @@ void aircraft_remove_stale (uint64_t now)
  */
 void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
 {
-  double      heading, distance, gc_distance, cart_distance;
+  double      distance, gc_distance, cart_distance;
   double      delta_X, delta_Y;
   cartesian_t cpos = { 0.0, 0.0, 0.0 };
   pos_t       epos;
@@ -1655,29 +1656,29 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
      speed = a->speed_last;
 
   epos = a->EST_position;
-  spherical_to_cartesian (a, &epos, &cpos);
+  geo_spherical_to_cartesian (a, &epos, &cpos);
 
   /* Ensure heading is in range '[-Phi .. +Phi]'
    */
   if (a->heading >= 180)
-       heading = a->heading - 360;
-  else heading = a->heading;
+       a->heading_rad = a->heading - 360;
+  else a->heading_rad = a->heading;
 
-  heading = (TWO_PI * heading) / 360;  /* In radians */
+  a->heading_rad = (TWO_PI * a->heading_rad) / 360;  /* convert to radians */
 
   /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
    */
   distance = 0.001852 * (double)speed * (now - a->EST_seen_last);
 
-  delta_X = distance * sin (heading);
-  delta_Y = distance * cos (heading);
+  delta_X = distance * sin (a->heading_rad);
+  delta_Y = distance * cos (a->heading_rad);
   cpos.c_x += delta_X;
   cpos.c_y += delta_Y;
 
-  if (!cartesian_to_spherical(a, &cpos, &epos, heading))
+  if (!geo_cartesian_to_spherical(a, &cpos, &epos))
   {
     LOG_FILEONLY ("addr %04X: Invalid epos: %+7.03f lon, %+8.03f lat from heading: %+7.1lf. delta_X: %+8.3lf, delta_Y: %+8.3lf.\n",
-                  a->addr, epos.lon, epos.lat, 360.0*heading/TWO_PI, delta_X, delta_Y);
+                  a->addr, epos.lon, epos.lat, 360.0 * a->heading_rad / TWO_PI, delta_X, delta_Y);
     return;
   }
 
@@ -1685,13 +1686,13 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   a->EST_position  = epos;
   ASSERT_POS (a->EST_position);
 
-  gc_distance     = great_circle_dist (a->EST_position, Modes.home_pos);
-  cart_distance   = cartesian_distance (a, &cpos, &Modes.home_pos_cart);
-  a->EST_distance = closest_to (a->EST_distance, gc_distance, cart_distance);
+  gc_distance     = geo_great_circle_dist (a->EST_position, Modes.home_pos);
+  cart_distance   = geo_cartesian_distance (a, &cpos, &Modes.home_pos_cart);
+  a->EST_distance = geo_closest_to (a->EST_distance, gc_distance, cart_distance);
 
 #if 0
   LOG_FILEONLY ("addr %04X: heading: %+7.1lf, delta_X: %+8.3lf, delta_Y: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
-                a->addr, 360.0*heading/TWO_PI, delta_X, delta_Y, gc_distance/1000, cart_distance/1000);
+                a->addr, 360.0 * a->heading_rad / TWO_PI, delta_X, delta_Y, gc_distance/1000, cart_distance/1000);
 #endif
 }
 

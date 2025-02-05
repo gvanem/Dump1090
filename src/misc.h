@@ -18,6 +18,7 @@
 #include "mongoose.h"
 #include "cfg_file.h"
 #include "csv.h"
+#include "geo.h"
 
 /**
  * Various helper macros.
@@ -207,44 +208,6 @@ typedef enum metric_unit_t {
       } metric_unit_t;
 
 #define UNIT_NAME(unit) (unit == MODES_UNIT_METERS ? "meters" : "feet")
-
-/**
- * Spherical position: <br>
- * Latitude (North-South) and Longitude (East-West) coordinates. <br>
- *
- * A position on a Geoid. (ignoring altitude).
- */
-typedef struct pos_t {
-        double lat;   /* geodetic latitude */
-        double lon;
-      } pos_t;
-
-/**
- * A point in Cartesian coordinates.
- */
-typedef struct cartesian_t {
-        double c_x;
-        double c_y;
-        double c_z;
-      } cartesian_t;
-
-/**
- * \def SMALL_VAL
- * \def BIG_VAL
- * \def VALID_POS()
- *
- * Simple check for a valid geo-position
- */
-#define SMALL_VAL        0.0001
-#define BIG_VAL          9999999.0
-#define VALID_POS(pos)   (fabs(pos.lon) >= SMALL_VAL && fabs(pos.lon) < 180.0 && \
-                          fabs(pos.lat) >= SMALL_VAL && fabs(pos.lat) < 90.0)
-
-#define EARTH_RADIUS     6371000.0    /* meters. Assuming a sphere. Approx. 40.000.000 / TWO_PI meters */
-#define ASSERT_POS(pos)  do {                                         \
-                           assert (pos.lon >= -180 && pos.lon < 180); \
-                           assert (pos.lat >= -90  && pos.lat < 90);  \
-                         } while (0)
 
 #define MAX_ME_TYPE    37
 #define MAX_ME_SUBTYPE  8
@@ -723,11 +686,6 @@ bool        test_add (char **pattern, const char *what);
 bool        test_contains (const char *pattern, const char *what);
 void        puts_long_line (const char *start, size_t indent);
 void        fputs_long_line (FILE *file, const char *start, size_t indent);
-void        spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, cartesian_t *cart);
-bool        cartesian_to_spherical (const struct aircraft *a, const cartesian_t *cart, pos_t *pos, double heading);
-double      cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2);
-double      great_circle_dist (pos_t pos1, pos_t pos2);
-double      closest_to (double val, double val1, double val2);
 const char *mz_version (void);                 /* in 'externals/zip.c' */
 void        rx_callback (uint8_t *buf, uint32_t len, void *ctx);
 void        show_version_info (bool verbose);

@@ -2282,6 +2282,6 @@ bool airports_API_flight_log_leaving (const aircraft *a)
    *  2) the distance + remaining flight-time to the destination airport.
    *
    * Add a `find_airport_pos_by_ICAO (&dest_pos)` function and use
-   * `distance = great_circle_dist (plane_pos_now, dest_pos)`.
+   * `distance = geo_great_circle_dist (plane_pos_now, dest_pos)`.
    */
 }

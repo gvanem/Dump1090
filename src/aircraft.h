@@ -5,6 +5,7 @@
 #define _AIRCRAFT_H
 
 #include "misc.h"
+#include "geo.h"
 
 /**
  * \def AIRCRAFT_DATABASE_CSV
@@ -66,7 +67,8 @@ typedef struct aircraft {
         int       altitude;               /**< Altitude */
         uint32_t  speed;                  /**< Velocity computed from EW and NS components. In Knots */
         uint32_t  speed_last;             /**< Speed when used in `aircraft_set_est_home_distance()` last time. In Km/h */
-        int       heading;                /**< Horizontal angle of flight */
+        int       heading;                /**< Horizontal angle of flight; [0 ... 360] */
+        double    heading_rad;            /**< Heading in radians */
         bool      heading_is_valid;       /**< It has a valid heading */
         bool      is_helicopter;          /**< It is a helicopter */
         bool      done_flight_info;       /**< Have we shown the flight-info? */

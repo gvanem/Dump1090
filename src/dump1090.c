@@ -23,6 +23,7 @@
 #include "net_io.h"
 #include "cfg_file.h"
 #include "cpr.h"
+#include "geo.h"
 #include "demod-2000.h"
 #include "sdrplay.h"
 #include "speech.h"
@@ -2803,7 +2804,7 @@ static void background_tasks (void)
     location_exit();
     Modes.home_pos = pos;
 
-    spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
+    geo_spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
     if (Modes.home_pos_ok)
        LOG_FILEONLY ("Ignoring the 'homepos' config value since we use the 'Windows Location API':"
                      " Latitude: %.8f, Longitude: %.8f.\n",
@@ -3203,7 +3204,7 @@ static bool set_home_pos (const char *arg)
     }
     Modes.home_pos    = pos;
     Modes.home_pos_ok = true;
-    spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
+    geo_spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
   }
   return (true);
 }

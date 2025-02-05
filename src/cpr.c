@@ -25,6 +25,7 @@
 
 #include "aircraft.h"
 #include "misc.h"
+#include "geo.h"
 #include "cpr.h"
 
 static int      CPR_NL_func (double lat);
@@ -216,7 +217,7 @@ static void CPR_set_home_distance (aircraft *a)
   if (!(VALID_POS(Modes.home_pos) && VALID_POS(a->position)))
      return;
 
-  distance = great_circle_dist (a->position, Modes.home_pos);
+  distance = geo_great_circle_dist (a->position, Modes.home_pos);
   if (distance != 0.0)
      a->distance = distance;
 

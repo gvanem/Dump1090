@@ -154,6 +154,7 @@
     <ClCompile Include="cpr.c" />
     <ClCompile Include="csv.c" />
     <ClCompile Include="demod-2000.c" />
+    <ClCompile Include="geo.c" />
     <ClCompile Include="interactive.c" />
     <ClCompile Include="location.c" />
     <ClCompile Include="misc.c" />
@@ -179,6 +180,7 @@
     <ClInclude Include="cpr.h" />
     <ClInclude Include="csv.h" />
     <ClInclude Include="demod-2000.h" />
+    <ClInclude Include="geo.h" />
     <ClInclude Include="interactive.h" />
     <ClInclude Include="location.h" />
     <ClInclude Include="misc.h" />
