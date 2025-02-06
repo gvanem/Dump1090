@@ -130,10 +130,14 @@ def list_files (name, _dict):
 # Open and read entire file with "utf-8-sig" encoding to take
 # care of the BOM. Return content as list of lines.
 #
-def read_csv_file (fname, _dict):
+def read_csv_file (fname, _dict, bin_file):
   lines = []
-  f = open_file (fname, "rt", "utf-8-sig")
-  for i, l in enumerate(f.readlines()):
+  if bin_file:
+     f = open_file (fname, "rb")
+  else:
+     f = open_file (fname, "rt", "utf-8-sig")
+
+  for i, l in enumerate (f.readlines()):
       if i == 0:     # save CSV header line.
          _dict [fname]["header"] = l
       else:
@@ -144,14 +148,19 @@ def read_csv_file (fname, _dict):
 def append_csv_file (f, lines, header):
   if header:
      f.write (header)
+
   for l in lines:
       f.write (l)
 
-def create_csv_file (to_file, name, _dict):
-  f = open_file (to_file, "w+t")
+def create_csv_file (to_file, name, _dict, bin_file):
+  if bin_file:
+     f = open_file (to_file, "w+b")
+  else:
+     f = open_file (to_file, "w+t")
+
   print ("Processing %-*s ... " % (len("aircraft_files"), name), end = "")
   for i, from_file in enumerate(_dict):
-      lines = read_csv_file (from_file, _dict)
+      lines = read_csv_file (from_file, _dict, bin_file)
       if i == 0:
          append_csv_file (f, lines, _dict[from_file]["header"])
       else:
@@ -588,9 +597,9 @@ def main():
      print ("total_fsize: %s" % nice_size(total_fsize))
      sys.exit (0)
 
-  create_csv_file (aircrafts_csv, "aircraft_files", aircraft_files)
-  create_csv_file (airports_csv,  "airport_files",  airport_files)
-  create_csv_file (routes_csv,    "route_files",    route_files)
+  create_csv_file (aircrafts_csv, "aircraft_files", aircraft_files, False)
+  create_csv_file (airports_csv,  "airport_files",  airport_files, True)
+  create_csv_file (routes_csv,    "route_files",    route_files, False)
 
   num_aircrafts = create_bin_file (aircrafts_bin, aircrafts_csv, len(aircraft_files), aircraft_rec_len, aircraft_record)
   num_airports  = create_bin_file (airports_bin,  airports_csv,  len(airport_files),  airport_rec_len,  airport_record)
