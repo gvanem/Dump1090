@@ -33,9 +33,10 @@ static void     CPR_set_home_distance (aircraft *a);
 static unsigned CPR_error;
 static unsigned CPR_errline;
 
-#define CPR_SET_ERR(e)  do {                      \
-                          CPR_error = e;          \
-                          CPR_errline = __LINE__; \
+#define CPR_SET_ERR(e)  do {                       \
+                          CPR_error = e;           \
+                          CPR_errline = __LINE__;  \
+                          Modes.stat.cpr_errors++; \
                         } while (0)
 
 

@@ -576,7 +576,7 @@ static int routes_compare (const void *a, const void *b)
 }
 
 /**
- * Look in `*route_records` before posting a requst to the ADSB-LOL API.
+ * Look in `*route_records` before posting a request to the ADSB-LOL API.
  */
 static flight_info *routes_find_by_callsign (const char *call_sign)
 {
@@ -1255,7 +1255,7 @@ static void *read_route_records (FILE *f, const BIN_header *hdr)
 
 /**
  * Check if the `airports.bin` or `routes.bin` databases are older than 10 days.
- * If so, run `py -3 ../tools/gen_data.py` to update them.
+ * If so, run `py.exe -3 ../tools/gen_data.py` to update them.
  */
 static bool airports_update_BIN_file (const char *fname)
 {
