@@ -41,7 +41,6 @@ static bool use_bsearch    = false;
 static file_packed *lookup_table = NULL;
 static size_t       lookup_table_sz;
 static uint32_t     num_lookups, num_misses;
-static bool         test_mode = false;
 
 /**
  * Define the func-ptr to the `mg_unpack()` + `mg_unlist()` functions loaded
@@ -127,6 +126,8 @@ static bool rtl_tcp_decode (mg_iobuf *msg, int loop_cnt);
 #define HOSTILE_IP_1   "45.128.232.127"
 #define HOSTILE_IP_2   "80.94.95.226"
 #define HOSTILE_IP6_1  "2a00:1450:400f:803::200e"    /* ipv6.google.com :-) */
+
+static bool test_mode = false;
 
 /**
  * Mongoose event names.
@@ -1712,7 +1713,7 @@ static char *net_str_addr_port (const mg_addr *a, char *buf, size_t len)
 {
   const char *h_name = NULL;
   size_t      h_len = len - 7;  /* make room for ":port" */
-  size_t      mg_len;
+  char       *p = buf;
 
   if (Modes.show_host_name)
   {
@@ -1721,10 +1722,11 @@ static char *net_str_addr_port (const mg_addr *a, char *buf, size_t len)
   }
 
   if (h_name)
-       mg_len = mg_snprintf (buf, h_len, "%s", h_name);
-  else mg_len = mg_snprintf (buf, h_len, "%M", mg_print_ip, a);
+       strcpy_s (buf, h_len, h_name);
+  else net_str_addr (a, buf, h_len);
 
-  mg_snprintf (buf + mg_len, len - mg_len, ":%hu", mg_ntohs(a->port));
+  h_len = strlen (buf);
+  snprintf (p + h_len, len - h_len, ":%hu", mg_ntohs(a->port));
   return (buf);
 }
 
@@ -2173,47 +2175,53 @@ static void unique_ip_add_hostile (const char *ip_str, int service)
 /**
  * Test `g_unique_ips` by filling it with 2 hostile and
  * 50 random IPv4 addresses.
+ *
+ * For `Modes.http_ipv6`, do the similar.
  */
 static void unique_ip_tests (void)
 {
   const unique_IP *ip;
-  int              i, service = MODES_NET_SERVICE_HTTP4;
+  int              i, service;
   uint64_t         num;
   mg_addr          addr;
 
   printf ("\n%s():\n", __FUNCTION__);
   memset (&addr, '\0', sizeof(addr));
 
-  unique_ip_add_hostile (HOSTILE_IP_1, service);
-  unique_ip_add_hostile (HOSTILE_IP_2, service);
-
-  *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK);   /* == 127.0.0.1 */
-  if (client_is_unique(&addr, service, NULL))
-     Modes.stat.unique_clients [service]++;
-
-  *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK+1); /* == 127.0.0.2 */
-  if (client_is_unique(&addr, service, NULL))
-     Modes.stat.unique_clients [service]++;
-
-  for (i = 0; i < 50; i++)
+  if (!Modes.http_ipv6_only)
   {
-    mg_random (&addr.ip, sizeof(addr.ip));
+    service = MODES_NET_SERVICE_HTTP4;
+    unique_ip_add_hostile (HOSTILE_IP_1, service);
+    unique_ip_add_hostile (HOSTILE_IP_2, service);
+
+    *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK);   /* == 127.0.0.1 */
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
-    Modes.stat.bytes_recv [service] += 10;
+
+    *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK+1); /* == 127.0.0.2 */
+    if (client_is_unique(&addr, service, NULL))
+       Modes.stat.unique_clients [service]++;
+
+    for (i = 0; i < 50; i++)
+    {
+      mg_random (&addr.ip, sizeof(addr.ip));
+      if (client_is_unique(&addr, service, NULL))
+         Modes.stat.unique_clients [service]++;
+      Modes.stat.bytes_recv [service] += 10;
+    }
+
+    *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK);    /* == 127.0.0.1 */
+    if (client_is_unique(&addr, service, NULL))
+       Modes.stat.unique_clients [service]++;
+
+    *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK+1);  /* == 127.0.0.2 */
+    if (client_is_unique(&addr, service, NULL))
+       Modes.stat.unique_clients [service]++;
+
+    for (num = 0, ip = g_unique_ips; ip; ip = ip->next)
+        num++;
+    assert (num == Modes.stat.unique_clients [service]);
   }
-
-  *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK);    /* == 127.0.0.1 */
-  if (client_is_unique(&addr, service, NULL))
-     Modes.stat.unique_clients [service]++;
-
-  *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK+1);  /* == 127.0.0.2 */
-  if (client_is_unique(&addr, service, NULL))
-     Modes.stat.unique_clients [service]++;
-
-  for (num = 0, ip = g_unique_ips; ip; ip = ip->next)
-      num++;
-  assert (num == Modes.stat.unique_clients [service]);
 
   if (Modes.http_ipv6)
   {
