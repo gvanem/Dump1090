@@ -25,7 +25,7 @@ BEGIN
       VALUE "SpecialBuild",     RC_BUILD_FEATURES
 #endif
       VALUE "LegalCopyright",   "Copyright (c) 2012 Salvatore Sanfilippo;\n"
-                                "                        Copyright (c) 2021-2024 Gisle Vanem"
+                                "                        Copyright (c) 2021-2025 Gisle Vanem"
       VALUE "LegalTrademarks",  "MIT License "
       VALUE "OriginalFilename", "dump1090.exe"
       VALUE "ProductName",      "Dump1090"
