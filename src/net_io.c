@@ -41,6 +41,7 @@ static bool use_bsearch    = false;
 static file_packed *lookup_table = NULL;
 static size_t       lookup_table_sz;
 static uint32_t     num_lookups, num_misses;
+static bool         test_mode = false;
 
 /**
  * Define the func-ptr to the `mg_unpack()` + `mg_unlist()` functions loaded
@@ -82,6 +83,7 @@ static void        net_conn_free (connection *conn, intptr_t service);
 static char       *net_store_error (intptr_t service, const char *err);
 static char       *net_error_details (mg_connection *c, const char *in_out, const void *ev_data);
 static char       *net_str_addr (const mg_addr *a, char *buf, size_t len);
+static char       *net_str_addr_port (const mg_addr *a, char *buf, size_t len);
 static uint16_t   *net_num_connections (intptr_t service);
 static const char *net_service_descr (intptr_t service);
 static char       *net_service_error (intptr_t service);
@@ -181,7 +183,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     listen_fmt = "%s://[::]:%u";
     modeS_net_services [service].is_ip6 = true;
     if (!Modes.dns6)
-       LOG_STDERR ("WARNING: IPv6 support not detected. IPv6 will only work for local-LAN.\n");
+       LOG_STDERR ("WARNING: IPv6 WAN support not detected. IPv6 will only work for local-LAN.\n");
   }
 
   /* Temporary enable important errors to go to `stderr` only.
@@ -518,7 +520,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   {
     DEBUG (DEBUG_NET, "Bad Request: '%.*s %s' from %s (conn-id: %lu)\n",
            (int)hm->method.len, hm->method.buf, uri,
-           net_str_addr(&c->rem, addr_buf, sizeof(addr_buf)), c->id);
+           net_str_addr_port(&c->rem, addr_buf, sizeof(addr_buf)), c->id);
 
     Modes.stat.HTTP_400_responses++;
     return (400);
@@ -637,7 +639,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
 static int net_handler_websocket (mg_connection *c, const mg_ws_message *ws, int ev)
 {
   mg_host_name addr_buf;
-  const char  *remote = net_str_addr (&c->rem, addr_buf, sizeof(addr_buf));
+  const char  *remote = net_str_addr_port (&c->rem, addr_buf, sizeof(addr_buf));
 
   DEBUG (DEBUG_NET, "%s from %s has %zd bytes for us. is_websocket: %d.\n",
          event_name(ev), remote, c->recv.len, c->is_websocket);
@@ -933,7 +935,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     return;
   }
 
-  remote = net_str_addr (&c->rem, remote_buf, sizeof(remote_buf));
+  remote = net_str_addr_port (&c->rem, remote_buf, sizeof(remote_buf));
 
   if (ev == MG_EV_RESOLVE)
   {
@@ -1328,19 +1330,19 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
   return (true);
 }
 
-static bool client_is_unique (const mg_addr *addr, intptr_t service, unique_IP **ipp)
+static bool client_is_unique (const mg_addr *a, intptr_t service, unique_IP **ipp)
 {
-  bool unique = _client_is_unique (addr, service, ipp);
+  bool unique = _client_is_unique (a, service, ipp);
 
-  if (test_contains(Modes.tests, "net"))
+  if (test_mode)
   {
-    ip_address ip_addr;
+    ip_address addr;
 
-    mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, addr);
+    net_str_addr (a, addr, sizeof(addr));
 
     if (ipp && *ipp && (*ipp)->denied > 0)
-         printf ("  unique: %d, ip: %-15s denied: %u\n", unique, ip_addr, (*ipp)->denied);
-    else printf ("  unique: %d, ip: %s\n", unique, ip_addr);
+         printf ("  unique: %d, ip: %-15s denied: %u\n", unique, addr, (*ipp)->denied);
+    else printf ("  unique: %d, ip: %s\n", unique, addr);
   }
   return (unique);
 }
@@ -1371,7 +1373,7 @@ static void unique_ips_print (intptr_t service)
 
   LOG_STDOUT ("    %8llu unique client(s):\n", Modes.stat.unique_clients [service]);
 
-  if (test_contains(Modes.tests, "net"))
+  if (test_mode)
        Modes.log = stdout;
   else indent += strlen ("HH:MM:SS.MMM:");
 
@@ -1398,11 +1400,10 @@ static void unique_ips_print (intptr_t service)
 
     for (i = 0, _ip = start; i < num; _ip++, i++)
     {
-      ip_address ip_addr;
+      ip_address addr;
 
       assert (_ip->service == service);
-      mg_snprintf (ip_addr, sizeof(ip_addr), "%M", mg_print_ip, _ip->addr);
-      modeS_asprintf (&buf, "%s", ip_addr);
+      modeS_asprintf (&buf, "%s", net_str_addr(&_ip->addr, addr, sizeof(addr)));
 
       if (_ip->denied > 0)
            modeS_asprintf (&buf, " (%u), ", _ip->denied);
@@ -1421,7 +1422,7 @@ static void unique_ips_print (intptr_t service)
     fputs_long_line (Modes.log, buf, indent);
   }
 
-  if ((Modes.debug & DEBUG_NET) || test_contains(Modes.tests, "net"))
+  if ((Modes.debug & DEBUG_NET) || test_mode)
   {
     indent = 13;
     fprintf (stdout, "%*s", (int)indent, " ");
@@ -1558,9 +1559,9 @@ static void deny_lists_test (void)
     int  rc;
     bool deny = client_deny (a, &rc);
 
-    mg_snprintf (abuf, sizeof(abuf), "%M", mg_print_ip, a);
     printf ("  rc: %d, addr[%zu]: %s -> %s\n",
-            rc, i, abuf, deny ? "denied" : "accepted");
+            rc, i, net_str_addr(a, abuf, sizeof(abuf)),
+            deny ? "denied" : "accepted");
   }
 }
 
@@ -1644,7 +1645,7 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
       if (deny && unique)  /* increment deny-counter for this `addr` */
          unique->denied++;
 
-      net_str_addr (addr, addr_buf, sizeof(addr_buf));
+      net_str_addr_port (addr, addr_buf, sizeof(addr_buf));
 
       if (Modes.debug & DEBUG_NET)
       {
@@ -1661,17 +1662,53 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
   if (client_is_extern(addr))
   {
     LOG_FILEONLY ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
-                  net_str_addr(addr, addr_buf, sizeof(addr_buf)), c->id, net_service_descr(service));
+                  net_str_addr_port(addr, addr_buf, sizeof(addr_buf)), c->id, net_service_descr(service));
   }
   return (true);   /* ret-val ignored for MG_EV_CLOSE */
+}
+
+/**
+ * Format an `mg_addr *a` with no trailing `:port` part.
+ * Use Winsock's `inet_ntop()` for an IPv6 address to get the short form:
+ *   `[::1]` and not `[0:0:0:0:0:0:0:1]` that `externals/mongoose.c` returns.
+ */
+static char *net_str_addr (const mg_addr *a, char *buf, size_t len)
+{
+  static bool use_inet_ntop = true;
+
+  if (a->is_ip6 && use_inet_ntop)
+  {
+    char *p = buf;
+
+    *p++ = '[';
+    len--;
+    if (!inet_ntop(AF_INET6, &a->ip, p, len))
+    {
+      DEBUG (DEBUG_NET, "inet_ntop(AF_INET6) -> \"%s\").\n",
+             win_strerror(WSAGetLastError()));
+      use_inet_ntop = false;
+      return net_str_addr (a, buf, len);   /* reenter */
+    }
+    p = strchr (p, '\0');
+    *p++ = ']';
+    *p = '\0';
+  }
+  else
+    mg_snprintf (buf, len, "%M", mg_print_ip, a);
+  return (buf);
 }
 
 /**
  * Since 'mg_straddr()' was removed in latest version.
  * Optionally print the hostname if found in `/etc/hosts` or
  * DNS cache.
+ *
+ * Printing the host-name only works for an IPv4 address due
+ * to `gethostbyaddr()`.
+ *
+ * \todo Use `getnameinfo()`.
  */
-static char *net_str_addr (const mg_addr *a, char *buf, size_t len)
+static char *net_str_addr_port (const mg_addr *a, char *buf, size_t len)
 {
   const char *h_name = NULL;
   size_t      h_len = len - 7;  /* make room for ":port" */
@@ -2181,7 +2218,8 @@ static void unique_ip_tests (void)
   if (Modes.http_ipv6)
   {
     service = MODES_NET_SERVICE_HTTP6;
-    memcpy (&addr.ip, &in6addr_any, sizeof(addr.ip));    /* == [::1] */
+    memcpy (&addr.ip, &in6addr_loopback, sizeof(addr.ip));    /* == [::1] */
+    addr.is_ip6 = true;
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
@@ -2189,9 +2227,9 @@ static void unique_ip_tests (void)
 
     for (i = 0; i < 20; i++)
     {
-      *(uint32_t*) &addr.ip = 0x0120;    /* 2001:xx */
-      mg_random (&addr.ip [sizeof(uint32_t)], sizeof(addr.ip) - sizeof(uint32_t));
-      addr.is_ip6 = true;
+      *(uint16_t*) &addr.ip [0]  = 0x0120;    /* 2001:xx */
+      mg_random (&addr.ip[2], sizeof(addr.ip) - 2);
+
       if (client_is_unique(&addr, service, NULL))
          Modes.stat.unique_clients [service]++;
       Modes.stat.bytes_recv [service] += 10;
@@ -2303,6 +2341,8 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
 bool net_init (void)
 {
   mg_file_path web_dll;
+
+  test_mode = test_contains (Modes.tests, "net");
 
   snprintf (web_dll, sizeof(web_dll), "%s/%s", Modes.web_root, Modes.web_page);
   strlwr (web_dll);
@@ -2474,7 +2514,7 @@ bool net_init (void)
   if ((Modes.http4_out || Modes.http6_out) && !check_packed_web_page() && !check_web_page())
      return (false);
 
-  if (test_contains(Modes.tests, "net"))
+  if (test_mode)
   {
     unique_ip_tests();
     deny_lists_tests();
