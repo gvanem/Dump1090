@@ -11,7 +11,6 @@
 #include "aircraft.h"
 #include "net_io.h"
 #include "rtl-tcp.h"
-#include "speech.h"
 #include "server-cert-key.h"
 #include "client-cert-key.h"
 
@@ -1647,13 +1646,7 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
 
       net_str_addr (addr, addr_buf, sizeof(addr_buf));
 
-      if (Modes.speech_enable && Modes.speech_clients)
-      {
-        speak_string ("Client for %s %s.",
-                      net_service_descr(service),
-                      deny ? "denied" : "accepted");
-      }
-      else if (Modes.debug & DEBUG_NET)
+      if (Modes.debug & DEBUG_NET)
       {
         Beep (deny ? 1200 : 800, 20);
       }
@@ -2257,6 +2250,7 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
    */
   *dns4_p = mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
 
+#if !defined(USE_ASAN)
   /*
    * Fake alert:
    *  If a `system ("ping.exe -6 -n 1 ipv6.google.com")` works, just assume that
@@ -2287,9 +2281,10 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
       break;
     }
   }
-
   if (f)
      _pclose (f);
+#endif
+
   return (true);
 }
 
