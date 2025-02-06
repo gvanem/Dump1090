@@ -161,7 +161,6 @@ static const struct cfg_table config[] = {
     { "samplerate",       ARG_FUNC,    (void*) set_sample_rate },
     { "show-hostname",    ARG_ATOB,    (void*) &Modes.show_host_name },
     { "speech-enable",    ARG_ATOB,    (void*) &Modes.speech_enable },
-    { "speech-clients",   ARG_ATOB,    (void*) &Modes.speech_clients },
     { "speech-volume",    ARG_ATOI,    (void*) &Modes.speech_volume },
     { "https-enable",     ARG_ATOB,    (void*) &Modes.https_enable },
     { "silent",           ARG_ATOB,    (void*) &Modes.silent },
@@ -2923,6 +2922,9 @@ static void show_decoder_stats (void)
 
   if (Modes.stat.cart_errors)
      LOG_STDOUT (" %8llu Cartesian errors.\n", Modes.stat.cart_errors);
+
+  if (Modes.stat.cpr_errors)
+     LOG_STDOUT (" %8llu CPR errors.\n", Modes.stat.cpr_errors);
 
   interactive_clreol();
 
