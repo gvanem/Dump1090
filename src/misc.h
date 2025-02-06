@@ -246,6 +246,7 @@ typedef struct statistics {
         uint64_t        unique_aircrafts_SQL;
         uint64_t        unique_helicopters;
         uint64_t        cart_errors;
+        uint64_t        cpr_errors;
 
         /* Network statistics:
          */
@@ -436,7 +437,6 @@ typedef struct global_data {
         int          http_ipv6;                  /**< Enable IPv6 for HTTP server. */
         int          http_ipv6_only;             /**< Allow only IPv6 for HTTP server. */
         int          speech_enable;              /**< Enable speech for planes entering and leaving. */
-        int          speech_clients;             /**< Enable speech for clients accepted or denied */
         int          speech_volume;              /**< Speech volume; 0 - 100 percent */
         mg_file_path web_page;                   /**< The base-name of the web-page to server for HTTP clients. */
         mg_file_path web_root;                   /**< And it's directory. */
