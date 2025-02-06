@@ -7,7 +7,12 @@
 #include "aircraft.h"
 #include "geo.h"
 
-#define EARTH_RADIUS     6371000.0    /* meters. Assuming a sphere. Approx. 40.000.000 / TWO_PI meters */
+/**
+ * \def EARTH_RADIUS
+ * Earth's radius in meters. Assuming a sphere.
+ * Approx. 40.000.000 / TWO_PI meters.
+ */
+#define EARTH_RADIUS  6371000.0
 
 /**
  * From SDRangel's 'sdrbase/util/azel.cpp':
@@ -74,6 +79,8 @@ void geo_spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, car
 }
 
 /**
+ * Convert cartesian coordinate to spherical.
+ *
  * \param[in]  a     the aircraft in question
  * \param[in]  cart  the aircraft's cartesian position (x, y, z)
  * \param[out] pos   the resulting latitude and longitude position of the aircraft.
