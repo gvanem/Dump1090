@@ -219,14 +219,6 @@ static bool modeS_log_reinit (const SYSTEMTIME *st)
      fclose (Modes.log);
 
   Modes.log = fopen_excl (Modes.logfile_current, "at");
-
-  /* Write an UTF-8 BOM at the start of the .log file.
-   */
-  if (Modes.log && ftell(Modes.log) == 0)
-  {
-    static const BYTE BOM[] = { 0xEF, 0xBB, 0xBF };
-    fwrite (&BOM, sizeof(BOM), 1, Modes.log);
-  }
   return (Modes.log != NULL);
 }
 

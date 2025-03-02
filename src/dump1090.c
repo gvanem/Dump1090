@@ -433,9 +433,16 @@ static void modeS_init_log (void)
   char  *ptr = args;
   size_t line_len, left = sizeof(args);
   int    i, n;
+  bool   write_BOM = false;
+  static const BYTE BOM[] = { 0xEF, 0xBB, 0xBF };
 
   if (!modeS_log_init())
      return;
+
+  /* Write an UTF-8 BOM at the start of the .log file?
+   */
+  if (_filelength(fileno(Modes.log)) == 0)
+     write_BOM = true;
 
   /* Print this a bit nicer. Split into multiple lines (< 120 character per line).
    */
@@ -460,7 +467,12 @@ static void modeS_init_log (void)
     ptr  += n;
     left -= n;
   }
-  fputs ("\n---------------------------------------------------------------------------------\n", Modes.log);
+
+  if (write_BOM)
+       fwrite (&BOM, sizeof(BOM), 1, Modes.log);
+  else fputc ('\n', Modes.log);
+
+  fputs ("---------------------------------------------------------------------------------\n", Modes.log);
   modeS_log (args);
   fputs ("\n\n", Modes.log);
 }
@@ -1267,25 +1279,25 @@ static uint32_t ICAO_cache_hash_address (uint32_t a)
  */
 static void ICAO_cache_add_address (uint32_t addr)
 {
-  uint32_t h = ICAO_cache_hash_address (addr);
+  uint32_t h_idx = ICAO_cache_hash_address (addr);
 
-  Modes.ICAO_cache [h*2]   = addr;
-  Modes.ICAO_cache [h*2+1] = (uint32_t) time (NULL);
+  Modes.ICAO_cache [2*h_idx]     = addr;
+  Modes.ICAO_cache [2*h_idx + 1] = (uint32_t) time (NULL);
 }
 
 /**
- * Returns true if the specified ICAO address was seen in a DF format with
+ * Returns true if the specified ICAO address was seen in a DFx format with
  * proper checksum (not XORed with address) no more than
  * `MODES_ICAO_CACHE_TTL` seconds ago.
  * Otherwise returns false.
  */
-static bool ICAO_address_recently_seen (uint32_t addr)
+static bool ICAO_address_recently_seen (uint32_t a)
 {
-  uint32_t h_idx = ICAO_cache_hash_address (addr);
-  uint32_t _addr = Modes.ICAO_cache [2*h_idx];
+  uint32_t h_idx = ICAO_cache_hash_address (a);
+  uint32_t addr  = Modes.ICAO_cache [2*h_idx];
   uint32_t seen  = Modes.ICAO_cache [2*h_idx + 1];
 
-  return (_addr && _addr == addr && (time(NULL) - seen) <= MODES_ICAO_CACHE_TTL);
+  return (addr && addr == a && (time(NULL) - seen) <= MODES_ICAO_CACHE_TTL);
 }
 
 /**
@@ -1352,7 +1364,7 @@ static bool brute_force_AP (const uint8_t *msg, modeS_message *mm)
 }
 
 /**
- * Decode the 13 bit AC altitude field (in DF 20 and others).
+ * Decode the 13 bit AC altitude field (in DF20 and others).
  *
  * \param in  msg   the raw message to work with.
  * \param out unit  set to either `MODES_UNIT_METERS` or `MODES_UNIT_FEETS`.
@@ -1400,7 +1412,7 @@ static int decode_AC13_field (const uint8_t *msg, metric_unit_t *unit)
 }
 
 /**
- * Decode the 12 bit AC altitude field (in DF 17 and others).
+ * Decode the 12 bit AC altitude field (in DF17 and others).
  * Returns the altitude or 0 if it can't be decoded.
  */
 static int decode_AC12_field (uint8_t *msg, metric_unit_t *unit)
@@ -1590,7 +1602,7 @@ int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
   CRC = CRC_check (msg, mm->msg_bits);
 
   /* Check CRC and fix single bit errors using the CRC when
-   * possible (DF 11 and 17).
+   * possible (DF11 and 17).
    */
   mm->error_bit = -1;    /* No error */
   mm->CRC_ok = (mm->CRC == CRC);
@@ -1615,7 +1627,7 @@ int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
   /* Note: most of the other computation happens **after** we fix the single bit errors.
    * Otherwise we would need to recompute the fields again.
    */
-  mm->ca = msg[0] & 7;        /* Responder capabilities. */
+  mm->capa = msg[0] & 7;        /* Responder capabilities. */
 
   /* ICAO address
    */
@@ -1628,7 +1640,7 @@ int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
   mm->ME_type    = msg[4] >> 3;      /* Extended squitter message type. */
   mm->ME_subtype = msg[4] & 7;       /* Extended squitter message subtype. */
 
-  /* Fields for DF4,5,20,21
+  /* Fields for DF4, DF5, DF20 and DF21
    */
   mm->flight_status = msg[0] & 7;         /* Flight status for DF4,5,20,21 */
   mm->DR_status = msg[1] >> 3 & 31;       /* Request extraction of downlink request. */
@@ -1667,8 +1679,8 @@ int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
     mm->identity = a*1000 + b*100 + c*10 + d;
   }
 
-  /* DF 11 & 17: try to populate our ICAO addresses whitelist.
-   * DFs with an AP field (XORed addr and CRC), try to decode it.
+  /* DF11 and DF17: try to populate our ICAO addresses whitelist.
+   * DFx with an AP field (XORed addr and CRC), try to decode it.
    */
   if (mm->msg_type != 11 && mm->msg_type != 17)
   {
@@ -1687,7 +1699,7 @@ int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
   }
   else
   {
-    /* If this is DF 11 or DF 17 and the checksum was ok, we can add this address
+    /* If this is DF11 or DF17 and the checksum was ok, we can add this address
      * to the list of recently seen addresses.
      */
     if (mm->CRC_ok && mm->error_bit == -1)
@@ -1699,7 +1711,7 @@ int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
   if (mm->msg_type == 0 || mm->msg_type == 4 || mm->msg_type == 16 || mm->msg_type == 20)
      mm->altitude = decode_AC13_field (msg, &mm->unit);
 
-  /** Decode extended squitter specific stuff.
+  /** Decode extended squitter specific stuff for DF17.
    */
   if (mm->msg_type == 17)
   {
@@ -1936,7 +1948,7 @@ static void display_modeS_message (const modeS_message *mm)
 
   if (mm->msg_type == 0)
   {
-    /* DF 0 */
+    /* DF0 */
     LOG_STDOUT ("DF 0: Short Air-Air Surveillance.\n");
     LOG_STDOUT ("  Altitude       : %d %s\n", mm->altitude, UNIT_NAME(mm->unit));
     LOG_STDOUT ("  ICAO Address   : %s\n", aircraft_get_details(&mm->AA[0]));
@@ -1971,16 +1983,16 @@ static void display_modeS_message (const modeS_message *mm)
   }
   else if (mm->msg_type == 11)
   {
-    /* DF 11 */
+    /* DF11 */
     LOG_STDOUT ("DF 11: All Call Reply.\n");
-    LOG_STDOUT ("  Capability  : %s\n", capability_str[mm->ca]);
+    LOG_STDOUT ("  Capability  : %s\n", capability_str[mm->capa]);
     LOG_STDOUT ("  ICAO Address: %s\n", aircraft_get_details(&mm->AA[0]));
   }
   else if (mm->msg_type == 17)
   {
-    /* DF 17 */
+    /* DF17 */
     LOG_STDOUT ("DF 17: ADS-B message.\n");
-    LOG_STDOUT ("  Capability     : %d (%s)\n", mm->ca, capability_str[mm->ca]);
+    LOG_STDOUT ("  Capability     : %d (%s)\n", mm->capa, capability_str[mm->capa]);
     LOG_STDOUT ("  ICAO Address   : %s\n", aircraft_get_details(&mm->AA[0]));
     LOG_STDOUT ("  Extended Squitter Type: %d\n", mm->ME_type);
     LOG_STDOUT ("  Extended Squitter Sub : %d\n", mm->ME_subtype);
@@ -2047,6 +2059,9 @@ static void display_modeS_message (const modeS_message *mm)
     {
       /**\todo
        * Target State + Status Message
+       *
+       * \ref
+       *   the `if tc == 29:` part in `pyModeS/decoder/__init__.py`
        */
       add_unrecognized_ME (29, mm->ME_subtype);
     }
