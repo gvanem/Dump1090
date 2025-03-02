@@ -183,8 +183,11 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
   {
     listen_fmt = "%s://[::]:%u";
     modeS_net_services [service].is_ip6 = true;
+
+#if !defined(USE_ASAN)
     if (!Modes.dns6)
        LOG_STDERR ("WARNING: IPv6 WAN support not detected. IPv6 will only work for local-LAN.\n");
+#endif
   }
 
   /* Temporary enable important errors to go to `stderr` only.
@@ -547,6 +550,14 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
     DEBUG (DEBUG_NET2, "Accept-Encoding: '%.*s'\n", (int)header->len, header->buf);
     cli->encoding_gzip = true;  /**\todo Add gzip compression */
   }
+
+#if 0
+  if (!cli->rem_addr.is_ip6 && Modes.http_ipv6_only)
+  {
+    send_file (c, cli, "404-http-ipv6-only.html");
+    return (404);
+  }
+#endif
 
   /* Redirect a 'GET /' to a 'GET /' + 'web_page'
    */
