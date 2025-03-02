@@ -1677,8 +1677,10 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
 
   if (!geo_cartesian_to_spherical(a, &cpos, &epos))
   {
-    LOG_FILEONLY ("addr %04X: Invalid epos: %+7.03f lon, %+8.03f lat from heading: %+7.1lf. delta_X: %+8.3lf, delta_Y: %+8.3lf.\n",
-                  a->addr, epos.lon, epos.lat, 360.0 * a->heading_rad / TWO_PI, delta_X, delta_Y);
+    LOG_FILEONLY ("%s %04X: Invalid epos: %+7.03f lon, %+8.03f lat from heading: %+7.1lf. delta_X: %+8.3lf, delta_Y: %+8.3lf.\n",
+                  a->is_helicopter ? "helicopter" : "plane",
+                  a->addr, epos.lon, epos.lat,
+                  360.0 * a->heading_rad / TWO_PI, delta_X, delta_Y);
     return;
   }
 
@@ -1691,8 +1693,10 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   a->EST_distance = geo_closest_to (a->EST_distance, gc_distance, cart_distance);
 
 #if 0
-  LOG_FILEONLY ("addr %04X: heading: %+7.1lf, delta_X: %+8.3lf, delta_Y: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
-                a->addr, 360.0 * a->heading_rad / TWO_PI, delta_X, delta_Y, gc_distance/1000, cart_distance/1000);
+  LOG_FILEONLY ("%s %04X: heading: %+7.1lf, delta_X: %+8.3lf, delta_Y: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
+                a->is_helicopter ? "helicopter" : "plane",
+                a->addr, 360.0 * a->heading_rad / TWO_PI,
+                delta_X, delta_Y, gc_distance/1000, cart_distance/1000);
 #endif
 }
 

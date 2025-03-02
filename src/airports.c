@@ -200,6 +200,12 @@ static airports_priv g_data;
 #if defined(USE_BIN_FILES)
   static route_record *route_records;
   static size_t        route_records_num;
+
+  // static airport_record *airports_records;
+  // static size_t          airports_records_num;
+
+  // static aircraft_record *aircraft_records;
+  // static size_t           aircraft_records_num;
 #endif
 
 /**

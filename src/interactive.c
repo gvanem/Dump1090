@@ -591,7 +591,9 @@ void interactive_show_data (uint64_t now)
  * Handle a new ModeS message and add (or update) the
  * aircraft data with more info.
  *
- * \todo Rename to `aircraft_fill_data()` and move to aircraft.c.
+ * \todo
+ * Rename to `aircraft_fill_data()` and move to aircraft.c
+ * with a callback to this module.
  */
 aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
 {
@@ -631,6 +633,13 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
     {
       memcpy (a->call_sign, mm->flight, sizeof(a->call_sign));
     }
+#if 0
+    else if (mm->ME_type >= 5 && mm->ME_type <= 8)
+    {
+      if (cpr_decode_surface())
+         ;
+    }
+#endif
     else if ((mm->ME_type >= 9  && mm->ME_type <= 18) || /* Airborne Position (Baro Altitude) */
              (mm->ME_type >= 20 && mm->ME_type <= 22))   /* Airborne Position (GNSS Height) */
     {
@@ -656,6 +665,15 @@ aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
        *   A wrong relative position decode would require the aircraft to
        *   travel 360-100=260 NM in the 10 minutes of position validity.
        *   This is impossible for planes slower than 1560 knots (Mach 2.3) over the ground.
+       *
+       * \todo
+       *   Use some CPR code from pyModeS. Like `airborne_position()`
+       *   that decodes airborne position from a pair of even and odd position message.
+       *   Thus we need to save the 2 `mm` packets into the aircraft structure.
+       *
+       * Another references:
+       *   https://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html
+       *   https://www.adacore.com/uploads/products/SSAS-Presentations/newdev_05_moscato_2.pdf
        */
       int64_t t_diff = (int64_t) (a->even_CPR_time - a->odd_CPR_time);
 
