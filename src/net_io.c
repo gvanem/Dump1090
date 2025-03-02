@@ -2266,14 +2266,12 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
   DWORD           size = 0;
   IP_ADDR_STRING *ip;
   FILE           *f = NULL;
-  int             i, len;
+  int             i;
   mg_file_path    ping6_cmd;
   char            ping6_buf [500];
   char            ping6_addr[50];
 
-  GetSystemDirectory (ping6_cmd, sizeof(ping6_cmd));
-  len = strlen (ping6_cmd);
-  snprintf (ping6_cmd + len, sizeof(ping6_cmd) - len, "\\ping.exe -6 -n 1 ipv6.google.com 2> NUL");
+  snprintf (ping6_cmd, sizeof(ping6_cmd), "%s\\ping.exe -6 -n 1 ipv6.google.com 2> NUL", Modes.sys_dir);
 
   *dns4_p = NULL;
   *dns6_p = NULL;

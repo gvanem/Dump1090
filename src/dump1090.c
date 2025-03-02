@@ -391,6 +391,8 @@ static void modeS_init_config (void)
   GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
   snprintf (Modes.where_am_I, sizeof(Modes.where_am_I), "%s", dirname(Modes.who_am_I));
 
+  GetSystemDirectory (Modes.sys_dir, sizeof(Modes.sys_dir));
+
   modeS_init_temp();
 
   snprintf (Modes.cfg_file, sizeof(Modes.cfg_file), "%s\\dump1090.cfg", Modes.where_am_I);

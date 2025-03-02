@@ -350,6 +350,7 @@ typedef struct global_data {
         mg_file_path      tmp_dir;                  /**< The `%TEMP%\\dump1090` directory. (no trailing `\\`). */
         mg_file_path      results_dir;              /**< The `%TEMP%\\dump1090\\standing-data\\results` directory. */
         mg_file_path      cfg_file;                 /**< The config-file (default: "where_am_I\\dump1090.cfg") */
+        mg_file_path      sys_dir;                  /**< The full name of `%SystemRoot\\system32`. */
         FILETIME          start_FILETIME;           /**< The start-time on `FILETIME` form */
         SYSTEMTIME        start_SYSTEMTIME;         /**< The start-time on `SYSTEMTIME` form */
         LONG              timezone;                 /**< Our time-zone in minutes */
@@ -540,9 +541,9 @@ typedef struct modeS_message {
 
         /** DF11
          */
-        int ca;                              /**< Responder capabilities. */
+        int capa;                            /**< Responder capabilities. */
 
-        /** DF 17
+        /** DF17, DF18
          */
         int  ME_type;                        /**< Extended squitter message type. */
         int  ME_subtype;                     /**< Extended squitter message subtype. */
