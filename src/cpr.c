@@ -120,7 +120,7 @@ static double CPR_mod_double (double a, double b)
  * Calculates **NL** *(lat)*; *Number of Longitude* zone. <br>
  * Given the latitude, this function returns the number of longitude zones between 1 and 59.
  *
- * The NL function uses the precomputed table  from 1090-WP-9-14; Table A-21. <br>
+ * The NL function uses the precomputed table from 1090-WP-9-14; Table A-21. <br>
  * Refer [The-1090MHz-riddle](./The-1090MHz-riddle.pdf), page 45 for the exact equation.
  */
 static int CPR_NL_func (double lat)
@@ -213,15 +213,10 @@ L60:
  */
 static void CPR_set_home_distance (aircraft *a)
 {
-  double distance;
-
   if (!(VALID_POS(Modes.home_pos) && VALID_POS(a->position)))
      return;
 
-  distance = geo_great_circle_dist (a->position, Modes.home_pos);
-  if (distance != 0.0)
-     a->distance = distance;
-
+  a->distance     = geo_great_circle_dist (a->position, Modes.home_pos);
   a->EST_position = a->position;
 
   if (a->even_CPR_time > 0 && a->odd_CPR_time > 0)

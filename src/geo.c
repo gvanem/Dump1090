@@ -164,17 +164,23 @@ double geo_great_circle_dist (pos_t pos1, pos_t pos2)
   double lon1 = (TWO_PI * pos1.lon) / 360.0;
   double lat2 = (TWO_PI * pos2.lat) / 360.0;
   double lon2 = (TWO_PI * pos2.lon) / 360.0;
-  double angle;
+  double dlat = fabs (lat2 - lat1);
+  double dlon = fabs (lon2 - lon1);
+  double a;
 
-  /* Avoid a 'NaN'
-   */
-  if (fabs(lat1 - lat2) < SMALL_VAL && fabs(lon1 - lon2) < SMALL_VAL)
-     return (0.0);
+  if (dlat < SMALL_VAL && dlon < SMALL_VAL)
+  {
+    /*
+     * Use haversine for small distances.
+     */
+    a = sin (dlat/2) * sin (dlat/2) + cos (lat1) * cos (lat2) * sin (dlon/2) * sin (dlon/2);
+    return (EARTH_RADIUS * 2 * atan2 (sqrt(a), sqrt(1.0 - a)));
+  }
 
-  angle = sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(fabs(lon1 - lon2));
+  a = sin (lat1) * sin (lat2) + cos (lat1) * cos (lat2) * cos (fabs(lon1 - lon2));
 
   /* Radius of the Earth * 'arcosine of angular distance'.
    */
-  return (EARTH_RADIUS * acos(angle));
+  return (EARTH_RADIUS * acos(a));
 }
 
