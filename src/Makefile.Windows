@@ -129,13 +129,9 @@ endif
 GENERATED = $(OBJ_DIR)/cflags_$(CC).h \
             $(OBJ_DIR)/ldflags_$(CC).h
 
-#
-# For the 'link_EXE' macro
-#
-GENERATED += $(OBJ_DIR)/check-for-unused-libs.py
-
 CFLAGS = -nologo -c -Zi -W4        \
          -FI./dump1090_config.h    \
+         -Fd./$(OBJ_DIR)/vc14x.pdb \
          -std:c17                  \
          -I.                       \
          -I./externals             \
@@ -385,7 +381,7 @@ PACKED_TEST_SRC = ../tools/packed_webfs_main.c \
 PACKED_TEST_OBJ = $(call c_to_obj, $(PACKED_TEST_SRC))
 
 #
-# Select currect MSVC / clang-cl compiler without the 'vcvarsall.bat' non-sense.
+# Select correct compiler and libpaths without the 'vcvarsall.bat' non-sense.
 #
 # E.g.:
 #  'VCToolkitInstallDir=c:\dev\VC_2019\VC\Tools\MSVC\14.38.32919' -- the root of the MSVC tools.
@@ -427,13 +423,13 @@ all: $(GENERATED) $(TARGETS) DLL_copy
 $(OBJ_DIR) doxy-docs:
 	- mkdir $@
 
-../dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res | $(OBJ_DIR)/check-for-unused-libs.py
+../dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
 	$(call link_EXE, $@, $^ $(OS_LIBS) $(ASAN_LIBS))
 
 SQLITE3_OBJ = $(OBJ_DIR)/sqlite3.obj \
               $(OBJ_DIR)/sqlite3-shell.obj
 
-../sqlite3.exe: $(SQLITE3_OBJ) | $(OBJ_DIR)/check-for-unused-libs.py
+../sqlite3.exe: $(SQLITE3_OBJ)
 	$(call link_EXE, $@, $^ oldnames.lib $(ASAN_LIBS))
 
 $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args $(OBJ_DIR)
@@ -497,10 +493,10 @@ $(OBJ_DIR)/packed_webfs_2.c: ../tools/gen_packed_fs.py
 $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
-../packed_test.exe: $(PACKED_TEST_OBJ) | $(OBJ_DIR)/check-for-unused-libs.py
+../packed_test.exe: $(PACKED_TEST_OBJ)
 	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
-../speech_test.exe: $(OBJ_DIR)/speech_test.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj | $(OBJ_DIR)/check-for-unused-libs.py
+../speech_test.exe: $(OBJ_DIR)/speech_test.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj
 	$(call link_EXE, $@, $^ $(ASAN_LIBS) ole32.lib)
 
 $(CC).args: $(THIS_FILE)
@@ -553,10 +549,9 @@ speech_test.i: speech.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 FORCE:
 
 $(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate_py,$@,$(cpp_filter_py))
-
-$(OBJ_DIR)/check-for-unused-libs.py: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate_py,$@,$(check_for_unused_libs_py))
+	$(call generate, $@, #)
+	$(file >> $@,if 1:)
+	$(file >> $@,$(cpp_filter_py))
 
 #
 # Copy the needed .DLL for 'USE_UBSAN=1'
@@ -590,7 +585,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map)     \
                       ../sqlite3.{map,pdb}     \
                       ../web-pages.{map,pdb})
 
-OTHER_JUNK = vc1*.pdb link.tmp link.args cl.args clang-cl.args
+OTHER_JUNK = link.tmp link.args cl.args clang-cl.args
 
 clean: docs_clean DLL_clean VS_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
@@ -601,7 +596,7 @@ realclean vclean: clean
 	rm -f $(TARGETS) ../packed_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
-ubsan-issue.exe: $(OBJ_DIR)/ubsan-issue-with-32-bit-build.obj $(OBJ_DIR)/mongoose.obj | $(OBJ_DIR)/check-for-unused-libs.py
+ubsan-issue.exe: $(OBJ_DIR)/ubsan-issue-with-32-bit-build.obj $(OBJ_DIR)/mongoose.obj
 	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
 
@@ -638,6 +633,8 @@ define create_resp_file
 endef
 
 define link_EXE
+  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
+  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(check_for_unused_libs_py))
   $(call green_msg, Linking $(1))
   $(call create_resp_file, link.args, $(LDFLAGS) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
@@ -670,12 +667,6 @@ endef
 define generate
   $(call green_msg, Generating $(1))
   $(file > $(1),$(call Warning,$(strip $(2))))
-endef
-
-define generate_py
-  $(call generate, $(1), #)
-  $(file >> $(1),if 1:)
-  $(file >> $(1),$(2))
 endef
 
 define generate_cflags_h
