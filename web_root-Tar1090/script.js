@@ -324,6 +324,7 @@ function processReceiverUpdate(data, init) {
             now = data.now;
         }
     }
+    g.now = now;
 
     if (globeIndex) {
         if ((showGrid || loStore['globeGrid'] == 'true')
@@ -866,9 +867,32 @@ function initPage() {
 function earlyInitPage() {
     // things that can run without receiver json being known
     if (audio_url) {
-        jQuery('#mp3player').show();
-        document.getElementById('mp3player_audio').src = audio_url;
+        if (!Array.isArray(audio_url)) {
+            audio_url = [ audio_url ];
+        }
+        let html = "";
+        for (const entry of audio_url) {
+            let url = entry;
+            let title = entry;
+            if (Array.isArray(url)) {
+                url = entry[0];
+                title = entry[1];
+            }
+            if (url) {
+                html += `
+                    <tr><td style="text-align: center">${title}</td></tr>
+                    <tr><td style="text-align: center">
+                    <audio crossorigin="anonymous" preload="none" src="${url}" type="audio/mp3" controls="controls" autoplay="false"></audio>
+                    </td></tr>
+                `;
+            }
+        }
+        if (html) {
+            document.getElementById('mp3player').innerHTML = html;
+            jQuery('#mp3player').show();
+        }
     }
+
     let value;
 
     if (uk_advisory) {
@@ -7851,6 +7875,7 @@ function replayStep(arg) {
 
     last = now;
     now = replay.pointsU[i + 2] / 1000 + replay.pointsU[i + 1] * 4294967.296;
+    g.now = now;
 
     traceOpts.endStamp = now + replay.ival;
 
