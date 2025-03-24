@@ -643,7 +643,9 @@ bool        decode_SBS_message (mg_iobuf *msg, int loop_cnt);
 void        modeS_user_message (const modeS_message *mm);
 int         detect_out_of_phase (const uint16_t *m);
 void        apply_phase_correction (uint16_t *m);
+uint16_t   *compute_magnitude_vector (const uint8_t *data);
 int         modeS_message_len_by_type (int type);
+void        background_tasks (void);
 void        dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m,
                               uint32_t offset, uint32_t frame);
 

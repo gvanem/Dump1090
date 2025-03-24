@@ -30,6 +30,7 @@
 #include "location.h"
 #include "airports.h"
 #include "interactive.h"
+#include "infile.h"
 
 global_data Modes;
 
@@ -87,37 +88,34 @@ global_data Modes;
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * ```
  */
-static void      modeS_send_raw_output (const modeS_message *mm);
-static void      modeS_send_SBS_output (const modeS_message *mm, const aircraft *a);
-static bool      set_bandwidth (const char *arg);
-static bool      set_bias_tee (const char *arg);
-static bool      set_frequency (const char *arg);
-static bool      set_gain (const char *arg);
-static bool      set_if_mode (const char *arg);
-static bool      set_infile (const char *arg);
-static bool      set_interactive_ttl (const char *arg);
-static bool      set_home_pos (const char *arg);
-static bool      set_home_pos_from_location_API (const char *arg);
-static bool      set_host_port_raw_in (const char *arg);
-static bool      set_host_port_raw_out (const char *arg);
-static bool      set_host_port_sbs_in (const char *arg);
-static bool      set_logfile (const char *arg);
-static bool      set_loops (const char *arg);
-static bool      set_port_http (const char *arg);
-static bool      set_port_raw_in (const char *arg);
-static bool      set_port_raw_out (const char *arg);
-static bool      set_port_sbs (const char *arg);
-static bool      set_prefer_adsb_lol (const char *arg);
-static bool      set_ppm (const char *arg);
-static bool      set_sample_rate (const char *arg);
-static bool      set_tui (const char *arg);
-static bool      set_web_page (const char *arg);
+static void  modeS_send_raw_output (const modeS_message *mm);
+static void  modeS_send_SBS_output (const modeS_message *mm, const aircraft *a);
+static bool  set_bandwidth (const char *arg);
+static bool  set_bias_tee (const char *arg);
+static bool  set_frequency (const char *arg);
+static bool  set_gain (const char *arg);
+static bool  set_if_mode (const char *arg);
+static bool  set_interactive_ttl (const char *arg);
+static bool  set_home_pos (const char *arg);
+static bool  set_home_pos_from_location_API (const char *arg);
+static bool  set_host_port_raw_in (const char *arg);
+static bool  set_host_port_raw_out (const char *arg);
+static bool  set_host_port_sbs_in (const char *arg);
+static bool  set_logfile (const char *arg);
+static bool  set_loops (const char *arg);
+static bool  set_port_http (const char *arg);
+static bool  set_port_raw_in (const char *arg);
+static bool  set_port_raw_out (const char *arg);
+static bool  set_port_sbs (const char *arg);
+static bool  set_prefer_adsb_lol (const char *arg);
+static bool  set_ppm (const char *arg);
+static bool  set_sample_rate (const char *arg);
+static bool  set_tui (const char *arg);
+static bool  set_web_page (const char *arg);
 
-static int       fix_single_bit_errors (uint8_t *msg, int bits);
-static int       fix_two_bits_errors (uint8_t *msg, int bits);
-static uint16_t *compute_magnitude_vector (const uint8_t *data);
-static void      background_tasks (void);
-static void      modeS_exit (void);
+static int   fix_single_bit_errors (uint8_t *msg, int bits);
+static int   fix_two_bits_errors (uint8_t *msg, int bits);
+static void  modeS_exit (void);
 
 static const struct cfg_table config[] = {
     { "adsb-mode",        ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
@@ -757,88 +755,6 @@ void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
   memcpy (Modes.data + 4*(MODES_FULL_LEN-1), buf, len);
   Modes.data_ready = true;
   LeaveCriticalSection (&Modes.data_mutex);
-}
-
-/**
- * Close the `--infile file` handle.
- */
-static void infile_exit (void)
-{
-  if (Modes.infile_fd == STDIN_FILENO)
-        SETMODE (STDIN_FILENO, O_TEXT);
-  else _close (Modes.infile_fd);
-
-  Modes.infile_fd = -1;
-}
-
-/**
- * This is used when `--infile` is specified in order to read data from file
- * instead of using a RTLSDR / SDRplay device.
- */
-static int infile_read (void)
-{
-  uint32_t rc = 0;
-
-  if (Modes.loops > 0 && Modes.infile_fd == STDIN_FILENO)
-  {
-    LOG_STDERR ("Option `--loops <N>' not supported for `stdin'.\n");
-    Modes.loops = 0;
-  }
-
-  do
-  {
-     int      nread, toread;
-     uint8_t *data;
-
-     if (Modes.interactive)
-     {
-       /* When --infile and --interactive are used together, slow down
-        * mimicking the real RTLSDR / SDRplay rate.
-        */
-       Sleep (1000);
-     }
-
-     /* Move the last part of the previous buffer, that was not processed,
-      * on the start of the new buffer.
-      */
-     memcpy (Modes.data, Modes.data + MODES_ASYNC_BUF_SIZE, 4*(MODES_FULL_LEN-1));
-     toread = MODES_ASYNC_BUF_SIZE;
-     data   = Modes.data + 4*(MODES_FULL_LEN-1);
-
-     while (toread)
-     {
-       nread = _read (Modes.infile_fd, data, toread);
-       if (nread <= 0)
-          break;
-       data   += nread;
-       toread -= nread;
-     }
-
-     if (toread)
-     {
-       /* Not enough data on file to fill the buffer? Pad with
-        * no signal.
-        */
-       memset (data, 127, toread);
-     }
-
-     compute_magnitude_vector (Modes.data);
-     rc += demodulate_2000 (Modes.magnitude, Modes.data_len/2);
-     background_tasks();
-
-     if (Modes.exit || Modes.infile_fd == STDIN_FILENO)
-        break;
-
-     /* seek the file again from the start
-      * and re-play it if --loops was given.
-      */
-     if (Modes.loops > 0)
-        Modes.loops--;
-     if (Modes.loops == 0 || _lseek(Modes.infile_fd, 0, SEEK_SET) == -1)
-        break;
-  }
-  while (1);
-  return (rc);
 }
 
 /**
@@ -2090,7 +2006,7 @@ static void display_modeS_message (const modeS_message *mm)
  * Turn I/Q samples pointed by `Modes.data` into the magnitude vector
  * pointed by `Modes.magnitude`.
  */
-static uint16_t *compute_magnitude_vector (const uint8_t *data)
+uint16_t *compute_magnitude_vector (const uint8_t *data)
 {
   uint16_t *m = Modes.magnitude;
   uint32_t  i;
@@ -2790,7 +2706,7 @@ static void NO_RETURN show_help (const char *fmt, ...)
  *  \li Refreshes interactive data every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`).
  *  \li Refreshes the console-title with some statistics (also 4 times per second).
  */
-static void background_tasks (void)
+void background_tasks (void)
 {
   bool     refresh;
   pos_t    pos;
@@ -3283,12 +3199,6 @@ static bool set_interactive_ttl (const char *arg)
   return (true);
 }
 
-static bool set_infile (const char *arg)
-{
-  strcpy_s (Modes.infile, sizeof(Modes.infile), arg);
-  return (true);
-}
-
 static bool set_logfile (const char *arg)
 {
   strcpy_s (Modes.logfile_initial, sizeof(Modes.logfile_initial), arg);
@@ -3425,7 +3335,7 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 'i':
-           set_infile (optarg);
+           infile_set (optarg);
            break;
 
       case 'N':
@@ -3511,17 +3421,9 @@ int main (int argc, char **argv)
   }
   else if (Modes.infile[0])
   {
-    rc = 1;
-    if (Modes.infile[0] == '-' && Modes.infile[1] == '\0')
-    {
-      Modes.infile_fd = STDIN_FILENO;
-      SETMODE (Modes.infile_fd, O_BINARY);
-    }
-    else if ((Modes.infile_fd = _open(Modes.infile, O_RDONLY | O_BINARY)) == -1)
-    {
-      LOG_STDERR ("Error opening `%s`: %s\n", Modes.infile, strerror(errno));
-      goto quit;
-    }
+    rc = infile_init();
+    if (!rc)
+         goto quit;
   }
   else if (!Modes.tests)     /* for testing, do not initialize RTLSDR/SDRPlay */
   {

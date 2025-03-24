@@ -212,10 +212,6 @@ ifeq ($(USE_ASAN),1)
   RCFLAGS += -DUSE_ASAN
 
   ifeq ($(CC),clang-cl)
-    CFLAGS += -fsanitize-stats                          \
-              -fsanitize-address-globals-dead-stripping \
-              -fsanitize-address-use-after-scope
-
     ASAN_LIBS = clang_rt.asan_dynamic-$(SUFFIX).lib \
                 clang_rt.asan_dynamic_runtime_thunk-$(SUFFIX).lib \
                 kernel32.lib
@@ -295,11 +291,13 @@ TARGETS = ../dump1090.exe
 SOURCES = aircraft.c    \
           airports.c    \
           cfg_file.c    \
+          color.c       \
           cpr.c         \
           csv.c         \
           demod-2000.c  \
           dump1090.c    \
           geo.c         \
+          infile.c      \
           interactive.c \
           misc.c        \
           net_io.c      \
@@ -426,6 +424,9 @@ $(OBJ_DIR) doxy-docs:
 ../dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
 	$(call link_EXE, $@, $^ $(OS_LIBS) $(ASAN_LIBS))
 
+../color-test.exe: $(OBJ_DIR)/color_test.obj
+	$(call link_EXE, $@, $^ $(ASAN_LIBS))
+
 SQLITE3_OBJ = $(OBJ_DIR)/sqlite3.obj \
               $(OBJ_DIR)/sqlite3-shell.obj
 
@@ -454,6 +455,9 @@ else
   $(OBJ_DIR)/sqlite3.obj: externals/sqlite3.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile_long_time, $@, $<)
 endif
+
+$(OBJ_DIR)/color_test.obj: color.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, -DTEST $<)
 
 $(OBJ_DIR)/speech_test.obj: speech.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, -DTEST $<)
@@ -581,6 +585,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map)     \
                       $(TARGETS:.exe=.pdb)     \
                       $(TARGETS:.exe=.exp)     \
                       $(TARGETS:.exe=.lib)     \
+                      ../color-test.{map,pdb} \
                       ../packed_test.{map,pdb} \
                       ../sqlite3.{map,pdb}     \
                       ../web-pages.{map,pdb})
