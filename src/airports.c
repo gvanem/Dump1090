@@ -648,6 +648,9 @@ static flight_info *routes_find_by_callsign (const char *call_sign)
   strncpy (f.destination, dest ? dest->IATA : r_copy.destination, sizeof(f.destination)-1);
 //strncpy (f.intermediate1, int1 ? int1 : "?", sizeof(f.intermediate1)-1);
 //strncpy (f.intermediate1, int2 ? int2 : "?", sizeof(f.intermediate2)-1);
+
+  MODES_NOTUSED (int1);
+  MODES_NOTUSED (int2);
   return (&f);
 }
 #endif  /* USE_BIN_FILES */
