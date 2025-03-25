@@ -477,7 +477,7 @@ typedef struct global_data {
 
 extern global_data Modes;
 
-#if defined(USE_READSB_DEMOD)
+#if defined(USE_DEMOD_2400)
   typedef struct mag_buf {
           uint16_t *data;             /**< Magnitude data, starting with overlap from the previous block. */
           unsigned  length;           /**< Number of valid samples _after_ overlap. */

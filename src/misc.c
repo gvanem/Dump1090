@@ -1330,8 +1330,8 @@ static const char *build_features (void)
   #if defined(USE_PACKED_DLL)
     "Packed-Web",
   #endif
-  #if defined(USE_READSB_DEMOD)
-    "readsb-demod",
+  #if defined(USE_DEMOD_2400)
+    "demod-2400",
   #endif
     "NETPOLLER=" NETPOLLER,
     NULL
