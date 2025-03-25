@@ -117,6 +117,8 @@ static int   fix_single_bit_errors (uint8_t *msg, int bits);
 static int   fix_two_bits_errors (uint8_t *msg, int bits);
 static void  modeS_exit (void);
 
+static uint64_t max_messages;
+
 static const struct cfg_table config[] = {
     { "adsb-mode",        ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
     { "bias-t",           ARG_FUNC,    (void*) set_bias_tee },
@@ -1829,7 +1831,10 @@ static void display_modeS_message (const modeS_message *mm)
   /* Did we specify a filter?
    */
   if (!aircraft_match(&mm->AA[0]))
-     return;
+  {
+    TRACE ("aircraft_match() did not match %06X", aircraft_get_addr(mm->AA));
+    return;
+  }
 
   /* Handle only addresses mode first.
    */
@@ -2099,7 +2104,7 @@ void apply_phase_correction (uint16_t *m)
   }
 }
 
-#if defined(USE_READSB_DEMOD)
+#if defined(USE_DEMOD_2400)
 /**
  * Use a rewrite of the 'demodulate2400()' function from
  * https://github.com/wiedehopf/readsb.git
@@ -2115,7 +2120,7 @@ uint32_t demodulate_2400 (uint16_t *m, uint32_t mlen)
   mag.sysTimestamp = MSEC_TIME();
   demodulate2400 (&mag);
 }
-#endif  /* USE_READSB_DEMOD */
+#endif  /* USE_DEMOD_2400 */
 
 /**
  * When a new message is available, because it was decoded from the
@@ -2453,7 +2458,7 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
       mg_iobuf_del (msg, 0, end - msg->buf);
       return (false);
     }
-    bin_msg[j/2] = (high << 4) | low;
+    bin_msg [j/2] = (high << 4) | low;
   }
 
   mg_iobuf_del (msg, 0, end - msg->buf);
@@ -2677,6 +2682,7 @@ static void NO_RETURN show_help (const char *fmt, ...)
             "                             `--device sdrplayRSP1A'    - select on SDRPlay name.\n"
             "  --infile <filename>   Read data from file (use `-' for stdin).\n"
             "  --interactive         Enable interactive mode.\n"
+            "  --max-messages        Maximum number of messages to process.\n"
             "  --net                 Enable network listening services.\n"
             "  --net-active          Enable network active services.\n"
             "  --net-only            Enable only networking, no physical device or file.\n"
@@ -3289,28 +3295,30 @@ static bool set_web_page (const char *arg)
 }
 
 static struct option long_options[] = {
-  { "config",      required_argument,  NULL,               'c' },
-  { "debug",       required_argument,  NULL,               'd' },
-  { "device",      required_argument,  NULL,               'D' },
-  { "help",        no_argument,        NULL,               'h' },
-  { "infile",      required_argument,  NULL,               'i' },
-  { "interactive", no_argument,        &Modes.interactive,  1  },
-  { "net",         no_argument,        &Modes.net,          1  },
-  { "net-active",  no_argument,        &Modes.net_active,  'N' },
-  { "net-only",    no_argument,        &Modes.net_only,    'n' },
-  { "only-addr",   no_argument,        &Modes.only_addr,    1  },
-  { "raw",         no_argument,        &Modes.raw,          1  },
-  { "strip",       required_argument,  NULL,               'S' },
-  { "test",        required_argument,  NULL,               'T' },
-  { "update",      no_argument,        NULL,               'u' },
-  { "version",     no_argument,        NULL,               'V' },
-  { NULL,          no_argument,        NULL,                0  }
+  { "config",       required_argument,  NULL,               'c' },
+  { "debug",        required_argument,  NULL,               'd' },
+  { "device",       required_argument,  NULL,               'D' },
+  { "help",         no_argument,        NULL,               'h' },
+  { "infile",       required_argument,  NULL,               'i' },
+  { "interactive",  no_argument,        &Modes.interactive,  1  },
+  { "max-messages", required_argument,  NULL,               'm' },
+  { "net",          no_argument,        &Modes.net,          1  },
+  { "net-active",   no_argument,        &Modes.net_active,  'N' },
+  { "net-only",     no_argument,        &Modes.net_only,    'n' },
+  { "only-addr",    no_argument,        &Modes.only_addr,    1  },
+  { "raw",          no_argument,        &Modes.raw,          1  },
+  { "strip",        required_argument,  NULL,               'S' },
+  { "test",         required_argument,  NULL,               'T' },
+  { "update",       no_argument,        NULL,               'u' },
+  { "version",      no_argument,        NULL,               'V' },
+  { NULL,           no_argument,        NULL,                0  }
 };
 
 static bool parse_cmd_line (int argc, char **argv)
 {
-  int  c, show_ver = 0, idx = 0;
-  bool rc = true;
+  int   c, show_ver = 0, idx = 0;
+  char *end;
+  bool  rc = true;
 
   while ((c = getopt_long (argc, argv, "+h?V", long_options, &idx)) != EOF)
   {
@@ -3336,6 +3344,12 @@ static bool parse_cmd_line (int argc, char **argv)
 
       case 'i':
            infile_set (optarg);
+           break;
+
+      case 'm':
+           max_messages = strtoull (optarg, &end, 10);
+           if (end == optarg)
+              show_help ("Illegal value for `--max-messages %s'.\n", optarg);
            break;
 
       case 'N':
@@ -3402,6 +3416,11 @@ int main (int argc, char **argv)
   rc = modeS_init();    /* Initialization based on cmd-line options */
   if (!rc)
      goto quit;
+
+  /* cmd-line option `--max-messages N` overrides the config-file setting
+   */
+  if (max_messages > 0)
+     Modes.max_messages = max_messages;
 
   if (Modes.net_only)
   {
