@@ -42,7 +42,7 @@ USE_PACKED_DLL ?= 0
 # Enable the 2.4 MS/s decoder from 'readsb'?
 # Not possible at the moment.
 #
-USE_READSB_DEMOD ?= 0
+USE_DEMOD_2400 ?= 0
 
 #
 # Enable "Address Sanitation".
@@ -361,9 +361,9 @@ else
   $(error Illegal 'USE_NET_POLLER=$(USE_NET_POLLER)' value)
 endif
 
-ifeq ($(USE_READSB_DEMOD),1)
-  CFLAGS  += -DUSE_READSB_DEMOD
-  SOURCES += externals/demod-2400.c
+ifeq ($(USE_DEMOD_2400),1)
+  CFLAGS  += -DUSE_DEMOD_2400
+  SOURCES += demod-2400.c
 endif
 
 OBJECTS = $(call c_to_obj, $(SOURCES))
@@ -424,7 +424,7 @@ $(OBJ_DIR) doxy-docs:
 ../dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
 	$(call link_EXE, $@, $^ $(OS_LIBS) $(ASAN_LIBS))
 
-../color-test.exe: $(OBJ_DIR)/color_test.obj
+../color_test.exe: $(OBJ_DIR)/color_test.obj
 	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
 SQLITE3_OBJ = $(OBJ_DIR)/sqlite3.obj \
@@ -585,8 +585,9 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map)     \
                       $(TARGETS:.exe=.pdb)     \
                       $(TARGETS:.exe=.exp)     \
                       $(TARGETS:.exe=.lib)     \
-                      ../color-test.{map,pdb} \
+                      ../color_test.{map,pdb}  \
                       ../packed_test.{map,pdb} \
+                      ../speech_test.{map,pdb} \
                       ../sqlite3.{map,pdb}     \
                       ../web-pages.{map,pdb})
 
@@ -598,7 +599,7 @@ clean: docs_clean DLL_clean VS_clean
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
 realclean vclean: clean
-	rm -f $(TARGETS) ../packed_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
+	rm -f $(TARGETS) ../color_test.exe ../packed_test.exe ../speech_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
 ubsan-issue.exe: $(OBJ_DIR)/ubsan-issue-with-32-bit-build.obj $(OBJ_DIR)/mongoose.obj
