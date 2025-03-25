@@ -30,6 +30,7 @@ and added some more references and screen-shots. But in the source-code I've don
   where the checksum is *XORed* with the ICAO address by brute forcing the
   checksum field using recently seen ICAO addresses.
 * Decode raw IQ samples from file (using the `--infile bin-file` command line option).
+* Decode CSV data from file (using the `--infile csv-file` command line option).
 * Interactive command-line-interface mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives. Planes that haven't been seen
   last 60 seconds are removed from the list (key/value `interactive-ttl = sec` to change).
@@ -205,6 +206,10 @@ DF 17: ADS-B message.
 To decode data from file, use:
   ```
   c:\dev\Dump1090> dump1090 --infile file.bin
+  ```
+  or:
+  ```
+  c:\dev\Dump1090> dump1090 --infile testfiles\long_flight.csv
   ```
 
 The binary file should be created using `rtl_sdr` like this (or with another
@@ -401,9 +406,9 @@ based on how the messages look graphically.
 If you have an RTL-SDR device and you happen to be in an area where there
 are aircrafts flying over your head, just run the program and check for signals.
 
-If however you don't have an RTL-SDR device, or if in your area the presence
-of aircrafts is very limited, you may want to try it with the sample file under
-the **[testfiles](testfiles/)** directory. Run it like this: <nl>
+If however you don't have an RTL-SDR device, or if the presence of aircrafts is
+very limited in your area, you may want to try it with the sample file under the
+**[testfiles](testfiles/)** directory. Run it like this: <nl>
   ```
   c:\dev\Dump1090> dump1090 <other-options> --infile testfiles/modes1.bin
   ```
