@@ -2338,6 +2338,11 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
   }
   if (f)
      _pclose (f);
+
+#else
+  MODES_NOTUSED (f);
+  MODES_NOTUSED (ping6_buf);
+  MODES_NOTUSED (ping6_addr);
 #endif
 
   return (true);
