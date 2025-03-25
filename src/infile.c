@@ -255,17 +255,7 @@ static int csv_callback (struct CSV_context *ctx, const char *value)
   {
     if (csv_add_record(timestamp, value, delta_us))
        rc = 1;
-
-    timestamp = 0.0; /* ready for next record */
-
-    if ((ctx->rec_num % 1000) == 0)
-    {
-      static int idx = 0;
-
-      putchar ("|/-\\"[idx & 3]);
-      putchar ('\b');
-      idx++;
-    }
+    timestamp = 0.0;   /* ready for next record */
   }
   return (rc);
 }
@@ -296,9 +286,10 @@ static bool csv_parse_file (void)
 }
 
 /*
- * For testing a limited data-set
+ * For testing a limited (e.g. option `--max-messages 1000`)
+ * or the full data-set.
  */
-static void csv_read_2 (void)
+static void csv_read_test (void)
 {
   const csv_record *rec = g_data.records;
   time_t ref, now = time (NULL);
@@ -308,7 +299,7 @@ static void csv_read_2 (void)
 
   ref = (time_t) g_data.reference_time;
   printf ("%s():\n"
-          "  Parsing '%s'.\n"
+          "  Dumping '%s'.\n"
           "  Reference time: %.24s\n",
           __FUNCTION__, Modes.infile, ctime(&ref));
 
@@ -344,7 +335,7 @@ static int csv_read (void)
      return (0);
 
   if (Modes.debug & DEBUG_GENERAL2)
-     csv_read_2();
+     csv_read_test();
 
   do
   {
