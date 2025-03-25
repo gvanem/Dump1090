@@ -103,7 +103,7 @@ static const char *wincon_to_ansi (WORD col);
 
 static int C_init_colour_map (unsigned short col, ...)
 {
-  int     i;
+  uint8_t i;
   va_list args;
 
   va_start (args, col);
@@ -328,7 +328,7 @@ static const char *wincon_to_ansi (WORD col)
  */
 static void C_set_ansi (unsigned short col)
 {
-  int i;
+  uint8_t i;
 
   c_raw_mode = true;
   for (i = 0; i < DIM(colour_map); i++)
@@ -430,8 +430,9 @@ int C_vprintf (const char *fmt, va_list args)
  */
 int C_putc (int ch)
 {
-  static bool get_color = false;
-  int    i, rc = 0;
+  static  bool get_color = false;
+  uint8_t i;
+  int     rc = 0;
 
   C_init();
 
