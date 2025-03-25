@@ -272,7 +272,7 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
  */
 static bool parse_and_set_value (const char *key, const char *value, void *arg, int size)
 {
-  uint64_t val = 0;
+  int64_t val = 0;
 
   TRACE ("parsing key: '%s', value: '%s'", key, value);
 
@@ -313,7 +313,7 @@ static bool parse_and_set_value (const char *key, const char *value, void *arg, 
          *(uint32_t*) arg = (uint32_t) val;
          break;
     case 8:
-         RANGE_CHECK (val, 0, UINT64_MAX);
+         RANGE_CHECK (val, 0, INT64_MAX);
          *(uint64_t*) arg = (uint64_t) val;
          break;
     default:
