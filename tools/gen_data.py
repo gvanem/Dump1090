@@ -138,8 +138,11 @@ def read_csv_file (fname, _dict, bin_file):
      f = open_file (fname, "rt", "utf-8-sig")
 
   for i, l in enumerate (f.readlines()):
-      if i == 0:     # save CSV header line.
-         _dict [fname]["header"] = l
+      if i == 0:     # save CSV header line and strip the BOM.
+         if l[0] == 0xEF and l[1] == 0xBB and l[2] == 0xBF:
+            _dict [fname]["header"] = l[3:]
+         else:
+            _dict [fname]["header"] = l
       else:
          lines.append (l)
   f.close()
@@ -318,6 +321,7 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
   print ("""#include "gen_data.h"
 
 #include <time.h>
+#include <io.h>
 
 #pragma pack(push, 1)
 
@@ -354,6 +358,16 @@ static char buf [1000];  /* work buffer */""" % \
 
 #elif defined(AIRPORT_LOOKUP)
   #define HEADER  "ICAO IATA  Name                            Location             Cntry    Lat.  Long."
+
+  /*
+   * Count the number of UTF8 codepoint to compensate for the display width
+   */
+  static int num_utf8 (const char *in)
+  {
+    int num = 0;
+
+    return (num);
+  }
 
   /* TODO: should use 'MultiByteToWideChar()' on 'rec->full_name' and 'rec->location' here.
    */
@@ -433,15 +447,21 @@ static void *allocate_records (const BIN_header *hdr)
 
 int main (void)
 {
-  FILE      *f = fopen (bin_file, "rb");
-  BIN_header hdr;
-  RECORD    *rec, *start, *prev_rec = NULL;
+  FILE         *f = fopen (bin_file, "rb");
+  BIN_header    hdr;
+  RECORD       *rec, *start, *prev_rec = NULL;
+  const uint8_t BOM[] = { 0xEF, 0xBB, 0xBF };
 
   if (!f)
   {
     fprintf (stderr, "Failed to open %s!\\n", bin_file);
     return (1);
   }
+
+  /* Write an UTF-8 BOM at the start if stdout (STDOUT_FILENO=1) is redirected
+   */
+  if (!isatty(1))
+     fwrite (&BOM, sizeof(BOM), 1, stdout);
 
   fread (&hdr, 1, sizeof(hdr), f);
   printf ("bin_marker: %.*s\\n", (int)sizeof(hdr.bin_marker), hdr.bin_marker);
@@ -597,7 +617,7 @@ def main():
      print ("total_fsize: %s" % nice_size(total_fsize))
      sys.exit (0)
 
-  create_csv_file (aircrafts_csv, "aircraft_files", aircraft_files, False)
+  create_csv_file (aircrafts_csv, "aircraft_files", aircraft_files, True)
   create_csv_file (airports_csv,  "airport_files",  airport_files, True)
   create_csv_file (routes_csv,    "route_files",    route_files, False)
 
