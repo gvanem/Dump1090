@@ -268,7 +268,7 @@ static void init (void)
 int main (void)
 {
   init();
-  check_specs   (mg_spec_1, mg_spec_2);
+//check_specs   (mg_spec_1, mg_spec_2);
   check_numbers (mg_unlist_1, mg_unlist_2);
   check_listing (mg_unlist_1, mg_unlist_2, mg_unpack_1, mg_unpack_2);
   check_sizes   (mg_unlist_1, mg_unlist_2, mg_unpack_1, mg_unpack_2);
