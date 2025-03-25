@@ -196,12 +196,8 @@ static int CSV_add_entry (const aircraft_info *rec)
   if (rec->addr == 0 || rec->addr > 0xFFFFFF)
      return (1);
 
-  if (!copy)
-  {
-    copy   = dest = malloc (ONE_MEGABYTE);  /* initial buffer */
-    hi_end = copy + (ONE_MEGABYTE / sizeof(*rec));
-  }
-  else if (dest == hi_end - 1)
+  if (!Modes.aircraft_list_CSV || /* Create the initial buffer */
+      dest == hi_end - 1)
   {
     size_t new_num = 10000 + Modes.aircraft_num_CSV;
 

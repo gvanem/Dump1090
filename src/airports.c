@@ -307,12 +307,8 @@ static int CSV_add_entry (const airport *rec)
   static airport *dest = NULL;
   static airport *hi_end;
 
-  if (!copy)  /* Create the initial buffer */
-  {
-    copy   = dest = malloc (ONE_MEGABYTE);
-    hi_end = copy + (ONE_MEGABYTE / sizeof(*rec));
-  }
-  else if (dest == hi_end - 1)
+  if (!g_data.airport_CSV ||   /* Create the initial buffer */
+      dest == hi_end - 1)
   {
     size_t new_num = 10000 + g_data.ap_stats.CSV_numbers;
 
