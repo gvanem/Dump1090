@@ -325,9 +325,10 @@ static void csv_read_test (void)
  */
 static int csv_read (void)
 {
-  int    num = 0, ret = 0;
-  const  csv_record *rec = g_data.records;
-  double elapsed, start_us = get_usec_now();
+  const csv_record *rec = g_data.records;
+  double            elapsed, start_us = get_usec_now();
+  uint32_t          num = 0;
+  int               ret = 0;
 
   assert (rec);
 
@@ -342,6 +343,8 @@ static int csv_read (void)
     mg_iobuf msg;
     int      rc;
 
+    background_tasks();
+
     /* When to fire off the next raw message?
      */
     elapsed = (get_usec_now() - start_us) / 1E6;
@@ -353,13 +356,15 @@ static int csv_read (void)
       rc = (int) decode_RAW_message (&msg, 0);
       TRACE ("  msg: %3d, rc: %d, Modes.stat.RAW_good: %llu",
              num, rc, Modes.stat.RAW_good);
+
       num++;
+      rec++;
+
       if (rc)
       {
         Modes.stat.good_CRC++;
         ret++;
       }
-      rec++;
 
       if (Modes.max_messages > 0 && --Modes.max_messages == 0)
       {
@@ -372,7 +377,6 @@ static int csv_read (void)
         Modes.exit = true;
       }
     }
-    background_tasks();
   }
   while (!Modes.exit);
 
