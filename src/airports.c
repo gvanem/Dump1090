@@ -1474,6 +1474,11 @@ void airports_exit (bool free_airports)
    */
   airports_cache_write();
   Modes.airports_priv = NULL;
+
+#if defined(USE_BIN_FILES)
+  free (route_records);
+  route_records_num = 0;
+#endif
 }
 
 /**
