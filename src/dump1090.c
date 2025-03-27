@@ -3503,7 +3503,7 @@ int main (int argc, char **argv)
   }
 
 quit:
-  if (!init_error)
+  if (!init_error && !Modes.no_stats)
      show_statistics();
   modeS_exit();
   return (0);

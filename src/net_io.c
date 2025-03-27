@@ -857,6 +857,8 @@ static void connection_failed_active (mg_connection *c, intptr_t service, const 
   const char *err = net_error_details (c, "Connection out ", ev_data);
 
   net_store_error (service, err);
+  Modes.no_stats = true;
+  LOG_STDERR ("connect() to %s failed; %s.\n", modeS_net_services [service].url, err);
 }
 
 /**
@@ -1193,6 +1195,7 @@ static uint32_t net_conn_free_all (void)
       num++;
     }
     free (net_service_url(service));
+    free (net_service_error(service));
   }
   return (num);
 }
@@ -2043,6 +2046,7 @@ static int net_show_server_errors (void)
 
     if (!err)
        continue;
+
     LOG_STDOUT ("  %s: %s.\n", net_service_descr(service), err);
     net_store_error (service, NULL);
     num++;

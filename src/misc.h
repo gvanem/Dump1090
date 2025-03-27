@@ -370,6 +370,7 @@ typedef struct global_data {
         uint64_t          last_update_ms;           /**< Last screen update in milliseconds. */
         uint64_t          max_messages;             /**< How many messages to process before quitting. */
         uint64_t          max_frames;               /**< How many frames in a sample-buffer to process (for testing SDRPlay) */
+        bool              no_stats;                 /**< Set to `true` in case no point showing statistics */
 
         /** Common stuff for RTLSDR and SDRplay:
          */
