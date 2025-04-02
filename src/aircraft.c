@@ -1588,6 +1588,17 @@ char *aircraft_make_json (bool extended_client)
 }
 
 /**
+ * Free a single aircraft `a` from the global list
+ * `Modes.aircrafts`.
+ */
+static void aircraft_free (aircraft *a)
+{
+  LIST_DELETE (aircraft, &Modes.aircrafts, a);
+  free (a->SQL);
+  free (a);
+}
+
+/**
  * Called from `background_tasks()` 4 times per second.
  *
  * If we don't receive new nessages within `Modes.interactive_ttl`
@@ -1616,9 +1627,7 @@ void aircraft_remove_stale (uint64_t now)
        * Perhaps copy it to a `aircraft_may_reenter` list?
        * Or leave it in the list with show-state as `A_SHOW_NONE`.
        */
-      LIST_DELETE (aircraft, &Modes.aircrafts, a);
-      free (a->SQL);
-      free (a);
+      aircraft_free (a);
     }
   }
 }
@@ -1741,12 +1750,9 @@ void aircraft_exit (bool free_aircrafts)
   for (a = Modes.aircrafts; a; a = a_next)
   {
     a_next = a->next;
-    LIST_DELETE (aircraft, &Modes.aircrafts, a);
-    free (a->SQL);
-    free (a);
+    aircraft_free (a);
   }
 
-  if (Modes.aircraft_list_CSV)
-     free (Modes.aircraft_list_CSV);
+  free (Modes.aircraft_list_CSV);
   Modes.aircraft_list_CSV = NULL;
 }
