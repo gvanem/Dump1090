@@ -780,7 +780,7 @@ char *slashify (char *fname)
 
 /**
  * Return a `wchar_t *` string for a UTF-8 string with proper left
- * adjusted width. Do it the easy way without `wcwidth()`
+ * adjusted width. Do it the easy way without `wcswidth()`
  * (which is missing in WinKit).
  */
 const wchar_t *u8_format (const char *s, int min_width)

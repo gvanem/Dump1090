@@ -138,7 +138,7 @@ good_preamble:
 
     /* If the previous attempt with this message failed, retry using
      * magnitude correction.
-      */
+     */
     if (use_correction)
     {
       memcpy (aux, m + j + MODES_PREAMBLE_US * 2, sizeof(aux));
