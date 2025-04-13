@@ -1591,11 +1591,14 @@ char *aircraft_make_json (bool extended_client)
  * Free a single aircraft `a` from the global list
  * `Modes.aircrafts`.
  */
-static void aircraft_free (aircraft *a)
+static aircraft *aircraft_free (aircraft *a)
 {
+  aircraft *a_next = a->next;
+
   LIST_DELETE (aircraft, &Modes.aircrafts, a);
   free (a->SQL);
   free (a);
+  return (a_next);
 }
 
 /**
@@ -1748,10 +1751,7 @@ void aircraft_exit (bool free_aircrafts)
   /* Remove all active aircrafts from the list.
    */
   for (a = Modes.aircrafts; a; a = a_next)
-  {
-    a_next = a->next;
-    aircraft_free (a);
-  }
+      a_next = aircraft_free (a);
 
   free (Modes.aircraft_list_CSV);
   Modes.aircraft_list_CSV = NULL;
