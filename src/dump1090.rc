@@ -10,7 +10,11 @@ VS_VERSION_INFO VERSIONINFO
   FILEOS          VOS__WINDOWS32
   FILETYPE        VFT_APP
   FILESUBTYPE     0x0L
-  FILEFLAGS       (RC_FILEFLAGS | RC_FILEFLAGS2)
+#ifdef RC_BUILD_FEATURES
+  FILEFLAGS       (RC_FILEFLAGS | VS_FF_SPECIALBUILD)
+#else
+  FILEFLAGS       RC_FILEFLAGS
+#endif
 
 BEGIN
   BLOCK "StringFileInfo"
@@ -21,7 +25,7 @@ BEGIN
       VALUE "FileDescription",  "A simple ADS-B receiver, decoder and web-server."
       VALUE "FileVersion",      RC_VER_STRING
       VALUE "InternalName",     "Dump1090"
-#if (RC_FILEFLAGS2)
+#ifdef RC_BUILD_FEATURES
       VALUE "SpecialBuild",     RC_BUILD_FEATURES
 #endif
       VALUE "LegalCopyright",   "Copyright (c) 2012 Salvatore Sanfilippo;\n"

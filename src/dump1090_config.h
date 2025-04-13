@@ -223,16 +223,14 @@
   #endif
 
   #if defined(_DEBUG)
-    #define RC_DBG_REL    " debug"
+    #define RC_DBG_REL    "debug"
     #define RC_FILEFLAGS  1
   #else
-    #define RC_DBG_REL    " release"
+    #define RC_DBG_REL    "release"
     #define RC_FILEFLAGS  0
   #endif
 
   #if defined(USE_ASAN) || defined(USE_UBSAN)
-    #define RC_FILEFLAGS2     VS_FF_SPECIALBUILD
-
     #if defined(USE_ASAN) && defined(USE_UBSAN)
       #define RC_BUILD_FEATURES  "ASAN, UBSAN"
     #elif defined(USE_ASAN)
@@ -240,16 +238,12 @@
     #else
       #define RC_BUILD_FEATURES  "UBSAN"
     #endif
-
-  #else
-    #define RC_FILEFLAGS2     0
-    #define RC_BUILD_FEATURES ""
   #endif
 
   /**
    * 'RC_BITS' is defined Makefile.Windows to '32' or '64'.
    */
-  #define RC_VER_STRING  PROG_VERSION  " (" RC_BUILDER ", " _STR(RC_BITS) "-bits," RC_DBG_REL ")"
+  #define RC_VER_STRING  PROG_VERSION  " (" RC_BUILDER ", " _STR(RC_BITS) "-bits, " RC_DBG_REL ")"
   #define RC_VERSION     VER_MAJOR, VER_MINOR, VER_MICRO, 0
 #endif
 
