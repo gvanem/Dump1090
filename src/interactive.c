@@ -355,6 +355,7 @@ void interactive_update_gain (void)
   {
     LOG_FILEONLY ("Gain: AUTO -> manual.\n");
     Modes.gain_auto = false;
+
     if (Modes.rtlsdr.device)
     {
       rtlsdr_set_tuner_gain_mode (Modes.rtlsdr.device, 1);

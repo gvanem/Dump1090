@@ -553,7 +553,6 @@ char *str_rtrim (char *s)
        break;
     s [n--] = '\0';
   }
-
   return (s);
 }
 
@@ -1423,7 +1422,7 @@ void fputs_long_line (FILE *f, const char *start, size_t indent)
     {
       /* Break a long line at a space.
        */
-      const char *p = strchr (c+1, ' ');
+      const char *p = strchr (c + 1, ' ');
       int   ch;
 
       if (!p)
@@ -1435,6 +1434,7 @@ void fputs_long_line (FILE *f, const char *start, size_t indent)
         start = ++c;
         continue;
       }
+
       ch = (int) c[1];
       if (isspace(ch))  /* Drop excessive blanks */
       {
