@@ -1212,6 +1212,7 @@ function earlyInitPage() {
 
     jQuery("#altimeter_form").submit(onAltimeterChange);
     jQuery("#altimeter_set_standard").click(onAltimeterSetStandard);
+    jQuery("#altimeter_set_selected").click(onAltimeterSetSelected);
 
     // Set up altitude filter button event handlers and validation options
     jQuery("#altitude_filter_form").submit(onFilterByAltitude);
@@ -3366,6 +3367,12 @@ let somethingSelected = false;
 // Refresh the detail window about the plane
 function refreshSelected() {
     const selected = SelectedPlane;
+
+    if (!selected || !selected.nav_qnh) {
+        jQuery('#altimeter_set_selected').prop("disabled", true);
+    } else {
+        jQuery('#altimeter_set_selected').prop("disabled", false);
+    }
 
     if (!selected) {
         if (somethingSelected) {
@@ -7592,11 +7599,23 @@ function currentExtent(factor) {
 
 function replayDefaults(ts) {
     jQuery("#replayPlay").html("Pause");
+    let playing = true;
+    let speed = 30;
+    if (usp.has("replaySpeed")) {
+        speed = usp.getFloat("replaySpeed");
+    }
+    if (speed == 0) {
+        speed = 30;
+        playing = false;
+    }
+    if (usp.has("replayPaused")) {
+        playing = false;
+    }
     return {
-        playing: true,
+        playing: playing,
         ts: ts,
         ival: 60 * 1000,
-        speed: 30,
+        speed: speed,
         dateText: zDateString(ts),
         hours: ts.getUTCHours(),
         minutes: ts.getUTCMinutes(),
@@ -8932,6 +8951,14 @@ function getn(n) {
 function onAltimeterSetStandard(e) {
     e.preventDefault();
     jQuery("#altimeter_input").val(1013.25);
+    onAltimeterChange(e);
+}
+function onAltimeterSetSelected(e) {
+    e.preventDefault();
+    if (!SelectedPlane || !SelectedPlane.nav_qnh) {
+        return;
+    }
+    jQuery("#altimeter_input").val(SelectedPlane.nav_qnh);
     onAltimeterChange(e);
 }
 function onAltimeterChange(e) {
