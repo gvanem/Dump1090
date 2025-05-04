@@ -694,7 +694,7 @@ static void routes_find_test (void)
     if (!dest)
         dest = "?";
 
-    printf ("  %6zu  %-7s    %.4s  %.4s   %ws %ws    %7.3lf\n",
+    printf ("  %6zu  %-7s    %.4s  %.4s   %ws %ws    %7.1lf\n",
             rec_num, call_sign, start, start + 5,
             u8_format(dep, 20),
             u8_format(dest, 20),
@@ -1303,12 +1303,20 @@ bool airports_update_BIN (void)
 static bool airports_set_BIN_file (mg_file_path *file, const char *bin_file)
 {
   struct stat st;
-  bool   exist;
+  bool   exist, truncated = false;
 
   snprintf (*file, sizeof(*file), "%s\\%s", Modes.results_dir, bin_file);
   exist = (stat(*file, &st) == 0);
-  TRACE ("file: '%s', exist: %d", *file, exist);
-  return (exist && st.st_size > 0);
+
+  if (exist)
+     truncated = (st.st_size < sizeof(BIN_header));
+
+  if (!exist)
+     LOG_STDERR ("file: '%s' is missing\n", *file);
+  if (truncated)
+     LOG_STDERR ("file: '%s' is truncated\n", *file);
+
+  return (exist && !truncated);
 }
 
 static FILE *airports_init_one_BIN (const char *fname, BIN_header *hdr)
