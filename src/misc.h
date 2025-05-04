@@ -404,6 +404,7 @@ typedef struct global_data {
         char          *dns6;                        /**< Or a IPv6 server */
         bool           show_host_name;              /**< Try to show the hostname too in `net_str_addr()` */
         bool           https_enable;                /**< Enable TLS (MG_TLS_BUILTIN) for HTTP server */
+        bool           reverse_resolve;             /**< Call `net_reverse_resolve()` on accepted clients */
 
         /** Aircraft history
          */
@@ -539,6 +540,7 @@ typedef struct modeS_message {
         int      error_bit;                  /**< Bit corrected. -1 if no bit corrected. */
         uint8_t  AA [3];                     /**< ICAO Address bytes 1, 2 and 3 (big-endian). */
         bool     phase_corrected;            /**< True if phase correction was applied. */
+        int      AC_flags;                   /**< Flags related to fields in this structure. */
 
         /** DF11
          */
@@ -588,13 +590,13 @@ typedef struct modeS_message {
 /*
  * Generic table for loading DLLs and functions from them.
  */
-struct dyn_struct {
-       const bool  optional;
-       HINSTANCE   mod_handle;
-       const char *mod_name;
-       const char *func_name;
-       void      **func_addr;
-     };
+typedef struct dyn_struct {
+        const bool  optional;
+        HINSTANCE   mod_handle;
+        const char *mod_name;
+        const char *func_name;
+        void      **func_addr;
+      } dyn_struct;
 
 /*
  * For `$(OBJ_DIR)/web-page-*.c` files:

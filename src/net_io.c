@@ -6,6 +6,7 @@
 #include <winsock2.h>
 #include <iphlpapi.h>
 #include <windows.h>
+#include <windns.h>
 
 #include "misc.h"
 #include "aircraft.h"
@@ -50,6 +51,24 @@ DEF_C_FUNC (const char *, mg_unpack, (const char *name, size_t *size, time_t *mt
 DEF_C_FUNC (const char *, mg_unlist, (size_t i));
 
 /**
+ * For handling reverse DNS resolution
+ */
+typedef struct reverse_rec {
+        ip_address          ip_str;
+        char                ptr_name [DNS_MAX_TEXT_STRING_LENGTH]; /* == 255 */
+        time_t              timestamp;
+        DNS_STATUS          status;
+        struct reverse_rec *next;
+      } reverse_rec;
+
+static reverse_rec *g_reverse_rec  = NULL;
+static mg_file_path g_reverse_file = { '\0' };
+static time_t       g_reverse_maxage;
+
+#define REVERSE_MAX_AGE    (3600 * 24 * 7)  /* seconds; 1 week */
+#define REVERSE_FLUSH_T    (20*60*1000)     /* millisec; 20 minutes */
+
+/**
  * For handling denial of clients in `client_handler (.., MG_EV_ACCEPT)` .
  */
 typedef struct deny_element {
@@ -65,31 +84,33 @@ static deny_element *g_deny_list = NULL;
  * A list of address, service and time first seen.
  */
 typedef struct unique_IP {
-        mg_addr           addr;      /**< The IPv4/6 address */
-        intptr_t          service;   /**< unique in service */
-        FILETIME          seen;      /**< time when this address was created */
-        uint32_t          accepted;  /**< number of times for `accept()` */
-        uint32_t          denied;    /**< number of times denied */
-        struct unique_IP *next;
+        mg_addr            addr;      /**< The IPv4/6 address */
+        const reverse_rec *rr;        /**< The reverse-record with the PTR name */
+        intptr_t           service;   /**< unique in service */
+        FILETIME           seen;      /**< time when this address was created */
+        uint32_t           accepted;  /**< number of times for `accept()` */
+        uint32_t           denied;    /**< number of times denied */
+        struct unique_IP  *next;
       } unique_IP;
 
 static unique_IP *g_unique_ips = NULL;
 
-static void        net_handler (mg_connection *c, int ev, void *ev_data);
-static void        net_timer_add (intptr_t service, int timeout_ms, int flag);
-static void        net_timer_del (intptr_t service);
-static void        net_conn_free (connection *conn, intptr_t service);
-static char       *net_store_error (intptr_t service, const char *err);
-static char       *net_error_details (mg_connection *c, const char *in_out, const void *ev_data);
-static char       *net_str_addr (const mg_addr *a, char *buf, size_t len);
-static char       *net_str_addr_port (const mg_addr *a, char *buf, size_t len);
-static uint16_t   *net_num_connections (intptr_t service);
-static const char *net_service_descr (intptr_t service);
-static char       *net_service_error (intptr_t service);
-static char       *net_service_url (intptr_t service);
-static bool        client_is_extern (const mg_addr *addr);
-static bool        client_handler (mg_connection *c, intptr_t service, int ev);
-const char        *mg_unpack (const char *path, size_t *size, time_t *mtime);
+static void         net_handler (mg_connection *c, int ev, void *ev_data);
+static void         net_timer_add (intptr_t service, int timeout_ms, int flag);
+static void         net_timer_del (intptr_t service);
+static void         net_conn_free (connection *conn, intptr_t service);
+static char        *net_store_error (intptr_t service, const char *err);
+static char        *net_error_details (mg_connection *c, const char *in_out, const void *ev_data);
+static char        *net_str_addr (const mg_addr *a, char *buf, size_t len);
+static char        *net_str_addr_port (const mg_addr *a, char *buf, size_t len);
+static uint16_t    *net_num_connections (intptr_t service);
+static const char  *net_service_descr (intptr_t service);
+static char        *net_service_error (intptr_t service);
+static char        *net_service_url (intptr_t service);
+static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str);
+static bool         client_is_extern (const mg_addr *addr);
+static bool         client_handler (mg_connection *c, intptr_t service, int ev);
+const char         *mg_unpack (const char *path, size_t *size, time_t *mtime);
 
 /**
  * Remote RTL_TCP server functions.
@@ -126,6 +147,7 @@ static bool rtl_tcp_decode (mg_iobuf *msg, int loop_cnt);
 #define HOSTILE_IP_1   "45.128.232.127"
 #define HOSTILE_IP_2   "80.94.95.226"
 #define HOSTILE_IP6_1  "2a00:1450:400f:803::200e"    /* ipv6.google.com :-) */
+#define NONE_STR       "<none>"
 
 static bool test_mode = false;
 
@@ -464,7 +486,7 @@ static int send_file (mg_connection *c, connection *cli, mg_http_message *hm,
  */
 static char *receiver_to_json (void)
 {
-  int history_size = DIM(Modes.json_aircraft_history)-1;
+  int history_size = DIM (Modes.json_aircraft_history) - 1;
 
   /* work out number of valid history entries
    */
@@ -1206,9 +1228,10 @@ static char *net_store_error (intptr_t service, const char *err)
 
   FREE (modeS_net_services [service].last_err);
   if (err)
-     modeS_net_services [service].last_err = strdup (err);
-
-  DEBUG (DEBUG_NET, "%s\n", err);
+  {
+    modeS_net_services [service].last_err = strdup (err);
+    DEBUG (DEBUG_NET, "%s\n", err);
+  }
   return (modeS_net_services [service].last_err);
 }
 
@@ -1317,7 +1340,7 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
   if (ipp)
      *ipp = NULL;
 
-  if (addr_none(addr))               /* ignore an ANY address */
+  if (addr_none(addr))       /* ignore an ANY address */
      return (false);
 
   for (ip = g_unique_ips; ip; ip = ip->next)
@@ -1339,6 +1362,10 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
   ip->service  = service;
   ip->accepted = 1;
   get_FILETIME_now (&ip->seen);
+
+  if (Modes.reverse_resolve)
+     ip->rr = net_reverse_resolve (&ip->addr, NULL);   /* This blocks! */
+
   LIST_ADD_TAIL (unique_IP, &g_unique_ips, ip);
   if (ipp)
      *ipp = ip;
@@ -1373,10 +1400,12 @@ static int compare_on_ip (const void *_a, const void *_b)
   return memcmp (&a->addr.ip, &b->addr.ip, sizeof(a->addr.ip));
 }
 
-/*
+/**
  * Print number of unique clients and their addresses sorted.
  *
  * If an IP was denied N times, print as e.g. "a.b.c.d (N)"
+ *
+ * \todo Print the PTR-name too.
  */
 static void unique_ips_print (intptr_t service)
 {
@@ -1576,7 +1605,7 @@ static void deny_lists_test (void)
 
     printf ("  rc: %d, addr[%zu]: %s -> %s\n",
             rc, i, net_str_addr(a, abuf, sizeof(abuf)),
-            deny ? "denied" : "accepted");
+            deny ? "Denied" : "Accepted");
   }
 }
 
@@ -1655,6 +1684,7 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
 
     if (client_is_extern(addr))           /* Not from '127.x.y.z' or '::1' */
     {
+      char ptr_buf [200] = { '\0' };
       bool deny = client_deny (addr, NULL);
 
       if (deny && unique)  /* increment deny-counter for this `addr` */
@@ -1667,9 +1697,12 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
         Beep (deny ? 1200 : 800, 20);
       }
 
-      LOG_FILEONLY ("%s connection: %s (conn-id: %lu, service: \"%s\"%s).\n",
+      if (unique && unique->rr && unique->rr->ptr_name[0])
+         snprintf (ptr_buf, sizeof(ptr_buf), "%s, ", unique->rr->ptr_name);
+
+      LOG_FILEONLY ("%s connection: %s (%sconn-id: %lu, service: \"%s\"%s).\n",
                     deny ? "Denied" : "Accepted",
-                    addr_buf, c->id, net_service_descr(service), is_tls);
+                    addr_buf, ptr_buf, c->id, net_service_descr(service), is_tls);
       return (!deny);
     }
   }
@@ -1731,6 +1764,9 @@ static char *net_str_addr_port (const mg_addr *a, char *buf, size_t len)
 
   if (Modes.show_host_name)
   {
+    /**
+     * \todo Look in `*g_reverse_rec` first.
+     */
     const struct hostent *h = gethostbyaddr ((char*)&a->ip, sizeof(a->ip), AF_INET);
     h_name = h ? h->h_name : NULL;
   }
@@ -1804,13 +1840,14 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
  * of the .DLL and check the regular Web-page `foo/index.html`.
  */
 #if defined(USE_PACKED_DLL)
+  #undef  ADD_FUNC
   #define ADD_FUNC(func) { false, NULL, "", #func, (void**)&p_##func }
                         /* ^__ no functions are optional */
 
-  static struct dyn_struct web_page_funcs [] = {
-                           ADD_FUNC (mg_unpack),
-                           ADD_FUNC (mg_unlist)
-                         };
+  static dyn_struct web_page_funcs [] = {
+                    ADD_FUNC (mg_unpack),
+                    ADD_FUNC (mg_unlist)
+                  };
   static char *web_funcs [DIM(web_page_funcs)];
 
   static bool load_web_dll (char *web_dll)
@@ -2217,7 +2254,7 @@ static void unique_ip_tests (void)
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
-    for (i = 0; i < 50; i++)
+    for (i = 0; i < 20; i++)
     {
       mg_random (&addr.ip, sizeof(addr.ip));
       if (client_is_unique(&addr, service, NULL))
@@ -2261,6 +2298,286 @@ static void unique_ip_tests (void)
 }
 
 /**
+ * Some simple tests for `net_reverse_resolve()`.
+ *
+ * "ipv6.google.com" -> "2a00:1450:400f:80d::200e"
+ * Try to reverse resolve it. Should become "arn09s20-in-x0e.1e100.net"
+ */
+typedef struct reverse_test {
+        const char *ip_str;
+        const char *ptr_expected;
+      } reverse_test;
+
+static void reverse_ip_tests (void)
+{
+  static const reverse_test tests[] = {
+                     { "140.82.121.3",             "lb-140-82-121-3-fra.github.com" },
+                     { "142.250.74.110",           "arn11s10-in-f14.1e100.net" },
+                     { "2a00:1450:400f:80d::200e", "arn09s20-in-x0e.1e100.net" }
+                   };
+  reverse_rec *rr;
+  bool   equal;
+  size_t i;
+
+  printf ("\n%s():\n", __FUNCTION__);
+  if (!Modes.reverse_resolve)
+  {
+    printf ("  Modes.reverse_resolve == false!\n");
+    return;
+  }
+
+  for (i = 0; i < DIM(tests); i++)
+  {
+    rr    = net_reverse_resolve (NULL, tests[i].ip_str);
+    equal = rr && (strcmp(rr->ptr_name, tests[i].ptr_expected) == 0);
+
+    printf ("  %-25s -> %-30s  %s\n",
+            tests[i].ip_str,
+            (rr && rr->ptr_name[0]) ? rr->ptr_name : "?",
+            equal ? "OK" : "FAIL");
+  }
+}
+
+/**
+ * Write the `*g_reverse_rec` list to `g_reverse_file` unless it's empty.
+ */
+static void net_reverse_write (void)
+{
+  const reverse_rec *rr;
+  FILE *f;
+  int   num = 0;
+
+  /* `net_reverse_init()` was not called.
+   * Or nothing to write to cache.
+   */
+  if (!g_reverse_file[0] || !g_reverse_rec)
+     return;
+
+  f = fopen (g_reverse_file, "w+t");
+  if (!f)
+     return;
+
+  fprintf (f, "# ip-str,ptr-name,time-stamp,status\n");
+  for (rr = g_reverse_rec; rr; rr = rr->next)
+  {
+    fprintf (f, "%s,%s,%lld,%ld\n",
+             rr->ip_str,
+             rr->ptr_name[0] ? rr->ptr_name : NONE_STR,
+             rr->timestamp,
+             rr->status);
+    num++;
+  }
+  LOG_FILEONLY ("dumped %d reverse-records to cache.\n", num);
+  fclose (f);
+}
+
+/**
+ * Cleanup the reverse-resolver:
+ *  \li Write the list to `g_reverse_file`.
+ *  \li Free the list.
+ */
+static void net_reverse_exit (void)
+{
+  reverse_rec *rr, *rr_next;
+
+  net_reverse_write();
+
+  for (rr = g_reverse_rec; rr; rr = rr_next)
+  {
+    rr_next = rr->next;
+    free (rr);
+  }
+  g_reverse_rec = NULL;
+}
+
+/**
+ * Add a new (or modify an existing) record to the `g_reverse_rec` linked-list.
+ */
+static
+reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name,
+                              time_t timestamp, DNS_STATUS status)
+{
+  reverse_rec *rr;
+
+  if (timestamp < g_reverse_maxage)  /* too old; ignore */
+     return (NULL);
+
+  /* check if the `ptr_name` has changed.
+   */
+  for (rr = g_reverse_rec; rr; rr = rr->next)
+      if (!strcmp(ip_str, rr->ip_str))
+      {
+        strcpy_s (rr->ptr_name, sizeof(rr->ptr_name), ptr_name);
+        rr->timestamp = timestamp;
+        rr->status    = status;
+        return (rr);
+      }
+
+  /* not found, allocate a new record.
+   */
+  rr = calloc (sizeof(*rr), 1);
+  if (!rr)
+     return (NULL);
+
+  strcpy_s (rr->ip_str, sizeof(rr->ip_str), ip_str);
+  strcpy_s (rr->ptr_name, sizeof(rr->ptr_name), ptr_name);
+  rr->timestamp = timestamp;
+  rr->status    = status;
+
+  LIST_ADD_TAIL (reverse_rec, &g_reverse_rec, rr);
+  return (rr);
+}
+
+/**
+ * The CSV callback for adding a record to `g_reverse_rec`.
+ */
+static int net_reverse_callback (struct CSV_context *ctx, const char *value)
+{
+  static reverse_rec rr;
+
+  if (ctx->field_num == 0)        /* "ip-address" field */
+  {
+    strcpy_s (rr.ip_str, sizeof(rr.ip_str), value);
+  }
+  else if (ctx->field_num == 1)   /* "ptr-name" field */
+  {
+    if (strcmp(value, NONE_STR))
+       strcpy_s (rr.ptr_name, sizeof(rr.ptr_name)-1, value);
+  }
+  else if (ctx->field_num == 2)   /* "time-stamp" */
+  {
+    rr.timestamp = strtoull (value, NULL, 10);
+  }
+  else if (ctx->field_num == 3)   /* "status" and last field */
+  {
+    rr.status = strtold (value, NULL);
+    net_reverse_add (rr.ip_str, rr.ptr_name, rr.timestamp, rr.status);
+    memset (&rr, '\0', sizeof(rr));
+  }
+  return (1);
+}
+
+/**
+ * Initialize the reverse-resolver:
+ *  \li Create a linked-list (`g_reverse_rec`) of previous CSV records.
+ */
+static void net_reverse_init (void)
+{
+  CSV_context csv_ctx;
+
+  snprintf (g_reverse_file, sizeof(g_reverse_file), "%s\\reverse-resolve.csv", Modes.tmp_dir);
+  g_reverse_maxage = time (NULL) - REVERSE_MAX_AGE;  /* oldest timestamp accepted */
+
+  memset (&csv_ctx, '\0', sizeof(csv_ctx));
+  csv_ctx.file_name  = g_reverse_file;
+  csv_ctx.delimiter  = ',';
+  csv_ctx.callback   = net_reverse_callback;
+  csv_ctx.num_fields = 4;
+  CSV_open_and_parse_file (&csv_ctx);
+}
+
+#undef  TRACE
+#define TRACE(fmt, ...) do {                                          \
+                          if (do_debug)                               \
+                             modeS_flogf (stdout, "%s%s(%u): " fmt,   \
+                                          indent, __FILE__, __LINE__, \
+                                          ## __VA_ARGS__);            \
+                        } while (0)
+
+/**
+ * Reverse resolve an IPv4 address to a host-name using `DnsApi.dll`.
+ * \li First look in the local cache (`g_reverse_rec`).
+ * \li Unless not found or is too old, do a `DNS_TYPE_PTR` lookup using `DnsQuery_A()`.
+ *
+ * E.g. the `ip_str == "84.202.224.38"` should query for `"38.224.202.84.in-addr.arpa"`.
+ */
+static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
+{
+  DNS_RECORD  *data_rec = NULL;
+  DNS_STATUS   rc;
+  DWORD        options = (DNS_QUERY_NO_HOSTS_FILE | DNS_QUERY_NO_NETBT);
+  reverse_rec *rr;
+  mg_addr      addr;
+  ip_address   ip_buf;
+  char         request  [DNS_MAX_NAME_LENGTH];
+  char         response [DNS_MAX_NAME_LENGTH];
+  const char  *indent   = test_mode ? "  " : "";
+  bool         do_debug = (test_mode || (Modes.debug & DEBUG_NET2));
+  time_t       now;
+
+  if (ip_str)
+  {
+    mg_str str = mg_str (ip_str);
+
+    if (!mg_aton(str, &addr))
+    {
+      TRACE ("'%s' is not an IPv%d address\n", ip_str, addr.is_ip6 ? 6 : 4);
+      return (NULL);
+    }
+    a = &addr;
+  }
+  else
+    ip_str = net_str_addr (a, ip_buf, sizeof(ip_buf));
+
+  now = time (NULL);
+
+  /* check the cache for a match that has not timed-out.
+   */
+  for (rr = g_reverse_rec; rr; rr = rr->next)
+  {
+    if (!strcmp(ip_str, rr->ip_str) && rr->timestamp > (now - REVERSE_MAX_AGE))
+    {
+      TRACE ("'%s' found in cache: '%s'\n", ip_str, rr->ptr_name[0] ? rr->ptr_name : NONE_STR);
+      if (!rr->ptr_name[0])
+         return (NULL);
+      return (rr);
+    }
+  }
+
+  if (a->is_ip6)  /**< \todo Use a compact bit-string */
+  {
+    static const char hex_chars[] = "0123456789abcdef";
+    char  *c = request;
+    int    i;
+
+    for (i = (int)DIM(a->ip) - 1; i >= 0; i--)
+    {
+      int hi = a->ip [i] >> 4;
+      int lo = a->ip [i] & 15;
+
+      *c++ = hex_chars [lo];
+      *c++ = '.';
+      *c++ = hex_chars [hi];
+      *c++ = '.';
+    }
+    strcpy (c, "ip6.arpa");
+  }
+  else
+  {
+    snprintf (request, sizeof(request), "%d.%d.%d.%d.in-addr.arpa",
+              a->ip[3], a->ip[2], a->ip[1], a->ip[0]);
+  }
+
+  response[0] = '\0';
+
+  /* Do the PTR lookup
+   */
+  rc = DnsQuery_A (request, DNS_TYPE_PTR, options, NULL, &data_rec, NULL);
+  if (rc == NO_ERROR && data_rec && data_rec->Data.PTR.pNameHost)
+     strcpy_s (response, sizeof(response), data_rec->Data.PTR.pNameHost);
+
+  if (data_rec)
+     DnsFree (data_rec, DnsFreeRecordList);
+
+  TRACE ("DnsQuery_A (\"%s\") -> %s\n", request, rc == NO_ERROR ? response : win_strerror(rc));
+
+  now = time (NULL);
+  rr = net_reverse_add (ip_str, response[0] ? response : "", now, rc);
+
+  return (rr);
+}
+
+/**
  * Find the DNSv4 and DNSv6 server address(es).
  * Use Windows's IPHelper API.
  */
@@ -2270,6 +2587,7 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
   DWORD           size = 0;
   IP_ADDR_STRING *ip;
   FILE           *f = NULL;
+  reverse_rec    *rr;
   int             i;
   mg_file_path    ping6_cmd;
   char            ping6_buf [500];
@@ -2293,17 +2611,28 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
   }
 
   DEBUG (DEBUG_NET, "  Host Name:   %s\n", fi->HostName);
-  DEBUG (DEBUG_NET, "  Domain Name: %s\n", fi->DomainName [0] ? fi->DomainName : "<None>");
+  DEBUG (DEBUG_NET, "  Domain Name: %s\n", fi->DomainName[0] ? fi->DomainName : NONE_STR);
   DEBUG (DEBUG_NET, "  Node Type:   %u\n", fi->NodeType);
-  DEBUG (DEBUG_NET, "  DHCP scope:  %s\n", fi->ScopeId [0] ? fi->ScopeId : "<None>");
+  DEBUG (DEBUG_NET, "  DHCP scope:  %s\n", fi->ScopeId[0] ? fi->ScopeId : NONE_STR);
   DEBUG (DEBUG_NET, "  Routing:     %s\n", fi->EnableRouting ? "Enabled" : "Disabled");
   DEBUG (DEBUG_NET, "  ARP proxy:   %s\n", fi->EnableProxy   ? "Enabled" : "Disabled");
   DEBUG (DEBUG_NET, "  DNS enabled: %s\n", fi->EnableDns     ? "Yes"     : "No");
-  DEBUG (DEBUG_NET, "  DNS Servers: %-15s (primary)\n", fi->DnsServerList.IpAddress.String);
+
+  rr = net_reverse_resolve (NULL, fi->DnsServerList.IpAddress.String);
+
+  DEBUG (DEBUG_NET, "  DNS Servers: %-15s (primary), %s\n",
+         fi->DnsServerList.IpAddress.String,
+         (rr && rr->ptr_name[0]) ? rr->ptr_name : NONE_STR);
 
   for (i = 1, ip = fi->DnsServerList.Next; ip; ip = ip->Next, i++)
-     DEBUG (DEBUG_NET, "               %-15s (secondary %d)\n%s",
-            ip->IpAddress.String, i, ip->Next ? "" : "\n");
+  {
+    rr = net_reverse_resolve (NULL, ip->IpAddress.String);
+
+    DEBUG (DEBUG_NET, "               %-15s (secondary %d), %s\n%s",
+           ip->IpAddress.String, i,
+           (rr && rr->ptr_name[0]) ? rr->ptr_name : NONE_STR,
+           ip->Next ? "" : "\n");
+  }
 
   /* Return a malloced string of the primary DNS server
    */
@@ -2354,9 +2683,9 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
 
 /**
  * Initialize all network stuff:
- *  \li Allocate the list for unique IPs.
  *  \li Load and check the `web-pages.dll`.
  *  \li Initialize the Mongoose network manager.
+ *  \li Initialise the reverse DNS resolver if `Modes.reverse_resolve == true`.
  *  \li Set the default DNSv4 server address from Windows' IPHelper API.
  *  \li Start the active service RTL_TCP (or rename it to "RTL-UDP").
  *  \li Start the 2 active network services (RAW_IN + SBS_IN).
@@ -2469,6 +2798,9 @@ bool net_init (void)
   wakeup_hnd = _beginthreadex (NULL, 0, background_tasks_thread, &t, 0, &wakeup_tid);
 #endif
 
+  if (Modes.reverse_resolve)
+     net_reverse_init();
+
   net_init_dns (&Modes.dns4, &Modes.dns6);
 
   if (Modes.dns4)
@@ -2544,6 +2876,7 @@ bool net_init (void)
   {
     unique_ip_tests();
     deny_lists_tests();
+    reverse_ip_tests();
   }
 
   return (true);
@@ -2565,6 +2898,8 @@ bool net_exit (void)
   net_timer_del_all();
   mg_mgr_free (&Modes.mgr); /* This calls free() on all timers */
 
+  net_reverse_exit();
+
   if (Modes.dns4)
      free (Modes.dns4);
 
@@ -2584,7 +2919,8 @@ bool net_exit (void)
 
 void net_poll (void)
 {
-  static uint64_t tc_last = 0;
+  static uint64_t tc_last1 = 0;
+  static uint64_t tc_last2 = 0;
   uint64_t        tc_now;
 
   /* Poll Mongoose for network events
@@ -2599,15 +2935,20 @@ void net_poll (void)
     Modes.exit = true;
   }
 
-  tc_now = GetTickCount64();
-  if (tc_now - tc_last >= 30000)  /* approx. every 30 sec */
+  tc_now = MSEC_TIME();
+  if (tc_now - tc_last1 >= 30000)  /* approx. every 30 sec */
   {
-    tc_last = tc_now;
+    tc_last1 = tc_now;
     if (Modes.log)
     {
       fflush (Modes.log);
       _commit (fileno(Modes.log));
     }
+  }
+  if (tc_now - tc_last2 >= REVERSE_FLUSH_T)   /* approx. every 20 min */
+  {
+    net_reverse_write();
+    tc_last2 = tc_now;
   }
 }
 

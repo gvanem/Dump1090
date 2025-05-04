@@ -157,6 +157,7 @@ static const struct cfg_table config[] = {
     { "net-ro-port",      ARG_FUNC,    (void*) set_port_raw_out },
     { "net-sbs-port",     ARG_FUNC,    (void*) set_port_sbs },
     { "prefer-adsb-lol",  ARG_FUNC,    (void*) set_prefer_adsb_lol },
+    { "reverse-resolve",  ARG_ATOB,    (void*) &Modes.reverse_resolve },
     { "rtl-reset",        ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
     { "samplerate",       ARG_FUNC,    (void*) set_sample_rate },
     { "show-hostname",    ARG_ATOB,    (void*) &Modes.show_host_name },
@@ -525,7 +526,10 @@ static bool modeS_init (void)
   }
 
   if (!airports_init())
-     return (false);
+  {
+    LOG_STDERR ("airports_init() returned false.\n");
+    return (false);
+  }
 
 #if 0
   /**
@@ -1496,6 +1500,12 @@ static void decode_ES_surface_position (struct modeS_message *mm, bool check_imf
 }
 
 /**
+ * Values for `modeS_message::AC_flags`.
+ */
+#define MODES_ACFLAGS_AOG       (1 << 0)  /* Aircraft is On the Ground */
+#define MODES_ACFLAGS_AOG_VALID (1 << 1)  /* MODES_ACFLAGS_AOG is valid */
+
+/**
  * Decode a raw Mode S message demodulated as a stream of bytes by `demodulate_2000()`.
  *
  * And split it into fields populating a `modeS_message` structure.
@@ -1513,6 +1523,8 @@ int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
    */
   memcpy (mm->msg, _msg, sizeof(mm->msg));
   msg = mm->msg;
+
+  mm->AC_flags = 0;
 
   /* Get the message type ASAP as other operations depend on this
    */
@@ -1547,7 +1559,20 @@ int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
   /* Note: most of the other computation happens **after** we fix the single bit errors.
    * Otherwise we would need to recompute the fields again.
    */
-  mm->capa = msg[0] & 7;        /* Responder capabilities. */
+  if (mm->msg_type == 11 || mm->msg_type == 17)
+  {
+    mm->capa = msg[0] & 7;        /* Responder capabilities. */
+    if (mm->capa == 4)
+        mm->AC_flags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
+    else if (mm->capa == 5)
+        mm->AC_flags |= MODES_ACFLAGS_AOG_VALID;
+  }
+  else if (mm->msg_type == 0 || mm->msg_type == 16)  /* VS (Vertical Status) */
+  {
+    mm->AC_flags |= MODES_ACFLAGS_AOG_VALID;
+    if (msg[0] & 0x04)
+        mm->AC_flags |= MODES_ACFLAGS_AOG;
+  }
 
   /* ICAO address
    */
@@ -1631,6 +1656,16 @@ int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
   if (mm->msg_type == 0 || mm->msg_type == 4 || mm->msg_type == 16 || mm->msg_type == 20)
      mm->altitude = decode_AC13_field (msg, &mm->unit);
 
+  /* Decode Ground position for DF17 or DF18
+   */
+  if ((mm->msg_type == 17 || mm->msg_type == 18) &&
+      (mm->ME_type >= 5 && mm->ME_type <= 8))
+  {
+    mm->AC_flags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
+    mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
+    mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
+  }
+
   /** Decode extended squitter specific stuff for DF17.
    */
   if (mm->msg_type == 17)
@@ -1655,7 +1690,6 @@ int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
       char *p = mm->flight + 7;
       while (*p == ' ')    /* Remove trailing spaces */
         *p-- = '\0';
-
     }
     else if (mm->ME_type >= 9 && mm->ME_type <= 18)
     {
@@ -2035,22 +2069,35 @@ uint16_t *compute_magnitude_vector (const uint8_t *data)
 
 /**
  * Return -1 if the message is out of phase left-side
- * Return  1 if the message is out of phase right-size
+ * Return  1 if the message is out of phase right-side
  * Return  0 if the message is not particularly out of phase.
  *
  * Note: this function will access m[-1], so the caller should make sure to
  * call it only if we are not at the start of the current buffer.
  */
-int detect_out_of_phase (const uint16_t *m)
+int detect_out_of_phase (const uint16_t *preamble)
 {
-  if (m[3] > m[2]/3)
+  if (preamble[3] > preamble[2]/3)
      return (1);
-  if (m[10] > m[9]/3)
+
+  if (preamble[10] > preamble[9]/3)
      return (1);
-  if (m[6] > m[7]/3)
+
+  if (preamble[6] > preamble[7]/3)
      return (-1);
-  if (m[-1] > m[1]/3)
+
+#if 0
+  if (preamble[-1] > preamble[1]/3)
      return (-1);
+#else
+  /*
+   * Apply this important PR from:
+   *   https://github.com/MalcolmRobb/dump1090/pull/100/files
+   */
+  if (preamble[-1] > preamble[0]/3)
+     return (-1);
+#endif
+
   return (0);
 }
 

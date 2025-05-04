@@ -90,7 +90,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <OutputFile>../dump1090.exe</OutputFile>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>advapi32.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;dnsapi.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -108,7 +108,7 @@
       <OutputFile>../dump1090.exe</OutputFile>
       <SubSystem>Console</SubSystem>
       <OptimizeReferences>false</OptimizeReferences>
-      <AdditionalDependencies>advapi32.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;dnsapi.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -125,7 +125,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <OutputFile>../dump1090.exe</OutputFile>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>advapi32.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;dnsapi.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
@@ -142,7 +142,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <OutputFile>../dump1090.exe</OutputFile>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>advapi32.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
+      <AdditionalDependencies>advapi32.lib;dnsapi.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
       <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
