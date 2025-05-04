@@ -184,7 +184,7 @@ else
   $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
 endif
 
-OS_LIBS   = advapi32.lib iphlpapi.lib ole32.lib setupapi.lib uuid.lib user32.lib winusb.lib
+OS_LIBS   = advapi32.lib dnsapi.lib iphlpapi.lib ole32.lib setupapi.lib uuid.lib user32.lib winusb.lib
 ASAN_LIBS =
 COPY_DLLs =
 
@@ -427,6 +427,9 @@ $(OBJ_DIR) doxy-docs:
 ../color_test.exe: $(OBJ_DIR)/color_test.obj
 	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
+../utf8_test.exe: $(OBJ_DIR)/utf8_test.obj
+	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
+
 SQLITE3_OBJ = $(OBJ_DIR)/sqlite3.obj \
               $(OBJ_DIR)/sqlite3-shell.obj
 
@@ -456,10 +459,7 @@ else
 	$(call C_compile_long_time, $@, $<)
 endif
 
-$(OBJ_DIR)/color_test.obj: color.c | $(CC).args $(OBJ_DIR)
-	$(call C_compile, $@, -DTEST $<)
-
-$(OBJ_DIR)/speech_test.obj: speech.c | $(CC).args $(OBJ_DIR)
+$(OBJ_DIR)/%_test.obj: %.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, -DTEST $<)
 
 $(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
@@ -504,7 +504,7 @@ $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 	$(call link_EXE, $@, $^ $(ASAN_LIBS) ole32.lib)
 
 $(CC).args: $(THIS_FILE)
-	$(call green_msg, All common CFLAGS are in $@)
+	$(call green_msg, All common CFLAGS are in $(BRIGHT_WHITE)$@)
 	$(call create_resp_file, $@, $(CFLAGS))
 
 #
@@ -588,6 +588,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map)     \
                       ../color_test.{map,pdb}  \
                       ../packed_test.{map,pdb} \
                       ../speech_test.{map,pdb} \
+                      ../utf8_test.{map,pdb}   \
                       ../sqlite3.{map,pdb}     \
                       ../web-pages.{map,pdb})
 
@@ -599,7 +600,7 @@ clean: docs_clean DLL_clean VS_clean
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
 realclean vclean: clean
-	rm -f $(TARGETS) ../color_test.exe ../packed_test.exe ../speech_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
+	rm -f $(TARGETS) ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
 ubsan-issue.exe: $(OBJ_DIR)/ubsan-issue-with-32-bit-build.obj $(OBJ_DIR)/mongoose.obj
@@ -623,7 +624,7 @@ define C_compile
 endef
 
 define C_compile_long_time
-  $(call green_msg, Compiling $(1) will take some time...)
+  $(call green_msg, Compiling $(BRIGHT_WHITE)$(strip $(1)) $(BRIGHT_GREEN)will take some time...)
   $(_CC) @$(CC).args -Fo./$(strip $(1) $(2))
   @echo
 endef
@@ -641,7 +642,7 @@ endef
 define link_EXE
   $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
   $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(check_for_unused_libs_py))
-  $(call green_msg, Linking $(1))
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
   $(call create_resp_file, link.args, $(LDFLAGS) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.exe=.map)
@@ -655,7 +656,7 @@ define func_exports
 endef
 
 define link_web_DLL
-  $(call green_msg, Linking $(1))
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
   $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2) oldnames.lib)
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.dll=.map)
@@ -671,7 +672,7 @@ define Warning
 endef
 
 define generate
-  $(call green_msg, Generating $(1))
+  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
   $(file > $(1),$(call Warning,$(strip $(2))))
 endef
 
@@ -686,9 +687,10 @@ define generate_ldflags_h
 endef
 
 define generate_web_page
-  $(call green_msg, Generating $(1))
+  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
   $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --verbose --recursive \
             --suffix=_$(strip $(3)) $(4) --strip $(2)/ $(2)/)
+  @echo
 endef
 
 #
@@ -707,7 +709,7 @@ else
 endif
 
 define C_preprocess
-  $(call green_msg, Preprocessing $(2))
+  $(call green_msg, Preprocessing $(BRIGHT_WHITE)$(strip $(2)))
   $(file  > $(1),/* The result of preprocessing '$(strip $(2))' (USE_ASTYLE=$(USE_ASTYLE)):)
   $(file >> $(1), *  $(CC) -E)
   $(foreach f, $(CFLAGS) $(d1PP), $(file >> $(1), *  $(f)))
