@@ -54,7 +54,13 @@
   #pragma warning (disable: 4152)
 
   /*
-   * csv.c(60): warning C4244: '=':
+   * windnsdef.h(1072,6): warning C4201:
+   *   nonstandard extension used: nameless struct/union
+   */
+  #pragma warning (disable: 4201)
+
+  /*
+   * csv.c(60): warning C4244:
    *   conversion from 'int' to 'char', possible loss of data
    */
   #pragma warning (disable: 4244)
