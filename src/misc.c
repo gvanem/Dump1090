@@ -485,10 +485,8 @@ const char *unescape_hex (const char *value)
  */
 bool str_startswith (const char *s1, const char *s2)
 {
-  size_t s1_len, s2_len;
-
-  s1_len = strlen (s1);
-  s2_len = strlen (s2);
+  size_t s1_len = strlen (s1);
+  size_t s2_len = strlen (s2);
 
   if (s2_len > s1_len)
      return (false);
@@ -961,7 +959,10 @@ int touch_dir (const char *directory, bool recurse)
  */
 #define DELTA_EPOCH_IN_USEC  11644473600000000Ui64
 
-static uint64_t FILETIME_to_unix_epoch (const FILETIME *ft)
+/**
+ * Return number of usec between the Window epoch to the Unix epoch.
+ */
+static uint64_t FILETIME_to_unix_usec (const FILETIME *ft)
 {
   uint64_t res = (uint64_t) ft->dwHighDateTime << 32;
 
@@ -971,6 +972,9 @@ static uint64_t FILETIME_to_unix_epoch (const FILETIME *ft)
   return (res);
 }
 
+/**
+ * Return number of Windows 100 nsec units from the Unix epoch.
+ */
 uint64_t unix_epoch_to_FILETIME (time_t sec)
 {
   uint64_t ft = 10 * (DELTA_EPOCH_IN_USEC + 1000000 * sec);
@@ -985,7 +989,7 @@ int _gettimeofday (struct timeval *tv, void *timezone)
   uint64_t tim;
 
   GetSystemTimePreciseAsFileTime (&ft);
-  tim = FILETIME_to_unix_epoch (&ft);
+  tim = FILETIME_to_unix_usec (&ft);
   tv->tv_sec  = (long) (tim / 1000000L);
   tv->tv_usec = (long) (tim % 1000000L);
   (void) timezone;
@@ -1625,7 +1629,7 @@ static void print_BIN_files (void)
 #if defined(USE_BIN_FILES)
   #define DATE_TIME "YYY/MM/DD, HH:MM:SS"
   size_t      i;
-  const char *bin_files[] = { "aircrafts.bin",
+  const char *bin_files[] = { "aircraft.bin",
                               "airports.bin",
                               "routes.bin"
                             };
