@@ -84,6 +84,14 @@ RTLSDR_API int rtlsdr_open(rtlsdr_dev_t **dev, uint32_t index);
  */
 RTLSDR_API int rtlsdr_close(rtlsdr_dev_t *dev);
 
+/*!
+ * A safer rtlsdr_close()
+ *
+ * \param dev the pointer to the device handle given by rtlsdr_open()
+ * \return -1 if device handle was already close - or never opened
+ */
+RTLSDR_API int rtlsdr_close2(rtlsdr_dev_t **dev);
+
 /* configuration functions */
 
 /*!

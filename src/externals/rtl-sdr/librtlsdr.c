@@ -843,6 +843,8 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath, int *err)
 {
   BOOL rc = TRUE;
 
+  *err = 0;  /* assume success */
+
   RTL_TRACE (2, "Calling 'CreateFileA (\"%s\")'\n", DevicePath);
 
   dev->usbHandle = INVALID_HANDLE_VALUE;
@@ -869,7 +871,6 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath, int *err)
   }
 
   RTL_TRACE (1, "dev->deviceHandle: 0x%p, dev->usbHandle: 0x%p\n", dev->deviceHandle, dev->usbHandle);
-  *err = 0;
   return (rc);
 }
 
@@ -891,7 +892,7 @@ static int usb_control_transfer (rtlsdr_dev_t *dev,      /* the active device */
     RTL_TRACE (0, "FATAL: %s() called from %u with 'dev == NULL'!\n", __FUNCTION__, line);
     return (-1);
   }
-  if (!dev->usbHandle)
+  if (!dev->usbHandle || dev->usbHandle == INVALID_HANDLE_VALUE)
   {
     last_error = ERROR_INVALID_PARAMETER;
     RTL_TRACE (0, "FATAL: %s() called from %u with 'dev->usbHandle == NULL'!\n", __FUNCTION__, line);
@@ -2226,7 +2227,7 @@ static int get_string_descriptor_ascii (rtlsdr_dev_t *dev, uint8_t index, char *
 {
   ULONG   LengthTransferred;
   uint8_t buffer [255];
-  int     i, di = 0;
+  int     i, i_max, di = 0;
 
   if (!WinUsb_GetDescriptor(dev->usbHandle, USB_STRING_DESCRIPTOR_TYPE, index, 0,
                             buffer, sizeof(buffer), &LengthTransferred))
@@ -2236,7 +2237,8 @@ static int get_string_descriptor_ascii (rtlsdr_dev_t *dev, uint8_t index, char *
     return (-1);
   }
 
-  for (i = 2; i < buffer[0]; i += 2)
+  i_max = min (buffer[0], LengthTransferred);
+  for (i = 2; i < i_max; i += 2)
       data [di++] = (char) buffer [i];
   data [di] = '\0';
   return (0);
@@ -2267,6 +2269,7 @@ int rtlsdr_get_usb_strings (rtlsdr_dev_t *dev, char *manufact, char *product, ch
     uint8_t buffer [32];
 
     memset (serial, '\0', buf_max);
+    memset (buffer, '\0', sizeof(buffer));
 
     if (!WinUsb_GetDescriptor(dev->usbHandle, USB_DEVICE_DESCRIPTOR_TYPE, 0, 0, buffer, sizeof(buffer), &LengthTransferred))
     {
@@ -2643,6 +2646,24 @@ static void rtlsdr_free (rtlsdr_dev_t *dev)
   LeaveCriticalSection (&dev->cs_mutex);
 }
 
+int rtlsdr_close2 (rtlsdr_dev_t **dev)
+{
+  int rc;
+
+  if (dev && *dev)
+  {
+    rc = rtlsdr_close (*dev);
+  }
+  else if (dev)
+  {
+    *dev = NULL;
+    rc = 0;
+  }
+  else
+    rc = -1;
+  return (rc);
+}
+
 int rtlsdr_close (rtlsdr_dev_t *dev)
 {
   int r, entry_state, exit_state, loops = -1;
@@ -2687,7 +2708,12 @@ int rtlsdr_reset_buffer (rtlsdr_dev_t *dev)
   if (!dev)
      return (-1);
 
-  if (!WinUsb_ResetPipe(dev->usbHandle, EP_RX))
+  if (!dev->usbHandle || dev->usbHandle == INVALID_HANDLE_VALUE)
+  {
+    last_error = ERROR_INVALID_HANDLE;
+    RTL_TRACE_WINUSB ("WinUsb_ResetPipe", last_error);
+  }
+  else if (!WinUsb_ResetPipe(dev->usbHandle, EP_RX))
   {
     last_error = GetLastError();
     RTL_TRACE_WINUSB ("WinUsb_ResetPipe", last_error);
@@ -2706,7 +2732,12 @@ int rtlsdr_read_sync (rtlsdr_dev_t *dev, void *buf, int len,  int *n_read)
 
   rtlsdr_write_reg (dev, USBB, USB_EPA_CTL, 0x0000, 2);
 
-  if (!WinUsb_ReadPipe(dev->usbHandle, EP_RX, buf, len, &bytesRead, NULL))
+  if (dev->usbHandle == INVALID_HANDLE_VALUE)
+  {
+    last_error = ERROR_INVALID_HANDLE;
+    RTL_TRACE_WINUSB ("WinUsb_ReadPipe", last_error);
+  }
+  else if (!WinUsb_ReadPipe(dev->usbHandle, EP_RX, buf, len, &bytesRead, NULL))
   {
     last_error = GetLastError();
     RTL_TRACE_WINUSB ("WinUsb_ReadPipe", last_error);
@@ -2765,16 +2796,19 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
   if (!buf_len || buf_len % 512 != 0) /* len must be multiple of 512 */
      buf_len = DEFAULT_BUF_LENGTH;
 
-  if (!WinUsb_ResetPipe(dev->usbHandle, EP_RX))
+  if (dev->usbHandle != INVALID_HANDLE_VALUE)
   {
-    last_error = GetLastError();
-    RTL_TRACE_WINUSB ("WinUsb_ResetPipe", last_error);
-  }
+    if (!WinUsb_ResetPipe(dev->usbHandle, EP_RX))
+    {
+      last_error = GetLastError();
+      RTL_TRACE_WINUSB ("WinUsb_ResetPipe", last_error);
+    }
 
-  if (!WinUsb_SetPipePolicy(dev->usbHandle, EP_RX, RAW_IO, 1, &policy))
-  {
-    last_error = GetLastError();
-    RTL_TRACE_WINUSB ("WinUsb_GetPipePolicy", last_error);
+    if (!WinUsb_SetPipePolicy(dev->usbHandle, EP_RX, RAW_IO, 1, &policy))
+    {
+      last_error = GetLastError();
+      RTL_TRACE_WINUSB ("WinUsb_GetPipePolicy", last_error);
+    }
   }
 
   /* Alloc async buffers
@@ -2847,7 +2881,7 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
    */
   rtlsdr_write_reg (dev, USBB, USB_EPA_CTL, 0x1002, 2);
 
-  if (!WinUsb_AbortPipe(dev->usbHandle, EP_RX))
+  if (!dev->async_cancel && !WinUsb_AbortPipe(dev->usbHandle, EP_RX))
   {
     last_error = GetLastError();
     RTL_TRACE_WINUSB ("WinUsb_AbortPipe", last_error);
@@ -3248,8 +3282,13 @@ static void softagc_close (rtlsdr_dev_t *dev)
   Sleep (50);
 
   RTL_TRACE (1, "%s(): killing thread: %zu\n", __FUNCTION__, agc->command_thread);
-  TerminateThread (&agc->command_thread, 0);
-  CloseHandle ((HANDLE)agc->command_thread);
+
+  if (agc->command_thread)
+  {
+    TerminateThread (&agc->command_thread, 0);
+    CloseHandle ((HANDLE)agc->command_thread);
+    agc->command_thread = 0;
+  }
 }
 
 static void softagc (rtlsdr_dev_t *dev, uint8_t *buf, int len)
