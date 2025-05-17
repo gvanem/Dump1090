@@ -1349,7 +1349,7 @@ static bool airports_init_BIN (void)
   BIN_header hdr;
   FILE      *f;
 
-  if (!airports_set_BIN_file (&g_data.aircrafts_bin, "aircrafts.bin") ||
+  if (!airports_set_BIN_file (&g_data.aircrafts_bin, "aircraft.bin") ||
       !airports_set_BIN_file (&g_data.airports_bin, "airports.bin") ||
       !airports_set_BIN_file (&g_data.routes_bin, "routes.bin"))
      return (false);
