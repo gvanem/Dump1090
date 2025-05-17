@@ -896,21 +896,25 @@ function earlyInitPage() {
     let value;
 
     if (uk_advisory) {
+        defaultOverlays.push('uka_airports');
+        defaultOverlays.push('uka_airspaces');
+        defaultOverlays.push('uka_runways');
+        defaultOverlays.push('uka_shoreham');
+        atcStyle = true;
+    }
 
+    if (atcStyle) {
         labels_top = true;
         tempTrails = true;
         tempTrailsTimeout = 45;
         SiteCirclesDistances = new Array(5, 10, 20);
         SiteCirclesLineDash = [5, 5];
         SiteCirclesColors = ['#2b3436', '#2b3436', '#2b3436'];
-        defaultOverlays.push('uka_airports');
-        defaultOverlays.push('uka_airspaces');
-        defaultOverlays.push('uka_runways');
-        defaultOverlays.push('uka_shoreham');
         MapType_tar1090 = 'carto_light_all';
         lineWidth=4;
         g.enableLabels=true;
     }
+
     if (usp.has('debugFetch')) {
         debugFetch = true;
     }
@@ -1637,7 +1641,8 @@ jQuery('#selected_altitude_geom1')
             refreshSelected();
         }
     });
-    if (useRouteAPI) {
+
+    if (routeApiUrl) {
         new Toggle({
             key: "useRouteAPI",
             display: "Lookup route",
@@ -1654,6 +1659,8 @@ jQuery('#selected_altitude_geom1')
                 }
             }
         });
+    } else {
+        useRouteAPI = false;
     }
 
 
@@ -3957,7 +3964,7 @@ function refreshFeatures() {
         },
         html: flightawareLinks,
         text: 'Callsign' };
-    if (useRouteAPI) {
+    if (routeApiUrl) {
         cols.route = {
             sort: function () { sortBy('route', compareAlpha, function(x) { return x.routeString }); },
             value: function(plane) {
@@ -6609,7 +6616,7 @@ function legShift(offset, plane) {
     let legEnd = null;
     let count = 0;
 
-    for (let i = 1; i < trace.length; i++) {
+    for (let i = 0; i < trace.length; i++) {
         let timestamp = trace[i][0];
         if (traceOpts.startStamp != null && timestamp < traceOpts.startStamp) {
             continue;
@@ -6676,6 +6683,7 @@ function setTraceDate(options) {
     traceDate.setUTCHours(0);
     traceDate.setUTCMinutes(0);
     traceDate.setUTCSeconds(0);
+    traceDate.setUTCMilliseconds(0);
 
     let tomorrow = (new Date()).getTime() + 86400e3;
     if (traceDate.getTime() > tomorrow) {

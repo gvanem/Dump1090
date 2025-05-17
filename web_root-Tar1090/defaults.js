@@ -332,10 +332,12 @@ let planespottersAPIurl = "https://api.planespotters.net/pub/photos/";
 // get pictures from planespotting.be
 let planespottingAPI = false;
 
-// get flight route from routeApi service
+// get flight route from routeApi service default setting (toggle via settings checkbox)
 let useRouteAPI = false;
 // which routeApi service to use
-let routeApiUrl = "https://api.adsb.lol/api/0/routeset";
+let routeApiUrl = "https://adsb.im/api/0/routeset";
+// alternative: "https://api.adsb.lol/api/0/routeset";
+// routeApiUrl = ""; // to disable route API so it can't be enabled by a website visitor
 
 // show a link to jetphotos, only works if planespottersAPI is disabled
 let jetphotoLinks = false;
