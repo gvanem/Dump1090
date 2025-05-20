@@ -2618,12 +2618,12 @@ err:
 /*
  * Free the transfer buffers
  */
-static void rtlsdr_free (rtlsdr_dev_t *dev)
+static void rtlsdr_free (rtlsdr_dev_t *dev, unsigned line)
 {
   uint32_t i;
 
-  RTL_TRACE (1, "rtlsdr_free (0x%p): overlapped: 0x%p, xfer_buf: 0x%p\n",
-             dev, dev->overlapped, dev->xfer_buf);
+  RTL_TRACE (1, "rtlsdr_free (0x%p, %u): overlapped: 0x%p, xfer_buf: 0x%p\n",
+             dev, line, dev->overlapped, dev->xfer_buf);
 
   EnterCriticalSection (&dev->cs_mutex);
 
@@ -2649,6 +2649,8 @@ static void rtlsdr_free (rtlsdr_dev_t *dev)
 int rtlsdr_close2 (rtlsdr_dev_t **dev)
 {
   int rc;
+
+  RTL_TRACE (1, "%s(): dev: 0x%p\n", __FUNCTION__, dev);
 
   if (dev && *dev)
   {
@@ -2695,7 +2697,7 @@ int rtlsdr_close (rtlsdr_dev_t *dev)
              __FUNCTION__, loops, async_status_name(entry_state), async_status_name(exit_state));
 
   Close_Device (dev);
-  rtlsdr_free (dev);
+  rtlsdr_free (dev, __LINE__);
   softagc_close (dev);
 
   DeleteCriticalSection (&dev->cs_mutex);
@@ -2872,7 +2874,8 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
         break;
       }
 
-      if (rtlsdr_read_buffer(dev, dev->xfer_buf[i], buf_len, dev->overlapped[i]))
+      if (!dev->overlapped || !dev->overlapped[i] ||
+          rtlsdr_read_buffer(dev, dev->xfer_buf[i], buf_len, dev->overlapped[i]))
          break;
     }
   }
@@ -2887,7 +2890,7 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
     RTL_TRACE_WINUSB ("WinUsb_AbortPipe", last_error);
   }
 
-  rtlsdr_free (dev);
+  rtlsdr_free (dev, __LINE__);
   dev->async_status = RTLSDR_INACTIVE;
   return (0);
 }
@@ -3271,6 +3274,7 @@ static void softagc_init (rtlsdr_dev_t *dev)
 
   /* Create thread */
   agc->command_thread = _beginthread (softagc_control_worker, 0, dev);
+  RTL_TRACE (1, "%s(): agc->command_thread: %zu\n", __FUNCTION__, agc->command_thread);
 }
 
 static void softagc_close (rtlsdr_dev_t *dev)
