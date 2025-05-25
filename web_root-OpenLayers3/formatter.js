@@ -175,6 +175,7 @@ function convert_distance(dist, displayUnits) {
 	return (dist / 1852); // meters to nautical miles
 }
 
+
 // rate in ft/min
 function format_vert_rate_brief(rate, displayUnits) {
 	if (rate === null || rate === undefined) {

@@ -1,35 +1,34 @@
-<?php 
+<?php
 
-  //----------------------------------------------------------
-  // 1) Connect to mysql database
-  //----------------------------------------------------------
+//----------------------------------------------------------
+// 1) Connect to mysql database
+//----------------------------------------------------------
 
-  include 'sql_server.php';
-  include 'sql_table_range.php';
+include 'sql_server.php';
+//include 'sql_table_range.php';
+$databaseName = "AllanK";
+$tableName = "ADSBRange";
 
-  $con = mysql_connect($host,$user,$pass);
-  $dbs = mysql_select_db($databaseName, $con);
 
- 
-  //----------------------------------------------------------
-  // 2) Query database for data
-  //----------------------------------------------------------
-  $qry = "SELECT `bearing`, `range` FROM $tableName WHERE 1 ORDER BY `range` DESC" ;
+$myCon = new mysqli($host, $user, $pass, $databaseName);
 
-  $result = mysql_query($qry); 
-  $array  = mysql_fetch_row($result);  
-
-  //----------------------------------------------------------
-  // 3) echo result as json 
-  //----------------------------------------------------------
-  //echo json_encode($array);
-  //----------------------------------------------------------
-  // or 4) Multiple rows
-  //----------------------------------------------------------
-  while ( $row = mysql_fetch_row($result) )
-  {
-    $rngData[] = $row; 
-  }
-  echo json_encode( $rngData );
-
+$i = $_GET["r"];
+//----------------------------------------------------------
+// 2) Query database for data
+//----------------------------------------------------------
+$myquery = "SELECT * FROM $tableName";
+$result = $myCon->query($myquery);
+//----------------------------------------------------------
+// 3) echo result as json 
+//----------------------------------------------------------
+//echo json_encode($array);
+//----------------------------------------------------------
+// or 4) Multiple rows
+//----------------------------------------------------------
+for ($row_no = 0; $row_no < $result->num_rows; $row_no++) {
+	$result->data_seek($row_no);
+	$row = $result->fetch_assoc();
+	$myData[] = $row;
+}
+echo json_encode($myData);
 ?>

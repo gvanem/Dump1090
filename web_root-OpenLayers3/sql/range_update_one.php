@@ -1,23 +1,35 @@
-<?php 
+<?php
+include 'sql_server.php';
+//include 'sql_table_range.php';
+$databaseName = "AllanK";
+$tableName = "ADSBRange";
 
-  include 'sql_server.php';
-  include 'sql_table_range.php';
+$myCon = new mysqli($host, $user, $pass, $databaseName);
 
-  $con = mysql_connect($host,$user,$pass);
-  $dbs = mysql_select_db($databaseName, $con);
-  
-  $bg = $_GET["bearing"];
-  $rg = $_GET["range"];
-  $lt = $_GET["lat"];
-  $ln = $_GET["lon"];
-  $ic = $_GET["icao"];
-  
+$ty = $_GET["ring"];
+$bg = $_GET["bearing"];
+$rg = $_GET["range"];
+$lt = $_GET["lat"];
+$ln = $_GET["lon"];
+$ic = $_GET["icao"];
+$fl = $_GET["fltlvl"];
 
-  $qry = "UPDATE $tableName SET `range` = $rg, `lat` = $lt, `long` = $ln, `icao` = '$ic' WHERE `bearing` = $bg AND `range` < $rg";
-  //$qry = "UPDATE $tableName SET `range` = $rg, `lat` = $lt, `long` = $ln WHERE `bearing` = $bg AND `range` < $rg";
+$myquery = "UPDATE $tableName SET `adsbRange` = $rg, `adsbLat` = $lt, `adsbLong` = $ln, `adsbIcao` = '$ic', `adsbUpdated` = CURRENT_TIMESTAMP WHERE `bearing` = $bg AND `adsbRange` < $rg";
 
+$myCon->query($myquery);
 
-  $result = mysql_query($qry); 
- 
-  //echo json_encode($result);  //usefull as it returns true or false depending on query success
+//$result = $myCon->query($myquery);
+//echo "<script type='text/javascript'>alert('$result ');</script>";
+
+//if ($myCon->query($myquery) === TRUE) {
+//$result = "Record updated successfully";
+//} else {
+//$result = "Error updating record: " . $myCon->error;
+//}
+
+//$result = $myCon->query($myquery);
+
+//$result = $myCon->error;
+
+$myCon->close();
 ?>

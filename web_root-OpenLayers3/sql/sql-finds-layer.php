@@ -1,20 +1,24 @@
-<?php 
-  include 'sql_server.php';
+<?php
+include 'sql_server.php';
+include 'sql_table_finds.php';
 
-  $databaseName = "finds";
-  $tableName    = "finds";
+$myCon = new mysqli($host, $user, $pass, $databaseName);
 
-  $con = mysql_connect($host,$user,$pass);
-  $dbs = mysql_select_db($databaseName, $con);
+//echo $myCon->host_info  ."<br>";
 
-  $result = mysql_query("SELECT * FROM $tableName");        
-  $array = mysql_fetch_row($result);            
-             
-  $data = array();
+$myquery = "SELECT * FROM $tableName";
+$result = $myCon->query($myquery);
 
-  while ( $row = mysql_fetch_row($result) )
-  {
-    $data[] = $row;
-  }
-  echo json_encode( $data );
+$myData = array();
+
+//echo "Reverse order...<br>";
+
+//for ($row_no = $result->num_rows - 1; $row_no >= 0; $row_no--) {
+for ($row_no = 0; $row_no < $result->num_rows - 1; $row_no++) {
+    $result->data_seek($row_no);
+    $row = $result->fetch_assoc();
+    $myData[] = $row;
+    //echo " id = " . $row['Name'] . " id = " . $row['desc'] . "<br>";
+}
+echo json_encode($myData);
 ?>
