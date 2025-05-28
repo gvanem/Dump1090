@@ -7,7 +7,7 @@
 
 #define VER_MAJOR 0
 #define VER_MINOR 4
-#define VER_MICRO 4
+#define VER_MICRO 8
 
 /* Warning control:
  */
@@ -27,6 +27,7 @@
   #pragma clang diagnostic ignored "-Wsign-compare"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
   #pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
+  #pragma clang diagnostic ignored "-Wmicrosoft-enum-forward-reference"
 
   /*
    * Cause a compile-error for these warnings:
@@ -236,14 +237,8 @@
     #define RC_FILEFLAGS  0
   #endif
 
-  #if defined(USE_ASAN) || defined(USE_UBSAN)
-    #if defined(USE_ASAN) && defined(USE_UBSAN)
-      #define RC_BUILD_FEATURES  "ASAN, UBSAN"
-    #elif defined(USE_ASAN)
-      #define RC_BUILD_FEATURES  "ASAN"
-    #else
-      #define RC_BUILD_FEATURES  "UBSAN"
-    #endif
+  #if defined(USE_ASAN)
+  #define RC_BUILD_FEATURES  "ASAN"
   #endif
 
   /**
