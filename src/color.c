@@ -164,7 +164,7 @@ static void C_exit (void)
   }
   else
   {
-    TRACE ("console_info.wAttributes: 0x%04X", console_info.wAttributes);
+    TRACE ("console_info.wAttributes: 0x%04X\n", console_info.wAttributes);
     SetConsoleTextAttribute (c_handle, console_info.wAttributes);
   }
 
@@ -231,7 +231,7 @@ static void C_init (void)
               ENABLE_WRAP_AT_EOL_OUTPUT | DISABLE_NEWLINE_AUTO_RETURN;
 
       rc = SetConsoleMode (c_handle, mode);
-      TRACE ("Has VT-mode. Setting mode: 0x%08lX, rc: %d", mode, rc);
+      TRACE ("Has VT-mode. Setting mode: 0x%08lX, rc: %d\n", mode, rc);
 
       SetConsoleOutputCP (CP_UTF8);
     }
