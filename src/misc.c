@@ -16,11 +16,8 @@
 #include <sanitizer/asan_interface.h>
 #endif
 
-#if defined(USE_UBSAN)
-#include <sanitizer/ubsan_interface.h>
-#endif
-
 #include "sqlite3.h"
+#include "smartlist.h"
 #include "trace.h"
 #include "misc.h"
 #include "rtl-sdr/version.h"
@@ -134,6 +131,20 @@ void modeS_logc (char c, void *param)
 /**
  * Print to `f` and optionally to `Modes.log`.
  */
+void modeS_flog (FILE *f, const char *buf)
+{
+  if (f && f != Modes.log) /* to `stdout` or `stderr` */
+  {
+    fputs (buf, f);
+    fflush (f);
+  }
+  if (Modes.log)
+     modeS_log (buf);
+}
+
+/**
+ * The var-arg version; print to `f` and optionally to `Modes.log`.
+ */
 void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...)
 {
   char    buf [1000];
@@ -141,7 +152,7 @@ void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...)
   va_list args;
 
   va_start (args, fmt);
-  vsnprintf (buf, sizeof(buf), fmt, args);
+  vsnprintf (buf, sizeof(buf)-1, fmt, args);
   va_end (args);
 
   if (f && f != Modes.log) /* to `stdout` or `stderr` */
@@ -184,9 +195,9 @@ void modeS_log_set (void)
 static bool modeS_log_reinit (const SYSTEMTIME *st)
 {
   static const char *dot = NULL;
-  bool   initial = (st == NULL);
+  bool   first_time = (st == NULL);
 
-  if (initial)
+  if (first_time)
   {
     SYSTEMTIME now;
 
@@ -240,9 +251,6 @@ bool modeS_log_init (void)
  */
 void modeS_log_exit (void)
 {
-  log_ignore *i_next;
-  log_ignore *i = Modes.logfile_ignore;
-
   if (Modes.log)
   {
     if (!Modes.home_pos_ok)
@@ -250,14 +258,16 @@ void modeS_log_exit (void)
     fclose (Modes.log);
     Modes.log = NULL;
   }
-
-  for (i = Modes.logfile_ignore; i; i = i_next)
+  if (Modes.logfile_ignore)
   {
-    i_next = i->next;
-    LIST_DELETE (log_ignore, &Modes.logfile_ignore, i);
-    free (i);
+    smartlist_wipe (Modes.logfile_ignore, free);
+    Modes.logfile_ignore = NULL;
   }
 }
+
+typedef struct log_ignore {
+        char  msg [100];
+      } log_ignore;
 
 /**
  * Add a `*msg` to the `Modes.logfile_ignore` list. <br>
@@ -265,14 +275,21 @@ void modeS_log_exit (void)
  */
 bool modeS_log_add_ignore (const char *msg)
 {
-  log_ignore *ignore = *msg ? calloc (sizeof(*ignore), 1) : NULL;
-  size_t      i;
+  log_ignore *ignore;
+  int i, max;
 
+  if (!Modes.logfile_ignore)
+     Modes.logfile_ignore = smartlist_new();
+
+  if (!Modes.logfile_ignore)
+     return (false);
+
+  ignore = *msg ? calloc (sizeof(*ignore), 1) : NULL;
   if (ignore)
   {
     char *p = ignore->msg + 0;
 
-    for (i = 0; i < sizeof(ignore->msg) - 1; i++, msg++)
+    for (i = 0; i < (int)sizeof(ignore->msg) - 1; i++, msg++)
         if (*msg != '"')
            *p++ = *msg;
 
@@ -282,11 +299,15 @@ bool modeS_log_add_ignore (const char *msg)
        *p = '\0';
 
     str_trim (ignore->msg);
-    LIST_ADD_TAIL (log_ignore, &Modes.logfile_ignore, ignore);
+    smartlist_add (Modes.logfile_ignore, ignore);
   }
 
-  for (i = 0, ignore = Modes.logfile_ignore; ignore; ignore = ignore->next, i++)
-      DEBUG (DEBUG_GENERAL, "%zd: '%s'\n", i, ignore->msg);
+  max = smartlist_len (Modes.logfile_ignore);
+  for (i = 0; i < max; i++)
+  {
+    ignore = smartlist_get (Modes.logfile_ignore, i);
+    DEBUG (DEBUG_GENERAL, "%d: '%s'\n", i, ignore->msg);
+  }
   return (true);
 }
 
@@ -295,11 +316,15 @@ bool modeS_log_add_ignore (const char *msg)
  */
 static bool modeS_log_ignore (const char *msg)
 {
-  const log_ignore *ignore;
+  int i, max = Modes.logfile_ignore ? smartlist_len (Modes.logfile_ignore) : 0;
 
-  for (ignore = Modes.logfile_ignore; ignore; ignore = ignore->next)
-      if (str_startswith(msg, ignore->msg))
-         return (true);
+  for (i = 0; i < max; i++)
+  {
+    const log_ignore *ignore = smartlist_get (Modes.logfile_ignore, i);
+
+    if (str_startswith(msg, ignore->msg))
+       return (true);
+  }
   return (false);
 }
 
@@ -378,35 +403,40 @@ char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD)
  */
 uint32_t ato_hertz (const char *Hertz)
 {
-  char     tmp [20], *end, last_ch;
-  int      len;
-  double   multiplier = 1.0;
-  uint32_t ret;
+  char   tmp [20], *end, last_ch;
+  int    len;
+  double multiplier = 1.0;
+  double ret;
 
   strcpy_s (tmp, sizeof(tmp), Hertz);
   len = strlen (tmp);
   last_ch = tmp [len-1];
-  tmp [len-1] = '\0';
 
   switch (last_ch)
   {
     case 'g':
     case 'G':
+          tmp [len-1] = '\0';
           multiplier = 1E9;
           break;
     case 'm':
     case 'M':
+          tmp [len-1] = '\0';
           multiplier = 1E6;
           break;
     case 'k':
     case 'K':
+          tmp [len-1] = '\0';
           multiplier = 1E3;
           break;
   }
-  ret = (uint32_t) strtof (tmp, &end);
+  ret = strtof (tmp, &end);
   if (end == tmp || *end != '\0')
      return (0);
-  return (uint32_t) (multiplier * ret);
+
+  ret *= multiplier;
+//printf ("tmp: '%s', Hertz: '%s' -> %u\n", tmp, Hertz, (uint32_t)ret);
+  return (uint32_t) ret;
 }
 
 /**
@@ -421,6 +451,65 @@ int hex_digit_val (int c)
   if (c >= 'a' && c <= 'f')
      return (c - 'a' + 10);
   return (-1);
+}
+
+/**
+ * Search `*list` for `value` and return it's name.
+ */
+const char *search_list_name (DWORD value, const search_list *list, int num)
+{
+  while (num > 0)
+  {
+    if (list->value == value)
+       return (list->name);
+    num--;
+    list++;
+  }
+  return (NULL);
+}
+
+/**
+ * Search for 32-bit `flags` in `*list` and return a concatination of their names.
+ * \eg. with `flags == 0x0A` in `*list` of:
+ * ```
+ *  value = name
+ *  0x02  = "flag-A"
+ *  0x04  = "flag-B"
+ *  0x08  = "flag-C"
+ * ```
+ * Return `"flags-A|flag-C"`
+ */
+const char *flags_decode (DWORD flags, const struct search_list *list, int num)
+{
+  static char buf [2][1000];
+  static int  idx = 0;
+  char  *p, *ret;
+  char  *end = buf [idx] + sizeof(buf[0]) - 1;
+  int    i;
+
+  p = &buf[idx][0];
+
+  if (flags == 0UL)
+     return strcpy (p, "<none>");
+
+  *p = '\0';
+
+  for (i = 0; i < num; i++, list++)
+      if (flags & list->value)
+      {
+        p += snprintf (p, end - p, "%s|", list->name);
+        flags &= ~list->value;
+      }
+
+  if (flags)            /* print unknown flag-bits */
+     p += snprintf (p, end - p, "0x%08lX|", flags);
+
+  if (p > &buf[idx][0])
+     p[-1] = '\0';      /* remove last '|' */
+
+  ret = buf [idx];
+  idx = (idx + 1) & 1;  /* use 2 buffers in round-robin */
+  return (ret);
 }
 
 /*
@@ -996,6 +1085,9 @@ int _gettimeofday (struct timeval *tv, void *timezone)
   return (0);
 }
 
+/*
+ * Not used but leave it in.
+ */
 int get_timespec_UTC (struct timespec *ts)
 {
   return timespec_get (ts, TIME_UTC);
@@ -1049,11 +1141,6 @@ static void init_timings (void)
   get_usec_now();
   get_FILETIME_now (&Modes.start_FILETIME);
 
-  /* Make a copy to avoid this UBSAN error:
-   *  runtime error: load of misaligned address 0x7ff6f5f32394 for type 'ULONGLONG'
-   *
-   * before setting `Modes.timezone`.
-   */
   ft = Modes.start_FILETIME;
   modeS_FILETIME_to_loc_str (&ft, true);
   GetLocalTime (&Modes.start_SYSTEMTIME);
@@ -1067,6 +1154,11 @@ bool init_misc (void)
   if (test_contains(Modes.tests, "misc"))
      test_asprintf();
   return (true);
+}
+
+int64_t receiveclock_ms_elapsed (uint64_t t1, uint64_t t2)
+{
+  return (t2 - t1) / 12000U;
 }
 
 /**
@@ -1156,18 +1248,29 @@ const char *win_strerror (DWORD err)
  *
  * `rtlsdr_last_error()` always returns a positive value for WinUSB errors.
  *
- * While RTLSDR errors returned from all `rtlsdr_x()` functions are negative.
+ * While a RTLSDR error-code in `rc` returned from all `rtlsdr_x()` functions are negative.
  * And rather sparse:
- *   \li -1 if device handle is invalid
- *   \li -2 if EEPROM size is exceeded (depends on rtlsdr_x() function)
- *   \li -3 if no EEPROM was found     (depends on rtlsdr_x() function)
+ *   \li -1      if device handle is invalid
+ *   \li -2      if EEPROM size is exceeded (depends on rtlsdr_x() function)
+ *   \li -3      if no EEPROM was found     (depends on rtlsdr_x() function)
+ *   \li -EINVAL if sample-rate is invalid
  */
-const char *get_rtlsdr_error (void)
+const char *get_rtlsdr_error (int rc)
 {
   uint32_t err = rtlsdr_last_error();
 
+  if (rc == -EINVAL)
+     return ("Invalid parameter.");
+
   if (err == 0)
-     return ("No error.");
+  {
+    if (rc == -1)
+       return ("General error.");
+    return ("No error.");
+  }
+
+  /* From `FormatMessageA()`
+   */
   return trace_strerror (err);
 }
 
@@ -1324,17 +1427,11 @@ static const char *build_features (void)
   #if defined(USE_ASAN)
     "ASAN",
   #endif
-  #if defined(USE_UBSAN)
-    "UBSAN",
-  #endif
   #if defined(USE_BIN_FILES)
     "BIN_FILES",
   #endif
   #if defined(USE_PACKED_DLL)
     "Packed-Web",
-  #endif
-  #if defined(USE_DEMOD_2400)
-    "demod-2400",
   #endif
     "NETPOLLER=" NETPOLLER,
     NULL
@@ -1373,25 +1470,6 @@ const char *__asan_default_options (void)
 }
 #endif
 
-#if defined(USE_UBSAN) || defined(__DOXYGEN__)
-/**
- * Override of the default UBSAN options set by `%UBSAN_OPTIONS%`.
- */
-const char *__ubsan_default_options (void)
-{
-  static const char *ubsan_options;
-  static bool done = false;
-
-  printf ("%s() called\n", __func__);
-  if (!done)
-      ubsan_options = getenv ("UBSAN_OPTIONS");
-  done = true;
-  if (ubsan_options)
-     return (ubsan_options);
-  return ("print_stacktrace=1:log_path=UBSAN");
-}
-#endif
-
 /**
  * Print a long string to `FILE *f` (normally `stdout`).
  * Try to wrap nicely according to the screen-width.
@@ -1401,6 +1479,7 @@ void fputs_long_line (FILE *f, const char *start, size_t indent)
 {
   static size_t width = 0;
   size_t        left;
+  bool          drop = false;
   const char   *c = start;
 
   if (width == 0)
@@ -1440,13 +1519,16 @@ void fputs_long_line (FILE *f, const char *start, size_t indent)
       }
 
       ch = (int) c[1];
-      if (isspace(ch))  /* Drop excessive blanks */
+      if (drop && isspace(ch))  /* Drop excessive blanks, but not at start */
       {
         c++;
         continue;
       }
     }
+    if (!isspace((int)*c))
+       drop = true;       /* we're past the start now */
     putc (*c++, f);
+
     left--;
   }
   putc ('\n', f);
@@ -1464,7 +1546,7 @@ void puts_long_line (const char *start, size_t indent)
  *      172.169.111.144, 167.94.146.54, 194.48.251.26, ...
  */
 static const char *tests[] = {
-                  "unique client(s):",
+                  "  unique client(s):",
                   "127.0.0.1,",
                   "154.213.184.18,",
                   "185.224.128.83,",
@@ -1474,7 +1556,7 @@ static const char *tests[] = {
                   "90.54.179.158,",
                   "172.169.111.144,",
                   "167.94.146.54,",
-                  "194.48.251.26"
+                  "194.48.251.26\n"
                 };
 
 static void test_asprintf (void)
@@ -1484,6 +1566,7 @@ static void test_asprintf (void)
   size_t       i;
   int          ret;
 
+  printf ("%s():\n", __FUNCTION__);
   ip = tests + 0;
   for (i = 0; i < DIM(tests); i++, ip++)
   {
@@ -1960,7 +2043,9 @@ static bool download_to_file_cb (download_ctx *ctx)
      return (false);
 
   ctx->written_to_file += (uint32_t) sz;
-  printf ("Got %u kB.\r", ctx->written_to_file / 1024);
+
+  if (Modes.debug & DEBUG_NET)
+     printf ("Got %u kB.\r", ctx->written_to_file / 1024);
   assert (ctx->dl_buf_pos == 0);
   return (true);
 }
@@ -1974,7 +2059,7 @@ static bool download_to_buf_cb (download_ctx *ctx)
   {
     char *more;
 
-    DEBUG (DEBUG_NET, "Limit reached. dl_buf_sz: %zu\n", ctx->dl_buf_sz);
+    DEBUG (DEBUG_NET2, "Limit reached. dl_buf_sz: %zu\n", ctx->dl_buf_sz);
     ctx->dl_buf_sz += BUF_INCREMENT;
     more = realloc (ctx->dl_buf, ctx->dl_buf_sz);
     if (!more)
@@ -1987,7 +2072,7 @@ static bool download_to_buf_cb (download_ctx *ctx)
   assert (ctx->dl_buf_pos < ctx->dl_buf_sz);
   ctx->dl_buf [ctx->dl_buf_pos] = '\0';    /* 0 terminate */
 
-  DEBUG (DEBUG_NET, "bytes_read_total: %lu, dl_buf_pos: %zu\n",
+  DEBUG (DEBUG_NET2, "bytes_read_total: %lu, dl_buf_pos: %zu\n",
          ctx->bytes_read_total, ctx->dl_buf_pos);
   return (true);
 }
@@ -2044,7 +2129,7 @@ static bool download_common (download_ctx *ctx,
 
     if (!ctx->wininet_rc || ctx->bytes_read == 0)
     {
-      DEBUG (DEBUG_NET, "got_last_chunk.\n");
+      DEBUG (DEBUG_NET2, "got_last_chunk.\n");
       ctx->got_last_chunk = true;
     }
     if (!(*callback)(ctx) || ctx->got_last_chunk)
