@@ -2,19 +2,6 @@
  * Part of dump1090, a Mode S message decoder for RTLSDR devices.
  *
  * Copyright (c) 2014,2015 Oliver Jowett <oliver@mutability.co.uk>
- *
- * This file is free software: you may copy, redistribute and/or modify it
- * under the terms of the GNU General Public License as published by the
- * Free Software Foundation, either version 2 of the License, or (at your
- * option) any later version.
- *
- * This file is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 /**\file    cpr.c
@@ -22,23 +9,37 @@
  * \brief   Decoding of **CPR** (*Compact Position Reporting*)
  *          from a `modeS_message`.
  */
-
 #include "aircraft.h"
 #include "misc.h"
 #include "geo.h"
 #include "cpr.h"
 
 static int      CPR_NL_func (double lat);
-static void     CPR_set_home_distance (aircraft *a);
 static unsigned CPR_error;
 static unsigned CPR_errline;
+
+static int CPR_decode_airborne (int even_cprlat, int even_cprlon,
+                                int odd_cprlat,  int odd_cprlon, bool is_odd, pos_t *out);
+
+static int CPR_decode_surface  (double ref_lat,     double ref_lon,
+                                int    even_cprlat, int    even_cprlon,
+                                int    odd_cprlat,  int    odd_cprlon, bool is_odd, pos_t *out);
+
+static int CPR_decode_relative (double ref_lat, double ref_lon,
+                                int    cprlat,  int    cprlon,
+                                bool   is_odd,  bool   surface, pos_t *out);
+
+static bool CPR_speed_check (aircraft            *a,
+                             const modeS_message *mm,
+                             const pos_t         *pos,
+                             uint64_t             now,
+                             bool                 surface);
 
 #define CPR_SET_ERR(e)  do {                       \
                           CPR_error = e;           \
                           CPR_errline = __LINE__;  \
                           Modes.stat.cpr_errors++; \
                         } while (0)
-
 
 static const char *CPR_strerror (void)
 {
@@ -51,26 +52,14 @@ static const char *CPR_strerror (void)
   return (buf);
 }
 
-/**
- * Called from interactive.c to decode the **CPR** airborne position.
- */
-bool cpr_decode (struct aircraft *a, bool is_odd)
+static int CPR_set_error (int result, aircraft *a, uint64_t now)
 {
-  double lat, lon;
-  bool   ok = cpr_decode_airborne (a->even_CPR_lat, a->even_CPR_lon,
-                                   a->odd_CPR_lat, a->odd_CPR_lon,
-                                   is_odd, &lat, &lon);
-  if (!ok)
-  {
-    LOG_FILEONLY ("%s %06X, %s.\n",
-                  a->is_helicopter ? "helicopter" : "plane",
-                  a->addr, CPR_strerror());
-    return (false);
-  }
-  a->position.lon = lon;
-  a->position.lat = lat;
-  CPR_set_home_distance (a);
-  return (true);
+  if (result < 0)
+       LOG_FILEONLY ("%s %06X, %s.\n",
+                     a->is_helicopter ? "helicopter" : "plane",
+                     a->addr, CPR_strerror());
+  else a->seen_pos_EST = now;
+  return (result);
 }
 
 /**
@@ -80,6 +69,15 @@ bool cpr_decode (struct aircraft *a, bool is_odd)
 static int CPR_mod_func (int a, int b)
 {
   int res = a % b;
+
+  if (res < 0)
+     res += b;
+  return (res);
+}
+
+static double CPR_mod_double (double a, double b)
+{
+  double res = fmod (a, b);
 
   if (res < 0)
      res += b;
@@ -103,15 +101,6 @@ static double CPR_Dlong_func (double lat, bool is_odd)
 static double CPR_Dlong_func2 (double lat, int is_odd, bool surface)
 {
   return (surface ? 90.0 : 360.0) / CPR_N_func (lat, is_odd);
-}
-
-static double CPR_mod_double (double a, double b)
-{
-  double res = fmod (a, b);
-
-  if (res < 0)
-     res += b;
-  return (res);
 }
 
 /**
@@ -204,23 +193,183 @@ L60:
   return (1);
 }
 
-/**
- * Set this aircraft's distance to our home position.
- *
- * The reference time-tick is the latest of `a->odd_CPR_time` and `a->even_CPR_time`.
- *
- * \todo move to aircraft.c
- */
-static void CPR_set_home_distance (aircraft *a)
+int cpr_do_global (struct aircraft *a, const struct modeS_message *mm, uint64_t now, pos_t *new_pos, unsigned *nuc)
 {
-  if (!(VALID_POS(Modes.home_pos) && VALID_POS(a->position)))
-     return;
+  int   result;
+  int   odd_packet = (mm->AC_flags & MODES_ACFLAGS_LLODD_VALID) != 0;
+  bool  surface    = (mm->AC_flags & MODES_ACFLAGS_AOG) != 0;
+  pos_t ref_pos    = { 0.0, 0.0 };
 
-  a->distance     = geo_great_circle_dist (a->position, Modes.home_pos);
-  a->EST_position = a->position;
+  *nuc = (a->even_CPR_nuc < a->odd_CPR_nuc ? a->even_CPR_nuc : a->odd_CPR_nuc); /* worst of the two positions */
 
-  if (a->even_CPR_time > 0 && a->odd_CPR_time > 0)
-     a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
+  if (surface)
+  {
+    /* Surface global CPR:
+     * find reference location
+      */
+    if (a->AC_flags & MODES_ACFLAGS_LATLON_REL_OK)  /* Ok to try aircraft relative first */
+    {
+      ref_pos = a->position;
+      if (a->pos_nuc < *nuc)
+         *nuc = a->pos_nuc;
+    }
+    else if (Modes.home_pos_ok)
+    {
+      ref_pos = Modes.home_pos;
+    }
+    else
+    {
+      /* No local reference, give up
+       */
+      return (-1);
+    }
+    result = CPR_decode_surface (ref_pos.lat, ref_pos.lon,
+                                 a->even_CPR_lat, a->even_CPR_lon,
+                                 a->odd_CPR_lat, a->odd_CPR_lon, odd_packet,
+                                 new_pos);
+  }
+  else
+  {
+    /* airborne global CPR
+     */
+    result = CPR_decode_airborne (a->even_CPR_lat, a->even_CPR_lon,
+                                  a->odd_CPR_lat, a->odd_CPR_lon, odd_packet, new_pos);
+  }
+
+  if (result < 0)
+  {
+    if (mm->AC_flags & MODES_ACFLAGS_FROM_MLAT)
+       CPR_TRACE ("decode failure from MLAT (%06X) (%d). "
+                  "even: %d %d, odd: %d %d, odd_packet: %s\n",
+                  a->addr, result,
+                  a->even_CPR_lat, a->even_CPR_lon,
+                  a->odd_CPR_lat, a->odd_CPR_lon,
+                  odd_packet ? "odd" : "even");
+    return CPR_set_error (result, a, now);
+  }
+
+  CPR_set_error (0, a, now);
+
+  /* Check max _distance
+   */
+  if (Modes.max_dist > 0 && Modes.home_pos_ok)
+  {
+    double distance = geo_great_circle_dist (Modes.home_pos, *new_pos);
+
+    LOG_DISTANCE (a, distance, distance <= Modes.max_dist);
+
+    if (distance > Modes.max_dist)
+    {
+      CPR_TRACE ("global distance check failed: %06X: (%.3f,%.3f), max dist %.1fkm, actual %.1fkm\n",
+                 a->addr, new_pos->lat, new_pos->lon, Modes.max_dist / 1000.0, distance / 1000.0);
+
+      Modes.stat.cpr_global_dist_checks++;
+      return (-2);    /* we consider an out-of-distance value to be bad data */
+    }
+    a->distance     = distance;
+    a->distance_ok  = true;
+    a->position_EST = *new_pos;
+  }
+
+  /* For MLAT results, skip the speed check
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_FROM_MLAT)
+     return (result);
+
+  /* Check speed limit
+   */
+  if (a->pos_nuc >= *nuc && !CPR_speed_check(a, mm, new_pos, now, surface))
+  {
+    Modes.stat.cpr_global_speed_checks++;
+    return (-2);
+  }
+  return CPR_set_error (result, a, now);
+}
+
+int cpr_do_local (struct aircraft *a, const struct modeS_message *mm, uint64_t now, pos_t *new_pos, unsigned *nuc)
+{
+  /* relative CPR: find reference location
+   */
+  pos_t  ref_pos;
+  double distance_limit = 0.0;
+  int    result;
+  bool   odd_packet = (mm->AC_flags & MODES_ACFLAGS_LLODD_VALID) != 0;
+  bool   surface    = (mm->AC_flags & MODES_ACFLAGS_AOG) != 0;
+
+  *nuc = mm->nuc_p;
+
+  if (a->AC_flags & MODES_ACFLAGS_LATLON_REL_OK)
+  {
+    ref_pos = a->position;
+
+    if (a->pos_nuc < *nuc)
+       *nuc = a->pos_nuc;
+  }
+  else if (!surface && Modes.home_pos_ok)
+  {
+    ref_pos = Modes.home_pos;
+
+    /* The cell size is at least 360NM, giving a nominal
+     * max distance of 180NM == 333360 m (half a cell).
+     */
+#define CELL_SIZE 333360
+
+    /* If the receiver distance is more than half a cell, then we must limit
+     * this distance further to avoid ambiguity. (e.g. if we receive a position
+     * report at 200NM distance, this may resolve to a position at (200-360) = 160NM
+     * in the wrong direction).
+     */
+    if (Modes.max_dist <= CELL_SIZE)
+    {
+      distance_limit = Modes.max_dist;
+    }
+    else if (Modes.max_dist < 2*CELL_SIZE)
+    {
+      distance_limit = 2 * CELL_SIZE - Modes.max_dist;
+    }
+    else
+    {
+      return (-1); /* Can't do receiver-centered checks at all */
+    }
+  }
+  else
+  {
+    /* No local reference, give up */
+    return (-1);
+  }
+
+  result = CPR_decode_relative (ref_pos.lat, ref_pos.lon,
+                                mm->raw_latitude, mm->raw_longitude,
+                                odd_packet, surface, new_pos);
+  if (result < 0)
+     return CPR_set_error (result, a, now);   /* Failure */
+
+  /* Check distance limit if user-specified position is OK
+   */
+  if (distance_limit > 0 && Modes.home_pos_ok)
+  {
+    double distance = geo_great_circle_dist (ref_pos, *new_pos);
+
+    LOG_DISTANCE (a, distance, distance <= distance_limit);
+
+    if (distance > distance_limit)
+    {
+      Modes.stat.cpr_local_dist_checks++;
+      return (-1);
+    }
+    a->distance     = distance;
+    a->distance_ok  = true;
+    a->position_EST = *new_pos;
+  }
+
+  /* Check speed limit
+   */
+  if (a->pos_nuc >= *nuc && !CPR_speed_check(a, mm, new_pos, now, surface))
+  {
+    Modes.stat.cpr_local_speed_checks++;
+    return (-1);
+  }
+  return CPR_set_error (0, a, now);   /* Okay */
 }
 
 /*
@@ -233,8 +382,8 @@ static void CPR_set_home_distance (aircraft *a)
  * \li We assume that we always received the odd packet as last packet for
  *     simplicity. This may provide a position that is less fresh of a few seconds.
  */
-bool cpr_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat, int odd_cprlon,
-                          bool is_odd, double *out_lat, double *out_lon)
+static int CPR_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat, int odd_cprlon,
+                                bool is_odd, pos_t *out)
 {
   double air_dlat0 = 360.0 / 60.0;
   double air_dlat1 = 360.0 / 59.0;
@@ -250,7 +399,8 @@ bool cpr_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat, int 
   double rlat0 = air_dlat0 * (CPR_mod_func(j, 60) + lat0 / 131072);
   double rlat1 = air_dlat1 * (CPR_mod_func(j, 59) + lat1 / 131072);
 
-  *out_lat = *out_lon = 0.0;
+  out->lat = out->lon = 0.0;
+
   CPR_error = 0;
 
   if (rlat0 >= 270)
@@ -264,7 +414,7 @@ bool cpr_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat, int 
   if (rlat0 < -90 || rlat0 > 90 || rlat1 < -90 || rlat1 > 90)
   {
     CPR_SET_ERR (EINVAL);
-    return (false);       /* bad data */
+    return (-2);       /* bad data */
   }
 
   /* Check that both are in the same latitude zone, or abort.
@@ -272,7 +422,7 @@ bool cpr_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat, int 
   if (CPR_NL_func(rlat0) != CPR_NL_func(rlat1))
   {
     CPR_SET_ERR (ERANGE);
-    return (false);       /* positions crossed a latitude zone, try again later */
+    return (-1);       /* positions crossed a latitude zone, try again later */
   }
 
   /* Compute ni and the Longitude Index "m"
@@ -299,14 +449,14 @@ bool cpr_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat, int 
    */
   rlon -= floor ((rlon + 180) / 360) * 360;
 
-  *out_lat = rlat;
-  *out_lon = rlon;
-  return (true);
+  out->lat = rlat;
+  out->lon = rlon;
+  return (0);
 }
 
-bool cpr_decode_surface (double ref_lat, double ref_lon,
-                         int even_cprlat, int even_cprlon, int odd_cprlat, int odd_cprlon,
-                         bool is_odd, double *out_lat, double *out_lon)
+static int CPR_decode_surface (double ref_lat, double ref_lon,
+                               int even_cprlat, int even_cprlon, int odd_cprlat, int odd_cprlon,
+                               bool is_odd, pos_t *out)
 {
   double air_dlat0 = 90.0 / 60.0;
   double air_dlat1 = 90.0 / 59.0;
@@ -322,7 +472,7 @@ bool cpr_decode_surface (double ref_lat, double ref_lon,
   double rlat0 = air_dlat0 * (CPR_mod_func (j, 60) + lat0 / 131072);
   double rlat1 = air_dlat1 * (CPR_mod_func (j, 59) + lat1 / 131072);
 
-  *out_lat = *out_lon = 0.0;
+  out->lat = out->lon = 0.0;
   CPR_error = 0;
 
   /*
@@ -379,7 +529,7 @@ bool cpr_decode_surface (double ref_lat, double ref_lon,
   if (rlat0 < -90 || rlat0 > 90 || rlat1 < -90 || rlat1 > 90)
   {
     CPR_SET_ERR (EINVAL);
-    return (false);       /* bad data */
+    return (-2);       /* bad data */
   }
 
   /* Check that both are in the same latitude zone, or abort.
@@ -387,7 +537,7 @@ bool cpr_decode_surface (double ref_lat, double ref_lon,
   if (CPR_NL_func(rlat0) != CPR_NL_func(rlat1))
   {
     CPR_SET_ERR (ERANGE);
-    return (false);    /* positions crossed a latitude zone, try again later */
+    return (-1);    /* positions crossed a latitude zone, try again later */
   }
 
   /* Compute ni and the Longitude Index "m"
@@ -424,9 +574,9 @@ bool cpr_decode_surface (double ref_lat, double ref_lon,
    */
   rlon -= floor ((rlon + 180) / 360 ) * 360;
 
-  *out_lat = rlat;
-  *out_lon = rlon;
-  return (true);
+  out->lat = rlat;
+  out->lon = rlon;
+  return (0);
 }
 
 /*
@@ -437,8 +587,8 @@ bool cpr_decode_surface (double ref_lat, double ref_lon,
  * See Figure 5-5 / 5-6 and note that floor is applied to (0.5 + fRP - fEP), not
  * directly to (fRP - fEP). Eq 38 is correct.
  */
-bool cpr_decode_relative (double ref_lat, double ref_lon, int cprlat, int cprlon,
-                          bool is_odd, bool surface, double *out_lat, double *out_lon)
+static int CPR_decode_relative (double ref_lat, double ref_lon, int cprlat, int cprlon,
+                                bool is_odd, bool surface, pos_t *out)
 {
   double air_dlat;
   double air_dlon;
@@ -447,7 +597,7 @@ bool cpr_decode_relative (double ref_lat, double ref_lon, int cprlat, int cprlon
   double rlon, rlat;
   int    j, m;
 
-  *out_lat = *out_lon = 0.0;
+  out->lat = out->lon = 0.0;
   CPR_error = 0;
 
   air_dlat = (surface ? 90.0 : 360.0) / (is_odd ? 59.0 : 60.0);
@@ -466,7 +616,7 @@ bool cpr_decode_relative (double ref_lat, double ref_lon, int cprlat, int cprlon
   if (rlat < -90 || rlat > 90)
   {
     CPR_SET_ERR (EINVAL);
-    return (false);                        /* Time to give up - Latitude error */
+    return (-1);                        /* Time to give up - Latitude error */
   }
 
   /* Check to see that answer is reasonable - ie no more than 1/2 cell away
@@ -474,7 +624,7 @@ bool cpr_decode_relative (double ref_lat, double ref_lon, int cprlat, int cprlon
   if (fabs(rlat - ref_lat) > (air_dlat/2))
   {
     CPR_SET_ERR (E2BIG);
-    return (false);                        /* Time to give up - Latitude error */
+    return (-1);                        /* Time to give up - Latitude error */
   }
 
   /* Compute the Longitude Index "m"
@@ -492,12 +642,89 @@ bool cpr_decode_relative (double ref_lat, double ref_lon, int cprlat, int cprlon
   if (fabs(rlon - ref_lon) > (air_dlon / 2))
   {
     CPR_SET_ERR (E2BIG);
-    return (false);                        /* Time to give up - Longitude error */
+    return (-1);                        /* Time to give up - Longitude error */
   }
 
-  *out_lat = rlat;
-  *out_lon = rlon;
-  return (true);
+  out->lat = rlat;
+  out->lon = rlon;
+  return (0);
+}
+
+/**
+ * Return true if it's OK for the aircraft to have travelled
+ * from its last known position at `a->position.lat, a->position.lon`
+ * to a new position at `pos->lat, pos->lon`
+ * in a period of `now - a->seen_pos` msec.
+ */
+static bool CPR_speed_check (aircraft            *a,
+                             const modeS_message *mm,
+                             const pos_t         *pos,
+                             uint64_t             now,
+                             bool                 surface)
+{
+  uint64_t elapsed;
+  double   max_dist, distance, elapsed_sec, speed_Ms;
+  int      speed;          /* in knots */
+  bool     dist_ok;
+
+  if (!(a->AC_flags & MODES_ACFLAGS_LATLON_VALID))
+     return (true);              /* no reference, assume OK */
+
+  elapsed = now - a->seen_pos;   /* milli-sec */
+
+  if ((mm->AC_flags & MODES_ACFLAGS_SPEED_VALID) && (a->AC_flags & MODES_ACFLAGS_SPEED_VALID))
+       speed = (mm->velocity + a->speed) / 2;       /* average */
+  else if (mm->AC_flags & MODES_ACFLAGS_SPEED_VALID)
+       speed = mm->velocity;
+  else if ((a->AC_flags & MODES_ACFLAGS_SPEED_VALID) && (now - a->seen_speed) < 30000)
+       speed = a->speed;
+  else speed = surface ? 100 : 600;   /* A guess; in knots */
+
+  /* Work out a reasonable speed to use:
+   *   current speed + 1/3
+   *   surface speed min 20kt, max 150kt
+   *   airborne speed min 200kt, no max
+   */
+  speed = speed * 4 / 3;
+  if (surface)
+  {
+    if (speed < 20)
+        speed = 20;
+    if (speed > 150)
+        speed = 150;
+  }
+  else
+  {
+    if (speed < 200)
+        speed = 200;
+  }
+
+  /* 100m (surface) or 500m (airborne) base distance to allow for minor errors,
+   * plus distance covered at the given speed for the elapsed time + 1 second.
+   */
+  if (surface)
+       max_dist = 100.0;
+  else max_dist = 500.0;
+
+  elapsed_sec = (elapsed + 1000.0) / 1000.0;
+  speed_Ms    = (speed * 1852.0) / 3600.0;     /* meters/sec */
+
+  max_dist += elapsed_sec * speed_Ms;
+
+  /* find actual distance between old and new point
+   */
+  distance = geo_great_circle_dist (a->position, *pos);
+  dist_ok  = (distance <= max_dist);
+
+  if (!dist_ok)
+     CPR_TRACE ("speed check failed: %06X: %.1f seconds, speed_Ms %.1f M/s, max_dist %.1f km, actual %.1f km\n",
+                a->addr, elapsed_sec, speed_Ms, max_dist / 1000.0, distance / 1000.0);
+  else
+  {
+    a->distance    = distance;
+    a->distance_ok = true;
+  }
+  return (dist_ok);
 }
 
 /**
@@ -564,16 +791,16 @@ static const surface_test CPR_surface_tests[] = {
      {  90.0,   0.0, 105730, 9259, 29693, 8997, 52.209984,      0.176601,       52.209976,      0.176507 },
      {  52.0,   0.0, 105730, 9259, 29693, 8997, 52.209984,      0.176601,       52.209976,      0.176507 },
      {   8.0,   0.0, 105730, 9259, 29693, 8997, 52.209984,      0.176601,       52.209976,      0.176507 },
-     {   7.0,   0.0, 105730, 9259, 29693, 8997, 52.209984-90.0, 0.135269,       52.209976-90.0, 0.134299 },  // 16, fails
-     { -52.0,   0.0, 105730, 9259, 29693, 8997, 52.209984-90.0, 0.135269,       52.209976-90.0, 0.134299 },  // 17, fails
-     { -90.0,   0.0, 105730, 9259, 29693, 8997, 52.209984-90.0, 0.135269,       52.209976-90.0, 0.134299 },  // 18, fails
+     {   7.0,   0.0, 105730, 9259, 29693, 8997, 52.209984-90.0, 0.135269,       52.209976-90.0, 0.134299 },
+     { -52.0,   0.0, 105730, 9259, 29693, 8997, 52.209984-90.0, 0.135269,       52.209976-90.0, 0.134299 },
+     { -90.0,   0.0, 105730, 9259, 29693, 8997, 52.209984-90.0, 0.135269,       52.209976-90.0, 0.134299 },
 
      /* poles/equator cases:
       */
-     { -46.0, -180.0, 0,      0,    0,     0,   -90.0,           -180.000000,    -90.0,         -180.0 },   /* south pole */    // 19, fails
+     { -46.0, -180.0, 0,      0,    0,     0,   -90.0,           -180.000000,    -90.0,         -180.0 },   /* south pole */
      { -44.0, -180.0, 0,      0,    0,     0,     0.0,           -180.000000,      0.0,         -180.0 },   /* equator */
      {  44.0, -180.0, 0,      0,    0,     0,     0.0,           -180.000000,      0.0,         -180.0 },   /* equator */
-     {  46.0, -180.0, 0,      0,    0,     0,    90.0,           -180.000000,     90.0,         -180.0 },   /* north pole */    // 22, fails
+     {  46.0, -180.0, 0,      0,    0,     0,    90.0,           -180.000000,     90.0,         -180.0 },   /* north pole */
    };
 
 static const relative_test CPR_relative_tests[] = {
@@ -645,35 +872,36 @@ static bool CPR_airborne_test (void)
 
   for (i = 0; i < DIM(CPR_airborne_tests); i++, t++)
   {
-    double rlat, rlon;
-    int    res;
+    int   res;
+    pos_t pos = { 0.0, 0.0 };
 
     printf ("  [%2u, EVEN]: ", i);
-    rlat = rlon = 0.0;
-    res = cpr_decode_airborne (t->even_cprlat, t->even_cprlon, t->odd_cprlat, t->odd_cprlon,
-                               false, &rlat, &rlon);
 
-    if (!res || fabs(rlat - t->even_rlat) > SMALL_VAL || fabs(rlon - t->even_rlon) > SMALL_VAL)
+    res = CPR_decode_airborne (t->even_cprlat, t->even_cprlon, t->odd_cprlat, t->odd_cprlon,
+                               false, &pos);
+
+    if (res || fabs(pos.lat - t->even_rlat) > SMALL_VAL || fabs(pos.lon - t->even_rlon) > SMALL_VAL)
     {
       err++;
       printf ("FAIL: %s, (%d,%d,%d,%d,EVEN):\n" FAIL_LAT FAIL_LON,
               CPR_strerror(), t->even_cprlat, t->even_cprlon, t->odd_cprlat, t->odd_cprlon,
-              rlat, t->even_rlat, rlon, t->even_rlon);
+              pos.lat, t->even_rlat, pos.lon, t->even_rlon);
     }
     else
       puts ("PASS");
 
     printf ("  [%2u, ODD]:  ", i);
-    rlat = rlon = 0.0;
-    res = cpr_decode_airborne (t->even_cprlat, t->even_cprlon, t->odd_cprlat, t->odd_cprlon,
-                               true, &rlat, &rlon);
+    pos.lat = pos.lon = 0.0;
 
-    if (!res || fabs(rlat - t->odd_rlat) > SMALL_VAL || fabs(rlon - t->odd_rlon) > SMALL_VAL)
+    res = CPR_decode_airborne (t->even_cprlat, t->even_cprlon, t->odd_cprlat, t->odd_cprlon,
+                               true, &pos);
+
+    if (res || fabs(pos.lat - t->odd_rlat) > SMALL_VAL || fabs(pos.lon - t->odd_rlon) > SMALL_VAL)
     {
       err++;
       printf ("FAIL: %s, (%d,%d,%d,%d,ODD):\n" FAIL_LAT FAIL_LON,
               CPR_strerror(), t->even_cprlat, t->even_cprlon, t->odd_cprlat, t->odd_cprlon,
-              rlat, t->odd_rlat, rlon, t->odd_rlon);
+              pos.lat, t->odd_rlat, pos.lon, t->odd_rlon);
     }
     else
       puts ("PASS");
@@ -691,35 +919,36 @@ static bool CPR_surface_test (void)
 
   for (i = 0; i < DIM(CPR_surface_tests); i++, t++)
   {
-    double rlat, rlon;
-    int    res;
+    int   res;
+    pos_t pos = { 0.0, 0.0 };
 
     printf ("  [%2u, EVEN]: ", i);
-    res = cpr_decode_surface (t->ref_lat, t->ref_lon, t->even_cprlat, t->even_cprlon,
-                              t->odd_cprlat, t->odd_cprlon, false, &rlat, &rlon);
+    res = CPR_decode_surface (t->ref_lat, t->ref_lon, t->even_cprlat, t->even_cprlon,
+                              t->odd_cprlat, t->odd_cprlon, false, &pos);
 
-    if (!res || fabs(rlat - t->even_rlat) > SMALL_VAL || fabs(rlon - t->even_rlon) > SMALL_VAL)
+    if (res || fabs(pos.lat - t->even_rlat) > SMALL_VAL || fabs(pos.lon - t->even_rlon) > SMALL_VAL)
     {
       err++;
       printf ("FAIL: %s (%.6f,%.6f,%d,%d,%d,%d,EVEN):\n" FAIL_LAT FAIL_LON,
               CPR_strerror(), t->ref_lat, t->ref_lon, t->even_cprlat, t->even_cprlon,
-              t->odd_cprlat, t->odd_cprlon, rlat, t->even_rlat,
-              rlon, t->even_rlon);
+              t->odd_cprlat, t->odd_cprlon, pos.lat, t->even_rlat,
+              pos.lon, t->even_rlon);
     }
     else
       puts ("PASS");
 
     printf ("  [%2u, ODD]:  ", i);
-    res = cpr_decode_surface (t->ref_lat, t->ref_lon, t->even_cprlat, t->even_cprlon,
-                              t->odd_cprlat, t->odd_cprlon, true, &rlat, &rlon);
+    pos.lat = pos.lon = 0.0;
+    res = CPR_decode_surface (t->ref_lat, t->ref_lon, t->even_cprlat, t->even_cprlon,
+                              t->odd_cprlat, t->odd_cprlon, true, &pos);
 
-    if (!res || fabs(rlat - t->odd_rlat) > SMALL_VAL || fabs(rlon - t->odd_rlon) > SMALL_VAL)
+    if (res || fabs(pos.lat - t->odd_rlat) > SMALL_VAL || fabs(pos.lon - t->odd_rlon) > SMALL_VAL)
     {
       err++;
       printf ("FAIL: %s (%.6f,%.6f,%d,%d,%d,%d,ODD):\n" FAIL_LAT FAIL_LON,
               CPR_strerror(), t->ref_lat, t->ref_lon, t->even_cprlat, t->even_cprlon,
-              t->odd_cprlat, t->odd_cprlon, rlat, t->odd_rlat,
-              rlon, t->odd_rlon);
+              t->odd_cprlat, t->odd_cprlon, pos.lat, t->odd_rlat,
+              pos.lon, t->odd_rlon);
     }
     else
       puts ("PASS");
@@ -737,19 +966,19 @@ static bool CPR_relative_test (void)
 
   for (i = 0; i < DIM(CPR_relative_tests); i++, t++)
   {
-    double rlat, rlon;
-    int    res;
+    int   res;
+    pos_t pos = { 0.0, 0.0 };
 
     printf ("  [%2u]: ", i);
-    res = cpr_decode_relative (t->ref_lat, t->ref_lon, t->cprlat, t->cprlon,
-                               t->is_odd, t->surface, &rlat, &rlon);
+    res = CPR_decode_relative (t->ref_lat, t->ref_lon, t->cprlat, t->cprlon,
+                               t->is_odd, t->surface, &pos);
 
-    if (!res || fabs(rlat - t->rlat) > SMALL_VAL || fabs(rlon - t->rlon) > SMALL_VAL)
+    if (res || fabs(pos.lat - t->rlat) > SMALL_VAL || fabs(pos.lon - t->rlon) > SMALL_VAL)
     {
       err++;
       printf ("FAIL: %s, (%.6f,%.6f,%d,%d,%d,%d) failed:\n" FAIL_LAT FAIL_LON,
               CPR_strerror(), t->ref_lat, t->ref_lon, t->cprlat, t->cprlon, t->is_odd, t->surface,
-              rlat, t->rlat, rlon, t->rlon);
+              pos.lat, t->rlat, pos.lon, t->rlon);
     }
     else
       puts ("PASS");
@@ -758,13 +987,13 @@ static bool CPR_relative_test (void)
   return (err == 0);
 }
 
-bool cpr_tests (void)
+bool cpr_do_tests (void)
 {
   bool ok = true;
 
   puts ("");
   ok = CPR_airborne_test() && ok;
-  ok = CPR_surface_test() && ok;
+  ok = CPR_surface_test()  && ok;
   ok = CPR_relative_test() && ok;
   return (ok);
 }
