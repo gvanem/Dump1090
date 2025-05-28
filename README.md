@@ -179,7 +179,7 @@ and a `web-page = web-pages.dll;N` in the [**config-file**](dump1090.cfg).
 The default sample-rate is now **2.4 MHz** (thanks to Oliver Jowett's excellent [**src/demod-2400.c**](https://github.com/gvanem/Dump1090/blob/main/src/demod-2400.c)).
 This increases the accuracy and sensitivety of detection. The detection range (depending on antenna etc.) should become around 300 km as shown in
 [**Tar1090**](https://github.com/wiedehopf/tar1090/) here:
-![2.4MHz sampler](dump1090-24MSs.jpg)
+![2.4MHz sampler](dump1090-24MSs.png)
 
 
 ## Using RTL1090 as RAW source
