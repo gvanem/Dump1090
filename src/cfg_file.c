@@ -4,19 +4,29 @@
  * \brief   Config-file handling.
  */
 #include "misc.h"
+#include "net_io.h"
 #include "cfg_file.h"
 
 /**
  * \def CFG_WARN()
  * Warn about unknown keys etc.
  */
-#define CFG_WARN(fmt, ...)                                 \
-        do {                                               \
-           fprintf (stderr, "%s(%u): WARNING: " fmt ".\n", \
-                    cfg_current_file(),                    \
-                    cfg_current_line(),                    \
-                    __VA_ARGS__);                          \
+#define CFG_WARN(fmt, ...)                           \
+        do {                                         \
+           fprintf (stderr, "%s(%u): WARNING: " fmt, \
+                    cfg_current_file(),              \
+                    cfg_current_line(),              \
+                    __VA_ARGS__);                    \
         } while (0)
+
+/**
+ * \def TRACE()
+ * For development; more compact `DEBUG (DEBUG_GENERAL...)` macro.
+ */
+#undef  TRACE
+#define TRACE(fmt, ...)  DEBUG (DEBUG_CFG_FILE, fmt, ## __VA_ARGS__)
+#define TRACE_ARG(x)     TRACE ("Doing '%s' for '%s = %s', is_internal: %d.\n", \
+                                #x, key, value, is_internal);
 
 /**
  * \def MAX_VALUE_LEN
@@ -25,10 +35,6 @@
 #ifndef MAX_VALUE_LEN
 #define MAX_VALUE_LEN 300
 #endif
-
-#undef  TRACE
-#define TRACE(fmt, ...) DEBUG (DEBUG_CFG_FILE, fmt ".\n", __VA_ARGS__)
-
 
 static_assert (MAX_VALUE_LEN >= sizeof(mg_file_path), "MAX_VALUE_LEN too small");
 
@@ -53,8 +59,8 @@ static_assert (MAX_VALUE_LEN >= sizeof(mg_file_path), "MAX_VALUE_LEN too small")
 typedef struct cfg_context {
         cfg_table    *table;
         FILE         *file;
-        mg_file_path  current_file;
-        mg_file_path  current_dir;
+        mg_file_path  current_file;      /**< Current config-file; Possibly included from context above us. */
+        mg_file_path  current_dir;       /**< Directory of current config-file; Not CWD. */
         unsigned      current_line;
         char          current_key [256];
         char          current_val [512];
@@ -65,6 +71,7 @@ typedef struct cfg_context {
  */
 static cfg_context g_ctx [4];
 static int         g_idx = 0;
+static bool        g_test_mode = false;
 
 static bool handle_include   (const char *value);
 static bool handle_message   (const char *value);
@@ -114,13 +121,17 @@ unsigned cfg_current_line (void)
  */
 bool cfg_open_and_parse (const char *fname, const cfg_table *table)
 {
+  mg_file_path full_name = "?";
   cfg_context *ctx;
   FILE        *file;
+  DWORD        len;
   int          rc = 0;
+
+  g_test_mode = test_contains (Modes.tests, "config");
 
   if (g_idx == DIM(g_ctx))
   {
-    CFG_WARN ("Too many nested include files. Max %zu", DIM(g_ctx));
+    CFG_WARN ("Too many nested include files. Max %zu.\n", DIM(g_ctx));
     if (table == internals)
        return (true);
     return (false);
@@ -129,13 +140,19 @@ bool cfg_open_and_parse (const char *fname, const cfg_table *table)
   ctx = g_ctx + g_idx;
 
   strncpy (ctx->current_file, fname, sizeof(ctx->current_file) -1);
-  strncpy (ctx->current_dir, dirname(fname), sizeof(ctx->current_dir)-1);
+
+  len = GetFullPathName (fname, sizeof(full_name), full_name, NULL);
+  if (len > 0)
+       strncpy (ctx->current_dir, dirname(full_name), sizeof(ctx->current_dir)-1);
+  else strncpy (ctx->current_dir, dirname(fname), sizeof(ctx->current_dir)-1);
+
+  TRACE ("ctx->current_dir: '%s'.\n", ctx->current_dir);
 
   file = fopen (fname, "rb");
   if (!file)
   {
     g_idx++;
-    CFG_WARN ("Failed to open \"%s\"", fname);
+    CFG_WARN ("Failed to open \"%s\".\n", fname);
     g_idx--;
     if (table == internals)
        return (true);
@@ -145,11 +162,11 @@ bool cfg_open_and_parse (const char *fname, const cfg_table *table)
   ctx->table = (cfg_table*) table;
   ctx->file  = file;
 
-  TRACE ("is_internal: %d, g_idx: %d", table == internals, g_idx);
+  TRACE ("is_internal: %d, g_idx: %d\n", table == internals, g_idx);
   g_idx++;
 
   rc = cfg_parse_file (ctx);
-  TRACE ("rc from `cfg_parse_file()': %d, g_idx: %d", rc, g_idx);
+  TRACE ("rc from `cfg_parse_file()': %d, g_idx: %d\n", rc, g_idx);
 
   fclose (ctx->file);
   g_idx--;
@@ -168,7 +185,7 @@ bool cfg_true (const char *arg)
      return (true);
 
   if (!(*arg == '0' || !stricmp(arg, "false") || !stricmp(arg, "no") || !stricmp(arg, "off")))
-     CFG_WARN ("failed to match '%s' as 'false'", arg);
+     CFG_WARN ("failed to match '%s' as 'false'.\n", arg);
 
   return (false);
 }
@@ -221,7 +238,7 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
 
     if (!fgets(buf, sizeof(buf)-1, ctx->file))  /* EOF */
     {
-      TRACE ("%s(%u): EOF", ctx->current_file, ctx->current_line);
+      TRACE ("%s(%u): EOF\n", ctx->current_file, ctx->current_line);
       return (false);
    }
 
@@ -240,7 +257,7 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
 
     if (sscanf(p, "%[^= ] = %[^\r\n]", ctx->current_key, ctx->current_val) != 2)
     {
-      TRACE ("%s(%u): No match for key/val in '%s'", ctx->current_file, ctx->current_line, p);
+      TRACE ("%s(%u): No match for key/val in '%s'\n", ctx->current_file, ctx->current_line, p);
       ctx->current_line++;
       continue;
     }
@@ -258,13 +275,13 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
   return (true);
 }
 
-#define RANGE_CHECK(val, low, high)                             \
-        do {                                                    \
-          if (((val) < (low)) || ((val) > (high))) {            \
-             CFG_WARN ("Value %llu exceed range [%llu - %llu]", \
-                       val, (uint64_t)low, (uint64_t)high);     \
-             return (false);                                    \
-          }                                                     \
+#define RANGE_CHECK(val, low, high)                                \
+        do {                                                       \
+          if (((val) < (low)) || ((val) > (high))) {               \
+             CFG_WARN ("Value %llu exceed range [%llu - %llu].\n", \
+                       val, (uint64_t)low, (uint64_t)high);        \
+             return (false);                                       \
+          }                                                        \
         } while (0)
 
 /**
@@ -274,7 +291,7 @@ static bool parse_and_set_value (const char *key, const char *value, void *arg, 
 {
   int64_t val = 0;
 
-  TRACE ("parsing key: '%s', value: '%s'", key, value);
+  TRACE ("parsing key: '%s', value: '%s'\n", key, value);
 
   if (size == -1)  /* parse and set a `bool` */
   {
@@ -288,13 +305,13 @@ static bool parse_and_set_value (const char *key, const char *value, void *arg, 
       *(bool*) arg = false;
       return (true);
     }
-    CFG_WARN ("failed to match '%s' as a 'bool'", value);
+    CFG_WARN ("failed to match '%s' as a 'bool'.\n", value);
     return (false);
   }
 
   if (sscanf(value, "%lld", &val) != 1)
   {
-    CFG_WARN ("failed to match '%s' as decimal in key '%s'", value, key);
+    CFG_WARN ("failed to match '%s' as decimal in key '%s'.\n", value, key);
     return (false);
   }
 
@@ -328,7 +345,7 @@ static bool parse_and_set_value (const char *key, const char *value, void *arg, 
  */
 static bool parse_and_set_ip (const char *value, void *arg, bool is_ip6)
 {
-  TRACE ("parsing value: '%s'", value);
+  TRACE ("parsing value: '%s'\n", value);
 
   if (is_ip6)
   {
@@ -337,7 +354,7 @@ static bool parse_and_set_ip (const char *value, void *arg, bool is_ip6)
 
     if (!mg_aton(str6, &addr6) || !addr6.is_ip6)
     {
-      CFG_WARN ("Illegal IPv6-address: '%s'", value);
+      CFG_WARN ("Illegal IPv6-address: '%s'.\n", value);
       return (false);
     }
     memcpy (arg, &addr6, sizeof(addr6));
@@ -349,7 +366,7 @@ static bool parse_and_set_ip (const char *value, void *arg, bool is_ip6)
 
     if (!mg_aton(str4, &addr4) || addr4.is_ip6)
     {
-      CFG_WARN ("Illegal IPv4-address: '%s'", value);
+      CFG_WARN ("Illegal IPv4-address: '%s'.\n", value);
       return (false);
     }
     memcpy (arg, &addr4, sizeof(addr4));
@@ -374,9 +391,6 @@ static bool cfg_parse_internals (cfg_context *ctx, const char *key, const char *
   ctx->table = old;
   return (rc);
 }
-
-#define TRACE_ARG(x)  TRACE ("Doing '%s' for '%s = %s', is_internal: %d", \
-                             #x, key, value, is_internal);
 
 static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *value, bool is_internal)
 {
@@ -465,7 +479,7 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
   /* Warn only on unknown external key/values
    */
   if (!found && ctx->table != internals)
-     CFG_WARN ("Unknown key/value: '%s = %s', is_internal: %d", key, value, is_internal);
+     CFG_WARN ("Unknown key/value: '%s = %s', is_internal: %d.\n", key, value, is_internal);
   return (rc);
 }
 
@@ -526,7 +540,7 @@ static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
         *p1 = '\0';
       }
       ret = ExpandEnvironmentStrings (var2, buf2, sizeof(buf2));
-      TRACE ("var2: '%s', buf2: '%s'", var2, buf2);
+      TRACE ("var2: '%s', buf2: '%s'\n", var2, buf2);
 
       if (ret > 0 && ret < sizeof(buf2) && !strchr(buf2, '%'))    /* no variables still un-expanded */
       {
@@ -547,14 +561,14 @@ static bool handle_ipv4_test (const char *value)
   mg_addr      ip;
   bool         rc;
 
-  if (!test_contains(Modes.tests, "config"))
+  if (!g_test_mode)
      return (true);
 
   memset (&ip, '\0', sizeof(ip));
   rc = parse_and_set_ip (value, &ip, false);
   if (rc)
      mg_snprintf (addr, sizeof(addr), "%M", mg_print_ip, &ip);
-  printf ("internal.ip4_test: %s\n", rc ? addr : "??");
+  printf ("  internal.ip4_test: %s\n", rc ? addr : "??");
   return (true);
 }
 
@@ -564,39 +578,62 @@ static bool handle_ipv6_test (const char *value)
   mg_addr      ip;
   bool         rc;
 
-  if (!test_contains(Modes.tests, "config"))
+  if (!g_test_mode)
      return (true);
 
   memset (&ip, '\0', sizeof(ip));
   rc = parse_and_set_ip (value, &ip, true);
   if (rc)
      mg_snprintf (addr, sizeof(addr), "%M", mg_print_ip, &ip);
-  printf ("internal.ip6_test: %s\n", rc ? addr : "??");
+  printf ("  internal.ip6_test: %s\n", rc ? addr : "??");
   return (true);
 }
 
-static bool _handle_deny4_test (const char *value)
+/**
+ * Accept both a single IP to deny or a CIDR spec.
+ * ```
+ *  68.69.184.218           -> deny
+ *  80.94.2.0, -80.94.1/8   -> allow
+ *  +80.94.2.0, -80.94.1/8  -> allow
+ *  -80.94.1.9, +80.94/16   -> deny
+ * ```
+ */
+static bool _handle_deny4_simple_test (const char *str)
 {
-  char     str   [MAX_VALUE_LEN];
-  char     spec2 [MAX_VALUE_LEN] = "-";
-  mg_addr  ip;
-  char    *ip_str, *spec, *slash;
-  int      a, b, c, d, rc;
+  mg_addr ip;
 
   memset (&ip, '\0', sizeof(ip));
-  strncpy (str, value, sizeof(str)-1);
-  ip_str = strtok (str, ", ");
-  if (!ip_str || !mg_aton(mg_str(ip_str), &ip))
+
+  if (!mg_aton(mg_str(str), &ip))
   {
-    printf ("internal.deny4_test: use 'ip, [+-]spec'. str: '%s', ip_str: '%s'\n", str, ip_str);
-    return (true);
+    printf ("  internal.deny4_test: illegal IP: '%s'\n", str);
+    return (false);
+  }
+  printf ("  internal.deny4_test: ip_str: '%-15s'\n", str);
+  net_deny4 (str);
+  return (true);
+}
+
+static bool _handle_deny4_CIDR_test (const char *str, char *ip_str)
+{
+  char    spec2 [MAX_VALUE_LEN] = "-";
+  mg_addr ip;
+  char    *spec, *slash;
+  int     a, b, c, d, rc;
+
+  memset (&ip, '\0', sizeof(ip));
+
+  if (!mg_aton(mg_str(ip_str), &ip))
+  {
+    printf ("  internal.deny4_test: use 'ip, [+-]spec'. str: '%s', ip_str: '%s'\n", str, ip_str);
+    return (false);
   }
 
   spec = strtok (NULL, ", ");
   if (!spec)
   {
-    printf ("internal.deny4_test: use 'ip, [+-]spec'. str: '%s', ip_str: '%s'\n", str, ip_str);
-    return (true);
+    printf ("  internal.deny4_test: use 'ip, [+-]spec'. str: '%s', ip_str: '%s'\n", str, ip_str);
+    return (false);
   }
 
   slash = strrchr (spec, '/');
@@ -616,9 +653,21 @@ static bool _handle_deny4_test (const char *value)
   }
 
   rc = mg_check_ip_acl (mg_str(spec), &ip);
-  printf ("internal.deny4_test: ip_str: '%-15s', spec: '%-15s', spec2: '%-15s', rc: %d\n",
+  printf ("  internal.deny4_test: ip_str: '%-15s', spec: '%-15s', spec2: '%-15s', rc: %d\n",
          ip_str, spec, spec2, rc);
-  return (true);
+  return (rc == 0);
+}
+
+static bool _handle_deny4_test (const char *value)
+{
+  char  str [MAX_VALUE_LEN];
+  char *ip_str;
+
+  strncpy (str, value, sizeof(str)-1);
+  ip_str = strtok (str, ", ");
+  if (ip_str)
+    return _handle_deny4_CIDR_test (str, ip_str);
+  return _handle_deny4_simple_test (str);
 }
 
 static bool handle_deny4_test (const char *value)
@@ -626,7 +675,7 @@ static bool handle_deny4_test (const char *value)
   int  save = Modes.debug;
   bool rc;
 
-  if (!test_contains(Modes.tests, "config"))
+  if (!g_test_mode)
      return (true);
 
   Modes.debug |= DEBUG_GENERAL;
@@ -659,7 +708,7 @@ static bool handle_include (const char *value)
 
   if (*new_file != '?' && (stat(new_file, &st) || ((st.st_mode) & _S_IFMT) != _S_IFREG))
   {
-    CFG_WARN ("include-file \"%s\" does not exist", new_file);
+    CFG_WARN ("include-file \"%s\" does not exist.\n", new_file);
     return (true);
   }
 
@@ -668,12 +717,12 @@ static bool handle_include (const char *value)
     new_file++;
     if (stat(new_file, &st) || ((st.st_mode) & _S_IFMT) != _S_IFREG)
     {
-      CFG_WARN ("Ignoring include-file \"%s\" not found", new_file);
+      CFG_WARN ("Ignoring include-file \"%s\" not found.\n", new_file);
       ignore = true;
     }
   }
 
-  TRACE ("new_file \"%s\", ignore: %d", new_file, ignore);
+  TRACE ("new_file \"%s\", ignore: %d\n", new_file, ignore);
   if (!ignore)
      return cfg_open_and_parse (new_file, g_ctx [g_idx-1].table);
   return (true);
