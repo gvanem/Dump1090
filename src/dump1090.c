@@ -558,7 +558,8 @@ static void modeS_init_log (void)
  * Also needed for a remote `rtl_tcp / rtl_tcp2 /rtl_udp` program. <br>
  * A remote connection to `rtl_tcp` will be done in `net_init()` later in main.
  *
- * This function is not called for `--net-only`.
+ * This function is not called for `--net-only` (i.e. `Modes.net_only == true`)
+ * and services like RAW_IN or SBS_IN.
  */
 static bool modeS_init_hardware (void)
 {
@@ -602,21 +603,20 @@ static bool modeS_init_hardware (void)
   {
     /* use whatever '--informat' was set to 'Modes.input_format' */
   }
-  else if (Modes.rtlsdr.index >= 0 ||  /* Local / remote RTLSDR device */
+  else if (Modes.rtlsdr.index >= 0 ||
            modeS_net_services [MODES_NET_SERVICE_RTL_TCP].host[0])
   {
+    /* A local or remote RTLSDR device
+     */
     Modes.input_format = INPUT_UC8;   /* Unsigned, Complex, 8 bit per sample. Always */
     Modes.bytes_per_sample = 2;
   }
   else if (Modes.sdrplay.name || Modes.sdrplay.index >= 0)
   {
+    /* A local SDRPlay device
+     */
     Modes.input_format = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always */
     Modes.bytes_per_sample = 4;
-  }
-  else
-  {
-    LOG_STDERR ("No need for a FIFO\n");
-    return (true);
   }
 
   if (!fifo_create(MODES_MAG_BUFFERS, MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
@@ -624,6 +624,7 @@ static bool modeS_init_hardware (void)
     LOG_STDERR ("Out of memory allocating FIFO\n");
     return (false);
   }
+  Modes.FIFO_active = true;
 
   char *rtl_name = Modes.rtlsdr.name;
 
@@ -1069,12 +1070,13 @@ static DWORD WINAPI data_thread_fn (void *arg)
     LOG_STDERR ("rtlsdr_read_async(): rc: %d/%s\n", rc, get_rtlsdr_error(rc));
     modeS_signal_handler (0);    /* break out of main_data_loop() */
   }
-  else if (Modes.rtl_tcp_in)
+  else if (Modes.rtl_tcp_in || Modes.raw_in)
   {
     while (!Modes.exit)
     {
-     /* Not much to do here. Enqueueing to the FIFO is done in
-      * `rx_callback()` via `rtl_tcp_recv_data()` in net_io.c
+     /* Not much to do here. For RTL_TCP, enqueueing to the FIFO is done in
+      * `rx_callback()` via `rtl_tcp_recv_data()` in net_io.c.
+      * For RAW_IN, everything runs out of `background_tasks()`.
       */
       Sleep (100);
     }
@@ -1092,22 +1094,30 @@ static DWORD WINAPI data_thread_fn (void *arg)
  */
 static void main_data_loop (void)
 {
-  mag_buf *buf;
-
   while (!Modes.exit)
   {
     background_tasks();
 
-    buf = fifo_dequeue (100);    /* wait max. 100 msec for a magnitude buffer */
-    if (!buf)
-       continue;
+    if (!Modes.FIFO_active)
+    {
+      Sleep (100);
+    }
+    else
+    {
+     /* Wait max. 100 msec for a magnitude buffer
+      */
+      mag_buf *buf = fifo_dequeue (100);
 
-    (*Modes.demod_func) (buf);   /* call `demod_2000()` etc. */
+      if (!buf)
+         continue;
 
-    Modes.stat.samples_processed += buf->valid_length - buf->overlap;
-    Modes.stat.samples_dropped   += buf->dropped;
+      (*Modes.demod_func) (buf);   /* call `demod_2000()` etc. */
 
-    fifo_release (buf);
+      Modes.stat.samples_processed += buf->valid_length - buf->overlap;
+      Modes.stat.samples_dropped   += buf->dropped;
+
+      fifo_release (buf);
+    }
 
     /* Have we shown enough messages?
      */
@@ -1118,7 +1128,9 @@ static void main_data_loop (void)
       Modes.exit = true;
     }
   }
-  fifo_halt();
+
+  if (Modes.FIFO_active)
+     fifo_halt();
 
   /* Wait on reader thread exit
    */
@@ -3321,7 +3333,7 @@ void background_tasks (void)
   if (Modes.interactive)
      interactive_show_data (now);
 
-  if (Modes.rtlsdr.device || Modes.rtl_tcp_in || Modes.sdrplay.device)
+  if (Modes.rtlsdr.device || Modes.rtl_tcp_in || Modes.sdrplay.device || Modes.raw_in)
   {
     interactive_title_stats();
     interactive_update_gain();
@@ -3555,7 +3567,11 @@ static void modeS_exit (void)
   free (Modes.icao_spec);
 
   demod_8000_free();
-  fifo_destroy();
+
+  if (Modes.FIFO_active)
+     fifo_destroy();
+  Modes.FIFO_active = false;
+
   convert_cleanup (&Modes.converter_state);
 
   DeleteCriticalSection (&Modes.data_mutex);

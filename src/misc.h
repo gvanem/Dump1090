@@ -379,6 +379,7 @@ typedef struct global_data {
         uint16_t           *mag_lut;                  /**< I/Q -> Magnitude lookup table. */
         uint16_t           *log10_lut;                /**< Magnitude -> log10 lookup table. */
         convert_format      input_format;             /**< Converted input format. */
+        bool                FIFO_active;              /**< We have (and need) a FIFO for `mag_buf` data. */
         bool                phase_enhance;            /**< Enable phase enhancement in `demod_*()`. */
         int                 infile_fd;                /**< File descriptor for `--infile` option. */
         volatile bool       exit;                     /**< Exit from the main loop when true. */
