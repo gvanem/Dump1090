@@ -39,12 +39,6 @@ USE_NET_POLLER ?= WSAPOLL
 USE_PACKED_DLL ?= 0
 
 #
-# Enable the 2.4 MS/s decoder from 'readsb'?
-# Not possible at the moment.
-#
-USE_DEMOD_2400 ?= 0
-
-#
 # Enable "Address Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
@@ -52,12 +46,6 @@ USE_DEMOD_2400 ?= 0
 # But 'USE_CRT_DEBUG = 1' and 'CC = cl' works.
 #
 USE_ASAN ?= 0
-
-#
-# Use "Undefined Behavior Sanitizer (UBSan)"?
-# Currently only 'clang-cl' supports this.
-#
-USE_UBSAN ?= 0
 
 #
 # Compile using 'cl -MP ...'. For MSVC only.
@@ -86,7 +74,7 @@ PYTHON ?= py -3
 
 #
 # Change the 'CLANG_[32|64]' directory to suite:
-# Only important if 'USE_ASAN = 1' and/or 'USE_UBSAN = 1' with 'CC = clang-cl'.
+# Only important if 'USE_ASAN = 1' with 'CC = clang-cl'.
 #
 CLANG_32        ?= c:/ProgramFiles/LLVM-15-32bit
 CLANG_64        ?= c:/ProgramFiles/LLVM-15-64bit
@@ -141,6 +129,11 @@ CFLAGS = -nologo -c -Zi -W4        \
          -I./$(OBJ_DIR)
 
 #
+# Extra trace for 'aircraft.c' + 'cpr.c':
+#
+# CFLAGS += -DCPR_DEBUG
+
+#
 # Handling of 'volatile' variables:
 #   https://learn.microsoft.com/en-us/cpp/build/reference/volatile-volatile-keyword-interpretation?view=msvc-170
 #
@@ -163,7 +156,9 @@ else
 endif
 
 ifeq ($(CC),clang-cl)
-  CFLAGS  += -fms-compatibility -ferror-limit=5
+  CFLAGS += -fms-compatibility \
+            -ferror-limit=5    \
+            -Wno-unused-command-line-argument
   RCFLAGS += -D__clang__
 else
   RCFLAGS += -D_MSC_VER
@@ -188,10 +183,6 @@ OS_LIBS   = advapi32.lib dnsapi.lib iphlpapi.lib ole32.lib setupapi.lib uuid.lib
 ASAN_LIBS =
 COPY_DLLs =
 
-ifeq ($(CC)-$(USE_UBSAN),cl-1)
-  $(error 'USE_UBSAN' is not for 'cl')
-endif
-
 #
 # ASAN build settings:
 #
@@ -205,8 +196,6 @@ endif
 #   https://github.com/google/sanitizers/wiki/AddressSanitizer
 #   https://github.com/google/sanitizers/wiki/AddressSanitizerFlags
 #
-# A 'USE_ASAN = 1' can be used with 'USE_UBSAN = 1' too.
-#
 ifeq ($(USE_ASAN),1)
   CFLAGS  += -DUSE_ASAN -fsanitize=address
   RCFLAGS += -DUSE_ASAN
@@ -219,47 +208,19 @@ ifeq ($(USE_ASAN),1)
 endif
 
 #
-# UBSAN build settings:
+# ASAN with clang-cl is a bit tricky with regard to linking;
+# Use an explicit '-libpath:' for it. Since a Visual-Studio .DLL
+# for ASAN could have missing imports needed by 'USE_ASAN=1'.
 #
-# Add a 'set UBSAN_OPTIONS=print_stacktrace=1:log_path=c:/temp/dump1090/UBSAN.log'
-# to your environment to make sense of the UBSAN check output.
-#
-# The list of UBSAN checks for Clang:
-#   https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html#ubsan-checks
-#
-ifeq ($(USE_UBSAN),1)
-  RCFLAGS += -DUSE_UBSAN
-  CFLAGS  += -DUSE_UBSAN -fsanitize=undefined
-
-  #
-  # Turn some checks off?
-  #
-  # CFLAGS += -fno-sanitize=alignment
-  # CFLAGS += -fno-sanitize=object-size
-  # CFLAGS += -fno-sanitize=function
-
-  #
-  # This causes Undefined Behavior to cause an Illegal Instruction.
-  # Turn on/off at own will.
-  #
-  # CFLAGS += -fsanitize-trap=undefined
-endif
-
-#
-# ASAN / UBSAN with clang-cl is a bit tricky with regard to linking;
-# Use an explicit '-libpath:' for it.
-#
-# Besides a Visual-Studio .DLL for ASAN could have missing imports needed
-# by 'USE_UBSAN=1'. Hence copy the needed .DLL over to current directory.
-# (and remove it on a 'make clean').
+# Hence copy the needed .DLL over to current directory (and remove it on a 'make clean').
 #
 ifeq ($(CC),clang-cl)
-  ifneq ($(USE_ASAN)$(USE_UBSAN),00)
+  ifneq ($(USE_ASAN),0)
     ifeq ($(CLANG_MAJOR_VER),)
       $(error 'CLANG_MAJOR_VER' must be set in your environment.)
     endif
 
-    $(info Detected 'CLANG_ROOT=$(realpath $(CLANG_$(BITS)))' for 'USE_ASAN=$(USE_ASAN)' and 'USE_UBSAN=$(USE_UBSAN)'.)
+    $(info Detected 'CLANG_ROOT=$(realpath $(CLANG_$(BITS)))' for 'USE_ASAN=$(USE_ASAN)'.)
 
     #
     # The default for 'x86 / Release' is 'clang_rt.asan_dynamic_runtime_thunk-i386.lib'
@@ -292,10 +253,15 @@ SOURCES = aircraft.c    \
           airports.c    \
           cfg_file.c    \
           color.c       \
+          convert.c     \
           cpr.c         \
+          crc.c         \
           csv.c         \
           demod-2000.c  \
+          demod-2400.c  \
+          demod-8000.c  \
           dump1090.c    \
+          fifo.c        \
           geo.c         \
           infile.c      \
           interactive.c \
@@ -304,7 +270,8 @@ SOURCES = aircraft.c    \
           location.c    \
           pconsole.c    \
           sdrplay.c     \
-          speech.c
+          speech.c      \
+          smartlist.c
 
 vpath %.c externals \
           externals/Curses
@@ -359,11 +326,6 @@ else ifeq ($(USE_NET_POLLER),SELECT)
 
 else
   $(error Illegal 'USE_NET_POLLER=$(USE_NET_POLLER)' value)
-endif
-
-ifeq ($(USE_DEMOD_2400),1)
-  CFLAGS  += -DUSE_DEMOD_2400
-  SOURCES += demod-2400.c
 endif
 
 OBJECTS = $(call c_to_obj, $(SOURCES))
@@ -434,7 +396,7 @@ SQLITE3_OBJ = $(OBJ_DIR)/sqlite3.obj \
               $(OBJ_DIR)/sqlite3-shell.obj
 
 ../sqlite3.exe: $(SQLITE3_OBJ)
-	$(call link_EXE, $@, $^ oldnames.lib $(ASAN_LIBS))
+	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
 $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, -DCOMPILING_SQLITE3_SHELL $<)
@@ -500,7 +462,7 @@ $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 ../packed_test.exe: $(PACKED_TEST_OBJ)
 	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
-../speech_test.exe: $(OBJ_DIR)/speech_test.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj
+../speech_test.exe: $(OBJ_DIR)/speech_test.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj $(OBJ_DIR)/smartlist.obj
 	$(call link_EXE, $@, $^ $(ASAN_LIBS) ole32.lib)
 
 $(CC).args: $(THIS_FILE)
@@ -555,10 +517,10 @@ FORCE:
 $(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
 	$(call generate, $@, #)
 	$(file >> $@,if 1:)
-	$(file >> $@,$(cpp_filter_py))
+	$(file >> $@,$(CPP_FILTER_PY))
 
 #
-# Copy the needed .DLL for 'USE_UBSAN=1'
+# Copy the needed .DLL:
 #
 ifeq ($(COPY_DLLs),)
   DLL_copy:
@@ -603,10 +565,6 @@ realclean vclean: clean
 	rm -f $(TARGETS) ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
-ubsan-issue.exe: $(OBJ_DIR)/ubsan-issue-with-32-bit-build.obj $(OBJ_DIR)/mongoose.obj
-	$(call link_EXE, $@, $^ $(ASAN_LIBS))
-
-
 #
 # GNU-make macros:
 #
@@ -641,7 +599,7 @@ endef
 
 define link_EXE
   $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
-  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(check_for_unused_libs_py))
+  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(CHECK_FOR_UNUSED_LIBS_PY))
   $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
   $(call create_resp_file, link.args, $(LDFLAGS) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
@@ -696,7 +654,7 @@ endef
 #
 # clang-cl: /d1PP  Retain macro definitions in /E mode
 #
-ifeq ($(CC),clang-cl)
+ifeq ($(CC),clang-clX)
   d1PP = -d1PP
 else
   d1PP =
@@ -731,15 +689,22 @@ doxy_SOURCES := $(addprefix ../, $(doxy_SOURCES))
 doxy_HEADERS = ../aircraft.h                  \
                ../airports.h                  \
                ../cfg_file.h                  \
+               ../convert.h                   \
                ../cpr.h                       \
                ../csv.h                       \
+               ../crc.h                       \
+               ../demod.h                     \
                ../dump1090_config.h           \
+               ../fifo.h                      \
                ../geo.h                       \
                ../interactive.h               \
                ../location.h                  \
                ../misc.h                      \
                ../net_io.h                    \
+               ../routes.h                    \
                ../sdrplay.h                   \
+               ../smartlist.h                 \
+               ../speech.h                    \
                ../externals/rtl-sdr/rtl-sdr.h \
                ../externals/rtl-sdr/rtl-tcp.h \
                ../externals/miniz.h           \
@@ -768,8 +733,10 @@ define dump1090_Doxyfile
   HTML_OUTPUT           = .
   HTML_DYNAMIC_MENUS    = no
   HTML_COLORSTYLE       = light
+  HTML_COPY_CLIPBOARD   = no
   GENERATE_HTMLHELP     = yes
   GENERATE_LATEX        = no
+  GENERATE_TREEVIEW     = no
   SEARCHENGINE          = no
   WARNINGS              = yes
   WARN_LOGFILE          = $(CURDIR)/doxy-docs/doxygen.log
@@ -812,7 +779,7 @@ define web_pages_RC
   END
 endef
 
-define cpp_filter_py
+define CPP_FILTER_PY
   import sys, os
 
   empty_lines = 0
@@ -843,7 +810,7 @@ define cpp_filter_py
   print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
 endef
 
-define check_for_unused_libs_py
+define CHECK_FOR_UNUSED_LIBS_PY
   #
   # Check for unused libraries in a MSVC link .map file.
   # Prints with some colours using 'colorama'.
@@ -873,9 +840,8 @@ define check_for_unused_libs_py
 
   def report (unused):
     num = len(unused)
-    plural = [ "library", "libraries" ]
     if num > 0:
-       cprint (Color.RED, "%d unused %s in %s:" % (num, plural[num > 1], map_file))
+       cprint (Color.RED, "%d unused librar%s in %s:" % (num, [ "y", "ies" ][num > 1], map_file))
        for u in unused:
            print ("  " + u)
     cprint (Color.WHITE, "Done.\n")
