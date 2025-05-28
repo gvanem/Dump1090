@@ -103,20 +103,20 @@ static HRESULT __stdcall OnLocationChanged (ILocationEvents2 *self, const IID *r
      return (S_OK);
 
   hr = (*location_report->lpVtbl->QueryInterface) (location_report, &IID_ILatLongReport, (void**)&lat_long_report);
-  TRACE ("LocationEvents::QueryInterface(): hr: %lu", hr);
+  TRACE ("LocationEvents::QueryInterface(): hr: %lu\n", hr);
 
   if (!SUCCEEDED(hr) || !lat_long_report || !lat_long_report->lpVtbl)
      return (S_OK);     /* or signal 'location_poll()' somehow? */
 
   hr = (*lat_long_report->lpVtbl->GetLatitude) (lat_long_report, &g_pos.lat);
   if (SUCCEEDED(hr))
-       TRACE ("Latitude:  %12.8f", g_pos.lat);
-  else TRACE ("Latitude:  Not available: %s", win_strerror(hr));
+       TRACE ("Latitude:  %12.8f\n", g_pos.lat);
+  else TRACE ("Latitude:  Not available: %s\n", win_strerror(hr));
 
   hr = (*lat_long_report->lpVtbl->GetLongitude) (lat_long_report, &g_pos.lon);
   if (SUCCEEDED(hr))
-       TRACE ("Longitude: %12.8f", g_pos.lon);
-  else TRACE ("Longitude: Not available: %s", win_strerror(hr));
+       TRACE ("Longitude: %12.8f\n", g_pos.lon);
+  else TRACE ("Longitude: Not available: %s\n", win_strerror(hr));
 
   (void) self;
   return (S_OK);
@@ -132,19 +132,19 @@ static HRESULT __stdcall OnStatusChanged (ILocationEvents2 *self, const IID *rep
     switch (new_status)
     {
       case REPORT_NOT_SUPPORTED:
-           TRACE ("No devices detected");
+           TRACE ("No devices detected\n");
            break;
       case REPORT_ERROR:
-           TRACE ("Report error");
+           TRACE ("Report error\n");
            break;
       case REPORT_ACCESS_DENIED:
-           TRACE ("Access denied");
+           TRACE ("Access denied\n");
            break;
       case REPORT_INITIALIZING:
-           TRACE ("Report is initializing");
+           TRACE ("Report is initializing\n");
            break;
       case REPORT_RUNNING:
-           TRACE ("Running");
+           TRACE ("Running\n");
            break;
     }
   }
@@ -161,7 +161,7 @@ static bool location_init (void)
 
   if (!SUCCEEDED(hr))
   {
-    TRACE ("CoInitializeEx() failed: %s", win_strerror(GetLastError()));
+    TRACE ("CoInitializeEx() failed: %s\n", win_strerror(GetLastError()));
     return (false);
   }
 
@@ -171,10 +171,10 @@ static bool location_init (void)
   hr = CoCreateInstance (&CLSID_Location, NULL, CLSCTX_INPROC_SERVER, &IID_ILocation, (void**)&g_location);
   if (!SUCCEEDED(hr) || !g_location)
   {
-    TRACE ("CoCreateInstance() failed: %s", win_strerror(GetLastError()));
+    TRACE ("CoCreateInstance() failed: %s\n", win_strerror(GetLastError()));
     return (false);
   }
-  TRACE ("g_location: 0x%p", g_location);
+  TRACE ("g_location: 0x%p\n", g_location);
 
   /* Request permissions for this user account to receive location data
    * for the '&IID_ILatLongReport'. Could return an 'Access Denied' or
@@ -185,7 +185,7 @@ static bool location_init (void)
                                                   (IID*)&IID_ILatLongReport, 1,
                                                   FALSE);
 
-  TRACE ("Location::RequestPermissions() -> hr: %lu", hr);
+  TRACE ("Location::RequestPermissions() -> hr: %lu\n", hr);
   if (!SUCCEEDED(hr))
   {
     LOG_STDOUT ("RequestPermissions() failed: %s.\n", win_strerror(hr));
@@ -223,7 +223,7 @@ void location_exit (void)
   {
     HRESULT hr = (*g_location->lpVtbl->UnregisterForReport) (g_location, &IID_ILatLongReport);
 
-    TRACE ("Location::UnregisterForReport(); hr: %lu", hr);
+    TRACE ("Location::UnregisterForReport(); hr: %lu\n", hr);
   }
 
   if (g_CoInitializeEx_done)
@@ -248,12 +248,12 @@ bool location_poll (pos_t *pos)
 
   if (!VALID_POS(g_pos))
   {
-    TRACE ("VALID_POS()=0");
+    TRACE ("VALID_POS()=0\n");
     return (false);
   }
   pos->lat = g_pos.lat;
   pos->lon = g_pos.lon;
-  TRACE ("VALID_POS()=1: Latitude: %.8f, Longitude: %.8f", pos->lat, pos->lon);
+  TRACE ("VALID_POS()=1: Latitude: %.8f, Longitude: %.8f\n", pos->lat, pos->lon);
   return (true);
 }
 
