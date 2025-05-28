@@ -12,8 +12,8 @@
 #include "aircraft.h"
 #include "airports.h"
 #include "sdrplay.h"
+#include "smartlist.h"
 #include "net_io.h"
-#include "cpr.h"
 #include "misc.h"
 
 #undef MOUSE_MOVED
@@ -106,11 +106,11 @@ static bool show_dep_dst = false;
 #define HEADER    "ICAO   Callsign  Reg-num  Cntry  %sAltitude  Speed   Lat      Long    Hdg   Dist  Msg  Seen %c"
 //                                                  |__ == "DEP  DST  " -- if 'show_dep_dst == true'
 
-#define LINE_FMT  "%06X %-9.9s %-8s %-5.5s  %s%-5s   %-5s %-7s %-8s %4.4s  %5.5s %4u %3llu s "
+#define LINE_FMT  "%06X %-9.9s %-8s %-5.5s  %s%-5s   %-5s %-7s %-8s %4.4s  %5.5s %5u %3llu s "
 //                 |    |      |    |       | |      |    |    |    |      |     |   |__ ms_diff / 1000
 //                 |    |      |    |       | |      |    |    |    |      |     |__ a->messages
 //                 |    |      |    |       | |      |    |    |    |      |__ distance_buf
-//                 |    |      |    |       | |      |    |    |    |__ hdg_buf
+//                 |    |      |    |       | |      |    |    |    |__ heading_buf
 //                 |    |      |    |       | |      |    |    |__ lon_buf
 //                 |    |      |    |       | |      |    |__ lat_buf
 //                 |    |      |    |       | |      |__ speed_buf
@@ -190,11 +190,11 @@ static void get_est_home_distance (aircraft *a, const char **km_nmiles)
   if (km_nmiles)
      *km_nmiles = Modes.metric ? "km" : "Nm";
 
-  if (a->EST_distance > BIG_VAL)
-       snprintf (a->EST_distance_buf, sizeof(a->EST_distance_buf), "%.0lf", a->EST_distance / divisor);
-  else if (a->EST_distance > SMALL_VAL)
-       snprintf (a->EST_distance_buf, sizeof(a->EST_distance_buf), "%.1lf", a->EST_distance / divisor);
-  else a->EST_distance_buf[0] = '\0';
+  if (a->distance_EST > BIG_VAL)
+       snprintf (a->distance_buf_EST, sizeof(a->distance_buf_EST), "%.0lf", a->distance_EST / divisor);
+  else if (a->distance_EST > SMALL_VAL)
+       snprintf (a->distance_buf_EST, sizeof(a->distance_buf_EST), "%.1lf", a->distance_EST / divisor);
+  else a->distance_buf_EST[0] = '\0';
 }
 
 /*
@@ -214,8 +214,8 @@ void interactive_title_stats (void)
   static uint64_t last_good_CRC, last_bad_CRC;
   static int      overload_count = 0;
   static char    *overload = GAIN_ERASE;
-  uint64_t        good_CRC = Modes.stat.good_CRC + Modes.stat.fixed;
-  uint64_t        bad_CRC  = Modes.stat.bad_CRC  - Modes.stat.fixed;
+  uint64_t        good_CRC = Modes.stat.CRC_good + Modes.stat.CRC_fixed;
+  uint64_t        bad_CRC  = Modes.stat.CRC_bad;
 
   if (Modes.gain_auto)
        strcpy (gain, "Auto");
@@ -377,7 +377,7 @@ void interactive_update_gain (void)
      gain_idx = gain_increase (gain_idx);
   else if (ch == '-')
      gain_idx = gain_decrease (gain_idx);
-  else if (ch == 'g' || ch == 'G')   /* toggle gain-mode for a local RTLSDR */
+  else if (toupper(ch) == 'G' || toupper(ch) == 'A')   /* toggle gain-mode; Manual <-> Auto */
   {
     if (!Modes.rtlsdr.gains)
        return;
@@ -388,19 +388,19 @@ void interactive_update_gain (void)
       Modes.gain = Modes.rtlsdr.gains [gain_idx];
       rtlsdr_set_tuner_gain_mode (Modes.rtlsdr.device, 1);
       rtlsdr_set_tuner_gain (Modes.rtlsdr.device, Modes.gain);
-      LOG_FILEONLY ("Gain: AUTO -> manual.\n");
+      LOG_FILEONLY ("Gain: Auto -> Manual.\n");
     }
     else
     {
       Modes.gain_auto = true;
       rtlsdr_set_tuner_gain_mode (Modes.rtlsdr.device, 0);
-      LOG_FILEONLY ("Gain: manual -> AUTO.\n");
+      LOG_FILEONLY ("Gain: Manual -> Auto.\n");
     }
   }
 }
 
 /**
- * Show information for a single aircraft.
+ * Show information for a single valid aircraft.
  *
  * If `a->show == A_SHOW_FIRST_TIME`, print in GREEN colour.
  * If `a->show == A_SHOW_LAST_TIME`, print in RED colour.
@@ -408,7 +408,7 @@ void interactive_update_gain (void)
  * \param in a    the aircraft to show.
  * \param in now  the currect tick-timer in milli-seconds.
  */
-static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
+static void show_one_aircraft (aircraft *a, int row, uint64_t now)
 {
   int   altitude          = a->altitude;
   int   speed             = a->speed;
@@ -416,7 +416,7 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   char  lat_buf [10]      = "   - ";
   char  lon_buf [10]      = "    - ";
   char  speed_buf [8]     = " - ";
-  char  hdg_buf [8]       = " - ";
+  char  heading_buf [8]   = " - ";
   char  distance_buf [10] = " - ";
   char  dep_buf [30]      = " -";
   char  dst_buf [30]      = " -";
@@ -437,8 +437,14 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
     speed    = (int) round ((double)speed * 1.852);
   }
 
-  if (altitude)
-     snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
+  if ((a->AC_flags & MODES_ACFLAGS_AOG_VALID) && (a->AC_flags & MODES_ACFLAGS_AOG))
+  {
+    strcpy (alt_buf, " Grnd");
+  }
+  else if (a->AC_flags & MODES_ACFLAGS_ALTITUDE_VALID)
+  {
+    snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
+  }
 
   if (a->position.lat != 0.0)
      snprintf (lat_buf, sizeof(lat_buf), "% +7.03f", a->position.lat);
@@ -449,15 +455,14 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   if (speed)
      snprintf (speed_buf, sizeof(speed_buf), "%4d", speed);
 
-  if (a->heading_is_valid)
-     snprintf (hdg_buf, sizeof(hdg_buf), "%3d", a->heading);
+  if (a->AC_flags & MODES_ACFLAGS_HEADING_VALID)
+     snprintf (heading_buf, sizeof(heading_buf), "%3d", a->heading);
 
-  if (Modes.home_pos_ok)
+  if (Modes.home_pos_ok && a->distance_ok)
   {
     get_home_distance (a, &km_nmiles);
     get_est_home_distance (a, &km_nmiles);
-    if (a->EST_distance_buf[0])
-       strcpy_s (distance_buf, sizeof(distance_buf), a->EST_distance_buf);
+    strcpy_s (distance_buf, sizeof(distance_buf), a->distance_buf);
   }
 
   if (a->SQL)
@@ -474,7 +479,7 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
   if (a->call_sign[0])
      call_sign = a->call_sign;
 
-  /* If it's not a helicopter, post a ADSB-LOL API request for the flight-info.
+  /* If it's valid plane and not a helicopter, post a ADSB-LOL API request for the flight-info.
    * Or return already cached flight-info.
    */
   if (!a->is_helicopter && call_sign[0] != ' ')
@@ -529,7 +534,7 @@ static void interactive_show_aircraft (aircraft *a, int row, uint64_t now)
      snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%-4.4s %-4.4s     ", dep_buf, dst_buf);
 
   snprintf (line_buf, sizeof(line_buf), LINE_FMT,
-            a->addr, call_sign, reg_num, cc_short, dep_dst_buf, alt_buf, speed_buf, lat_buf, lon_buf, hdg_buf,
+            a->addr, call_sign, reg_num, cc_short, dep_dst_buf, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
             distance_buf, a->messages, ms_diff / 1000);
 
   (*api->print_line) (row, 0, line_buf);
@@ -547,7 +552,7 @@ void interactive_show_data (uint64_t now)
 {
   static int old_count = -1;
   int        row = 1, count = 0;
-  aircraft  *a = Modes.aircrafts;
+  int        i, max;
   bool       clear_screen = (Modes.raw == 0 ? true : false);
 
   /* Unless `--raw` mode is active, clear the screen to remove old info.
@@ -556,19 +561,32 @@ void interactive_show_data (uint64_t now)
    */
   if (clear_screen)
   {
-    if (old_count == -1 || aircraft_numbers() < old_count)
+    if (old_count == -1 || aircraft_numbers_valid() < old_count)
        (*api->clr_scr)();
     (*api->gotoxy) (0, 0);
+
+    if (Modes.a_sort != INTERACTIVE_SORT_NONE)
+    {
+      int max1 = aircraft_sort();
+      int max2 = smartlist_len (Modes.aircrafts);
+      assert (max1 == max2);
+    }
   }
 
   (*api->print_header)();
 
-  while (a && count < Modes.interactive_rows && !Modes.exit)
+  max = smartlist_len (Modes.aircrafts);
+  for (i = count = 0; i < max && count < Modes.interactive_rows && !Modes.exit; i++)
   {
+    aircraft *a = smartlist_get (Modes.aircrafts, i);
+
+    if (!aircraft_valid(a))    /* ignore these. "Mode A/C"? */
+       continue;
+
     if (a->show != A_SHOW_NONE)
     {
       aircraft_set_est_home_distance (a, now);
-      interactive_show_aircraft (a, row, now);
+      show_one_aircraft (a, row, now);
       row++;
     }
 
@@ -579,121 +597,12 @@ void interactive_show_data (uint64_t now)
     else if (a->show == A_SHOW_LAST_TIME)
        a->show = A_SHOW_NONE;      /* don't show again before deleting it */
 
-    a = a->next;
     count++;
   }
 
   (*api->refresh) (row, 0);
 
   old_count = count;
-}
-
-/**
- * Handle a new ModeS message and add (or update) the
- * aircraft data with more info.
- *
- * \todo
- * Rename to `aircraft_fill_data()` and move to aircraft.c
- * with a callback to this module.
- */
-aircraft *interactive_receive_data (const modeS_message *mm, uint64_t now)
-{
-  aircraft *a;
-  uint32_t  addr;
-
-  if (!mm->CRC_ok)
-     return (NULL);
-
-  /* Lookup our aircraft or create a new one.
-   */
-  addr = AIRCRAFT_GET_ADDR (&mm->AA);
-  a = aircraft_find_or_create (addr, now);
-  if (!a)
-     return (NULL);
-
-  a->seen_last = now;
-  a->messages++;
-
-  a->sig_levels [a->sig_idx++] = mm->sig_level;
-  a->sig_idx &= DIM(a->sig_levels) - 1;
-
-  if (mm->msg_type == 5 || mm->msg_type == 21)
-  {
-    if (mm->identity)
-         a->identity = mm->identity;   /* Set the Squawk code. */
-    else a->identity = 0;
-  }
-
-  if (mm->msg_type == 0 || mm->msg_type == 4 || mm->msg_type == 20)
-  {
-    a->altitude = mm->altitude;
-  }
-  else if (mm->msg_type == 17)
-  {
-    if (mm->ME_type >= 1 && mm->ME_type <= 4)
-    {
-      memcpy (a->call_sign, mm->flight, sizeof(a->call_sign));
-    }
-#if 0
-    else if (mm->ME_type >= 5 && mm->ME_type <= 8)
-    {
-      if (cpr_decode_surface())
-         ;
-    }
-#endif
-    else if ((mm->ME_type >= 9  && mm->ME_type <= 18) || /* Airborne Position (Baro Altitude) */
-             (mm->ME_type >= 20 && mm->ME_type <= 22))   /* Airborne Position (GNSS Height) */
-    {
-      a->altitude = mm->altitude;
-      if (mm->odd_flag)
-      {
-        a->odd_CPR_lat  = mm->raw_latitude;
-        a->odd_CPR_lon  = mm->raw_longitude;
-        a->odd_CPR_time = now;
-      }
-      else
-      {
-        a->even_CPR_lat  = mm->raw_latitude;
-        a->even_CPR_lon  = mm->raw_longitude;
-        a->even_CPR_time = now;
-      }
-
-      /* If the two reports are less than 10 minutes apart, compute the position.
-       * This used to be '10 sec', but I used some code from:
-       *   https://github.com/Mictronics/readsb/blob/master/track.c
-       *
-       * which says:
-       *   A wrong relative position decode would require the aircraft to
-       *   travel 360-100=260 NM in the 10 minutes of position validity.
-       *   This is impossible for planes slower than 1560 knots (Mach 2.3) over the ground.
-       *
-       * \todo
-       *   Use some CPR code from pyModeS. Like `airborne_position()`
-       *   that decodes airborne position from a pair of even and odd position message.
-       *   Thus we need to save the 2 `mm` packets into the aircraft structure.
-       *
-       * Another references:
-       *   https://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html
-       *   https://www.adacore.com/uploads/products/SSAS-Presentations/newdev_05_moscato_2.pdf
-       */
-      int64_t t_diff = (int64_t) (a->even_CPR_time - a->odd_CPR_time);
-
-      if (llabs(t_diff) <= 60*10*1000)
-           cpr_decode (a, mm->odd_flag);
-   /* else LOG_FILEONLY ("t_diff for '%04X' too large: %lld sec.\n", a->addr, t_diff/1000); */
-    }
-    else if (mm->ME_type == 19)
-    {
-      if (mm->ME_subtype == 1 || mm->ME_subtype == 2)
-      {
-        a->speed_last = a->speed * 1.852;   /* Km/h */
-        a->speed      = mm->velocity;
-        a->heading    = mm->heading;
-        a->heading_is_valid = mm->heading_is_valid;
-      }
-    }
-  }
-  return (a);
 }
 
 /**
