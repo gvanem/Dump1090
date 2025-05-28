@@ -1490,8 +1490,7 @@ static bool add_deny (const char *val, bool is_ip6)
   deny_element *deny;
   bool no_CIDR;
 
-  if (!g_deny_list &&
-      test_contains(Modes.tests, "config"))  /* called from cfg_file.c */
+  if (!g_deny_list)  /* called from cfg_file.c */
      g_deny_list = smartlist_new();
 
   if (!g_deny_list)
@@ -2706,7 +2705,8 @@ bool net_init (void)
 {
   mg_file_path web_dll;
 
-  g_deny_list   = smartlist_new();
+  if (!g_deny_list) /* if not already created via `add_deny()` */
+     g_deny_list = smartlist_new();
   g_unique_ips  = smartlist_new();
   g_reverse_rec = smartlist_new();
 
