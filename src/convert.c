@@ -17,9 +17,11 @@ static void convert_uc8_nodc_nopower (const void    *iq_data,
   unsigned        i;
 
   MODES_NOTUSED (state);
+  assert (Modes.mag_lut);
 
-  // unroll this a bit
-  for (i = 0; i < (nsamples >> 3); ++i)
+  /* unroll this a bit
+   */
+  for (i = 0; i < (nsamples >> 3); i++)
   {
     *mag_data++ = Modes.mag_lut [*in++];
     *mag_data++ = Modes.mag_lut [*in++];
@@ -31,11 +33,11 @@ static void convert_uc8_nodc_nopower (const void    *iq_data,
     *mag_data++ = Modes.mag_lut [*in++];
   }
 
-  for (i = 0; i < (nsamples & 7); ++i)
+  for (i = 0; i < (nsamples & 7); i++)
       *mag_data++ = Modes.mag_lut [*in++];
 
   if (out_power)
-     *out_power = 0.0; // not measured
+     *out_power = 0.0;  /* not measured */
 }
 
 static void convert_uc8_nodc_power (const void    *iq_data,
@@ -50,9 +52,11 @@ static void convert_uc8_nodc_power (const void    *iq_data,
   uint16_t        mag;
 
   MODES_NOTUSED (state);
+  assert (Modes.mag_lut);
 
-  // unroll this a bit
-  for (i = 0; i < (nsamples >> 3); ++i)
+  /* unroll this a bit
+   */
+  for (i = 0; i < (nsamples >> 3); i++)
   {
     mag = Modes.mag_lut [*in++];
     *mag_data++ = mag;
@@ -87,7 +91,7 @@ static void convert_uc8_nodc_power (const void    *iq_data,
     power += (uint32_t)mag * (uint32_t)mag;
   }
 
-  for (i = 0; i < (nsamples & 7); ++i)
+  for (i = 0; i < (nsamples & 7); i++)
   {
     mag = Modes.mag_lut [*in++];
     *mag_data++ = mag;
@@ -108,8 +112,8 @@ static void convert_uc8_generic (const void    *iq_data,
   float          power = 0.0;
   float          z1_I = state->z1_I;
   float          z1_Q = state->z1_Q;
-  float          dc_a = state->dc_a;
-  float          dc_b = state->dc_b;
+  float          DC_A = state->DC_A;
+  float          DC_B = state->DC_B;
   unsigned       i;
   uint8_t        I, Q;
   float          fI, fQ, mag_sq;
@@ -121,9 +125,10 @@ static void convert_uc8_generic (const void    *iq_data,
     fI = (I - 127.5) / 127.5;
     fQ = (Q - 127.5) / 127.5;
 
-    // DC block
-    z1_I = fI * dc_a + z1_I * dc_b;
-    z1_Q = fQ * dc_a + z1_Q * dc_b;
+    /* DC block
+     */
+    z1_I = fI * DC_A + z1_I * DC_B;
+    z1_Q = fQ * DC_A + z1_Q * DC_B;
     fI -= z1_I;
     fQ -= z1_Q;
 
@@ -152,22 +157,23 @@ static void convert_sc16_generic (const void    *iq_data,
   float           power = 0.0;
   float           z1_I = state->z1_I;
   float           z1_Q = state->z1_Q;
-  float           dc_a = state->dc_a;
-  float           dc_b = state->dc_b;
+  float           DC_A = state->DC_A;
+  float           DC_B = state->DC_B;
   unsigned        i;
   int16_t         I, Q;
   float           fI, fQ, mag_sq;
 
-  for (i = 0; i < nsamples; ++i)
+  for (i = 0; i < nsamples; i++)
   {
     I  = (int16_t) *in++;
     Q  = (int16_t) *in++;
     fI = I / 32768.0;
     fQ = Q / 32768.0;
 
-    // DC block
-    z1_I = fI * dc_a + z1_I * dc_b;
-    z1_Q = fQ * dc_a + z1_Q * dc_b;
+    /* DC block
+     */
+    z1_I = fI * DC_A + z1_I * DC_B;
+    z1_Q = fQ * DC_A + z1_Q * DC_B;
     fI -= z1_I;
     fQ -= z1_Q;
 
@@ -196,22 +202,23 @@ static void convert_sc16q11_generic (const void    *iq_data,
   float           power = 0.0;
   float           z1_I = state->z1_I;
   float           z1_Q = state->z1_Q;
-  float           dc_a = state->dc_a;
-  float           dc_b = state->dc_b;
+  float           DC_A = state->DC_A;
+  float           DC_B = state->DC_B;
   unsigned        i;
   int16_t         I, Q;
   float           fI, fQ, mag_sq;
 
-  for (i = 0; i < nsamples; ++i)
+  for (i = 0; i < nsamples; i++)
   {
     I  = (int16_t) *in++;
     Q  = (int16_t) *in++;
     fI = I / 2048.0;
     fQ = Q / 2048.0;
 
-    // DC block
-    z1_I = fI * dc_a + z1_I * dc_b;
-    z1_Q = fQ * dc_a + z1_Q * dc_b;
+    /* DC block
+     */
+    z1_I = fI * DC_A + z1_I * DC_B;
+    z1_Q = fQ * DC_A + z1_Q * DC_B;
     fI -= z1_I;
     fQ -= z1_Q;
 
@@ -249,7 +256,7 @@ static void convert_sc16_nodc_nopower (const void    *iq_data,
 
   MODES_NOTUSED (state);
 
-  for (i = 0; i < nsamples; ++i)
+  for (i = 0; i < nsamples; i++)
   {
     uint32_t thresh;
 
@@ -279,11 +286,11 @@ static void convert_sc16_nodc_nopower (const void    *iq_data,
 
 static const struct {
        convert_format format;
-       bool           can_filter_dc;
+       bool           can_filter_DC;
        bool           can_compute_power;
        convert_func   func;
        const char    *description;
-   } converters_table[] = {    // In order of preference
+   } converters_table[] = {      /* In order of preference */
     { INPUT_UC8,     false, false, convert_uc8_nodc_nopower,  "UC8, integer/table path" },
     { INPUT_UC8,     false, true,  convert_uc8_nodc_power,    "UC8, integer/table path, with power measurement" },
     { INPUT_UC8,     true,  true,  convert_uc8_generic,       "UC8, float path" },
@@ -305,7 +312,7 @@ convert_func convert_init (convert_format  format,
   {
     if (converters_table[i].format != format)
        continue;
-    if (filter_dc && !converters_table[i].can_filter_dc)
+    if (filter_dc && !converters_table[i].can_filter_DC)
        continue;
     if (compute_power && !converters_table[i].can_compute_power)
        continue;
@@ -314,15 +321,15 @@ convert_func convert_init (convert_format  format,
 
   if (i == DIM(converters_table))
   {
-    fprintf (stderr, "No suitable converter for format=%d power=%d DC=%d\n",
-             format, compute_power, filter_dc);
+    LOG_STDERR ("No suitable converter for format=%d (%s), power=%d, DC=%d\n",
+                format, convert_format_name(format), compute_power, filter_dc);
     return (NULL);
   }
 
   state = malloc (sizeof(*state));
   if (!state)
   {
-    fprintf (stderr, "can't allocate converter state\n");
+    LOG_STDERR ("Cannot allocate converter state\n");
     return (NULL);
   }
 
@@ -332,15 +339,17 @@ convert_func convert_init (convert_format  format,
 
   if (filter_dc)
   {
-    // init DC block @ 1Hz
-    state->dc_b = exp (-2.0 * M_PI * 1.0 / sample_rate);
-    state->dc_a = 1.0 - state->dc_b;
+    /* init DC block @ 1Hz
+     */
+    state->DC_B = exp (-2.0 * M_PI * 1.0 / sample_rate);
+    state->DC_A = 1.0 - state->DC_B;
   }
   else
   {
-    // if the converter does filtering, make sure it has no effect
-    state->dc_b = 1.0;
-    state->dc_a = 0.0;
+    /* if the converter does filtering, make sure it has no effect
+     */
+    state->DC_B = 1.0;
+    state->DC_A = 0.0;
   }
   *state_p = state;
   return (converters_table[i].func);
@@ -352,4 +361,12 @@ void convert_cleanup (convert_state **state_p)
   if (state)
      free (state);
   *state_p = NULL;
+}
+
+const char *convert_format_name (convert_format f)
+{
+  return (f == INPUT_ILLEGAL ? "INPUT_ILLEGAL" :
+          f == INPUT_UC8     ? "INPUT_UC8"     :
+          f == INPUT_SC16    ? "INPUT_SC16"    :
+          f == INPUT_SC16Q11 ? "INPUT_SC16Q11" : "?");
 }

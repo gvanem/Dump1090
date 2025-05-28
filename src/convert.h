@@ -10,15 +10,16 @@
 #include <stdbool.h>
 
 typedef struct convert_state {
-        float       dc_a;
-        float       dc_b;
+        float       DC_A;
+        float       DC_B;
         float       z1_I;
         float       z1_Q;
         const char *description;
       } convert_state;
 
 typedef enum convert_format {
-        INPUT_UC8 = 0,
+        INPUT_ILLEGAL = 0,
+        INPUT_UC8,
         INPUT_SC16,
         INPUT_SC16Q11
       } convert_format;
@@ -34,5 +35,7 @@ convert_func convert_init (convert_format  format,
                            bool            filter_dc,
                            bool            compute_power,
                            convert_state **state_p);
+
+const char *convert_format_name (convert_format f);
 
 void convert_cleanup (convert_state **state_p);
