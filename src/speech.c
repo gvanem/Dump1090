@@ -9,6 +9,8 @@
 #define COBJMACROS
 
 #include "speech.h"
+#include "smartlist.h"
+
 #include <sapi.h>
 #include <sperror.h>
 
@@ -17,7 +19,7 @@
 #if defined(TEST)
   #define TRACE(level, fmt, ...) do {                       \
             if (g_data.trace_level >= level)                \
-               printf ("%s(%u): " fmt ".\n",                \
+               printf ("%s(%u): " fmt,                      \
                        __FILE__, __LINE__, ## __VA_ARGS__); \
           } while (0)
 
@@ -25,30 +27,24 @@
   /*
    * Only write important stuff to the .log-file.
    */
-  #define TRACE(level, fmt, ...)  do {          \
-          if (level <= 1)                       \
-             LOG_FILEONLY ("%s(%u): " fmt "\n", \
-                           __FILE__, __LINE__,  \
-                           ## __VA_ARGS__);     \
+  #define TRACE(level, fmt, ...)  do {         \
+          if (level <= 1)                      \
+             LOG_FILEONLY ("%s(%u): " fmt,     \
+                           __FILE__, __LINE__, \
+                           ## __VA_ARGS__);    \
           } while (0)
 #endif
 
 typedef struct speak_queue {
-        wchar_t            *wstr;
-        double              start_t;
-        bool                finished;
-        DWORD               flags, id;
-        SPVOICESTATUS       status, old_status;
-        struct speak_queue *next;
+        wchar_t       *wstr;
+        double         start_t;
+        bool           finished;
+        DWORD          flags, id;
+        SPVOICESTATUS  status, old_status;
       } speak_queue;
 
-typedef struct search_list {
-        DWORD      value;
-        const char *name;
-      } search_list;
-
 typedef struct speech_data {
-        speak_queue      *speak_queue;
+        smartlist_t      *speak_queue;
         ISpVoice         *voice;
         int               voice_n;
         int               trace_level;
@@ -67,24 +63,24 @@ static DWORD WINAPI speak_thread (void *arg);
 static const char  *hr_strerror (HRESULT hr);
 static const char  *sp_running_state (SPRUNSTATE state);
 
-#define CALL(obj, func, ...) do {                                        \
-          hr = (*obj -> lpVtbl -> func) (obj, __VA_ARGS__);              \
-          if (!SUCCEEDED(hr))                                            \
-          {                                                              \
-            g_data.hr_err = hr;                                          \
-            TRACE (1, #obj "::" #func "() failed: %s", hr_strerror(hr)); \
-            return (false);                                              \
-          }                                                              \
+#define CALL(obj, func, ...) do {                                          \
+          hr = (*obj -> lpVtbl -> func) (obj, __VA_ARGS__);                \
+          if (!SUCCEEDED(hr))                                              \
+          {                                                                \
+            g_data.hr_err = hr;                                            \
+            TRACE (1, #obj "::" #func "() failed: %s\n", hr_strerror(hr)); \
+            return (false);                                                \
+          }                                                                \
         } while (0)
 
-#define CALL0(obj, func) do {                                            \
-          hr = (*obj -> lpVtbl -> func) (obj);                           \
-          if (!SUCCEEDED(hr))                                            \
-          {                                                              \
-            g_data.hr_err = hr;                                          \
-            TRACE (1, #obj "::" #func "() failed: %s", hr_strerror(hr)); \
-            return (false);                                              \
-          }                                                              \
+#define CALL0(obj, func) do {                                              \
+          hr = (*obj -> lpVtbl -> func) (obj);                             \
+          if (!SUCCEEDED(hr))                                              \
+          {                                                                \
+            g_data.hr_err = hr;                                            \
+            TRACE (1, #obj "::" #func "() failed: %s\n", hr_strerror(hr)); \
+            return (false);                                                \
+          }                                                                \
         } while (0)
 
 /*
@@ -129,7 +125,7 @@ static bool enumerate_voices (int *voice_p)
                          &IID_ISpObjectTokenCategory, (void**)&category);
   if (!SUCCEEDED(hr))
   {
-    TRACE (0, "CoCreateInstance() failed: %s", hr_strerror(hr));
+    TRACE (0, "CoCreateInstance() failed: %s\n", hr_strerror(hr));
     g_data.hr_err = hr;
     goto failed;
   }
@@ -168,7 +164,7 @@ static bool enumerate_voices (int *voice_p)
     GetLocaleInfoW (locale, LOCALE_SISO639LANGNAME, w_lang_code, locale_chars);
     GetLocaleInfoW (locale, LOCALE_SISO3166CTRYNAME, w_reg_code, region_chars);
 
-    TRACE (2, "w_id: '%S', w_lang_code: '%S' (%lu)",
+    TRACE (2, "w_id: '%S', w_lang_code: '%S' (%lu)\n",
            w_id, w_lang_code, locale);
 
     rc = true;
@@ -248,14 +244,21 @@ bool speak_init (int voice, int volume)
 
   if (volume < 0 || volume > 100)
   {
-    TRACE (0, "'volume' must be in range 0 - 100");
+    TRACE (0, "'volume' must be in range 0 - 100\n");
+    return (false);
+  }
+
+  g_data.speak_queue = smartlist_new();
+  if (!g_data.speak_queue)
+  {
+    TRACE (0, "No memory for 'speak_queue'\n");
     return (false);
   }
 
   hr = CoInitializeEx (NULL, COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE);
   if (!SUCCEEDED(hr))
   {
-    TRACE (0, "CoInitializeEx() failed: %s", hr_strerror(hr));
+    TRACE (0, "CoInitializeEx() failed: %s\n", hr_strerror(hr));
     g_data.hr_err = hr;
     return (false);
   }
@@ -265,7 +268,7 @@ bool speak_init (int voice, int volume)
   hr = CoCreateInstance (&CLSID_SpVoice, NULL, CLSCTX_ALL, &IID_ISpVoice, (void**)&g_data.voice);
   if (!SUCCEEDED(hr))
   {
-    TRACE (0, "CoCreateInstance() failed: %s", hr_strerror(hr));
+    TRACE (0, "CoCreateInstance() failed: %s\n", hr_strerror(hr));
     g_data.hr_err = hr;
     return (false);
   }
@@ -281,7 +284,7 @@ bool speak_init (int voice, int volume)
 
   if (g_data.thread_hnd)
   {
-    TRACE (0, "Already have 'thread_hnd'. Call 'speak_exit()' first");
+    TRACE (0, "Already have 'thread_hnd'. Call 'speak_exit()' first\n");
     return (false);
   }
   InitializeCriticalSection (&g_data.crit);
@@ -289,7 +292,7 @@ bool speak_init (int voice, int volume)
   g_data.thread_hnd = CreateThread (NULL, 0, speak_thread, (void*)&g_data.speak_queue, 0, NULL);
   if (!g_data.thread_hnd)
   {
-    TRACE (0, "CreateThread() failed: %s", win_strerror(GetLastError()));
+    TRACE (0, "CreateThread() failed: %s\n", win_strerror(GetLastError()));
     return (false);
   }
 
@@ -309,7 +312,7 @@ void speak_exit (void)
 
   if (g_data.CoInitializeEx_done)
   {
-    TRACE (2, "Calling 'CoUninitialize()'");
+    TRACE (2, "Calling 'CoUninitialize()'\n");
     CoUninitialize();
   }
 
@@ -342,7 +345,8 @@ static bool speak_queue_add (const char *str)
 
   mbstowcs (sq->wstr, str, len);
   sq->wstr [len] = L'\0';
-  LIST_ADD_TAIL (speak_queue, &g_data.speak_queue, sq);
+
+  smartlist_add (g_data.speak_queue, sq);
 
   LeaveCriticalSection (&g_data.crit);
   return (true);
@@ -353,14 +357,9 @@ static bool speak_queue_add (const char *str)
  */
 static void speak_queue_free (void)
 {
-  speak_queue *sq, *sq_next = NULL;
-
-  for (sq = g_data.speak_queue; sq; sq = sq_next)
-  {
-    LIST_DELETE (speak_queue, &g_data.speak_queue, sq);
-    sq_next = sq->next;
-    free (sq);
-  }
+  if (g_data.speak_queue)
+     smartlist_wipe (g_data.speak_queue, free);
+  g_data.speak_queue = NULL;
 }
 
 static bool speak_finished (speak_queue *sq)
@@ -382,7 +381,7 @@ static bool speak_finished (speak_queue *sq)
   if (!changed)
      return (false);
 
-  TRACE (2, "%lu: %10.3lf ms, dwRunningState: %s, InputWordPos: %lu, PhonemeId: %d, VisemeId: %d",
+  TRACE (2, "%lu: %10.3lf ms, dwRunningState: %s, InputWordPos: %lu, PhonemeId: %d, VisemeId: %d\n",
          sq->id,
          (get_usec_now() - sq->start_t) / 1E3,
          sp_running_state(sq->status.dwRunningState),
@@ -394,22 +393,21 @@ static bool speak_finished (speak_queue *sq)
 
 static int speak_queue_len (void)
 {
-  const speak_queue *sq;
-  int   num = 0;
-
-  for (sq = g_data.speak_queue; sq; sq = sq->next)
-      num++;
-  return (num);
+  return smartlist_len (g_data.speak_queue);
 }
 
 static int speak_queue_unfinished (void)
 {
   const speak_queue *sq;
   int   num = 0;
+  int   i, max = smartlist_len (g_data.speak_queue);
 
-  for (sq = g_data.speak_queue; sq; sq = sq->next)
-      if (!sq->finished)
-         num++;
+  for (i = 0; i < max; i++)
+  {
+    sq = smartlist_get (g_data.speak_queue, i);
+    if (!sq->finished)
+       num++;
+  }
   return (num);
 }
 
@@ -420,10 +418,10 @@ static bool speak_poll (void)
   if (sq_sz == 0)
   {
     if (g_data.quit)
-         TRACE (0, "Sentences interrupted");
+         TRACE (0, "Sentences interrupted\n");
     else if (g_data.hr_err)
-         TRACE (0, "A sentence failed: %s", hr_strerror(g_data.hr_err));
-    else TRACE (0, "All sentences completed");
+         TRACE (0, "A sentence failed: %s\n", hr_strerror(g_data.hr_err));
+    else TRACE (0, "All sentences completed\n");
     g_data.quit = true;
   }
   return (!g_data.quit || sq_sz > 0);
@@ -431,8 +429,9 @@ static bool speak_poll (void)
 
 static DWORD WINAPI speak_thread (void *arg)
 {
+  int           sq_active_idx = -1;
   speak_queue  *sq_active = NULL;
-  speak_queue **queue = (speak_queue**) arg;
+  smartlist_t **queue = (smartlist_t**) arg;
 
   while (!g_data.quit)
   {
@@ -444,14 +443,18 @@ static DWORD WINAPI speak_thread (void *arg)
     /* Find first unfinished element for calling `g_data.voice::Speak()`.
      * All others must wait it's turn.
      */
-    for (sq = *queue; sq; sq = sq->next)
+    int i, max = smartlist_len (*queue);
+
+    for (i = 0; i < max; i++)
     {
+      sq = smartlist_get (*queue, i);
       if (!sq_active && !sq->finished)
       {
+        sq_active_idx = i;
         sq_active = sq;
         sq_active->start_t = get_usec_now();
         CALL (g_data.voice, Speak, sq_active->wstr, sq_active->flags, NULL);
-        TRACE (2, "g_data.voice::Speak(): %s", hr_strerror(hr));
+        TRACE (2, "g_data.voice::Speak(): %s\n", hr_strerror(hr));
         break;
       }
     }
@@ -462,10 +465,11 @@ static DWORD WINAPI speak_thread (void *arg)
     {
       sq_active->finished = true;
 #if defined(TEST)
-      TRACE (1, "sq_active->id: %lu, SPRS_DONE, unfinished: %d",
+      TRACE (1, "sq_active->id: %lu, SPRS_DONE, unfinished: %d\n",
              sq_active->id, speak_queue_unfinished());
 #endif
-      LIST_DELETE (speak_queue, queue, sq_active);
+
+      smartlist_del (*queue, sq_active_idx);
       sq_active = NULL;
     }
   }
@@ -482,21 +486,6 @@ bool speak_string (const char *fmt, ...)
   vsnprintf (buf, sizeof(buf), fmt, args);
   va_end (args);
   return speak_queue_add (buf);
-}
-
-/**
- * Search 'list' for 'value' and return it's name.
- */
-const char *search_list_name (DWORD value, const search_list *sl, int num)
-{
-  while (num > 0)
-  {
-    if (sl->value == value)
-       return (sl->name);
-    num--;
-    sl++;
-  }
-  return (NULL);
 }
 
 #define ADD_VALUE(v)  { (DWORD)v, #v }
@@ -667,7 +656,7 @@ static void usage (const char *argv0)
 
 static void halt (int sig)
 {
-  TRACE (0, "%s()", __FUNCTION__);
+  TRACE (0, "%s()\n", __FUNCTION__);
   g_data.quit = true;
   speak_exit();
   (void) sig;
@@ -679,6 +668,9 @@ int main (int argc, char **argv)
   int   voice  = 0;
   int   volume = 100;
   int   c, i;
+
+  if (argc == 1)
+     usage (argv[0]);
 
   while ((c = getopt(argc, argv, "dh?v:V:")) != -1)
   {
