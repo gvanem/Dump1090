@@ -24,7 +24,7 @@ and added some more references and screen-shots. But in the source-code I've don
 * An embedded **[Mongoose](https://www.cesanta.com/)** HTTP server that displays
   the currently detected aircrafts on an OpenStreet Map.<nl>
   Hopefully WebSocket support is coming soon (JScript and Json transfer is rather chatty).
-* Decoders for 2.0 MS/s, 2.4 MS/s (default) and 8 MS/s are built-in. 8 MS/s is for SDRPlay only.
+* Decoders for 2.0 MS/s, 2.4 MS/s (default) and 8 MS/s are built-in. 8 MS/s is for [**SDRPlay**](https://www.sdrplay.com/) only.
 * Single and two bit errors correction using the 24 bit CRC.
 * Ability to decode *DF11*, *DF17* messages (**Downlink Format**).
 * Ability to decode formats like *DF0*, *DF4*, *DF5*, *DF16*, *DF20* and *DF21*
@@ -35,7 +35,8 @@ and added some more references and screen-shots. But in the source-code I've don
 * Interactive command-line-interface mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives. Planes that haven't been seen
   last 60 seconds are removed from the list (key/value `interactive-ttl = sec` to change).
-* In `--interactive` mode, the planes entering or leaving can be spoken out using SAPI5.<nl>
+* In `--interactive` mode, the planes entering or leaving can be spoken out using
+  [**SAPI5**](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee125077(v=vs.85)).<nl>
   Ref. `speech-enable = true` in the [**config-file**](dump1090.cfg).
 * *CPR* (**Compact Position Reporting**) coordinates decoding and track calculation from velocity.
 * TCP server streaming and receiving raw data to/from connected clients <nl>
@@ -167,12 +168,18 @@ Running with `web-page = %~dp0\web_root-Tar1090\index.html` in the `dump1090.cfg
   c:\dev\Dump1090> dump1090 --interactive
   ```
 
-will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/) and data from [**Tar1090-DB**](https://github.com/wiedehopf/tar1090-db/):
-**![tar1090 output](dump1090-tar1090-web.png)**
+will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/) and data from
+[**Tar1090-DB**](https://github.com/wiedehopf/tar1090-db/):
+![**tar1090 output**](dump1090-tar1090-web.png)**
 
 Building with a *packed Web-filesystem* is also possible. Then **all** web-pages are built into a `web-pages.dll` file. <nl>
 Ref. `USE_PACKED_WEB = 1` in [**Makefile.Windows**](https://github.com/gvanem/Dump1090/blob/main/Makefile.Windows#L22)
 and a `web-page = web-pages.dll;N` in the [**config-file**](dump1090.cfg).
+
+The default sample-rate is now **2.4 MHz** (thanks to Oliver Jowett's excellent [**src/demod-2400.c**](https://github.com/gvanem/Dump1090/blob/main/src/demod-2400.c)).
+This increases the accuracy and sensitivety of detection. The detection range (depending on antenna etc.) should become around 300 km as shown in
+[**Tar1090**](https://github.com/wiedehopf/tar1090/) here:
+![2.4MHz sampler](dump1090-24MSs.jpg)
 
 
 ## Using RTL1090 as RAW source
