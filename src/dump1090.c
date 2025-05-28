@@ -41,9 +41,10 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
                "'MODES_MAG_BUFFERS' should be smaller than 'MODES_ASYNC_BUF_NUMBERS' for flowcontrol to work");
 
 /**
- * \addtogroup Main      Main functions
- * \addtogroup Misc      Support functions
- * \addtogroup Samplers  SDR input functions
+ * \addtogroup Main         Main functions
+ * \addtogroup Misc         Support functions
+ * \addtogroup Samplers     SDR input functions
+ * \addtogroup Demodulators Magnitude demodulators
  *
  * \mainpage Dump1090
  *
@@ -62,7 +63,7 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
  * \image html dump1090-blocks.png
  *
  * ### Example Web-client page:
- * \image html dump1090-web.png
+ * \image html dump1090-24MSs.png
  *
  * ### More here later ...
  *
@@ -553,7 +554,11 @@ static void modeS_init_log (void)
 
 /**
  * Initialize hardware stuff prior to initialising RTLSDR/SDRPlay.
- * Not for `--net-only`.
+ *
+ * Also needed for a remote `rtl_tcp / rtl_tcp2 /rtl_udp` program. <br>
+ * A remote connection to `rtl_tcp` will be done in `net_init()` later in main.
+ *
+ * This function is not called for `--net-only`.
  */
 static bool modeS_init_hardware (void)
 {
@@ -597,7 +602,8 @@ static bool modeS_init_hardware (void)
   {
     /* use whatever '--informat' was set to 'Modes.input_format' */
   }
-  else if (Modes.rtlsdr.index >= 0)
+  else if (Modes.rtlsdr.index >= 0 ||  /* Local / remote RTLSDR device */
+           modeS_net_services [MODES_NET_SERVICE_RTL_TCP].host[0])
   {
     Modes.input_format = INPUT_UC8;   /* Unsigned, Complex, 8 bit per sample. Always */
     Modes.bytes_per_sample = 2;
@@ -607,6 +613,11 @@ static bool modeS_init_hardware (void)
     Modes.input_format = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always */
     Modes.bytes_per_sample = 4;
   }
+  else
+  {
+    LOG_STDERR ("No need for a FIFO\n");
+    return (true);
+  }
 
   if (!fifo_create(MODES_MAG_BUFFERS, MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
   {
@@ -614,8 +625,17 @@ static bool modeS_init_hardware (void)
     return (false);
   }
 
-  // Modes.DC_filter     = true;  // !! this works best
-  // Modes.measure_noise = true;  // !! this works best
+  char *rtl_name = Modes.rtlsdr.name;
+
+  /* We cannot test for `Modes.rtl_tcp_in != NULL` since `net_init()` has not
+   * been called at this point. But simply test for `MODES_NET_SERVICE_RTL_TCP::host/port`
+   * and use that as the `rtl_name`.
+   */
+  if (!rtl_name && Modes.rtlsdr.index == -1)
+     rtl_name = mg_mprintf ("%s://%s:%u",
+                            modeS_net_services[MODES_NET_SERVICE_RTL_TCP].protocol,
+                            modeS_net_services[MODES_NET_SERVICE_RTL_TCP].host,
+                            modeS_net_services[MODES_NET_SERVICE_RTL_TCP].port);
 
   LOG_FILEONLY ("Modes.rtlsdr.index:     %2d (name: '%s')\n"
                 "              Modes.sdrplay.index:    %2d (name: '%s')\n"
@@ -627,8 +647,8 @@ static bool modeS_init_hardware (void)
                 "              Modes.measure_noise:    %d\n"
                 "              Modes.phase_enhance:    %d\n"
                 "              Modes.demod_func:       demod_%u()\n\n",
-                Modes.rtlsdr.index, Modes.rtlsdr.name,
-                Modes.sdrplay.index, Modes.sdrplay.name,
+                Modes.rtlsdr.index, rtl_name,
+                Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : "<none>",
                 (double)Modes.sample_rate / 1E6,
                 Modes.bytes_per_sample,
                 Modes.trailing_samples,
@@ -637,6 +657,8 @@ static bool modeS_init_hardware (void)
                 Modes.measure_noise,
                 Modes.phase_enhance,
                 Modes.sample_rate / 1000);
+
+  free (rtl_name);
 
   Modes.converter_func = convert_init (Modes.input_format,
                                        Modes.sample_rate,
@@ -722,8 +744,8 @@ static bool modeS_init (void)
    * entry because it's a addr / timestamp pair for every entry.
    */
   Modes.ICAO_cache = calloc (2 * sizeof(uint32_t) * MODES_ICAO_CACHE_LEN, 1);
-  Modes.mag_lut   = gen_magnitude_lut();
-  Modes.log10_lut = gen_log10_lut();
+  Modes.mag_lut    = gen_magnitude_lut();
+  Modes.log10_lut  = gen_log10_lut();
 
   if (!Modes.mag_lut || !Modes.log10_lut || !Modes.ICAO_cache)
   {
@@ -969,7 +991,7 @@ static mag_buf *rx_callback_to_fifo (uint32_t in_len, unsigned *to_convert)
  * depends highly on sample-rate.
  *
  * \note A Mutex is used to avoid race-condition with the decoding thread.
- * \node "Mode S" is "Mode Select Beacon System" (\ref "docs/The-1090MHz-riddle.pdf" chapter 1.4.)
+ * \note "Mode S" is "Mode Select Beacon System" (\ref "The-1090MHz-riddle.pdf" chapter 1.4.)
  */
 void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
 {
@@ -999,14 +1021,10 @@ void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
      */
     fifo_enqueue (out_buf);
 
-#if 0
-    out_buf->valid_length = out_buf->overlap + (Modes.bytes_per_sample * to_convert);
-#else
     /* Since `sizeof(*out_buf->overlap) == Modes.bytes_per_sample`,
      * this is valid pointer arithmetics. But what about SDRPlay?
      */
     out_buf->valid_length = out_buf->overlap + to_convert;
-#endif
 
     (*Modes.converter_func) (in_buf, &out_buf->data [out_buf->overlap], to_convert,
                              Modes.converter_state, &out_buf->mean_power);
@@ -1014,8 +1032,9 @@ void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
 }
 
 /**
- * We read RTLSDR or SDRplay data using a separate thread, so the main
- * thread only handles decoding without caring about data acquisition.
+ * We read RTLSDR, SDRplay or remote RTL_TCP data using a separate thread,
+ * so the main thread only handles decoding without caring about data acquisition.
+ *
  * \ref `main_data_loop()` below.
  */
 static DWORD WINAPI data_thread_fn (void *arg)
@@ -1049,6 +1068,16 @@ static DWORD WINAPI data_thread_fn (void *arg)
 
     LOG_STDERR ("rtlsdr_read_async(): rc: %d/%s\n", rc, get_rtlsdr_error(rc));
     modeS_signal_handler (0);    /* break out of main_data_loop() */
+  }
+  else if (Modes.rtl_tcp_in)
+  {
+    while (!Modes.exit)
+    {
+     /* Not much to do here. Enqueueing to the FIFO is done in
+      * `rx_callback()` via `rtl_tcp_recv_data()` in net_io.c
+      */
+      Sleep (100);
+    }
   }
 
   Modes.exit = true;   /* just in case */
@@ -3112,7 +3141,7 @@ static bool modeS_SBS_valid_msg (const mg_iobuf *io, bool *ignore)
  * MSG,5,1,1,4CC52B,1,2021/09/20,23:30:43.897,2021/09/20,23:30:43.901,,38000,,,,,,,0,,0,
  * ```
  *
- * It accepts both '\n' and '\r\n' terminated records.
+ * It accepts both `\n` and `\r\n` terminated records.
  * It checks for all 6 valid Message Types, but it handles only `"MSG"` records.
  *
  * \todo Move the handling of SBS-IN data to the `data_thread_fn()`.
@@ -3455,7 +3484,7 @@ static void show_statistics (void)
 {
   bool any_device = (Modes.rtlsdr.device || Modes.sdrplay.device || Modes.infile_fd > -1);
 
-  if (Modes.rtl_tcp_in && !modeS_net_services[MODES_NET_SERVICE_RTL_TCP].last_err)
+  if (Modes.rtl_tcp_in)
      any_device = true;  /* connect() OK */
 
   if (any_device)        /* assume we got some data */
@@ -4057,6 +4086,7 @@ int main (int argc, char **argv)
       if (!Modes.tests) /* not fatal for test-modes */
          goto quit;
     }
+    DEBUG (DEBUG_GENERAL, "Modes.rtl_tcp_in: %p\n", Modes.rtl_tcp_in);
   }
 
   init_error = false;
@@ -4073,10 +4103,10 @@ int main (int argc, char **argv)
     if (infile_read() == 0)
        LOG_STDERR ("No good messages found in '%s'.\n", Modes.infile);
   }
-  else if (Modes.strip_level == 0 || !Modes.rtl_tcp_in)
+  else if (Modes.strip_level == 0)
   {
-    /* Create the thread that will read the data from a physical RTLSDR or SDRplay device.
-     * No need for a data-thread with RTL_TCP.
+    /* Create the thread that will read the data from a RTLSDR device,
+     * SDRplay device or a remote RTL_TCP service.
      */
     Modes.reader_thread = CreateThread (NULL, 0, data_thread_fn, NULL, 0, NULL);
     if (!Modes.reader_thread)
