@@ -1,22 +1,19 @@
 /**\file    cpr.h
  * \ingroup Misc
  */
-#ifndef _CPR_H
-#define _CPR_H
+#pragma once
 
 struct aircraft;
 
-bool cpr_decode (struct aircraft *a, bool is_odd);
+#define CPR_TRACE(...) do {                       \
+        char buf [1000];                          \
+        snprintf (buf, sizeof(buf), __VA_ARGS__); \
+        if (Modes.interactive)                    \
+             LOG_FILEONLY ("CPR: %s", buf);       \
+        else fprintf (stderr, "CPR: %s", buf);    \
+      } while (0)
 
-bool cpr_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat, int odd_cprlon,
-                          bool is_odd, double *out_lat, double *out_lon);
+int  cpr_do_global (struct aircraft *a, const struct modeS_message *mm, uint64_t now, pos_t *new_pos, unsigned *nuc);
+int  cpr_do_local  (struct aircraft *a, const struct modeS_message *mm, uint64_t now, pos_t *new_pos, unsigned *nuc);
+bool cpr_do_tests (void);
 
-bool cpr_decode_surface  (double ref_lat, double ref_lon, int even_cprlat, int even_cprlon, int odd_cprlat, int odd_cprlon,
-                          bool is_odd, double *out_lat, double *out_lon);
-
-bool cpr_decode_relative (double ref_lat, double ref_lon, int cprlat, int cprlon,
-                          bool is_odd, bool surface, double *out_lat, double *out_lon);
-
-bool cpr_tests (void);
-
-#endif /* _CPR_H */

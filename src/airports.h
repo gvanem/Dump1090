@@ -1,8 +1,7 @@
 /**\file    airports.h
  * \ingroup Main
  */
-#ifndef _AIRPORTS_H
-#define _AIRPORTS_H
+#pragma once
 
 #include "aircraft.h"
 
@@ -36,5 +35,3 @@ bool     airports_API_get_flight_info (const char *call_sign, uint32_t addr,
 bool     airports_API_flight_log_entering (const aircraft *a);
 bool     airports_API_flight_log_resolved (const aircraft *a);
 bool     airports_API_flight_log_leaving (const aircraft *a);
-
-#endif /* _AIRPORTS_H */

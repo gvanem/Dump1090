@@ -2,8 +2,7 @@
  * \ingroup Misc
  * \brief   Geographic position stuff.
  */
-#ifndef _GEO_H
-#define _GEO_H
+#pragma once
 
 #include <assert.h>
 
@@ -52,5 +51,3 @@ bool   geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *
 double geo_cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2);
 double geo_great_circle_dist (pos_t pos1, pos_t pos2);
 double geo_closest_to (double val, double val1, double val2);
-
-#endif /* _GEO_H */

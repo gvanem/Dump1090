@@ -7,8 +7,7 @@
  *
  * Rewritten to use WIn-8+ SDK function; no pesky Pthreads.
  */
-#ifndef _FIFO_H
-#define _FIFO_H
+#pragma once
 
 /**
  * \typedef mag_buf_flags
@@ -26,15 +25,15 @@ typedef enum mag_buf_flags {
  * The contained data looks like this:
  *
  * ```
- *  0                 overlap          valid_length-overlap           valid_length       total_length
+ *  0                 overlap          valid_length - overlap          valid_length       total_length
  *  |                    |                     |                            |                |
  *  | overlap data from  |  new sample data    | new sample data that       |  optional      |
  *  | previous buffer    |                     | will be used as overlap    |  unused        |
  *  |                    |                     | in the next buffer         |  space         |
  *  |                    |                     |                            |                |
- *  |                    |                    [this is the position of the] |                |
- *  |                    |                    [last message that the      ] |                |
- *  |                    |                    [demodulator will decode    ] |                |
+ *  |                    |                   [this is the position of the]  |                |
+ *  |                    |                   [last message that the      ]  |                |
+ *  |                    |                   [demodulator will decode    ]  |                |
  *  |                    |                     |                            |                |
  *  |                    |                     |     [partial messages that start    ]       |
  *  |  [copied here in ] |  <----------------------  [after the cutoff will be copied]       |
@@ -71,9 +70,9 @@ typedef void (*demod_func) (const struct mag_buf *mag);
  * Create the queue structures. Not threadsafe.
  * Returns true on success.
  *
- *   buffer_count - the number of buffers to preallocate
- *   buffer_size  - the size of each magnitude buffer, in samples, including overlap
- *   overlap      - the number of samples to overlap between adjacent buffers
+ * \param in buffer_count  the number of buffers to preallocate
+ * \param in buffer_size   the size of each magnitude buffer, in samples, including overlap
+ * \param in overlap       the number of samples to overlap between adjacent buffers
  */
 bool fifo_create (unsigned buffer_count, unsigned buffer_size, unsigned overlap);
 
@@ -100,8 +99,9 @@ void fifo_halt (void);
 
 /**
  * Get an unused buffer from the `fifo_freelist` and return it.
- * Block up to `timeout_ms` waiting for a free buffer. Return NULL if there are no
- * free buffers available within the timeout, or if the FIFO is halted.
+ * Block up to `timeout_ms` waiting for a free buffer.
+ * Return NULL if there are no free buffers available within the
+ * timeout, or if the FIFO is halted.
  */
 mag_buf *fifo_acquire (uint32_t timeout_ms);
 
@@ -134,4 +134,7 @@ mag_buf *fifo_dequeue (uint32_t timeout_ms);
  */
 void fifo_release (mag_buf *buf);
 
-#endif /* _FIFO_H */
+/**
+ * Print some statistics to the log-file.
+ */
+void fifo_stats (void);
