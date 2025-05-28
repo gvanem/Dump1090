@@ -10,6 +10,7 @@
 
 #include "misc.h"
 #include "aircraft.h"
+#include "smartlist.h"
 #include "net_io.h"
 #include "rtl-tcp.h"
 #include "server-cert-key.h"
@@ -54,14 +55,14 @@ DEF_C_FUNC (const char *, mg_unlist, (size_t i));
  * For handling reverse DNS resolution
  */
 typedef struct reverse_rec {
-        ip_address          ip_str;
-        char                ptr_name [DNS_MAX_TEXT_STRING_LENGTH]; /* == 255 */
-        time_t              timestamp;
-        DNS_STATUS          status;
-        struct reverse_rec *next;
+        ip_address   ip_str;
+        char         ptr_name [DNS_MAX_TEXT_STRING_LENGTH]; /* == 255 */
+        time_t       timestamp;
+        DNS_STATUS   status;
       } reverse_rec;
 
-static reverse_rec *g_reverse_rec  = NULL;
+static smartlist_t *g_reverse_rec  = NULL;
+
 static mg_file_path g_reverse_file = { '\0' };
 static time_t       g_reverse_maxage;
 
@@ -72,12 +73,12 @@ static time_t       g_reverse_maxage;
  * For handling denial of clients in `client_handler (.., MG_EV_ACCEPT)` .
  */
 typedef struct deny_element {
-        ip_address           acl;
-        bool                 is_ip6;
-        struct deny_element *next;
+        ip_address   acl;
+        bool         is_ip6;
+        bool         no_CIDR;
       } deny_element;
 
-static deny_element *g_deny_list = NULL;
+static smartlist_t  *g_deny_list = NULL;
 
 /**
  * For handling a list of unique network clients.
@@ -90,10 +91,9 @@ typedef struct unique_IP {
         FILETIME           seen;      /**< time when this address was created */
         uint32_t           accepted;  /**< number of times for `accept()` */
         uint32_t           denied;    /**< number of times denied */
-        struct unique_IP  *next;
       } unique_IP;
 
-static unique_IP *g_unique_ips = NULL;
+static smartlist_t *g_unique_ips = NULL;
 
 static void         net_handler (mg_connection *c, int ev, void *ev_data);
 static void         net_timer_add (intptr_t service, int timeout_ms, int flag);
@@ -103,7 +103,7 @@ static char        *net_store_error (intptr_t service, const char *err);
 static char        *net_error_details (mg_connection *c, const char *in_out, const void *ev_data);
 static char        *net_str_addr (const mg_addr *a, char *buf, size_t len);
 static char        *net_str_addr_port (const mg_addr *a, char *buf, size_t len);
-static uint16_t    *net_num_connections (intptr_t service);
+static uint32_t    *net_num_connections (intptr_t service);
 static const char  *net_service_descr (intptr_t service);
 static char        *net_service_error (intptr_t service);
 static char        *net_service_url (intptr_t service);
@@ -1091,8 +1091,6 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 
     conn = connection_get (c, service, true);
     net_conn_free (conn, service);
-
-    -- (*net_num_connections (service));
     return;
   }
 
@@ -1235,7 +1233,7 @@ static char *net_store_error (intptr_t service, const char *err)
   return (modeS_net_services [service].last_err);
 }
 
-static uint16_t *net_num_connections (intptr_t service)
+static uint32_t *net_num_connections (intptr_t service)
 {
   ASSERT_SERVICE (service);
   return (&modeS_net_services [service].num_connections);
@@ -1343,8 +1341,10 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
   if (addr_none(addr))       /* ignore an ANY address */
      return (false);
 
-  for (ip = g_unique_ips; ip; ip = ip->next)
+  int i, max = g_unique_ips ? smartlist_len (g_unique_ips) : 0;
+  for (i = 0; i < max; i++)
   {
+    ip = smartlist_get (g_unique_ips, i);
     if (ip->service == service && addr_equal(addr, &ip->addr))
     {
       ip->accepted++;  /* accept() counter */
@@ -1366,7 +1366,8 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
   if (Modes.reverse_resolve)
      ip->rr = net_reverse_resolve (&ip->addr, NULL);   /* This blocks! */
 
-  LIST_ADD_TAIL (unique_IP, &g_unique_ips, ip);
+  smartlist_add (g_unique_ips, ip);
+
   if (ipp)
      *ipp = ip;
   return (true);
@@ -1410,7 +1411,7 @@ static int compare_on_ip (const void *_a, const void *_b)
 static void unique_ips_print (intptr_t service)
 {
   const unique_IP *ip;
-  size_t           i, num;
+  int              i, max, num;
   size_t           indent = 12;
   char            *buf = NULL;
   FILE            *save = Modes.log;
@@ -1424,9 +1425,13 @@ static void unique_ips_print (intptr_t service)
   if (!Modes.log)
      return;
 
-  for (num = 0, ip = g_unique_ips; ip; ip = ip->next)
-      if (ip->service == service)
-         num++;
+  max = g_unique_ips ? smartlist_len (g_unique_ips) : 0;
+  for (i = num = 0; i < max; i++)
+  {
+    ip = smartlist_get (g_unique_ips, i);
+    if (ip->service == service)
+       num++;
+  }
 
   if (num > 0)
   {
@@ -1436,9 +1441,13 @@ static void unique_ips_print (intptr_t service)
        return;
 
     _ip = start;
-    for (ip = g_unique_ips; ip; ip = ip->next)
-        if (ip->service == service)
-           memcpy (_ip++, ip, sizeof(*_ip));
+
+    for (i = 0; i < max; i++)
+    {
+      ip = smartlist_get (g_unique_ips, i);
+      if (ip->service == service)
+         memcpy (_ip++, ip, sizeof(*_ip));
+    }
 
     qsort (start, num, sizeof(*start), compare_on_ip);
 
@@ -1476,27 +1485,29 @@ static void unique_ips_print (intptr_t service)
   Modes.log = save;
 }
 
-static void unique_ips_free (void)
-{
-  unique_IP *ip, *ip_next;
-
-  for (ip = g_unique_ips; ip; ip = ip_next)
-  {
-    ip_next = ip->next;
-    free (ip);
-  }
-  g_unique_ips = NULL;
-}
-
 static bool add_deny (const char *val, bool is_ip6)
 {
-  deny_element *deny = calloc (sizeof(*deny), 1);
+  deny_element *deny;
+  bool no_CIDR;
 
+  if (!g_deny_list &&
+      test_contains(Modes.tests, "config"))  /* called from cfg_file.c */
+     g_deny_list = smartlist_new();
+
+  if (!g_deny_list)
+     return (false);
+
+  deny = calloc (sizeof(*deny), 1);
   if (deny)
   {
+    no_CIDR = (strpbrk(val, "+-/,") == NULL);
+
+    printf ("ip: %s, no_CIDR: %d\n", val, no_CIDR);
+
     strncpy (deny->acl, val, sizeof(deny->acl)-1);
-    deny->is_ip6 = is_ip6;
-    LIST_ADD_TAIL (deny_element, &g_deny_list, deny);
+    deny->no_CIDR = no_CIDR;
+    deny->is_ip6  = is_ip6;
+    smartlist_add (g_deny_list, deny);
   }
   return (true);
 }
@@ -1518,7 +1529,7 @@ bool net_deny6 (const char *val)
  * Loop over `g_deny_list` to check if client `*addr` should be denied.
  * `mg_check_ip_acl()` accepts netmasks.
  */
-static bool client_deny (const mg_addr *addr, int *rc)
+static bool client_deny (const mg_addr *a, int *rc)
 {
   const deny_element *d;
   int   dummy_rc;
@@ -1528,12 +1539,22 @@ static bool client_deny (const mg_addr *addr, int *rc)
 
   *rc = -3;      /* unknown */
 
-  for (d = g_deny_list; d; d = d->next)
+  int i, max = g_deny_list ? smartlist_len (g_deny_list) : 0;
+  for (i = 0; i < max; i++)
   {
+    d = smartlist_get (g_deny_list, i);
     if (d->is_ip6)    /* Mongoose does not support IPv6 here yet */
        continue;
 
-    *rc = mg_check_ip_acl (mg_str(d->acl), (struct mg_addr*)addr);
+    if (d->no_CIDR)
+    {
+      ip_address ip_str;
+
+      net_str_addr (a, ip_str, sizeof(ip_str));
+      *rc = strcmp (d->acl, ip_str);
+      return (*rc == 0);  /* found -> deny */
+    }
+    *rc = mg_check_ip_acl (mg_str(d->acl), (struct mg_addr*)a);
     if (*rc == 1)
        return (true);
   }
@@ -1545,11 +1566,15 @@ static size_t deny_list_dump (bool is_ip6)
   const deny_element *d;
   size_t              num = 0;
 
-  for (d = g_deny_list; d; d = d->next)
+  int i, max = g_deny_list ? smartlist_len (g_deny_list) : 0;
+  for (i = 0; i < max; i++)
   {
+    d = smartlist_get (g_deny_list, i);
     if (d->is_ip6 == is_ip6)
     {
-      printf ("  Added deny ACL: %s.\n", d->acl);
+      if (d->no_CIDR)
+           printf ("  Added deny IP:  %s.\n", d->acl);
+      else printf ("  Added deny ACL: %s.\n", d->acl);
       num++;
     }
   }
@@ -1603,28 +1628,16 @@ static void deny_lists_test (void)
     int  rc;
     bool deny = client_deny (a, &rc);
 
-    printf ("  rc: %d, addr[%zu]: %s -> %s\n",
+    printf ("  rc: %2d, addr[%zu]: %s -> %s\n",
             rc, i, net_str_addr(a, abuf, sizeof(abuf)),
             deny ? "Denied" : "Accepted");
   }
 }
 
-static void deny_lists_tests (void)
+void net_deny_dump (void)
 {
   deny_lists_dump();
   deny_lists_test();
-}
-
-static void deny_list_free (void)
-{
-  deny_element *d, *d_next;
-
-  for (d = g_deny_list; d; d = d_next)
-  {
-    d_next = d->next;
-    free (d);
-  }
-  g_deny_list = NULL;
 }
 
 static size_t deny_list_numX (bool is_ip6)
@@ -1632,9 +1645,13 @@ static size_t deny_list_numX (bool is_ip6)
   const deny_element *d;
   size_t              num = 0;
 
-  for (d = g_deny_list; d; d = d->next)
-      if (d->is_ip6 == is_ip6)
-         num++;
+  int i, max = g_deny_list ? smartlist_len (g_deny_list) : 0;
+  for (i = 0; i < max; i++)
+  {
+    d = smartlist_get (g_deny_list, i);
+    if (d->is_ip6 == is_ip6)
+       num++;
+  }
   return (num);
 }
 
@@ -1706,6 +1723,8 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
       return (!deny);
     }
   }
+
+  -- (*net_num_connections (service));
 
   if (client_is_extern(addr))
   {
@@ -2232,10 +2251,9 @@ static void unique_ip_add_hostile (const char *ip_str, int service)
  */
 static void unique_ip_tests (void)
 {
-  const unique_IP *ip;
-  int              i, service;
-  uint64_t         num;
-  mg_addr          addr;
+  int      i, service;
+  uint64_t num;
+  mg_addr  addr;
 
   printf ("\n%s():\n", __FUNCTION__);
   memset (&addr, '\0', sizeof(addr));
@@ -2270,8 +2288,7 @@ static void unique_ip_tests (void)
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
-    for (num = 0, ip = g_unique_ips; ip; ip = ip->next)
-        num++;
+    num = smartlist_len (g_unique_ips);
     assert (num == Modes.stat.unique_clients [service]);
   }
 
@@ -2345,7 +2362,7 @@ static void net_reverse_write (void)
 {
   const reverse_rec *rr;
   FILE *f;
-  int   num = 0;
+  int   i, max, num = 0;
 
   /* `net_reverse_init()` was not called.
    * Or nothing to write to cache.
@@ -2358,8 +2375,11 @@ static void net_reverse_write (void)
      return;
 
   fprintf (f, "# ip-str,ptr-name,time-stamp,status\n");
-  for (rr = g_reverse_rec; rr; rr = rr->next)
+
+  max = smartlist_len (g_reverse_rec);
+  for (i = 0; i < max; i++)
   {
+    rr = smartlist_get (g_reverse_rec, i);
     fprintf (f, "%s,%s,%lld,%ld\n",
              rr->ip_str,
              rr->ptr_name[0] ? rr->ptr_name : NONE_STR,
@@ -2372,46 +2392,33 @@ static void net_reverse_write (void)
 }
 
 /**
- * Cleanup the reverse-resolver:
- *  \li Write the list to `g_reverse_file`.
- *  \li Free the list.
- */
-static void net_reverse_exit (void)
-{
-  reverse_rec *rr, *rr_next;
-
-  net_reverse_write();
-
-  for (rr = g_reverse_rec; rr; rr = rr_next)
-  {
-    rr_next = rr->next;
-    free (rr);
-  }
-  g_reverse_rec = NULL;
-}
-
-/**
  * Add a new (or modify an existing) record to the `g_reverse_rec` linked-list.
  */
-static
-reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name,
-                              time_t timestamp, DNS_STATUS status)
+static reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name,
+                                     time_t timestamp, DNS_STATUS status)
 {
   reverse_rec *rr;
 
   if (timestamp < g_reverse_maxage)  /* too old; ignore */
      return (NULL);
 
-  /* check if the `ptr_name` has changed.
+  if (!g_reverse_rec)
+     return (NULL);
+
+  /* Check if the `ptr_name` has changed.
    */
-  for (rr = g_reverse_rec; rr; rr = rr->next)
-      if (!strcmp(ip_str, rr->ip_str))
-      {
-        strcpy_s (rr->ptr_name, sizeof(rr->ptr_name), ptr_name);
-        rr->timestamp = timestamp;
-        rr->status    = status;
-        return (rr);
-      }
+  int i, max = smartlist_len (g_reverse_rec);
+  for (i = 0; i < max; i++)
+  {
+    rr = smartlist_get (g_reverse_rec, i);
+    if (!strcmp(ip_str, rr->ip_str))
+    {
+      strcpy_s (rr->ptr_name, sizeof(rr->ptr_name), ptr_name);
+      rr->timestamp = timestamp;
+      rr->status    = status;
+      return (rr);
+    }
+  }
 
   /* not found, allocate a new record.
    */
@@ -2424,7 +2431,7 @@ reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name,
   rr->timestamp = timestamp;
   rr->status    = status;
 
-  LIST_ADD_TAIL (reverse_rec, &g_reverse_rec, rr);
+  smartlist_add (g_reverse_rec, rr);
   return (rr);
 }
 
@@ -2504,6 +2511,7 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
   const char  *indent   = test_mode ? "  " : "";
   bool         do_debug = (test_mode || (Modes.debug & DEBUG_NET2));
   time_t       now;
+  int          i, max;
 
   if (ip_str)
   {
@@ -2521,10 +2529,12 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
 
   now = time (NULL);
 
-  /* check the cache for a match that has not timed-out.
+  /* Check the cache for a match that has not timed-out.
    */
-  for (rr = g_reverse_rec; rr; rr = rr->next)
+  max = g_reverse_rec ? smartlist_len (g_reverse_rec) : 0;
+  for (i = 0; i < max; i++)
   {
+    rr = smartlist_get (g_reverse_rec, i);
     if (!strcmp(ip_str, rr->ip_str) && rr->timestamp > (now - REVERSE_MAX_AGE))
     {
       TRACE ("'%s' found in cache: '%s'\n", ip_str, rr->ptr_name[0] ? rr->ptr_name : NONE_STR);
@@ -2538,7 +2548,6 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
   {
     static const char hex_chars[] = "0123456789abcdef";
     char  *c = request;
-    int    i;
 
     for (i = (int)DIM(a->ip) - 1; i >= 0; i--)
     {
@@ -2697,6 +2706,10 @@ bool net_init (void)
 {
   mg_file_path web_dll;
 
+  g_deny_list   = smartlist_new();
+  g_unique_ips  = smartlist_new();
+  g_reverse_rec = smartlist_new();
+
   test_mode = test_contains (Modes.tests, "net");
 
   snprintf (web_dll, sizeof(web_dll), "%s/%s", Modes.web_root, Modes.web_page);
@@ -2811,6 +2824,13 @@ bool net_init (void)
   LOG_FILEONLY ("Added %zu IPv4 and %zu IPv6 addresses to deny.\n",
                deny_list_num4(), deny_list_num6());
 
+  if (test_mode)
+  {
+    unique_ip_tests();
+    net_deny_dump();
+    reverse_ip_tests();
+  }
+
   /* Setup the RTL_TCP service and possibly rename if '--device udp://host:port' was used.
    */
   if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].host [0])
@@ -2872,22 +2892,12 @@ bool net_init (void)
   if ((Modes.http4_out || Modes.http6_out) && !check_packed_web_page() && !check_web_page())
      return (false);
 
-  if (test_mode)
-  {
-    unique_ip_tests();
-    deny_lists_tests();
-    reverse_ip_tests();
-  }
-
   return (true);
 }
 
 bool net_exit (void)
 {
   uint32_t num = net_conn_free_all();
-
-  unique_ips_free();
-  deny_list_free();
 
 #if defined(USE_PACKED_DLL)
   unload_web_dll();
@@ -2898,7 +2908,19 @@ bool net_exit (void)
   net_timer_del_all();
   mg_mgr_free (&Modes.mgr); /* This calls free() on all timers */
 
-  net_reverse_exit();
+  if (g_reverse_rec)
+  {
+    net_reverse_write();
+    smartlist_wipe (g_reverse_rec, free);
+  }
+
+  if (g_unique_ips)
+     smartlist_wipe (g_unique_ips, free);
+
+  if (g_deny_list)
+     smartlist_wipe (g_deny_list, free);
+
+  g_deny_list = g_unique_ips = g_reverse_rec = NULL;
 
   if (Modes.dns4)
      free (Modes.dns4);
@@ -2925,7 +2947,7 @@ void net_poll (void)
 
   /* Poll Mongoose for network events
    */
-  mg_mgr_poll (&Modes.mgr, MODES_INTERACTIVE_REFRESH_TIME / 2);   /* == 125 msec max */
+  mg_mgr_poll (&Modes.mgr, 50 /* MODES_INTERACTIVE_REFRESH_TIME / 2 */);   /* == 125 msec max */
 
   /* If the RTL_TCP server went away, that's fatal
    */

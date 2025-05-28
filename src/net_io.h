@@ -3,8 +3,7 @@
  *
  * Network functions for Dump1090.
  */
-#ifndef _NET_IO_H
-#define _NET_IO_H
+#pragma once
 
 #include "misc.h"
 
@@ -67,6 +66,7 @@ void        net_connection_send (intptr_t service, const void *msg, size_t len);
 bool        net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
 bool        net_deny4 (const char *val);
 bool        net_deny6 (const char *val);
+void        net_deny_dump (void);
 
 /**
  * Timeout for reception of RTL_TCP data.
@@ -75,6 +75,3 @@ bool        net_deny6 (const char *val);
 
 bool rtl_tcp_set_gain      (mg_connection *c, int16_t gain);
 bool rtl_tcp_set_gain_mode (mg_connection *c, bool autogain);
-
-#endif  /* _NET_IO_H */
-
