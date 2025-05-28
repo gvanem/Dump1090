@@ -11,8 +11,10 @@
 #include "misc.h"
 #include "geo.h"
 #include "interactive.h"
+#include "smartlist.h"
 #include "sqlite3.h"
 #include "zip.h"
+#include "cpr.h"
 #include "aircraft.h"
 
 /**
@@ -142,13 +144,14 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
  */
 static aircraft *aircraft_find (uint32_t addr)
 {
-  aircraft *a = Modes.aircrafts;
+  aircraft *a;
+  int       i, max = smartlist_len (Modes.aircrafts);
 
-  while (a)
+  for (i = 0; i < max; i++)
   {
+    a = smartlist_get (Modes.aircrafts, i);
     if (a->addr == addr)
        return (a);
-    a = a->next;
   }
   return (NULL);
 }
@@ -156,15 +159,19 @@ static aircraft *aircraft_find (uint32_t addr)
 /**
  * Find the aircraft with address `addr` or create a new one.
  */
-aircraft *aircraft_find_or_create (uint32_t addr, uint64_t now)
+static aircraft *aircraft_find_or_create (uint32_t addr, uint64_t now, bool *is_new)
 {
   aircraft *a = aircraft_find (addr);
 
+  *is_new = false;
   if (!a)
   {
     a = aircraft_create (addr, now);
     if (a)
-       LIST_ADD_TAIL (aircraft, &Modes.aircrafts, a);
+    {
+      smartlist_add (Modes.aircrafts, a);
+      *is_new = true;
+    }
   }
   return (a);
 }
@@ -174,12 +181,247 @@ aircraft *aircraft_find_or_create (uint32_t addr, uint64_t now)
  */
 int aircraft_numbers (void)
 {
-  const aircraft *a = Modes.aircrafts;
-  int   num;
+  return smartlist_len (Modes.aircrafts);
+}
 
-  for (num = 0; a; num++)
-      a = a->next;
-  return (num);
+/**
+ * Return the number of valid aircrafts we have now.
+ */
+int aircraft_numbers_valid (void)
+{
+  int   i, valid, max = smartlist_len (Modes.aircrafts);
+  const aircraft *a;
+
+  for (i = valid = 0; i < max; i++)
+  {
+    a = smartlist_get (Modes.aircrafts, i);
+    if (aircraft_valid(a))
+        valid++;
+  }
+  return (valid);
+}
+
+/**
+ * Valid data for aircraft in interactive mode?
+ */
+bool aircraft_valid (const aircraft *a)
+{
+  int  msgs  = a->messages;
+  int  flags = a->mode_AC_flags;
+  bool mode_AC     = (flags & MODEAC_MSG_FLAG);
+  bool mode_A_only = ((flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEA_ONLY)) == MODEAC_MSG_MODEA_ONLY);
+  bool mode_C_old  = (flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD));
+
+  bool valid = (!mode_AC    && msgs > 1) ||
+               (mode_A_only && msgs > 4) ||
+               (!mode_C_old && msgs > 127);
+
+  if (a->addr & MODES_NON_ICAO_ADDRESS)
+     valid = false;
+  return (valid);
+}
+
+static const struct search_list MODES_AC_flags[] = {
+     { MODES_ACFLAGS_ALTITUDE_VALID,     "ALTITUDE_VALID"     },
+     { MODES_ACFLAGS_AOG,                "AOG"                },
+     { MODES_ACFLAGS_AOG_VALID,          "AOG_VALID"          },
+     { MODES_ACFLAGS_LLEVEN_VALID,       "LLEVEN_VALID"       },
+     { MODES_ACFLAGS_LLODD_VALID,        "LLODD_VALID"        },
+     { MODES_ACFLAGS_CALLSIGN_VALID,     "CALLSIGN_VALID"     },
+     { MODES_ACFLAGS_LATLON_VALID,       "LATLON_VALID"       },
+     { MODES_ACFLAGS_ALTITUDE_HAE_VALID, "ALTITUDE_HAE_VALID" },
+     { MODES_ACFLAGS_HAE_DELTA_VALID,    "HAE_DELTA_VALID"    },
+     { MODES_ACFLAGS_HEADING_VALID,      "HEADING_VALID"      },
+     { MODES_ACFLAGS_SQUAWK_VALID,       "SQUAWK_VALID"       },
+     { MODES_ACFLAGS_SPEED_VALID,        "SPEED_VALID"        },
+     { MODES_ACFLAGS_CATEGORY_VALID,     "CATEGORY_VALID"     },
+     { MODES_ACFLAGS_FROM_MLAT,          "FROM_MLAT"          },
+     { MODES_ACFLAGS_FROM_TISB,          "FROM_TISB"          },
+     { MODES_ACFLAGS_VERTRATE_VALID,     "VERTRATE_VALID"     },
+     { MODES_ACFLAGS_REL_CPR_USED,       "REL_CPR_USED"       },
+     { MODES_ACFLAGS_LATLON_REL_OK,      "LATLON_REL_OK"      },
+     { MODES_ACFLAGS_NSEWSPD_VALID,      "NSEWSPD_VALID"      },
+     { MODES_ACFLAGS_FS_VALID,           "FS_VALID"           },
+     { MODES_ACFLAGS_EWSPEED_VALID,      "EWSPEED_VALID"      },
+     { MODES_ACFLAGS_NSSPEED_VALID,      "NSSPEED_VALID"      },
+     { MODES_ACFLAGS_LLBOTH_VALID,       "LLBOTH_VALID"       },
+     { MODES_ACFLAGS_LLEITHER_VALID,     "LLEITHER_VALID"     }
+   };
+
+static const struct search_list MSG_flags[] = {
+     { MODEAC_MSG_FLAG,       "MSG_FLAG"       },
+     { MODEAC_MSG_MODES_HIT,  "MSG_MODES_HIT"  },
+     { MODEAC_MSG_MODEA_HIT,  "MSG_MODEA_HIT"  },
+     { MODEAC_MSG_MODEC_HIT,  "MSG_MODEC_HIT"  },
+     { MODEAC_MSG_MODEA_ONLY, "MSG_MODEA_ONLY" },
+     { MODEAC_MSG_MODEC_OLD,  "MSG_MODEC_OLD"  }
+   };
+
+/**
+ * Decode `aircraft::AC_flags` to figure out which bits make a plane
+ * valid or not for interactive mode.
+ */
+const char *aircraft_AC_flags (enum AIRCRAFT_FLAGS flags)
+{
+  return flags_decode ((DWORD)flags, MODES_AC_flags, DIM(MODES_AC_flags));
+}
+
+/**
+ * Decode `aircraft::mode_AC_flags`
+ */
+const char *aircraft_mode_AC_flags (enum MODEAC_FLAGS flags)
+{
+  return flags_decode ((DWORD)flags, MSG_flags, DIM(MSG_flags));
+}
+
+/**
+ * All compare function fallback to `compare_on_icao()`.
+ */
+static int compare_on_icao (const void **_a, const void **_b)
+{
+  const aircraft *a = *_a;
+  const aircraft *b = *_b;
+
+  if (a->addr < b->addr)
+     return (-1);
+  if (a->addr > b->addr)
+     return (1);
+  return (0);
+}
+
+static int compare_on_altitude (const void **_a, const void **_b)
+{
+  const aircraft *a = *_a;
+  const aircraft *b = *_b;
+
+  if (a->altitude == b->altitude)
+     return compare_on_icao (_a, _b);
+  return (a->altitude - b->altitude);
+}
+
+static int compare_on_distance (const void **_a, const void **_b)
+{
+  const aircraft *a = *_a;
+  const aircraft *b = *_b;
+
+  if (a->distance == b->distance)
+     return compare_on_icao (_a, _b);
+  return (a->distance - b->distance);
+}
+
+static int compare_on_seen (const void **_a, const void **_b)
+{
+  const aircraft *a = *_a;
+  const aircraft *b = *_b;
+
+  if (a->seen_last > b->seen_last)
+     return (-1);
+  if (a->seen_last < b->seen_last)
+     return (1);
+  return compare_on_icao (_a, _b);
+}
+
+static int compare_on_messages (const void **_a, const void **_b)
+{
+  const aircraft *a = *_a;
+  const aircraft *b = *_b;
+
+  if (a->messages > b->messages)
+     return (1);
+  if (a->messages < b->messages)
+     return (-1);
+  return compare_on_icao (_a, _b);
+}
+
+static int compare_on_callsign (const void **_a, const void **_b)
+{
+  const aircraft *a = *_a;
+  const aircraft *b = *_b;
+  const char     *a_p = a->call_sign;
+  const char     *b_p = b->call_sign;
+
+  while (*a_p && isspace(*a_p))
+        a_p++;
+  while (*b_p && isspace(*b_p))
+        b_p++;
+
+  int rc = strcmp (a_p, b_p);
+  if (!*a_p && !*b_p)
+     rc = compare_on_icao (_a, _b);
+  return (rc);
+}
+
+/**
+ * Sort `Modes.aircrafts` list according to `--sort x` option
+ */
+int aircraft_sort (void)
+{
+  int num = smartlist_len (Modes.aircrafts);
+
+  if (num <= 1)   /* no point */
+     return (num);
+
+  switch (Modes.a_sort)
+  {
+    case INTERACTIVE_SORT_CALLSIGN:
+         smartlist_sort (Modes.aircrafts, compare_on_callsign);
+         break;
+    case INTERACTIVE_SORT_ICAO:
+         smartlist_sort (Modes.aircrafts, compare_on_icao);
+         break;
+    case INTERACTIVE_SORT_ALTITUDE:
+         smartlist_sort (Modes.aircrafts, compare_on_altitude);
+         break;
+    case INTERACTIVE_SORT_DISTANCE:
+         smartlist_sort (Modes.aircrafts, compare_on_distance);
+         break;
+    case INTERACTIVE_SORT_SEEN:
+         smartlist_sort (Modes.aircrafts, compare_on_seen);
+         break;
+    case INTERACTIVE_SORT_MESSAGES:
+         smartlist_sort (Modes.aircrafts, compare_on_messages);
+         break;
+    default:
+         assert (false);
+         break;
+  }
+  return smartlist_len (Modes.aircrafts); /* should be the same as 'num' */
+}
+
+/**
+ * Config-callback to set the `Modes.a_sort` method.
+ */
+bool aircraft_set_sort (const char *arg)
+{
+  enum a_sort_t sort;
+
+  if (!stricmp(arg, "callsign") || !stricmp(arg, "call-sign"))
+      sort = INTERACTIVE_SORT_CALLSIGN;
+  else if (!stricmp(arg, "addr") || !stricmp(arg, "icao"))
+     sort = INTERACTIVE_SORT_ICAO;
+  else if (!stricmp(arg, "alt") || !stricmp(arg, "altitude"))
+     sort = INTERACTIVE_SORT_ALTITUDE;
+  else if (!stricmp(arg, "dist") || !stricmp(arg, "distance"))
+     sort = INTERACTIVE_SORT_DISTANCE;
+  else if (!stricmp(arg, "msg") || !stricmp(arg, "messages"))
+     sort = INTERACTIVE_SORT_MESSAGES;
+  else if (!stricmp(arg, "age") || !stricmp(arg, "seen"))
+     sort = INTERACTIVE_SORT_SEEN;
+
+#if 0
+\todo
+        INTERACTIVE_SORT_REGNUM
+        INTERACTIVE_SORT_COUNTRY
+        INTERACTIVE_SORT_DEP_DEST
+#endif
+  else
+  {
+    LOG_STDERR ("Illegal 'sort' method '%s'. Use: 'call-sign', 'icao', 'altitude', "
+                "'distance', 'messages' or 'seen'\n", arg);
+    return (false);
+  }
+  Modes.a_sort = sort;
+  return (true);
 }
 
 /**
@@ -193,7 +435,7 @@ static int CSV_add_entry (const aircraft_info *rec)
 
   /* Not a valid ICAO address. Parse error?
    */
-  if (rec->addr == 0 || rec->addr > 0xFFFFFF)
+  if (rec->addr == 0 || (rec->addr & MODES_NON_ICAO_ADDRESS))
      return (1);
 
   if (!Modes.aircraft_list_CSV || /* Create the initial buffer */
@@ -445,10 +687,13 @@ static void aircraft_test_3 (void)
    */
   for (i = 0; i < num; i++)
   {
-    aircraft *a = aircraft_find_or_create (0x470000 + i, MSEC_TIME());
+    bool      is_new;
+    aircraft *a = aircraft_find_or_create (0x470000 + i, MSEC_TIME(), &is_new);
 
     if (!a)
        break;
+
+    assert (is_new == false);
 
     a->position = Modes.home_pos;
     a->position.lat += random_range2 (-2, 2);
@@ -485,7 +730,7 @@ static int extract_callback (const char *file, void *arg)
 {
   const char *tmp_file = arg;
 
-  TRACE ("Copying extracted file '%s' to '%s'", file, tmp_file);
+  TRACE ("Copying extracted file '%s' to '%s'\n", file, tmp_file);
   if (!CopyFileA (file, tmp_file, FALSE))
      LOG_STDERR ("CopyFileA (\"%s\", \"%s\") failed: %s\n", file, tmp_file, win_strerror(GetLastError()));
   return (0);
@@ -499,7 +744,7 @@ static int extract_callback (const char *file, void *arg)
  *  3) copy `%TEMP%\\dump1090\\aircraft-database-temp.csv` over to 'db_file'.
  *  4) remove `aircraft_sql` to force a rebuild of it.
  */
-bool aircraft_CSV_update (const char *db_file, const char *url)
+static bool aircraft_CSV_update (const char *db_file, const char *url)
 {
   struct stat  st;
   bool         force_it = false;
@@ -628,7 +873,7 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
 /**
  * Initialize the SQL aircraft-database name.
  */
-bool aircraft_SQL_set_name (void)
+static bool aircraft_SQL_set_name (void)
 {
   if (strcmp(Modes.aircraft_db, "NUL"))
   {
@@ -637,7 +882,7 @@ bool aircraft_SQL_set_name (void)
     memset (&st, '\0', sizeof(st));
     snprintf (aircraft_sql, sizeof(aircraft_sql), "%s.sqlite", Modes.aircraft_db);
     have_sql_file = (stat (aircraft_sql, &st) == 0) && (st.st_size > 8*1024);
-    TRACE ("Aircraft Sqlite database \"%s\", size: %ld", aircraft_sql, have_sql_file ? st.st_size : 0);
+    TRACE ("Aircraft Sqlite database \"%s\", size: %ld\n", aircraft_sql, have_sql_file ? st.st_size : 0);
 
     if (!have_sql_file)
        DeleteFileA (aircraft_sql);
@@ -670,7 +915,7 @@ static double aircraft_SQL_load (bool *created, bool *opened, struct stat *st_cs
   if (!have_sql_file)
   {
     TRACE ("Aircraft Sqlite database \"%s\" does not exist.\n"
-           "Creating new from \"%s\".\n", aircraft_sql, Modes.aircraft_db);
+           "Creating new from \"%s\".\n\n", aircraft_sql, Modes.aircraft_db);
     *created = sql_create();
     if (*created)
        have_sql_file = true;
@@ -681,7 +926,7 @@ static double aircraft_SQL_load (bool *created, bool *opened, struct stat *st_cs
   stat (aircraft_sql, &st);
   diff_days = (st_csv->st_mtime - st.st_mtime) / (3600*24);
 
-  TRACE ("'%s' is %d days %s than the CSV-file",
+  TRACE ("'%s' is %d days %s than the CSV-file\n",
          aircraft_sql, abs(diff_days), diff_days < 0 ? "newer" : "older");
   usec = get_usec_now();
   *opened = sql_open();
@@ -693,7 +938,7 @@ static double aircraft_SQL_load (bool *created, bool *opened, struct stat *st_cs
  *
  * But if the .sqlite file exist, use that instead.
  */
-bool aircraft_CSV_load (void)
+static bool aircraft_CSV_load (void)
 {
   static bool done = false;
   struct stat st_csv;
@@ -744,7 +989,7 @@ bool aircraft_CSV_load (void)
       return (false);
     }
 
-    TRACE ("Parsed %u records from: \"%s\"", Modes.aircraft_num_CSV, Modes.aircraft_db);
+    TRACE ("Parsed %u records from: \"%s\"\n", Modes.aircraft_num_CSV, Modes.aircraft_db);
 
     if (Modes.aircraft_num_CSV > 0)
     {
@@ -777,10 +1022,10 @@ bool aircraft_CSV_load (void)
 
   if (test_contains(Modes.tests, "aircraft"))
   {
-    TRACE ("CSV loaded and parsed in %.3f ms", csv_load_t/1E3);
+    TRACE ("CSV loaded and parsed in %.3f ms\n", csv_load_t/1E3);
     if (sql_create_t > 0.0)
-         TRACE ("SQL created in %.3f ms", sql_create_t/1E3);
-    else TRACE ("SQL loaded in %.3f ms", sql_load_t/1E3);
+         TRACE ("SQL created in %.3f ms\n", sql_create_t/1E3);
+    else TRACE ("SQL loaded in %.3f ms\n", sql_load_t/1E3);
 
     return aircraft_tests();
   }
@@ -844,7 +1089,7 @@ static const ICAO_range ICAO_ranges [] = {
     { 0x074000, 0x0743FF, "SC", "Seychelles" },
     { 0x076000, 0x0763FF, "SL", "Sierra Leone" },
     { 0x078000, 0x078FFF, "SO", "Somalia" },
-    { 0x07A000, 0x07A3FF, "SZ", "Swaziland" },  // Now Eswatini
+    { 0x07A000, 0x07A3FF, "SZ", "Swaziland" },  /* Now Eswatini */
     { 0x07C000, 0x07CFFF, "SD", "Sudan" },
     { 0x080000, 0x080FFF, "TZ", "Tanzania" },
     { 0x084000, 0x084FFF, "TD", "Chad" },
@@ -889,9 +1134,10 @@ static const ICAO_range ICAO_ranges [] = {
     { 0x380000, 0x3BFFFF, "FR", "France" },
     { 0x3C0000, 0x3FFFFF, "DE", "Germany" },
 
-    // UK territories are officially part of the UK range
-    // add extra entries that are above the UK and take precedence
-    // this is a mess ... let's still try
+    /* UK territories are officially part of the UK range
+     * add extra entries that are above the UK and take precedence
+     * this is a mess ... let's still try
+     */
     { 0x400000, 0x4001BF, "BM", "Bermuda" },
     { 0x4001C0, 0x4001FF, "KY", "Cayman Islands" },
     { 0x400300, 0x4003FF, "TC", "Turks & Caicos Islands" },
@@ -903,7 +1149,8 @@ static const ICAO_range ICAO_ranges [] = {
     { 0x43E700, 0x43EAFD, "IM", "Isle of Man" },
     { 0x43EAFE, 0x43EEFF, "GG", "Guernsey" },
 
-    // catch all United Kingdom for the even more obscure stuff
+    /* Catch all United Kingdom for the even more obscure stuff
+     */
     { 0x400000, 0x43FFFF, "GB", "United Kingdom" },
     { 0x440000, 0x447FFF, "AT", "Austria" },
     { 0x448000, 0x44FFFF, "BE", "Belgium" },
@@ -916,7 +1163,7 @@ static const ICAO_range ICAO_ranges [] = {
     { 0x480000, 0x487FFF, "NL", "Netherland" },
     { 0x488000, 0x48FFFF, "PL", "Poland" },
     { 0x490000, 0x497FFF, "PT", "Portugal" },
-    { 0x498000, 0x49FFFF, "CZ", "Czechia" },  // previously 'Czech Republic'
+    { 0x498000, 0x49FFFF, "CZ", "Czechia" },  /* previously 'Czech Republic' */
     { 0x4A0000, 0x4A7FFF, "RO", "Romania" },
     { 0x4A8000, 0x4AFFFF, "SE", "Sweden" },
     { 0x4B0000, 0x4B7FFF, "CH", "Switzerland" },
@@ -1145,17 +1392,16 @@ const char *aircraft_get_military (uint32_t addr)
 }
 
 /**
- * Return the hex-string for the 24-bit ICAO address in `_a[0..2]`.
+ * Return the hex-string for the 24-bit ICAO address in `addr`.
  * Also look for the registration number and manufacturer from
  * the CSV or SQL data structures.
  */
-const char *aircraft_get_details (const uint8_t *_a)
+const char *aircraft_get_details (uint32_t addr)
 {
   static char          buf [100];
   const aircraft_info *a;
   char                *p = buf;
   size_t               sz, left = sizeof(buf);
-  uint32_t             addr = AIRCRAFT_GET_ADDR (_a);
 
   sz = snprintf (p, left, "%06X", addr);
   p    += sz;
@@ -1166,6 +1412,35 @@ const char *aircraft_get_details (const uint8_t *_a)
      snprintf (p, left, " (reg-num: %s, manuf: %s, call-sign: %s%s)",
                a->reg_num, a->manufact[0] ? a->manufact : "?", a->call_sign[0] ? a->call_sign : "?",
                aircraft_is_military(addr, NULL) ? ", Military" : "");
+  return (buf);
+}
+
+/**
+ * Return some extra info on entering / leaving planes.
+ * Not effective unless `--debug g` (or `--debug G`) is used.
+ */
+const char *aircraft_extra_info (const aircraft *a)
+{
+  static char buf [1000];
+  char       *p   = buf;
+  const char *end = p + sizeof(buf) - 1;
+
+  if (!(Modes.debug & DEBUG_GENERAL))
+     return ("");
+
+  p += snprintf (p, end - p, ".\n              messages: %u", a->messages);
+
+  if (a->AC_flags & MODES_ACFLAGS_CATEGORY_VALID)
+       p += snprintf (p, end - p, ", category: 0x%02X", a->category);
+  else p += snprintf (p, end - p, ", category: <none>");
+
+  if (a->AC_flags & MODES_ACFLAGS_SQUAWK_VALID)
+       p += snprintf (p, end - p, ", squawk: 0x%04X", a->identity);
+  else p += snprintf (p, end - p, ", squawk: <none>");
+
+  p += snprintf (p, end - p, "\n              AC_flags: %s",
+                 aircraft_AC_flags(a->AC_flags));
+
   return (buf);
 }
 
@@ -1198,7 +1473,7 @@ bool aircraft_match_init (const char *arg)
        legal = false;
   }
 
-  TRACE ("Argments '%.*s' used as ICAO-filter. legal: %d, invert: %d",
+  TRACE ("Argments '%.*s' used as ICAO-filter. legal: %d, invert: %d\n",
          (int)Modes.icao_filter.len, Modes.icao_filter.buf, legal, Modes.icao_invert);
 
   if (!legal)
@@ -1209,7 +1484,7 @@ bool aircraft_match_init (const char *arg)
 /**
  * Match the ICAO-address in `_a` against `Modes.icao_filter`.
  */
-bool aircraft_match (const uint8_t *_a)
+bool aircraft_match (uint32_t a)
 {
   char addr [10];
   int  rc;
@@ -1219,7 +1494,7 @@ bool aircraft_match (const uint8_t *_a)
 
   assert (Modes.icao_filter.len > 0);
 
-  snprintf (addr, sizeof(addr), "%06X", AIRCRAFT_GET_ADDR(_a));
+  snprintf (addr, sizeof(addr), "%06X", a);
   rc = mg_match (mg_str(addr), Modes.icao_filter, NULL);
   if (Modes.icao_invert)
      rc ^= true;
@@ -1271,7 +1546,7 @@ static const aircraft_info *SQL_lookup_entry (uint32_t addr)
 
   if (rc != SQLITE_OK)
   {
-    TRACE ("SQL error: rc: %d, %s", rc, err_msg);
+    TRACE ("SQL error: rc: %d, %s\n", rc, err_msg);
     sqlite3_free (err_msg);
     if (rc == SQLITE_MISUSE)
        aircraft_exit (false);
@@ -1285,7 +1560,15 @@ static const aircraft_info *SQL_lookup_entry (uint32_t addr)
 
 static void sql_log (void *cb_arg, int err, const char *str)
 {
-  TRACE ("err: %d, %s", err, str);
+#if defined(SQLITE_DQS) && (SQLITE_DQS > 0)
+  /*
+   * Ignore this warning
+   */
+  if (err == SQLITE_WARNING && str_startswith(str, "double-quoted string literal"))
+     return;
+#endif
+
+  TRACE ("err: %d, %s\n", err, str);
   (void) cb_arg;
 }
 
@@ -1302,7 +1585,7 @@ static bool sql_init (const char *what, int flags)
   rc = sqlite3_open_v2 (aircraft_sql, &Modes.sql_db, flags, NULL);
   if (rc != SQLITE_OK)
   {
-    TRACE ("Can't %s database: rc: %d, %s", what, rc, sqlite3_errmsg(Modes.sql_db));
+    TRACE ("Can't %s database: rc: %d, %s\n", what, rc, sqlite3_errmsg(Modes.sql_db));
     aircraft_exit (false);
     return (false);
   }
@@ -1328,7 +1611,7 @@ static bool sql_create (void)
   if (rc != SQLITE_OK &&
       strcmp(err_msg, "table aircrafts already exists")) /* ignore this "error" */
   {
-    TRACE ("rc: %d, %s", rc, err_msg);
+    TRACE ("rc: %d, %s\n", rc, err_msg);
     sqlite3_free (err_msg);
     aircraft_exit (false);
     return (false);
@@ -1348,7 +1631,7 @@ static bool sql_begin (void)
 
   if (rc != SQLITE_OK)
   {
-    TRACE ("rc: %d, %s", rc, err_msg);
+    TRACE ("rc: %d, %s\n", rc, err_msg);
     sqlite3_free (err_msg);
   }
   return (rc == SQLITE_OK);
@@ -1361,7 +1644,7 @@ static bool sql_end (void)
 
   if (rc != SQLITE_OK)
   {
-    TRACE ("rc: %d, %s", rc, err_msg);
+    TRACE ("rc: %d, %s\n", rc, err_msg);
     sqlite3_free (err_msg);
   }
   return (rc == SQLITE_OK);
@@ -1407,7 +1690,7 @@ static bool sql_add_entry (uint32_t num, const aircraft_info *rec)
 
   if (rc != SQLITE_OK)
   {
-    TRACE ("\nError at record %u: rc:%d, err_msg: %s\nvalues: '%s'", num, rc, err_msg, values);
+    TRACE ("\nError at record %u: rc:%d, err_msg: %s\nvalues: '%s'\n", num, rc, err_msg, values);
     sqlite3_free (err_msg);
     return (false);
   }
@@ -1434,12 +1717,62 @@ static double get_signal (const aircraft *a)
   return (10 * log10 (sum / 8 + 1.125E-5));
 }
 
+static char *append_flags (int flags, char *buf)
+{
+  char *p = buf;
+
+  *p++ = '[';
+
+  if (flags & MODES_ACFLAGS_SQUAWK_VALID)
+     p += sprintf (p, "\"squawk\",");
+
+  if (flags & MODES_ACFLAGS_CALLSIGN_VALID)
+     p += sprintf (p, "\"callsign\",");
+
+  if (flags & MODES_ACFLAGS_LATLON_VALID)
+     p += sprintf (p, "\"lat\",\"lon\",");
+
+  if (flags & MODES_ACFLAGS_ALTITUDE_VALID)
+     p += sprintf (p, "\"altitude\",");
+
+  if (flags & MODES_ACFLAGS_HEADING_VALID)
+     p += sprintf (p, "\"track\",");
+
+  if (flags & MODES_ACFLAGS_SPEED_VALID)
+     p += sprintf (p, "\"speed\",");
+
+  if (flags & MODES_ACFLAGS_VERTRATE_VALID)
+     p += sprintf (p, "\"vert_rate\",");
+
+  if (flags & MODES_ACFLAGS_CATEGORY_VALID)
+     p += sprintf (p, "\"category\",");
+
+  p = strrchr (buf, ',');
+  if (p)
+     *p = '\0';
+  *p++ = ']';
+  *p = '\0';
+
+  return (buf);
+}
+
+#define ASSERT_LEFT(_left, p, ret) do {                                      \
+        if (left < _left) {                                                  \
+           fprintf (stderr, "Internal error (line %u): left: %d, p: '%s'\n", \
+                    __LINE__, left, p);                                      \
+           fflush (stderr);                                                  \
+           Modes.exit = Modes.internal_error = true;                         \
+           return (ret);                                                     \
+        }                                                                    \
+      } while (0)
+
 /**
  * Fill the JSON buffer `p` for one aircraft.
+ * This assumes it could need upto `AIRCRAFT_JSON_BUF_LEN/5` (4 kByte) for one aircraft.
  */
-static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, char *p, int left)
+static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, char *p, int left, uint64_t now)
 {
-  size_t sz;
+  size_t size;
   char  *p_start = p;
   int    altitude = a->altitude;
   int    speed    = a->speed;
@@ -1453,39 +1786,136 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
     speed    = (int) (1.852 * (double) a->speed);
   }
 
-  sz = mg_snprintf (p, left,
-                    "{\"hex\": \"%06X\", \"flight\": \"%s\", \"lat\": %f, \"lon\": %f, \"altitude\": %d, \"track\": %d, \"speed\": %d",
-                     a->addr,
-                     a->call_sign,
-                     a->position.lat,
-                     a->position.lon,
-                     altitude,
-                     a->heading,
-                     speed);
+  size = mg_snprintf (p, left, "{\"hex\": \"%s%06X\"",
+                      (a->addr & MODES_NON_ICAO_ADDRESS) ? "~" : "",
+                      a->addr & MODES_ICAO_ADDRESS_MASK);
+  p    += size;
+  left -= (int)size;
 
-  p    += sz;
-  left -= (int)sz;
-  assert (left > 100);
+  if (a->AC_flags & MODES_ACFLAGS_CALLSIGN_VALID)
+  {
+    size  = mg_snprintf (p, left, ",\"flight\":\"%s\"", a->call_sign);
+    p    += size;
+    left -= (int)size;
+  }
+
+  if (a->AC_flags & MODES_ACFLAGS_LATLON_VALID)
+  {
+    size  = mg_snprintf (p, left, ",\"lat\":%f,\"lon\":%f,\"nucp\":%u,\"seen_pos\":%.1f",
+                         a->position.lat, a->position.lon, a->pos_nuc, (now - a->seen_pos) / 1000.0);
+    p    += size;
+    left -= (int)size;
+  }
+
+  if ((a->AC_flags & MODES_ACFLAGS_AOG_VALID) && (a->AC_flags & MODES_ACFLAGS_AOG))
+  {
+    size  = mg_snprintf (p, left, ",\"altitude\":\"ground\"");
+    p    += size;
+    left -= (int)size;
+  }
+  else if (a->AC_flags & MODES_ACFLAGS_ALTITUDE_VALID)
+  {
+    size  = mg_snprintf (p, left, ",\"altitude\":%d", altitude);
+    p    += size;
+    left -= (int)size;
+  }
+
+  if (a->AC_flags & MODES_ACFLAGS_VERTRATE_VALID)
+  {
+    size  = mg_snprintf (p, left, ",\"vert_rate\":%d", a->vert_rate);
+    p    += size;
+    left -= (int)size;
+  }
+
+  if (a->AC_flags & MODES_ACFLAGS_HEADING_VALID)
+  {
+    size  = mg_snprintf (p, left, ",\"track\":%d", a->heading);
+    p    += size;
+    left -= (int)size;
+  }
+
+  if (a->AC_flags & MODES_ACFLAGS_SPEED_VALID)
+  {
+    size  = mg_snprintf (p, left, ",\"speed\":%d", speed);
+    p    += size;
+    left -= (int)size;
+  }
+
+  if (a->AC_flags & MODES_ACFLAGS_SQUAWK_VALID)
+  {
+    size = mg_snprintf (p, left, ",\"squawk\":\"%04x\"", a->identity);
+    p    += size;
+    left -= (int)size;
+  }
+
+  if (a->AC_flags & MODES_ACFLAGS_CATEGORY_VALID)
+  {
+    size  = mg_snprintf (p, left, ",\"category\":\"%02X\"", a->category);
+    p    += size;
+    left -= (int)size;
+  }
+
+#if 0
+  if (a->adsb_version >= 0)
+  {
+    size = mg_snprintf (p, left, ",\"version\":%d", a->adsb_version);
+    p    += size;
+    left -= (int)size;
+  }
+#endif
+
+  ASSERT_LEFT (100, p_start, 0);
 
   if (extended_client)
   {
-    sz = mg_snprintf (p, left,
-                      ", \"type\": \"adsb_icao\", \"messages\": %u, \"seen\": %lu, \"seen_pos\": %lu",
-                      a->messages, 2, 1 /* tv_now.tv_sec - a->seen_first/1000 */);
-    p    += sz;
-    left -= (int)sz;
+    char flag_buf [200];
+
+    if (a->MLAT_flags)
+    {
+      size  = mg_snprintf (p, left, ",\"mlat\":%s", append_flags(a->MLAT_flags, flag_buf));
+      p    += size;
+      left -= (int)size;
+    }
+    if (a->TISB_flags)
+    {
+      size  = mg_snprintf (p, left, ",\"tisb\":%s", append_flags(a->TISB_flags, flag_buf));
+      p    += size;
+      left -= (int)size;
+    }
+
+#if 0
+    if (a->addrtype != ADDR_ADSB_ICAO)
+    {
+      size  = mg_snprintf (p, left, ",\"type\":\"%s\"", addrtype_enum_string(a->addrtype));
+      p    += size;
+      left -= (int)size;
+    }
+#endif
+
+    double delta_t;
+
+    if (now < a->seen_last)
+         delta_t = 0.0;
+    else delta_t = (double)(now - a->seen_last) / 1000.0;
+
+    size = mg_snprintf (p, left, ",\"messages\": %u, \"seen\": %.1lf", a->messages, delta_t);
+    p    += size;
+    left -= (int)size;
+
     if (Modes.web_send_rssi)
     {
-      sz = mg_snprintf (p, left, ", \"rssi\": %.1lf", get_signal(a));
-      p    += sz;
-      left -= (int)sz;
+      size  = mg_snprintf (p, left, ",\"rssi\": %.1lf", get_signal(a));
+      p    += size;
+      left -= (int)size;
     }
   }
 
-  assert (left > 3);
+  ASSERT_LEFT (3, p_start, 0);
+
   *p++ = '}';
   *p++ = ',';
   *p++ = '\n';
+
   return (p - p_start);
 }
 
@@ -1517,19 +1947,27 @@ static size_t aircraft_make_1_json (const aircraft *a, bool extended_client, cha
 char *aircraft_make_json (bool extended_client)
 {
   static uint32_t json_file_num = 0;
-  struct timeval tv_now;
-  aircraft      *a = Modes.aircrafts;
-  int            size, left = 1024;    /* The initial buffer is incremented as needed */
-  uint32_t       aircrafts = 0;
-  char          *buf = malloc (left);
-  char          *p = buf;
+  static uint32_t json_high_size = 0;
+  struct timeval  tv_now;
+  uint64_t        now;
+  int             size;
+  int             left = AIRCRAFT_JSON_BUF_LEN;    /* 20kB; the initial buffer is incremented as needed */
+  int             i, max;
+  uint32_t        aircrafts = 0;
+  char           *buf, *p;
 
+  if (Modes.internal_error)
+     return (NULL);
+
+  buf = p = malloc (left);
   if (!buf)
      return (NULL);
 
+  _gettimeofday (&tv_now, NULL);
+  now = (1000 * (uint64_t)tv_now.tv_sec) + (tv_now.tv_usec / 1000);
+
   if (extended_client)
   {
-    _gettimeofday (&tv_now, NULL);
     size = mg_snprintf (p, left,
                         "{\"now\":%lu.%03lu, \"messages\":%llu, \"aircraft\":\n",
                         tv_now.tv_sec, tv_now.tv_usec/1000, Modes.stat.messages_total);
@@ -1540,27 +1978,57 @@ char *aircraft_make_json (bool extended_client)
   *p++ = '[';   /* Start the json array */
   left--;
 
-  for (a = Modes.aircrafts; a; a = a->next)
+  max = smartlist_len (Modes.aircrafts);
+  for (i = 0; i < max; i++)
   {
-    if (!VALID_POS(a->position))
+    const aircraft *a = smartlist_get (Modes.aircrafts, i);
+
+    if (a->mode_AC_flags & MODEAC_MSG_FLAG)  /* skip any fudged ICAO records Mode A/C */
        continue;
 
-    size  = aircraft_make_1_json (a, extended_client, p, left);
+    if (a->messages <= 1)   /* basic filter for bad decodes */
+       continue;
+
+#if 1
+    if (!VALID_POS(a->position))
+       continue;
+#else
+    if (!(a->AC_flags & MODES_ACFLAGS_LATLON_VALID))
+       continue;
+#endif
+
+    size = aircraft_make_one_json (a, extended_client, p, left, now);
+    if (size > (int)json_high_size)
+    {
+      json_high_size = size;
+      if (json_high_size > Modes.stat.json_highest_size)
+         Modes.stat.json_highest_size = json_high_size;
+    }
+
     p    += size;
     left -= size;
-    assert (left > 0);
+
+//  ASSERT_LEFT (100, buf, NULL);
+
     aircrafts++;
 
-    if (left < 256)    /* Resize 'buf' if needed */
+    if (left < AIRCRAFT_JSON_BUF_LEN/5)   /* Resize 'buf' if needed */
     {
       int used = p - buf;
 
-      left += 1024;    /* Our increment */
+      left += AIRCRAFT_JSON_BUF_LEN;      /* Our increment; 20kB */
       buf = realloc (buf, used + left);
       if (!buf)
          return (NULL);
 
       p = buf + used;
+      if (used + left > (int)json_high_size)
+      {
+        json_high_size = used + left;
+        if (json_high_size > Modes.stat.json_highest_size)
+           Modes.stat.json_highest_size = json_high_size;
+      }
+
     }
   }
 
@@ -1570,7 +2038,7 @@ char *aircraft_make_json (bool extended_client)
     left += 2;
   }
 
-  assert (left > 3);
+  ASSERT_LEFT (3, buf, NULL);
 
   *p++ = ']';   /* Close the json array */
 
@@ -1591,14 +2059,100 @@ char *aircraft_make_json (bool extended_client)
  * Free a single aircraft `a` from the global list
  * `Modes.aircrafts`.
  */
-static aircraft *aircraft_free (aircraft *a)
+static void aircraft_free (aircraft *a)
 {
-  aircraft *a_next = a->next;
-
-  LIST_DELETE (aircraft, &Modes.aircrafts, a);
   free (a->SQL);
   free (a);
-  return (a_next);
+}
+
+/**
+ * Periodically search through the list of known Mode-S aircraft and tag them if this
+ * Mode A/C  matches their known Mode S Squawks or Altitudes (+/- 50 feet).
+ *
+ * A Mode S equipped aircraft may also respond to Mode A and Mode C SSR interrogations.
+ * We can't tell if this is a Mode A or C, so scan through the entire aircraft list
+ * looking for matches on Mode A (squawk) and Mode C (altitude). Flag in the Mode S
+ * records that we have had a potential Mode A or Mode C response from this aircraft.
+ *
+ * If an aircraft responds to Mode A then it's highly likely to be responding to mode C
+ * too, and vice verca. Therefore, once the mode S record is tagged with both a Mode A
+ * and a Mode C flag, we can be fairly confident that this Mode A/C frame relates to that
+ * Mode S aircraft.
+ *
+ * Mode C's are more likely to clash than Mode A's; there could be several aircraft
+ * cruising at FL370, but it's less likely (though not impossible) that there are two
+ * aircraft on the same squawk. Therefore, give precidence to Mode A record matches.
+ *
+ * \note It's theoretically possible for an aircraft to have the same value for Mode A
+ *       and Mode C. Therefore we have to check BOTH A AND C for EVERY S.
+ */
+static void aircraft_update_mode_A (aircraft *a1)
+{
+  aircraft *a2;
+  int       i, max = smartlist_len (Modes.aircrafts);
+
+  for (i = 0; i < max; i++)
+  {
+    a2 = smartlist_get (Modes.aircrafts, i);
+
+    if (!(a2->mode_AC_flags & MODEAC_MSG_FLAG))   /* skip any fudged ICAO records */
+    {
+      /* If both (a1) and (a2) have valid squawks
+       */
+      if ((a1->AC_flags & a2->AC_flags) & MODES_ACFLAGS_SQUAWK_VALID)
+      {
+        /* ...check for Mode-A == Mode-S Squawk matches
+         */
+        if (a1->identity == a2->identity)   /* If a 'real' Mode-S ICAO exists using this Mode-A Squawk */
+        {
+          a2->mode_A_count = a1->messages;
+          a2->mode_AC_flags |= MODEAC_MSG_MODEA_HIT;
+          a1->mode_AC_flags |= MODEAC_MSG_MODEA_HIT;
+          if ((a2->mode_A_count > 0) &&
+             ((a2->mode_C_count > 1) ||
+             (a1->mode_AC_flags & MODEAC_MSG_MODEA_ONLY))) /* Allow Mode-A only matches if this Mode-A is invalid Mode-C */
+          {
+            a1->mode_AC_flags |= MODEAC_MSG_MODES_HIT;     /* flag this ModeA/C probably belongs to a known Mode S */
+          }
+        }
+      }
+
+      /* If both (a1) and (a2) have valid altitudes
+       */
+      if ((a1->AC_flags & a2->AC_flags) & MODES_ACFLAGS_ALTITUDE_VALID)
+      {
+        /* ... check for Mode-C == Mode-S Altitude matches
+         */
+        if (a1->altitude_C     == a2->altitude_C     ||  /* If a 'real' Mode-S ICAO exists at this Mode-C Altitude */
+            a1->altitude_C     == a2->altitude_C + 1 ||  /* or this Mode-C - 100 ft */
+            a1->altitude_C + 1 == a2->altitude_C)        /* or this Mode-C + 100 ft */
+        {
+          a2->mode_C_count = a1->messages;
+          a2->mode_AC_flags |= MODEAC_MSG_MODEC_HIT;
+          a1->mode_AC_flags |= MODEAC_MSG_MODEC_HIT;
+          if (a2->mode_A_count > 0 && a2->mode_C_count > 1)
+          {
+            /* flag this ModeA/C probably belongs to a known Mode S
+             */
+            a1->mode_AC_flags |= (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD);
+          }
+        }
+      }
+    }
+  }
+}
+
+static void aircraft_update_mode_S (aircraft *a)
+{
+  int flags = a->mode_AC_flags;
+
+  if (flags & MODEAC_MSG_FLAG)  /* find any fudged ICAO records */
+  {
+    /* Clear the current A,C and S hit bits ready for this attempt
+     */
+    a->mode_AC_flags = flags & ~(MODEAC_MSG_MODEA_HIT | MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODES_HIT);
+    aircraft_update_mode_A (a);  /* and attempt to match them with Mode-S */
+  }
 }
 
 /**
@@ -1606,16 +2160,17 @@ static aircraft *aircraft_free (aircraft *a)
  *
  * If we don't receive new nessages within `Modes.interactive_ttl`
  * milli-seconds, we remove the aircraft from the list.
+ *
+ * Also call `aircraft_update_mode_S(a)` and `aircraft_update_mode_A()` in the same loop.
  */
 void aircraft_remove_stale (uint64_t now)
 {
-  aircraft *a, *a_next;
+  int i, max = smartlist_len (Modes.aircrafts);
 
-  for (a = Modes.aircrafts; a; a = a_next)
+  for (i = 0; i < max; i++)
   {
-    int64_t diff = (int64_t) (now - a->seen_last);
-
-    a_next = a->next;
+    aircraft *a = smartlist_get (Modes.aircrafts, i);
+    int64_t   diff = (int64_t) (now - a->seen_last);
 
     /* Mark this plane for a "last time" view on next refresh?
      */
@@ -1625,13 +2180,27 @@ void aircraft_remove_stale (uint64_t now)
     }
     else if (diff > Modes.interactive_ttl)
     {
-      /* Remove the element from the linked list.
+      if (a->addr && a->addr == Modes.a_follow)
+         LOG_UNFOLLOW (a);
+
+      /* Remove the element from the smartlist.
        * \todo
        * Perhaps copy it to a `aircraft_may_reenter` list?
        * Or leave it in the list with show-state as `A_SHOW_NONE`.
        */
       aircraft_free (a);
+      smartlist_del (Modes.aircrafts, i);
+      max--;
+      continue;
     }
+
+    if ((a->AC_flags & MODES_ACFLAGS_LATLON_VALID) && diff > Modes.interactive_ttl)
+    {
+      /* Position is too old and no longer valid
+       */
+      a->AC_flags &= ~(MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
+    }
+    aircraft_update_mode_S (a);
   }
 }
 
@@ -1649,13 +2218,13 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   pos_t       epos;
   uint32_t    speed = round ((double)a->speed * 1.852);  /* Km/h */
 
-  if (!Modes.home_pos_ok || speed == 0 || !a->heading_is_valid)
+  if (!Modes.home_pos_ok || speed == 0 || !(a->AC_flags & MODES_ACFLAGS_HEADING_VALID))
      return;
 
-  if (!VALID_POS(a->EST_position) || a->EST_seen_last < a->seen_last)
+  if (!VALID_POS(a->position_EST) || a->seen_pos_EST < a->seen_last)
      return;
 
-  ASSERT_POS (a->EST_position);
+  ASSERT_POS (a->position_EST);
 
   /* If some issue with speed changing too fast,
    * use the last good speed.
@@ -1663,7 +2232,7 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   if (a->speed_last && abs((int)speed - (int)a->speed_last) > 20)
      speed = a->speed_last;
 
-  epos = a->EST_position;
+  epos = a->position_EST;
   geo_spherical_to_cartesian (a, &epos, &cpos);
 
   /* Ensure heading is in range '[-Phi .. +Phi]'
@@ -1676,7 +2245,7 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
 
   /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
    */
-  distance = 0.001852 * (double)speed * (now - a->EST_seen_last);
+  distance = 0.001852 * (double)speed * (now - a->seen_pos_EST);
 
   delta_X = distance * sin (a->heading_rad);
   delta_Y = distance * cos (a->heading_rad);
@@ -1692,13 +2261,13 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
     return;
   }
 
-  a->EST_seen_last = now;
-  a->EST_position  = epos;
-  ASSERT_POS (a->EST_position);
+  a->seen_pos_EST = now;
+  a->position_EST = epos;
+  ASSERT_POS (a->position_EST);
 
-  gc_distance     = geo_great_circle_dist (a->EST_position, Modes.home_pos);
+  gc_distance     = geo_great_circle_dist (a->position_EST, Modes.home_pos);
   cart_distance   = geo_cartesian_distance (a, &cpos, &Modes.home_pos_cart);
-  a->EST_distance = geo_closest_to (a->EST_distance, gc_distance, cart_distance);
+  a->distance_EST = geo_closest_to (a->distance_EST, gc_distance, cart_distance);
 
 #if 0
   LOG_FILEONLY ("%s %04X: heading: %+7.1lf, delta_X: %+8.3lf, delta_Y: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
@@ -1720,15 +2289,35 @@ void aircraft_show_stats (void)
               Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV, Modes.stat.unique_aircrafts_SQL);
 
 #if 0  /**\todo print details on unique aircrafts */
-  const ac_unique *a;
-  char  comment [100];
-  size_t  num = 0;
+  char comment [100];
+  int  i, max = smartlist_len (g_a_unique);
 
-  for (a = g_ac_unique; a; a = a->next, num++)
+  for (i = num = 0; i < max; i++)
   {
-
+    const aircraft *a = smartlist_get (g_a_unique, i);
   }
 #endif
+}
+
+bool aircraft_init (void)
+{
+  Modes.aircrafts = smartlist_new();
+  if (!Modes.aircrafts)
+  {
+    LOG_STDERR ("`smartlist_new()` failed.\n");
+    return (false);
+  }
+
+  aircraft_SQL_set_name();
+
+  if (strcmp(Modes.aircraft_db, "NUL") && (Modes.aircraft_db_url || Modes.update))
+  {
+    if (!aircraft_CSV_update(Modes.aircraft_db, Modes.aircraft_db_url))
+       return (false);
+    if (!aircraft_CSV_load() && !Modes.update)
+       return (false);
+  }
+  return (true);
 }
 
 /**
@@ -1739,8 +2328,6 @@ void aircraft_show_stats (void)
  */
 void aircraft_exit (bool free_aircrafts)
 {
-  aircraft *a, *a_next;
-
   if (Modes.sql_db)
      sqlite3_close (Modes.sql_db);
   Modes.sql_db = NULL;
@@ -1749,10 +2336,378 @@ void aircraft_exit (bool free_aircrafts)
      return;
 
   /* Remove all active aircrafts from the list.
+   * And free the list itself.
    */
-  for (a = Modes.aircrafts; a; a = a_next)
-      a_next = aircraft_free (a);
-
+  if (Modes.aircrafts)
+  {
+    smartlist_wipe (Modes.aircrafts, (smartlist_free_func)aircraft_free);
+    Modes.aircrafts = NULL;
+  }
   free (Modes.aircraft_list_CSV);
   Modes.aircraft_list_CSV = NULL;
+}
+
+/**
+ * We got a new CPR position from `mm->raw_longitude` and/or `mm->raw_latitude`
+ * in `decode_extended_squitter()`.
+ *
+ * Handle it by calling the appropriate cpr.c function.
+ */
+static void aircraft_update_pos (aircraft *a, modeS_message *mm, uint64_t now)
+{
+  int      CPR_result = -1;
+  int      max_elapsed;
+  pos_t    new_pos = { 0.0, 0.0 };
+  unsigned new_nuc = 0;
+
+  if (mm->AC_flags & MODES_ACFLAGS_AOG)
+       Modes.stat.cpr_surface++;
+  else Modes.stat.cpr_airborne++;
+
+  if (mm->AC_flags & MODES_ACFLAGS_AOG)
+  {
+    /* Surface: 25 seconds if >25kt or speed unknown, 50 seconds otherwise
+     */
+    if ((mm->AC_flags & MODES_ACFLAGS_SPEED_VALID) && mm->velocity <= 25)
+         max_elapsed = 50000;
+    else max_elapsed = 25000;
+  }
+  else
+  {
+    /* Airborne: 10 seconds
+     */
+    max_elapsed = 10000;
+  }
+
+  if (mm->AC_flags & MODES_ACFLAGS_LLODD_VALID)
+  {
+    a->odd_CPR_nuc  = mm->nuc_p;
+    a->odd_CPR_lat  = mm->raw_latitude;
+    a->odd_CPR_lon  = mm->raw_longitude;
+    a->odd_CPR_time = now;
+  }
+  else
+  {
+    a->even_CPR_nuc  = mm->nuc_p;
+    a->even_CPR_lat  = mm->raw_latitude;
+    a->even_CPR_lon  = mm->raw_longitude;
+    a->even_CPR_time = now;
+  }
+
+  /* If we have enough recent data, try global CPR
+   */
+  if (((mm->AC_flags | a->AC_flags) & MODES_ACFLAGS_LLEITHER_VALID) == MODES_ACFLAGS_LLBOTH_VALID &&
+      abs((int)(a->even_CPR_time - a->odd_CPR_time)) <= max_elapsed)
+  {
+    CPR_result = cpr_do_global (a, mm, now, &new_pos, &new_nuc);
+
+    if (CPR_result == -2)
+    {
+      if (mm->AC_flags & MODES_ACFLAGS_FROM_MLAT)
+         CPR_TRACE ("failure from MLAT (%06X)\n", a->addr);
+
+      /* Global CPR failed because the position produced implausible results.
+       * This is bad data. Discard both odd and even messages and wait for a fresh pair.
+       * Also disable aircraft-relative positions until we have a new good position (but don't discard the
+       * recorded position itself)
+       */
+      Modes.stat.cpr_global_bad++;
+      a->AC_flags &= ~(MODES_ACFLAGS_LATLON_REL_OK | MODES_ACFLAGS_LLODD_VALID | MODES_ACFLAGS_LLEVEN_VALID);
+
+      /* Also discard the current message's data as it is suspect -
+       * we don't want to update any of the aircraft state from this.
+       */
+      mm->AC_flags &= ~(MODES_ACFLAGS_LATLON_VALID   |
+                        MODES_ACFLAGS_LLODD_VALID    |
+                        MODES_ACFLAGS_LLEVEN_VALID   |
+                        MODES_ACFLAGS_ALTITUDE_VALID |
+                        MODES_ACFLAGS_SPEED_VALID    |
+                        MODES_ACFLAGS_HEADING_VALID  |
+                        MODES_ACFLAGS_NSEWSPD_VALID  |
+                        MODES_ACFLAGS_VERTRATE_VALID |
+                        MODES_ACFLAGS_AOG_VALID      |
+                        MODES_ACFLAGS_AOG);
+      return;
+    }
+
+    if (CPR_result == -1)
+    {
+      if (mm->AC_flags & MODES_ACFLAGS_FROM_MLAT)
+         CPR_TRACE ("skipped from MLAT (%06X)\n", a->addr);
+
+      /* No local reference for surface position available, or the two messages crossed a zone.
+       * Nonfatal, try again later.
+       */
+      Modes.stat.cpr_global_skipped++;
+    }
+    else
+    {
+      Modes.stat.cpr_global_ok++;
+    }
+  }
+
+  /* Otherwise try relative CPR
+   */
+  if (CPR_result == -1)
+  {
+    CPR_result = cpr_do_local (a, mm, now, &new_pos, &new_nuc);
+
+    if (CPR_result == -1)
+    {
+      Modes.stat.cpr_local_skipped++;
+    }
+    else
+    {
+      Modes.stat.cpr_local_ok++;
+      if (a->AC_flags & MODES_ACFLAGS_LATLON_REL_OK)
+           Modes.stat.cpr_local_aircraft_relative++;
+      else Modes.stat.cpr_local_receiver_relative++;
+      mm->AC_flags |= MODES_ACFLAGS_REL_CPR_USED;
+    }
+  }
+
+  if (CPR_result == 0)   /* okay */
+  {
+    /* If we sucessfully decoded, back copy the results to 'mm'
+     * so that we can print them in list output
+     */
+    mm->AC_flags |= MODES_ACFLAGS_LATLON_VALID;
+    mm->position = new_pos;
+
+    /* Update aircraft state
+     */
+    a->AC_flags |= (MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
+    a->position = new_pos;
+    a->pos_nuc  = new_nuc;
+    a->distance = geo_great_circle_dist (Modes.home_pos, a->position);
+    a->seen_pos = a->seen_last;
+/*  aircraft_update_histogram (a); */ /**< \todo Add periodic histogram */
+  }
+}
+
+/**
+ * Handle a new message `mm`.
+ * Find and modify the aircraft state or create a new aircraft.
+ */
+aircraft *aircraft_update_from_message (modeS_message *mm)
+{
+  aircraft *a;
+  uint64_t  now = MSEC_TIME();
+  bool      is_new;      /* a new aircraft for this message? */
+
+  a = aircraft_find_or_create (mm->addr, now, &is_new);
+  if (!a)
+     return (NULL);
+
+  if (a->addr && Modes.a_follow == 0)
+     LOG_FOLLOW (a);
+
+  if (mm->sig_level > 0)
+  {
+    a->sig_levels [a->sig_idx++] = mm->sig_level;
+    a->sig_idx &= DIM(a->sig_levels) - 1;
+  }
+
+  a->seen_last = now;
+  a->messages++;
+
+  if (is_new)
+  {
+    int i;
+
+   /* set initial signal-levels
+    */
+    for (i = 0; i < DIM(a->sig_levels); i++)
+        a->sig_levels [i] = 1E-5;
+    a->sig_idx = 0;
+
+   /* copy the first message so we can use it later.
+    */
+    a->first_msg = *mm;
+
+    /* mm->msg_type 32 is used to represent Mode A/C. These values can never change,
+     * so set them once here during initialisation, and don't bother to set them every
+     * time this ModeA/C is received again in the future
+     */
+    if (mm->msg_type == 32)
+    {
+      int modeC = mode_A_to_mode_C (mm->identity | mm->flight_status);
+
+      a->mode_AC_flags = MODEAC_MSG_FLAG;
+      if (modeC < -12)
+         a->mode_AC_flags |= MODEAC_MSG_MODEA_ONLY;
+      else
+      {
+        mm->altitude = modeC * 100;
+        mm->AC_flags |= MODES_ACFLAGS_ALTITUDE_VALID;
+      }
+    }
+  }
+
+  /* if the Aircraft has landed or taken off since the last message, clear the even/odd CPR flags
+   */
+  if ((mm->AC_flags & MODES_ACFLAGS_AOG_VALID) && ((a->AC_flags ^ mm->AC_flags) & MODES_ACFLAGS_AOG))
+     a->AC_flags &= ~(MODES_ACFLAGS_LLBOTH_VALID | MODES_ACFLAGS_AOG);
+
+  /* If we've got a new CPR_lat or CPR_lon
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_LLEITHER_VALID)
+     aircraft_update_pos (a, mm, now);
+
+  /* If a (new) CALLSIGN has been received, copy it to the aircraft structure
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_CALLSIGN_VALID)
+     memcpy (a->call_sign, mm->flight, sizeof(a->call_sign));
+
+  /* If a (new) ALTITUDE has been received, copy it to the aircraft structure
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_ALTITUDE_VALID)
+  {
+    if (a->mode_C_count                                 /* if we've a 'mode_C_count' already */
+        && a->altitude       != mm->altitude            /* and Altitude has changed */
+/*      && a->altitude_C     != mm->altitude_C + 1 */   /* and Altitude not changed by +100 feet */
+/*      && a->altitude_C + 1 != mm->altitude_C */       /* and Altitude not changes by -100 feet */
+       )
+    {
+      a->mode_C_count = 0;               /* zero the hit count */
+      a->mode_AC_flags &= ~MODEAC_MSG_MODEC_HIT;
+    }
+
+    /* If we received an altitude in a (non-MLAT) DF17/18 squitter recently, ignore
+     * DF0/4/16/20 altitudes as single-bit errors can attribute them to the wrong
+     * aircraft
+     */
+    if (((a->AC_flags & ~a->MLAT_flags) & MODES_ACFLAGS_ALTITUDE_VALID) &&
+        (now - a->seen_altitude) < 15000 &&
+        ((a->AC_flags & ~a->MLAT_flags) & MODES_ACFLAGS_LATLON_VALID) &&
+        (now - a->seen_pos) < 15000 &&
+        mm->msg_type != 17 &&
+        mm->msg_type != 18)
+    {
+      Modes.stat.suppressed_altitude_messages++;
+    }
+    else
+    {
+      a->altitude      = mm->altitude;
+      a->altitude_C    = (mm->altitude + 49) / 100;
+      a->seen_altitude = now;
+
+      /* Reporting of HAE and baro altitudes is mutually exclusive
+       * so if we see a baro altitude, assume the HAE altitude is invalid
+       * we will recalculate it from baro + HAE delta below, where possible
+       */
+      a->AC_flags &= ~MODES_ACFLAGS_ALTITUDE_HAE_VALID;
+    }
+  }
+
+  /* If a (new) HAE altitude has been received, copy it to the aircraft structure
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_ALTITUDE_HAE_VALID)
+  {
+    a->altitude_HAE = mm->altitude_HAE;
+
+    /* Reporting of HAE and baro altitudes is mutually exclusive
+     * if you have both, you're meant to report baro and a HAE delta,
+     * so if we see explicit HAE then assume the delta is invalid too
+     */
+    a->AC_flags &= ~(MODES_ACFLAGS_ALTITUDE_VALID | MODES_ACFLAGS_HAE_DELTA_VALID);
+  }
+
+  /* If a (new) HAE/barometric difference has been received, copy it to the aircraft structure
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_HAE_DELTA_VALID)
+  {
+    a->HAE_delta = mm->HAE_delta;
+
+    /* Reporting of HAE and baro altitudes is mutually exclusive
+     * if you have both, you're meant to report baro and a HAE delta,
+     * so if we see a HAE delta then assume the HAE altitude is invalid
+     */
+    a->AC_flags &= ~MODES_ACFLAGS_ALTITUDE_HAE_VALID;
+  }
+
+  /* If a (new) SQUAWK has been received, copy it to the aircraft structure
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_SQUAWK_VALID)
+  {
+    if (a->identity != mm->identity)
+    {
+      a->mode_A_count = 0;   /* Squawk has changed, so zero the hit count */
+      a->mode_AC_flags &= ~MODEAC_MSG_MODEA_HIT;
+    }
+    a->identity = mm->identity;
+  }
+
+  /* If a (new) HEADING has been received, copy it to the aircraft structure
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_HEADING_VALID)
+  {
+    a->heading = mm->heading;
+    a->AC_flags |= MODES_ACFLAGS_HEADING_VALID;
+  }
+
+  /* If a (new) SPEED has been received, copy it to the aircraft structure
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_SPEED_VALID)
+  {
+    a->speed = mm->velocity;
+    a->seen_speed = now;
+  }
+
+  /* If a (new) Vertical Descent rate has been received, copy it to the aircraft structure
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_VERTRATE_VALID)
+     a->vert_rate = mm->vert_rate;
+
+  /* If a (new) category has been received, copy it to the aircraft structure
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_CATEGORY_VALID)
+     a->category = mm->category;
+
+  /* Update the aircrafts `a->AC_flags` to reflect the newly received `mm->AC_flags`
+   */
+  a->AC_flags |= mm->AC_flags;
+
+  /* If we have a baro altitude and a HAE delta from baro, calculate the HAE altitude
+   */
+  if ((a->AC_flags & MODES_ACFLAGS_ALTITUDE_VALID) && (a->AC_flags & MODES_ACFLAGS_HAE_DELTA_VALID))
+  {
+    a->altitude_HAE = a->altitude + a->HAE_delta;
+    a->AC_flags |= MODES_ACFLAGS_ALTITUDE_HAE_VALID;
+  }
+
+  /* Update `a->MLAT_flags`. These indicate which bits in `a->AC_flags`
+   * were last set based on a MLAT-derived message.
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_FROM_MLAT)
+       a->MLAT_flags = (a->MLAT_flags & a->AC_flags) | mm->AC_flags;
+  else a->MLAT_flags = (a->MLAT_flags & a->AC_flags) & ~mm->AC_flags;
+
+  /* Same for TIS-B:
+   */
+  if (mm->AC_flags & MODES_ACFLAGS_FROM_TISB)
+       a->TISB_flags = (a->TISB_flags & a->AC_flags) | mm->AC_flags;
+  else a->TISB_flags = (a->TISB_flags & a->AC_flags) & ~mm->AC_flags;
+
+  if (mm->msg_type == 32)
+  {
+    int flags = a->mode_AC_flags;
+
+    if ((flags & (MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODEC_OLD)) == MODEAC_MSG_MODEC_OLD)
+    {
+      /*
+       * This Mode-C doesn't currently hit any known Mode-S, but it used to because MODEAC_MSG_MODEC_OLD is set.
+       * So the aircraft it used to match has either changed altitude, or gone out of our receiver distance.
+       *
+       * We've now received this Mode-A/C again, so it must be a new aircraft. It could be another aircraft
+       * at the same Mode-C altitude, or it could be a new aircraft with a new Mods-A squawk.
+       *
+       * To avoid masking this aircraft from the interactive display, clear the MODEAC_MSG_MODES_OLD flag
+       * and set messages to 1;
+       */
+      a->mode_AC_flags = flags & ~MODEAC_MSG_MODEC_OLD;
+      a->messages = 1;
+    }
+  }
+  return (a);
 }
