@@ -24,7 +24,8 @@ and added some more references and screen-shots. But in the source-code I've don
 * An embedded **[Mongoose](https://www.cesanta.com/)** HTTP server that displays
   the currently detected aircrafts on an OpenStreet Map.<nl>
   Hopefully WebSocket support is coming soon (JScript and Json transfer is rather chatty).
-* Single bit errors correction using the 24 bit CRC.
+* Decoders for 2.0 MS/s, 2.4 MS/s (default) and 8 MS/s are built-in. 8 MS/s is for SDRPlay only.
+* Single and two bit errors correction using the 24 bit CRC.
 * Ability to decode *DF11*, *DF17* messages (**Downlink Format**).
 * Ability to decode formats like *DF0*, *DF4*, *DF5*, *DF16*, *DF20* and *DF21*
   where the checksum is *XORed* with the ICAO address by brute forcing the
