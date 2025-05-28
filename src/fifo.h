@@ -70,21 +70,21 @@ typedef struct mag_buf {
 typedef void (*demod_func) (const struct mag_buf *mag);
 
 /**
- * Create the queue structures. Not threadsafe.
+ * Initialize the queue structures. Not threadsafe.
  * Returns true on success.
  *
  * \param in buffer_count  the number of buffers to preallocate
  * \param in buffer_size   the size of each magnitude buffer, in samples, including overlap
  * \param in overlap       the number of samples to overlap between adjacent buffers
  */
-bool fifo_create (unsigned buffer_count, unsigned buffer_size, unsigned overlap);
+bool fifo_init (unsigned buffer_count, unsigned buffer_size, unsigned overlap);
 
 /**
- * Destroy the fifo structures allocated in fifo_create().
+ * Cleanup the fifo structures allocated in fifo_create().
  * Not threadsafe.
  * Ensure all FIFO users are done before calling.
  */
-void fifo_destroy (void);
+void fifo_exit (void);
 
 /**
  * Block until the FIFO is empty.

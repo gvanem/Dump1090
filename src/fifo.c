@@ -24,7 +24,7 @@ static bool      fifo_halted = false;          /**< true if queue has been halte
 /**
  * Create the queue structures. Not threadsafe.
  */
-bool fifo_create (unsigned buffer_count, unsigned buffer_size, unsigned overlap)
+bool fifo_init (unsigned buffer_count, unsigned buffer_size, unsigned overlap)
 {
   unsigned i;
 
@@ -65,7 +65,7 @@ bool fifo_create (unsigned buffer_count, unsigned buffer_size, unsigned overlap)
   return (true);
 
 nomem:
-  fifo_destroy();
+  fifo_exit();
   return (false);
 }
 
@@ -81,7 +81,7 @@ static void free_buffer_list (mag_buf *head)
   }
 }
 
-void fifo_destroy (void)
+void fifo_exit (void)
 {
   free_buffer_list (fifo_head);
   fifo_head = fifo_tail = NULL;

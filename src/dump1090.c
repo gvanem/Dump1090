@@ -619,7 +619,7 @@ static bool modeS_init_hardware (void)
     Modes.bytes_per_sample = 4;
   }
 
-  if (!fifo_create(MODES_MAG_BUFFERS, MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
+  if (!fifo_init(MODES_MAG_BUFFERS, MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
   {
     LOG_STDERR ("Out of memory allocating FIFO\n");
     return (false);
@@ -3569,7 +3569,7 @@ static void modeS_exit (void)
   demod_8000_free();
 
   if (Modes.FIFO_active)
-     fifo_destroy();
+     fifo_exit();
   Modes.FIFO_active = false;
 
   convert_cleanup (&Modes.converter_state);
