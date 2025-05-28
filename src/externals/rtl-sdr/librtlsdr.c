@@ -822,6 +822,12 @@ static int List_Devices (int index, found_device *found)
   if (DeviceInfoSet)
      SetupDiDestroyDeviceInfoList (DeviceInfoSet);
 
+  if (index >= count)
+  {
+    RTL_TRACE (2, "Requested index: %d not in range: 0 - %d\n", index, count - 1);
+    last_error = ERROR_INVALID_PARAMETER;
+  }
+
   return (count);
 }
 
@@ -1899,7 +1905,7 @@ int rtlsdr_set_sample_rate (rtlsdr_dev_t *dev, uint32_t samp_rate)
   /* Check if the rate is supported by the resampler
    */
   if ((samp_rate <= 225000) || (samp_rate > 3200000) ||
-       ((samp_rate > 300000) && (samp_rate <= 900000)))
+      ((samp_rate > 300000) && (samp_rate <= 900000)))
   {
     RTL_TRACE (1, "Invalid sample rate: %u Hz\n", samp_rate);
     return (-EINVAL);
