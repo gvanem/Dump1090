@@ -22,24 +22,26 @@ static_assert (SDRPLAY_API_VERSION >= 3.14F, "Need SDRPlay API >= 3.14 to compil
 #define USE_8BIT_SAMPLES        1
 
 #if USE_8BIT_SAMPLES
-  #define SAMPLE_TYPE uint8_t
+  #define SAMPLE_TYPE      uint8_t
+  #define SAMPLE_TYPE_STR "uint8_t"
 #else
-  #define SAMPLE_TYPE uint16_t
+  #define SAMPLE_TYPE      uint16_t
+  #define SAMPLE_TYPE_STR "uint16_t"
 #endif
 
-#define CALL_FUNC(func, ...)                                   \
-        do {                                                   \
-          sdrplay_api_ErrT rc = (*sdr.func) (__VA_ARGS__);     \
-          if (rc != sdrplay_api_Success)                       \
-          {                                                    \
-            sdrplay_store_error (rc);                          \
-            TRACE ( "%s(): %d / %s", #func, rc, sdr.last_err); \
-          }                                                    \
-          else                                                 \
-          {                                                    \
-            sdrplay_clear_error();                             \
-            TRACE ( "%s(): OKAY", #func);                      \
-          }                                                    \
+#define CALL_FUNC(func, ...)                                     \
+        do {                                                     \
+          sdrplay_api_ErrT rc = (*sdr.func) (__VA_ARGS__);       \
+          if (rc != sdrplay_api_Success)                         \
+          {                                                      \
+            sdrplay_store_error (rc);                            \
+            TRACE ( "%s(): %d / %s\n", #func, rc, sdr.last_err); \
+          }                                                      \
+          else                                                   \
+          {                                                      \
+            sdrplay_clear_error();                               \
+            TRACE ( "%s(): OKAY\n", #func);                      \
+          }                                                      \
         } while (0)
 
 struct sdrplay_priv {
@@ -155,8 +157,8 @@ static bool sdrplay_load_funcs (void)
 
   /* These 2 names better be the same
    */
-  TRACE ("full_name: '%s'", full_name);
-  TRACE ("dll_name:  '%s'", Modes.sdrplay.dll_name);
+  TRACE ("full_name: '%s'\n", full_name);
+  TRACE ("dll_name:  '%s'\n", Modes.sdrplay.dll_name);
   return (true);
 }
 
@@ -284,7 +286,7 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
   switch (event_id)
   {
     case sdrplay_api_PowerOverloadChange:
-         TRACE ("sdrplay_api_PowerOverloadChange: sdrplay_api_AgcEvent, tuner=%s powerOverloadChangeType=%s",
+         TRACE ("sdrplay_api_PowerOverloadChange: sdrplay_api_AgcEvent, tuner=%s powerOverloadChangeType=%s\n",
                 sdrplay_tuner_name(tuner), sdrplay_overload_name(params->powerOverloadParams.powerOverloadChangeType));
 
          CALL_FUNC (sdrplay_api_Update, sdr.handle, tuner,
@@ -293,7 +295,7 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
          break;
 
     case sdrplay_api_RspDuoModeChange:
-         TRACE ("sdrplay_api_RspDuoModeChange, tuner=%s modeChangeType=%s",
+         TRACE ("sdrplay_api_RspDuoModeChange, tuner=%s modeChangeType=%s\n",
                 sdrplay_tuner_name(tuner), sdrplay_duo_event(params->rspDuoModeParams.modeChangeType));
 
          if (params->rspDuoModeParams.modeChangeType == sdrplay_api_MasterInitialised)
@@ -325,7 +327,7 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
          break;
 
     case sdrplay_api_GainChange:
-         TRACE ("sdrplay_api_GainChange, tuner=%s gRdB=%d lnaGRdB=%d systemGain=%.2f",
+         TRACE ("sdrplay_api_GainChange, tuner=%s gRdB=%d lnaGRdB=%d systemGain=%.2f\n",
                 sdrplay_tuner_name(tuner),
                 params->gainParams.gRdB,
                 params->gainParams.lnaGRdB,
@@ -333,15 +335,15 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
          break;
 
     case sdrplay_api_DeviceRemoved:
-         TRACE ("sdrplay_api_DeviceRemoved");
+         TRACE ("sdrplay_api_DeviceRemoved\n");
          break;
 
     case sdrplay_api_DeviceFailure:
-         TRACE ("sdrplay_api_DeviceFailure");
+         TRACE ("sdrplay_api_DeviceFailure\n");
          break;
 
     default:
-         TRACE ("unknown event %d", event_id);
+         TRACE ("unknown event %d\n", event_id);
          break;
   }
 
@@ -526,7 +528,7 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
 
   device = sdr.devices + 0;  /* start checking the 1st device returned */
 
-  TRACE ("wanted_name: \"sdrplay%s\", wanted_index: %d. Found %d devices",
+  TRACE ("wanted_name: \"sdrplay%s\", wanted_index: %d. Found %d devices\n",
          wanted_name, wanted_index, sdr.num_devices);
 
   for (i = 0; i < (int)sdr.num_devices; i++)
@@ -560,7 +562,7 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
       snprintf (current_dev, sizeof(current_dev), "RSP%d !!??", sdr.devices[i].hwVer);
     }
 
-    TRACE ("Device Index %d: %s   - SerialNumber = %s", i, current_dev, sdr.devices[i].SerNo);
+    TRACE ("Device Index %d: %s   - SerialNumber = %s\n", i, current_dev, sdr.devices[i].SerNo);
 
     if (select_this == -1)
     {
@@ -626,7 +628,7 @@ int sdrplay_read_async (sdrplay_dev *device,
   sdr.ch_params = (sdr.chosen_dev->tuner == sdrplay_api_Tuner_A) ?
                   sdr.dev_params->rxChannelA : sdr.dev_params->rxChannelB;
 
-  TRACE ("tuner: '%s', ch-A: 0x%p, ch-B: 0x%p",
+  TRACE ("tuner: '%s', ch-A: 0x%p, ch-B: 0x%p\n",
          sdrplay_tuner_name(sdr.chosen_dev->tuner),
          sdr.dev_params->rxChannelA,
          sdr.dev_params->rxChannelB);
@@ -718,12 +720,12 @@ int sdrplay_read_async (sdrplay_dev *device,
 
   if (Modes.sdrplay.USB_bulk_mode)
   {
-    TRACE ("Using USB bulk mode");
+    TRACE ("Using USB bulk mode\n");
     sdr.dev_params->devParams->mode = Modes.sdrplay.USB_bulk_mode;
   }
   else
   {
-    TRACE ("Using USB isochronous mode (default)");
+    TRACE ("Using USB isochronous mode (default)\n");
     sdr.dev_params->devParams->mode = sdrplay_api_ISOCH;
   }
 
@@ -734,11 +736,12 @@ int sdrplay_read_async (sdrplay_dev *device,
   else tuner = '?';
 
   TRACE ("'Tuner_%c': sample-rate: %.0f MS/s, adsbMode: %s.\n"
-         "                           decimation-enable: %d, decimation-factor: %d",
+         "                           decimation-enable: %d, decimation-factor: %d, SAMPLE_TYPE: %s\n",
          tuner, sdr.dev_params->devParams->fsFreq.fsHz / 1E6,
          sdrplay_adsb_mode(sdr.ch_params->ctrlParams.adsbMode),
          sdr.ch_params->ctrlParams.decimation.enable,
-         sdr.ch_params->ctrlParams.decimation.decimationFactor);
+         sdr.ch_params->ctrlParams.decimation.decimationFactor,
+         SAMPLE_TYPE_STR);
 
   CALL_FUNC (sdrplay_api_Init, sdr.handle, &sdr.callbacks, NULL);
   if (sdr.last_rc != sdrplay_api_Success)
@@ -757,10 +760,10 @@ int sdrplay_read_async (sdrplay_dev *device,
     Sleep (1000);
     if (*(volatile bool*) sdr.rx_context)
     {
-      TRACE ("'exit' was set");
+      TRACE ("'exit' was set\n");
       break;
     }
-    TRACE ("rx_num_callbacks: %llu, sdr.max_sig: %6d, sdr.rx_data_idx: %6u",
+    TRACE ("rx_num_callbacks: %llu, sdr.max_sig: %6d, sdr.rx_data_idx: %6u\n",
            sdr.rx_num_callbacks, sdr.max_sig, sdr.rx_data_idx);
   }
   return (0);
@@ -819,7 +822,7 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
 {
   *device = NULL;
 
-  TRACE ("name: '%s', index: %d", name, index);
+  TRACE ("name: '%s', index: %d\n", name, index);
 
   sdr.chosen_dev = NULL;
   sdr.last_rc    = -1;  /* no idea yet */
@@ -852,7 +855,7 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   if (!sdrplay_load_funcs())
      goto failed;
 
-  TRACE ("Optional (ver. 3.14) function 'sdrplay_api_GetLastErrorByType()' %sfound",
+  TRACE ("Optional (ver. 3.14) function 'sdrplay_api_GetLastErrorByType()' %sfound\n",
          sdr.sdrplay_api_GetLastErrorByType ? "" : "not ");
 
   CALL_FUNC (sdrplay_api_Open);
@@ -867,11 +870,11 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   if (sdr.last_rc != sdrplay_api_Success)
      goto failed;
 
-  TRACE ("sdrplay_api_ApiVersion(): '%.2f', min_version: '%.2f', build version: '%.2f'",
+  TRACE ("sdrplay_api_ApiVersion(): '%.2f', min_version: '%.2f', build version: '%.2f'\n",
          sdr.version, Modes.sdrplay.min_version, SDRPLAY_API_VERSION);
 
   if (sdr.version == 3.10F && SDRPLAY_API_VERSION == 3.11F)
-     TRACE ("ver 3.10 and ver 3.11 should be compatible.");
+     TRACE ("ver 3.10 and ver 3.11 should be compatible\n");
 
   else if (sdr.version < Modes.sdrplay.min_version)
   {
@@ -891,11 +894,11 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
 
   if (sdr.last_rc != sdrplay_api_Success || !sdr.dev_params)
   {
-    TRACE ("sdrplay_api_GetDeviceParams() failed: %s'", sdr.last_err);
+    TRACE ("sdrplay_api_GetDeviceParams() failed: '%s'\n", sdr.last_err);
     goto failed;
   }
 
-  TRACE ("device: 0x%p, ch-A: 0x%p, ch-B: 0x%p",
+  TRACE ("device: 0x%p, ch-A: 0x%p, ch-B: 0x%p\n",
          sdr.chosen_dev, sdr.dev_params->rxChannelA, sdr.dev_params->rxChannelB);
 
   *device = sdr.chosen_dev;
@@ -1015,7 +1018,7 @@ bool sdrplay_set_dll_name (const char *arg)
   attr = INVALID_FILE_ATTRIBUTES;
   len  = GetFullPathName (arg, sizeof(dll), dll, NULL);
 
-  TRACE ("dll: '%s', len: %lu, attr: 0x%08lx", dll, len, attr);
+  TRACE ("dll: '%s', len: %lu, attr: 0x%08lx\n", dll, len, attr);
   if (len > 0)
      attr = GetFileAttributes (dll);
   else if (attr != FILE_ATTRIBUTE_NORMAL)
