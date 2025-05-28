@@ -6,21 +6,21 @@
  * Copyright (c) 2020 FlightAware LLC
  * Copyright (c) 2025 Gisle Vanem
  *
- * Rewritten to use Win-8+ SDK function; no pesky Pthreads.
+ * Rewritten to use Win-8+ SDK function; no pesky PThreads.
  */
 #include "misc.h"
 
-static CRITICAL_SECTION   fifo_mutex;          /** mutex protecting the queues */
-static CONDITION_VARIABLE fifo_notempty_cond;  /** condition used to signal FIFO-not-empty */
-static CONDITION_VARIABLE fifo_empty_cond;     /** condition used to signal FIFO-empty */
-static CONDITION_VARIABLE fifo_free_cond;      /** condition used to signal freelist-not-empty */
+static CRITICAL_SECTION   fifo_mutex;          /**< mutex protecting the queues */
+static CONDITION_VARIABLE fifo_notempty_cond;  /**< condition used to signal FIFO-not-empty */
+static CONDITION_VARIABLE fifo_empty_cond;     /**< condition used to signal FIFO-empty */
+static CONDITION_VARIABLE fifo_free_cond;      /**< condition used to signal freelist-not-empty (by `fifo_acquire()`) */
 
-static mag_buf  *fifo_head;                    /** head of queued buffers awaiting demodulation */
-static mag_buf  *fifo_tail;                    /** tail of queued buffers awaiting demodulation */
-static mag_buf  *fifo_freelist;                /** freelist of preallocated buffers */
-static u_int     overlap_length;               /** desired overlap size in samples (size of overlap_buffer) */
-static uint16_t *overlap_buffer;               /** buffer used to save overlapping data */
-static bool      fifo_halted = false;          /** true if queue has been halted */
+static mag_buf  *fifo_head;                    /**< head of queued buffers awaiting demodulation */
+static mag_buf  *fifo_tail;                    /**< tail of queued buffers awaiting demodulation */
+static mag_buf  *fifo_freelist;                /**< freelist of preallocated buffers */
+static u_int     overlap_length;               /**< desired overlap size in samples (size of overlap_buffer) */
+static uint16_t *overlap_buffer;               /**< buffer used to save overlapping data */
+static bool      fifo_halted = false;          /**< true if queue has been halted */
 
 /**
  * Create the queue structures. Not threadsafe.
@@ -101,21 +101,13 @@ void fifo_drain (void)
   EnterCriticalSection (&fifo_mutex);
 
   while (fifo_head && !fifo_halted)
-  {
-    TRACE ("%s(): fifo_head: 0x%p, fifo_mutex.OwningThread: %lu",
-           __FUNCTION__, fifo_head,
-           GetThreadId (((RTL_CRITICAL_SECTION*)&fifo_mutex)->OwningThread));
+      SleepConditionVariableCS (&fifo_empty_cond, &fifo_mutex, INFINITE);
 
-    SleepConditionVariableCS (&fifo_empty_cond, &fifo_mutex, INFINITE);
-  }
   LeaveCriticalSection (&fifo_mutex);
 }
 
 void fifo_halt (void)
 {
-  TRACE ("%s(): fifo_halted: %d, fifo_mutex.OwningThread: %lu",
-         __FUNCTION__, fifo_halted, GetThreadId(((RTL_CRITICAL_SECTION*)&fifo_mutex)->OwningThread));
-
   EnterCriticalSection (&fifo_mutex);
 
   /* Drain all enqueued buffers to the freelist
@@ -143,8 +135,6 @@ void fifo_halt (void)
 mag_buf *fifo_acquire (uint32_t timeout_ms)
 {
   mag_buf *result = NULL;
-
-  TRACE ("%s(): fifo_halted: %d", __FUNCTION__, fifo_halted);
 
   EnterCriticalSection (&fifo_mutex);
 
@@ -182,6 +172,8 @@ mag_buf *fifo_acquire (uint32_t timeout_ms)
   }
 
 done:
+  if (!result)
+     Modes.stat.FIFO_full++;
   LeaveCriticalSection (&fifo_mutex);
   return (result);
 }
@@ -190,8 +182,6 @@ void fifo_enqueue (mag_buf *buf)
 {
   assert (buf->valid_length <= buf->total_length);
   assert (buf->valid_length >= overlap_length);
-
-  TRACE ("%s(): fifo_halted: %d, flags: %d", __FUNCTION__, fifo_halted, buf->flags);
 
   EnterCriticalSection (&fifo_mutex);
 
@@ -208,7 +198,8 @@ void fifo_enqueue (mag_buf *buf)
    */
   if (buf->flags & MAGBUF_DISCONTINUOUS)
   {
-    /* This buffer is discontinuous to the previous, so the overlap region is not valid; zero it out
+    /* This buffer is discontinuous to the previous, so the
+     * overlap region is not valid; zero it out
      */
     memset (buf->data, '\0', overlap_length * sizeof(buf->data[0]));
   }
@@ -224,7 +215,7 @@ void fifo_enqueue (mag_buf *buf)
   /* Enqueue and tell the main thread
    */
   buf->next = NULL;
-  if (!fifo_head)
+  if (!fifo_head)   /* FIFO empty */
   {
     fifo_head = fifo_tail = buf;
     WakeConditionVariable (&fifo_notempty_cond);
@@ -234,6 +225,7 @@ void fifo_enqueue (mag_buf *buf)
     fifo_tail->next = buf;
     fifo_tail = buf;
   }
+  Modes.stat.FIFO_enqueue++;
 
 done:
   LeaveCriticalSection (&fifo_mutex);
@@ -275,6 +267,9 @@ mag_buf *fifo_dequeue (uint32_t timeout_ms)
   }
 
 done:
+  if (result)
+     Modes.stat.FIFO_dequeue++;
+
   LeaveCriticalSection (&fifo_mutex);
   return (result);
 }
@@ -282,9 +277,34 @@ done:
 void fifo_release (mag_buf *buf)
 {
   EnterCriticalSection (&fifo_mutex);
+
   if (!fifo_freelist)
      WakeConditionVariable (&fifo_free_cond);
+
   buf->next = fifo_freelist;
   fifo_freelist = buf;
+
   LeaveCriticalSection (&fifo_mutex);
+}
+
+void fifo_stats (void)
+{
+  static uint64_t old_enqueue = 0ULL, old_dequeue = 0ULL, old_full = 0ULL;
+  uint64_t delta_enqueue, delta_dequeue, delta_full;
+
+  if (!overlap_buffer || !Modes.log)
+     return;
+
+  delta_enqueue = Modes.stat.FIFO_enqueue - old_enqueue;
+  delta_dequeue = Modes.stat.FIFO_dequeue - old_dequeue;
+  delta_full    = Modes.stat.FIFO_full    - old_full;
+
+  LOG_FILEONLY ("FIFO_enqueue: %llu (%llu), FIFO_dequeue: %llu (%llu), FIFO_full: %llu (%llu)\n",
+                Modes.stat.FIFO_enqueue, delta_enqueue,
+                Modes.stat.FIFO_dequeue, delta_dequeue,
+                Modes.stat.FIFO_full,    delta_full);
+
+  old_enqueue = Modes.stat.FIFO_enqueue;
+  old_dequeue = Modes.stat.FIFO_dequeue;
+  old_full    = Modes.stat.FIFO_full;
 }

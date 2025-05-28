@@ -7,8 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "demod-2000.h"
 #include "misc.h"
+#include "demod.h"
 #include "infile.h"
 
 /**
@@ -83,71 +83,93 @@ bool infile_init (void)
 /**
  * This is used when `--infile` is specified in order to read data
  * from a binary file instead of using a RTLSDR / SDRplay device.
+ * This function currently runs in the main-thread.
+ * \todo call it from the `data_thread_fn()` instead
  */
 static int bin_read (void)
 {
-  uint32_t rc = 0;
+  uint64_t bytes_read = 0;
+  bool     eof = false;
+  size_t   readbuf_sz = MODES_MAG_BUF_SAMPLES * Modes.bytes_per_sample;
+  void    *readbuf = calloc (readbuf_sz, 1);
 
-  if (Modes.loops > 0 && Modes.infile_fd == STDIN_FILENO)
+  if (!readbuf)
   {
-    LOG_STDERR ("Option `--loops <N>' not supported for `stdin'.\n");
-    Modes.loops = 0;
+    LOG_STDERR ("failed to allocate read buffer\n");
+    return (0);
   }
 
-  do
+  while (!Modes.exit && !eof)
   {
-     int      nread, toread;
-     uint8_t *data;
+    int      nread = 0;
+    int      toread = 0;
+    char    *rdata;
+    uint32_t samples_read;
+    struct   mag_buf *out_buf;
 
-     if (Modes.interactive)
-     {
-       /* When --infile and --interactive are used together, slow down
-        * mimicking the real RTLSDR / SDRplay rate.
-        */
-       Sleep (1000);
-     }
+    TRACE ("%s(): Modes.sample_counter: %llu", __FUNCTION__, Modes.sample_counter);
 
-     /* Move the last part of the previous buffer, that was not processed,
-      * on the start of the new buffer.
-      */
-     memcpy (Modes.data, Modes.data + MODES_ASYNC_BUF_SIZE, 4*(MODES_FULL_LEN-1));
-     toread = MODES_ASYNC_BUF_SIZE;
-     data   = Modes.data + 4*(MODES_FULL_LEN-1);
+    out_buf = fifo_acquire (100);
+    if (!out_buf)
+       continue;   /* no space for output , maybe we halted */
 
-     while (toread)
-     {
-       nread = _read (Modes.infile_fd, data, toread);
-       if (nread <= 0)
-          break;
-       data   += nread;
-       toread -= nread;
-     }
+    out_buf->sample_timestamp = (Modes.sample_counter * 12E6) / Modes.sample_rate;
+    out_buf->sys_timestamp    = MSEC_TIME();
 
-     if (toread)
-     {
-       /* Not enough data on file to fill the buffer? Pad with
-        * no signal.
-        */
-       memset (data, 127, toread);
-     }
+    toread = readbuf_sz;
 
-     compute_magnitude_vector (Modes.data);
-     rc += demodulate_2000 (Modes.magnitude, Modes.data_len/2);
-     background_tasks();
-
-     if (Modes.exit || Modes.infile_fd == STDIN_FILENO)
+    rdata = readbuf;
+    while (toread)
+    {
+      nread = _read (Modes.infile_fd, rdata, toread);
+      if (nread <= 0)
+      {
+        eof = true;
         break;
+      }
+      rdata      += nread;
+      bytes_read += nread;
+      toread     -= nread;
+      TRACE ("  nread: %d, bytes_read: %llu, eof: %d", nread, bytes_read, eof);
+    }
 
-     /* seek the file again from the start
-      * and re-play it if --loops was given.
-      */
-     if (Modes.loops > 0)
-        Modes.loops--;
-     if (Modes.loops == 0 || _lseek(Modes.infile_fd, 0, SEEK_SET) == -1)
-        break;
+    samples_read = nread / Modes.bytes_per_sample;
+
+    /* Convert the new data
+     */
+    (*Modes.converter_func) (readbuf, &out_buf->data [Modes.trailing_samples],
+                             samples_read, Modes.converter_state, &out_buf->mean_power);
+
+    out_buf->valid_length = out_buf->overlap + samples_read;
+    out_buf->flags = 0;
+
+    Modes.sample_counter += samples_read;
+
+    /* Push the new data to the FIFO.
+     * And dequeue it immediately. There should be something to process
+     */
+    fifo_enqueue (out_buf);
+    out_buf = fifo_dequeue (0);
+    if (out_buf)
+    {
+      (*Modes.demod_func) (out_buf);
+      fifo_release (out_buf);        /* Return the buffer to the FIFO freelist for reuse */
+    }
+
+    /* seek the file again from the start
+     * and re-play it if --loops was given.
+     */
+    if (Modes.loops > 0)
+    {
+      Modes.loops--;
+      eof = false;
+      if (_lseek(Modes.infile_fd, 0, SEEK_SET) == -1)
+         Modes.exit = true;
+    }
   }
-  while (1);
-  return (rc);
+  free (readbuf);
+  fifo_halt();
+  return ((int) Modes.sample_counter);
 }
 
 /**
@@ -195,6 +217,25 @@ bool infile_set (const char *arg)
   if (str_endswith(copy, ".csv"))
      g_data.ctx.file_name = Modes.infile;
   return (true);
+}
+
+bool informat_set (const char *arg)
+{
+  convert_format f = INPUT_ILLEGAL;
+
+  if (!strcmp(arg, "uc8"))
+     f = INPUT_UC8;
+  else if (!strcmp(arg, "sc16"))
+     f = INPUT_SC16;
+  else if (!strcmp(arg, "sc16q11"))
+     f = INPUT_SC16Q11;
+
+  if (f != INPUT_ILLEGAL)
+  {
+    Modes.input_format = f;
+    return (true);
+  }
+  return (false);
 }
 
 static bool csv_add_record (double timestamp, const char *msg, double delta_us)
@@ -361,10 +402,7 @@ static int csv_read (void)
       rec++;
 
       if (rc)
-      {
-        Modes.stat.good_CRC++;
-        ret++;
-      }
+         ret++;
 
       if (Modes.max_messages > 0 && --Modes.max_messages == 0)
       {
