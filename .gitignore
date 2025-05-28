@@ -1,7 +1,6 @@
 *.map
 *.pdb
 *.i
-aircraft-database-dump.bat
 cdb.bat
 get-urls.bat
 go.bat
