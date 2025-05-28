@@ -265,13 +265,13 @@ SOURCES = aircraft.c    \
           geo.c         \
           infile.c      \
           interactive.c \
+          location.c    \
           misc.c        \
           net_io.c      \
-          location.c    \
           pconsole.c    \
           sdrplay.c     \
-          speech.c      \
-          smartlist.c
+          smartlist.c   \
+          speech.c
 
 vpath %.c externals \
           externals/Curses
@@ -392,17 +392,14 @@ $(OBJ_DIR) doxy-docs:
 ../utf8_test.exe: $(OBJ_DIR)/utf8_test.obj
 	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
 
-SQLITE3_OBJ = $(OBJ_DIR)/sqlite3.obj \
-              $(OBJ_DIR)/sqlite3-shell.obj
-
-../sqlite3.exe: $(SQLITE3_OBJ)
+../sqlite3.exe: $(OBJ_DIR)/sqlite3.obj $(OBJ_DIR)/sqlite3-shell.obj
 	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
 $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, -DCOMPILING_SQLITE3_SHELL $<)
 
 ../web-pages.dll: $(WEB_OBJ) $(OBJ_DIR)/web-pages.res
-	$(call link_web_DLL, $@, $^ $(ASAN_LIBS), $(WEB_SUFFIXES))
+	$(call link_web_DLL, $@, $^ oldnames.lib $(ASAN_LIBS), $(WEB_SUFFIXES))
 
 $(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
 	$(call generate, $@, //)
@@ -504,7 +501,7 @@ docs_clean:
 
 doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call generate, $@, #)
-	$(file >> $@,$(dump1090_Doxyfile))
+	$(file >> $@,$(DUMP1090_DOXYFILE))
 
 speech_test.i: speech.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, -DTEST $<)
@@ -615,7 +612,7 @@ endef
 
 define link_web_DLL
   $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
-  $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2) oldnames.lib)
+  $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.dll=.map)
   @rm -f $(1:.dll=.exp) $(1:.dll=.lib)
@@ -680,13 +677,13 @@ endef
 #
 # No doxygen tags in these:
 #
-doxy_SOURCES = $(filter-out externals/sqlite3.c              \
+DOXY_SOURCES = $(filter-out externals/sqlite3.c              \
                             externals/Curses/amalgamation.c, \
                             $(SOURCES))
 
-doxy_SOURCES := $(addprefix ../, $(doxy_SOURCES))
+DOXY_SOURCES := $(addprefix ../, $(DOXY_SOURCES))
 
-doxy_HEADERS = ../aircraft.h                  \
+DOXY_HEADERS = ../aircraft.h                  \
                ../airports.h                  \
                ../cfg_file.h                  \
                ../convert.h                   \
@@ -707,22 +704,21 @@ doxy_HEADERS = ../aircraft.h                  \
                ../speech.h                    \
                ../externals/rtl-sdr/rtl-sdr.h \
                ../externals/rtl-sdr/rtl-tcp.h \
-               ../externals/miniz.h           \
                ../externals/zip.h
 
-define dump1090_Doxyfile
+define DUMP1090_DOXYFILE
   PROJECT_NAME          = "Dump1090"
   PROJECT_LOGO          = ../dump1090.ico
   STRIP_FROM_PATH       = $(CURDIR)/
   OPTIMIZE_OUTPUT_FOR_C = yes
   FORCE_LOCAL_INCLUDES  = yes
   QUIET                 = yes
-  PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1
-  INPUT                 = $(doxy_SOURCES) \
-                          $(doxy_HEADERS)
+  PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1 _Printf_format_string_:=1
+  INPUT                 = $(DOXY_SOURCES) \
+                          $(DOXY_HEADERS)
 
   EXAMPLE_PATH          = ..
-  IMAGE_PATH            = .. ../..
+  IMAGE_PATH            = .. ../.. ../../docs
   INLINE_SIMPLE_STRUCTS = yes
   SOURCE_BROWSER        = yes
   CALL_GRAPH            = yes
