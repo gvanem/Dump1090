@@ -9,8 +9,6 @@
  */
 
 #pragma once
-#ifndef ZIP_H
-#define ZIP_H
 
 #include <stdint.h>
 #include <stdio.h>
@@ -46,8 +44,6 @@ typedef long ssize_t; /* byte count or error */
 #endif
 
 /**
- * @mainpage
- *
  * Documentation for @ref zip.
  */
 
@@ -612,6 +608,4 @@ extern ZIP_EXPORT int zip_extract(const char *zipname, const char *dir,
 /** @} */
 #ifdef __cplusplus
 }
-#endif
-
 #endif

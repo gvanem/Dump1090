@@ -1,8 +1,7 @@
 /**\file    interactive.h
  * \ingroup Misc
- *
- * Function for `--interactive` mode.
- * Using either Windows-Console or Curses functions.
+ * \brief   Function for `--interactive` mode
+ *          Using either Windows-Console or Curses functions.
  */
 #pragma once
 

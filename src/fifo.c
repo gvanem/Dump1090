@@ -1,7 +1,6 @@
 /**\file    fifo.c
  * \ingroup Samplers
- *
- * Cross-thread SDR to demodulator FIFO support
+ * \brief   Demodulator FIFO support
  *
  * Copyright (c) 2020 FlightAware LLC
  * Copyright (c) 2025 Gisle Vanem

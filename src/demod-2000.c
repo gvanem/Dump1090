@@ -134,10 +134,10 @@ static int detect_mode_A (uint16_t *m, modeS_message *mm)
   int fSig, fNoise, fLevel, fLoLo;
 
   /**
-   * `m[0]` contains the energy from    0 ->  499 nS \br
-   * `m[1]` contains the energy from  500 ->  999 nS \br
-   * `m[2]` contains the energy from 1000 -> 1499 nS \br
-   * `m[3]` contains the energy from 1500 -> 1999 nS \br
+   * `m[0]` contains the energy from    0 ->  499 nS <br>
+   * `m[1]` contains the energy from  500 ->  999 nS <br>
+   * `m[2]` contains the energy from 1000 -> 1499 nS <br>
+   * `m[3]` contains the energy from 1500 -> 1999 nS <br>
    *
    * We are looking for a Frame bit (F1) whose width is 450nS, followed by
    * 1000nS of silence.

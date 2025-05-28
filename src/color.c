@@ -3,13 +3,14 @@
  *
  * \brief
  * Print to console using embedded colour-codes inside the string-format.
- * \eg
+ * E.g.
  *   \code{.c}
  *     C_printf ("~4Hello ~2world~0.\n");
  *   \endcode
- *   will print to stdout with `Hello` mapped to colour 4
- *   and `world` mapped to colour 2.
- *   See the `colour_map[]` array below.
+ *
+ * will print to stdout with `Hello` mapped to colour 4
+ * and `world` mapped to colour 2.
+ * See the `colour_map[]` array below.
  *
  * By default, the colour indices maps to these foreground colour:
  * + 0: the startup forground *and* background colour.

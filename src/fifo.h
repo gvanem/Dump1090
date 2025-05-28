@@ -1,11 +1,10 @@
 /**\file    fifo.h
  * \ingroup Samplers
- *
- * Cross-thread SDR to demodulator FIFO support
+ * \brief   Demodulator FIFO support
  *
  * Copyright (c) 2020 FlightAware LLC
  *
- * Rewritten to use WIn-8+ SDK function; no pesky Pthreads.
+ * Rewritten to use Win-8+ SDK function; no pesky Pthreads.
  */
 #pragma once
 
@@ -14,7 +13,7 @@
  *  Values for `mag_buf::flags`
  */
 typedef enum mag_buf_flags {
-        MAGBUF_ZERO = 0,
+        MAGBUF_ZERO = 0,         /**< this is a *normal* buffer */
         MAGBUF_DISCONTINUOUS = 1 /**< this buffer is discontinuous to the previous buffer */
       } mag_buf_flags;
 
@@ -41,29 +40,33 @@ typedef enum mag_buf_flags {
  *  |                    |                     |     [next buffer                    ]       |
  * ```
  *
- * The demodulator looks for signals starting at offsets 0 .. valid_length - overlap - 1,
- * with the trailing overlap region allowing decoding of a maximally-sized message that starts
- * at `valid_length - overlap - 1`. Signals that start after this point are not decoded, but they will
- * be copied into the starting overlap of the next buffer and decoded on the next iteration.
+ * The demodulator looks for signals starting at offsets `0 .. valid_length - overlap - 1`, <br>
+ * with the trailing `overlap` region allowing decoding of a maximally-sized message that starts
+ * at `valid_length - overlap - 1`.
  *
  * Signals that start after this point are not decoded, but they will be copied into the
- * starting overlap of the next buffer and decoded on the next iteration.
+ * starting `overlap` of the next buffer and decoded on the next iteration.
  */
 typedef struct mag_buf {
-        uint16_t       *data;             /**< Magnitude data, starting with overlap from the previous block */
+        uint16_t       *data;             /**< Magnitude data, starting with `overlap` from the previous block */
         u_int           total_length;     /**< Maximum number of samples (allocated size of `data`) */
         u_int           valid_length;     /**< Number of valid samples in `data`, including `overlap` samples */
-        u_int           overlap;          /**< Number of leading overlap samples at the start of `data`;
-                                                 also the number of trailing samples that will be preserved for next time */
+        u_int           overlap;          /**< Number of leading `overlap` samples at the start of `data`;
+                                               also the number of trailing samples that will be preserved for next time */
         uint64_t        sample_timestamp; /**< Clock timestamp of the start of this block, 12MHz clock */
         uint64_t        sys_timestamp;    /**< Estimated system time at start of block */
         mag_buf_flags   flags;            /**< Bitwise flags for this buffer */
-        double          mean_level;       /**< Mean of normalized (0..1) signal level */
-        double          mean_power;       /**< Mean of normalized (0..1) power level */
+        double          mean_level;       /**< Mean of normalized (`0 .. 1`) signal level */
+        double          mean_power;       /**< Mean of normalized (`0 .. 1`) power level */
         u_int           dropped;          /**< Approx number of dropped samples, if flag `MAGBUF_DISCONTINUOUS` is set; zero if not discontinuous */
         struct mag_buf *next;             /**< Linked list forward link. \todo use a `smartlist_t` instead */
       } mag_buf;
 
+/**
+ * \typedef demod_func
+ * The demodulator function (that gets passed a buffer from `fifo_dequeue()`),
+ * must match this prototype.
+ */
 typedef void (*demod_func) (const struct mag_buf *mag);
 
 /**
@@ -89,16 +92,16 @@ void fifo_destroy (void);
 void fifo_drain (void);
 
 /**
- * Mark the FIFO as halted. Move any buffers in FIFO to the `fifo_freelist` immediately.
+ * Mark the FIFO as halted. Move any buffers in FIFO to the \ref fifo_freelist immediately.
  * Future calls to `fifo_acquire()` will immediately return NULL.
- * Future calls to `fifo_enqueue()` will immediately put the produced buffer on the `fifo_freelist`.
+ * Future calls to `fifo_enqueue()` will immediately put the produced buffer on the \ref fifo_freelist.
  * Future calls to `fifo_dequeue()` will immediately return NULL;
  *   if there are existing calls waiting on data, they will be immediately awoken and return NULL.
  */
 void fifo_halt (void);
 
 /**
- * Get an unused buffer from the `fifo_freelist` and return it.
+ * Get an unused buffer from the \ref fifo_freelist and return it.
  * Block up to `timeout_ms` waiting for a free buffer.
  * Return NULL if there are no free buffers available within the
  * timeout, or if the FIFO is halted.
@@ -130,7 +133,7 @@ void fifo_enqueue (mag_buf *buf);
 mag_buf *fifo_dequeue (uint32_t timeout_ms);
 
 /**
- * Release a buffer previously returned by `fifo_acquire()` back to the `fifo_freelist`.
+ * Release a buffer previously returned by `fifo_acquire()` back to the \ref fifo_freelist.
  */
 void fifo_release (mag_buf *buf);
 

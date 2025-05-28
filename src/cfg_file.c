@@ -41,8 +41,8 @@ static_assert (MAX_VALUE_LEN >= sizeof(mg_file_path), "MAX_VALUE_LEN too small")
 /**
  * \def MAX_ENV_LEN
  * Max length of an environment variable value. According to:
- *  \ref https://devblogs.microsoft.com/oldnewthing/20100203-00/?p=15083
- *  \ref https://learn.microsoft.com/en-gb/windows/win32/api/processenv/nf-processenv-getenvironmentvariablea
+ *  \sa https://devblogs.microsoft.com/oldnewthing/20100203-00/?p=15083
+ *  \sa https://learn.microsoft.com/en-gb/windows/win32/api/processenv/nf-processenv-getenvironmentvariablea
  */
 #define MAX_ENV_LEN  32767
 
@@ -486,7 +486,7 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
 /**
  * Returns the expanded version of an variable.
  *
- * \eg If `INCLUDE=c:\VC\include;%C_INCLUDE_PATH%` and
+ * E.g. If `INCLUDE=c:\VC\include;%C_INCLUDE_PATH%` and
  *   + `C_INCLUDE_PATH=c:\MinGW\include`, the expansion returns
  *   + `c:\VC\include;c:\MinGW\include`.
  *

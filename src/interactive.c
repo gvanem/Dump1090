@@ -1,8 +1,8 @@
 /**
  * \file    interactive.c
  * \ingroup Misc
+ * \brief   Function for interactive mode.
  *
- * Function for interactive mode.
  * Using either Windows-Console or Curses functions.
  */
 #include <io.h>

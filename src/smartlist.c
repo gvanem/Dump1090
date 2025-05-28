@@ -26,8 +26,8 @@ typedef struct smartlist_t {
          * (`<= capacity`) elements point to valid data.
          */
         void **list;
-        int    num_used;
-        int    capacity;
+        int    num_used;  /**< the number of elements in `list[]` that is currently used */
+        int    capacity;  /**< the maximum capacity for the `list[]` */
       } smartlist_t;
 
 /**

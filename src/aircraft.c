@@ -1942,7 +1942,7 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
  * }
  * ```
  *
- * \ref https://github.com/wiedehopf/readsb/blob/dev/README-json.md
+ * \sa https://github.com/wiedehopf/readsb/blob/dev/README-json.md
  */
 char *aircraft_make_json (bool extended_client)
 {

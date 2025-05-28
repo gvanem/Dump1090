@@ -1,5 +1,5 @@
 /**\file    demod.h
- * \ingroup Samplers
+ * \ingroup Demodulators
  * \brief   Demodulators for 2, 2.4 and 8.0 MS/s decoding
  */
 #pragma once

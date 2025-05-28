@@ -20,7 +20,7 @@
  * Convert geodetic latitude to geocentric latitude;
  * angle from centre of Earth between the point and equator.
  *
- * \ref https://en.wikipedia.org/wiki/Latitude#Geocentric_latitude
+ * \sa https://en.wikipedia.org/wiki/Latitude#Geocentric_latitude
  *
  * \param[in] lat  The geodetic latitude in radians.
  */
@@ -89,10 +89,10 @@ void geo_spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, car
  * \retval false  otherwise.
  *
  * This link is dead (but present in `archive.org`):
- * \ref https://keisan.casio.com/exec/system/1359533867
+ * \sa https://keisan.casio.com/exec/system/1359533867
  *
  * This is good explanation of the various coordinate systems:
- * \ref https://mathworld.wolfram.com/SphericalCoordinates.html
+ * \sa https://mathworld.wolfram.com/SphericalCoordinates.html
  */
 bool geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *cart, pos_t *pos)
 {
@@ -156,7 +156,7 @@ double geo_closest_to (double val, double val1, double val2)
  * This has up to 0.5% error because the earth isn't actually spherical
  * (but we don't use it in situations where that matters)
  *
- * \ref https://en.wikipedia.org/wiki/Great-circle_distance
+ * \sa https://en.wikipedia.org/wiki/Great-circle_distance
  */
 double geo_great_circle_dist (pos_t pos1, pos_t pos2)
 {

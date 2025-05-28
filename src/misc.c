@@ -470,7 +470,7 @@ const char *search_list_name (DWORD value, const search_list *list, int num)
 
 /**
  * Search for 32-bit `flags` in `*list` and return a concatination of their names.
- * \eg. with `flags == 0x0A` in `*list` of:
+ * E.g. with `flags == 0x0A` in `*list` of:
  * ```
  *  value = name
  *  0x02  = "flag-A"

@@ -1,10 +1,8 @@
 /**\file    misc.h
  * \ingroup Misc
- *
- * Various macros and definitions.
+ * \brief   Various macros, definitions and prototypes for "misc.c".
  */
-#ifndef _MISC_H
-#define _MISC_H
+#pragma once
 
 #include <stdio.h>
 #include <stdint.h>
@@ -635,8 +633,8 @@ typedef struct modeS_message {
         pos_t    position;                   /**< Coordinates obtained from CPR encoded data if/when decoded */
         unsigned nuc_p;                      /**< NUCp value implied by message type
                                               * NUCp == "Navigation Uncertainty Category"
-                                              * \ref https://www.icao.int/APAC/Documents/edocs/cns/AIGD%20Edition%2015.0.pdf
-                                              * \ref docs/The-1090MHz-Riddle.pdf Chapter 9.2.1
+                                              * \sa https://www.icao.int/APAC/Documents/edocs/cns/AIGD%20Edition%2015.0.pdf
+                                              * \sa The-1090MHz-Riddle.pdf Chapter 9.2.1
                                               */
 
         /** DF 18
@@ -653,7 +651,7 @@ typedef struct modeS_message {
         /** DF20, DF21
          */
         uint32_t BDS;                        /**< "Comm-B Data Selector" / BDS value implied if overlay control was used
-                                               * \ref docs/The-1090MHz-Riddle.pdf Chapter 15.2
+                                               * \ref The-1090MHz-Riddle.pdf Chapter 15.2
                                                */
 
         /** Fields used by multiple message types.
@@ -667,7 +665,7 @@ typedef struct modeS_message {
         /** For messages from a TCP SBS source (basestation input)
          */
         bool SBS_in;          /**< true for a basestation input message */
-        int  SBS_msg_type;    /**< "MSG,[1-8],...". \ref http://woodair.net/sbs/article/barebones42_socket_data.htm */
+        int  SBS_msg_type;    /**< "MSG,[1-8],...". \sa http://woodair.net/sbs/article/barebones42_socket_data.htm */
         bool SBS_pos_valid;
 
       } modeS_message;
@@ -876,4 +874,3 @@ extern int   optind;  /**< the index of the next element to be processed in `arg
 extern int   opterr;  /**< if caller set this to zero, an error-message will never be printed. */
 extern int   optopt;  /**< on errors, an unrecognised option character is stored in `optopt`. */
 
-#endif

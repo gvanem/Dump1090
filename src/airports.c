@@ -3,7 +3,7 @@
  * \ingroup Main
  * \brief   Handling of airport data and cached flight-information from .CSV files.
  *          Uses the ADSB-LOL API to get live "departure" and "destination" information. <br>
- *          \ref https://api.adsb.lol
+ *          \sa https://api.adsb.lol
  */
 #include <stdlib.h>
 #include <string.h>
@@ -249,7 +249,7 @@ static const char *call_signs_tests[] = {
 /**
  * Using the ADSB-LOL API requesting "Route Information" for a call-sign.
  *
- * \eg Sending a request for call-sign `SAS4787` as `https://api.adsb.lol/api/0/route/SAS4787`,
+ * E.g. sending a request for call-sign `SAS4787` as `https://api.adsb.lol/api/0/route/SAS4787`,
  * should return a JSON-object like this:
  * ```
  *  {
@@ -1038,14 +1038,14 @@ static bool API_thread_worker (flight_info *f)
 }
 
 /**
- * In `--test`, `--debug` or `--raw` modes (`g_data.do_trace == true`),
+ * In `--test`, `--debug A` or `--raw` modes (`g_data.do_trace == true`),
  * just trace current flight-stats.
  */
 static void airports_API_show_stats (void)
 {
   flight_info_stats fs;
 
-  if (test_contains(Modes.tests, "airport") || Modes.debug || Modes.raw)
+  if (test_contains(Modes.tests, "airport") || (Modes.debug & DEBUG_ADSB_LOL) || Modes.raw)
   {
     flight_stats_now (&fs);
     API_TRACE ("stats now: total=%u, live=%u, pending=%u, dead=%u, unknown=%u\n",
