@@ -55,9 +55,9 @@ static const char *CPR_strerror (void)
 static int CPR_set_error (int result, aircraft *a, uint64_t now)
 {
   if (result < 0)
-       LOG_FILEONLY ("%s %06X, %s.\n",
-                     a->is_helicopter ? "helicopter" : "plane",
-                     a->addr, CPR_strerror());
+       LOG_FILEONLY2 ("%s %06X, %s.\n",
+                      a->is_helicopter ? "helicopter" : "plane",
+                      a->addr, CPR_strerror());
   else a->seen_pos_EST = now;
   return (result);
 }
@@ -254,7 +254,7 @@ int cpr_do_global (struct aircraft *a, const struct modeS_message *mm, uint64_t 
    */
   if (Modes.max_dist > 0 && Modes.home_pos_ok)
   {
-    double distance = geo_great_circle_dist (Modes.home_pos, *new_pos);
+    double distance = geo_great_circle_dist (&Modes.home_pos, new_pos);
 
     LOG_DISTANCE (a, distance, distance <= Modes.max_dist);
 
@@ -348,7 +348,7 @@ int cpr_do_local (struct aircraft *a, const struct modeS_message *mm, uint64_t n
    */
   if (distance_limit > 0 && Modes.home_pos_ok)
   {
-    double distance = geo_great_circle_dist (ref_pos, *new_pos);
+    double distance = geo_great_circle_dist (&ref_pos, new_pos);
 
     LOG_DISTANCE (a, distance, distance <= distance_limit);
 
@@ -713,7 +713,7 @@ static bool CPR_speed_check (aircraft            *a,
 
   /* find actual distance between old and new point
    */
-  distance = geo_great_circle_dist (a->position, *pos);
+  distance = geo_great_circle_dist (&a->position, pos);
   dist_ok  = (distance <= max_dist);
 
   if (!dist_ok)
