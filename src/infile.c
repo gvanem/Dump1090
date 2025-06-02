@@ -67,7 +67,7 @@ bool infile_init (void)
   if (file[0] == '-' && file[1] == '\0')
   {
     Modes.infile_fd = STDIN_FILENO;
-    SETMODE (Modes.infile_fd, O_BINARY);
+    _setmode (Modes.infile_fd, O_BINARY);
     return (true);
   }
 
@@ -196,7 +196,7 @@ void infile_exit (void)
   }
   else if (Modes.infile_fd == STDIN_FILENO)
   {
-    SETMODE (STDIN_FILENO, O_TEXT);
+    _setmode (STDIN_FILENO, O_TEXT);
     return;
   }
   if (Modes.infile_fd > -1)
