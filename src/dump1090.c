@@ -606,7 +606,9 @@ static bool modeS_init_hardware (void)
   {
     /* use whatever '--informat' was set to 'Modes.input_format' */
   }
-  else if (Modes.rtlsdr.index >= 0 || net_handler_host(MODES_NET_SERVICE_RTL_TCP))
+  else if (Modes.rtlsdr.index >= 0 ||                    /* --device N */
+           Modes.rtlsdr.name       ||                    /* --device name */
+           net_handler_host(MODES_NET_SERVICE_RTL_TCP))  /* --device tcp://host:port */
   {
     /* A local or remote RTLSDR device
      */
