@@ -276,6 +276,11 @@ void interactive_other_stats (void)
   }
 }
 
+void interactive_raw_SBS_stats (void)
+{
+  /** \todo */
+}
+
 static int gain_increase (int gain_idx)
 {
   if (Modes.rtlsdr.device && gain_idx < Modes.rtlsdr.gain_count-1)
@@ -410,8 +415,7 @@ void interactive_update_gain (void)
  */
 static void show_one_aircraft (aircraft *a, int row, uint64_t now)
 {
-  int   altitude          = a->altitude;
-  int   speed             = a->speed;
+  int   altitude, speed;
   char  alt_buf [10]      = "  - ";
   char  lat_buf [10]      = "   - ";
   char  lon_buf [10]      = "    - ";
@@ -433,8 +437,13 @@ static void show_one_aircraft (aircraft *a, int row, uint64_t now)
    */
   if (Modes.metric)
   {
-    altitude = (int) round ((double)altitude / 3.2828);
-    speed    = (int) round ((double)speed * 1.852);
+    altitude = (int) round (a->altitude / 3.2828);
+    speed    = (int) round (a->speed * 1.852);
+  }
+  else
+  {
+    altitude = a->altitude;
+    speed    = (int) round (a->speed);
   }
 
   if ((a->AC_flags & MODES_ACFLAGS_AOG_VALID) && (a->AC_flags & MODES_ACFLAGS_AOG))
@@ -456,7 +465,7 @@ static void show_one_aircraft (aircraft *a, int row, uint64_t now)
      snprintf (speed_buf, sizeof(speed_buf), "%4d", speed);
 
   if (a->AC_flags & MODES_ACFLAGS_HEADING_VALID)
-     snprintf (heading_buf, sizeof(heading_buf), "%3d", a->heading);
+     snprintf (heading_buf, sizeof(heading_buf), "%3d", (int)round(a->heading));
 
   if (Modes.home_pos_ok && a->distance_ok)
   {
@@ -506,20 +515,29 @@ static void show_one_aircraft (aircraft *a, int row, uint64_t now)
   {
     (*api->set_colour) (COLOUR_GREEN);
     restore_colour = true;
-    airports_API_flight_log_entering (a);
+
+    if (!(Modes.debug & DEBUG_PLANE))
+       airports_API_flight_log_entering (a);
   }
   else if (a->show == A_SHOW_NORMAL)
   {
     if (!a->is_helicopter && !a->done_flight_info)
-       a->done_flight_info = airports_API_flight_log_resolved (a);
+    {
+      if (Modes.debug & DEBUG_PLANE)
+           a->done_flight_info = true;
+      else a->done_flight_info = airports_API_flight_log_resolved (a);
+    }
+
     if (a->is_helicopter)
-       ; /**< \todo print reg_num in dark RED colour */
+       ;        /**< \todo print reg_num in dark RED colour */
   }
   else if (a->show == A_SHOW_LAST_TIME)
   {
     (*api->set_colour) (COLOUR_RED);
     restore_colour = true;
-    airports_API_flight_log_leaving (a);
+
+    if (!(Modes.debug & DEBUG_PLANE))
+       airports_API_flight_log_leaving (a);
   }
 
   ms_diff = (now - a->seen_last);
@@ -585,7 +603,7 @@ void interactive_show_data (uint64_t now)
 
     if (a->show != A_SHOW_NONE)
     {
-      aircraft_set_est_home_distance (a, now);
+//    aircraft_set_est_home_distance (a, now);
       show_one_aircraft (a, row, now);
       row++;
     }
@@ -743,6 +761,11 @@ static int curses_init (void)
   bool slk_ok = (slk_init(1) == OK);
 
   initscr();
+
+  /* Ensure PCcurses do not clear the screen on exit
+   */
+  SP->_preserve = true;
+
   if (slk_ok)
   {
     slk_set (1, "Help", 0);
