@@ -2497,9 +2497,6 @@ static int getopt_internal (int nargc, char * const *nargv,
   if (*options == '+' || *options == '-')
      options++;
 
-  /* Some GNU programs (like cvs) set optind to 0 instead of
-   * using optreset.  Work around this braindamage.
-   */
   if (optind == 0)
      optind = 1;
 

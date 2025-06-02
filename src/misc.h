@@ -25,11 +25,8 @@
  */
 #define MODES_NOTUSED(V)   ((void)V)
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
-#define TWO_PI             (2 * M_PI)
 #define DIM(array)         (sizeof(array) / sizeof(array[0]))
-#define ONE_MEGABYTE       (1024*1024)
 #define STDIN_FILENO       0
-#define FREE(p)            (p ? (void) (free((void*)p), p = NULL) : (void)0)
 
 /**
  * Network services indices; `global_data::connections [N]`:
@@ -79,6 +76,7 @@
 #define DEBUG_NET2       0x0800
 #define DEBUG_ADSB_LOL   0x1000
 #define DEBUG_CFG_FILE   0x2000
+#define DEBUG_PLANE      0x4000
 
 /**
  * \def DEBUG(bit, fmt, ...)
@@ -95,7 +93,6 @@
 /**
  * \def TRACE(fmt, ...)
  * As `DEBUG()`, but for the `DEBUG_GENERAL` bit only.
- * And with an added new-line for brevity.
  *
  * Ref. command-line option `--debug g`.
  */
@@ -110,14 +107,22 @@
  *
  * \def LOG_FILEONLY(fmt, ...)
  *  Print to `Modes.log` only.
+ *
+ * \def LOG_FILEONLY2(fmt, ...)
+ *  Like `LOG_FILEONLY()`, but not when `--debug P` is active.
  */
 #define LOG_STDOUT(fmt, ...)    modeS_flogf (stdout, fmt, ## __VA_ARGS__)
 #define LOG_STDERR(fmt, ...)    modeS_flogf (stderr, fmt, ## __VA_ARGS__)
-#define LOG_FILEONLY(fmt, ...)  do {                              \
-                                 if (Modes.log)                   \
-                                    modeS_flogf (Modes.log, fmt,  \
-                                                 ## __VA_ARGS__); \
-                               } while (0)
+#define LOG_FILEONLY(fmt, ...)  do {                               \
+                                  if (Modes.log)                   \
+                                     modeS_flogf (Modes.log, fmt,  \
+                                                  ## __VA_ARGS__); \
+                                } while (0)
+
+#define LOG_FILEONLY2(fmt, ...) do {                                     \
+                                  if (!(Modes.debug & DEBUG_PLANE))      \
+                                     LOG_FILEONLY (fmt, ## __VA_ARGS__); \
+                                } while (0)
 
 /**
  * \typedef search_list
@@ -127,10 +132,6 @@ typedef struct search_list {
         DWORD       value;
         const char *name;
       } search_list;
-
-#define SETMODE(fd, mode)  (void)_setmode (fd, mode)
-
-#define NO_RETURN __declspec(noreturn)
 
 /*
  * Forwards:
@@ -220,14 +221,15 @@ typedef struct statistics {
         uint64_t        FIFO_full;
         uint64_t        samples_processed;
         uint64_t        samples_dropped;
+        uint64_t        samples_recv_rtltcp;  /**< Samples from RTLTCP. Equals `samples_processed` if nothing dropped by FIFO */
         uint64_t        valid_preamble;
         uint64_t        demod_modeac;
-        uint64_t        demod_accepted [3];   /* MODES_MAX_BITERRORS+1 */
+        uint64_t        demod_accepted [3];   /**< MODES_MAX_BITERRORS+1 */
         uint64_t        demodulated;
         uint64_t        demod_rejected_unknown;
-        uint64_t        CRC_good;             /* good message; no CRC fixed */
-        uint64_t        CRC_bad;              /* unfixable message */
-        uint64_t        CRC_fixed;            /* 1 or 2 bit error fixed */
+        uint64_t        CRC_good;             /**< good message; no CRC fixed */
+        uint64_t        CRC_bad;              /**< unfixable message */
+        uint64_t        CRC_fixed;            /**< 1 or 2 bit error fixed */
         uint64_t        CRC_single_bit_fix;
         uint64_t        CRC_two_bits_fix;
         uint64_t        out_of_phase;
@@ -273,7 +275,6 @@ typedef struct statistics {
         uint64_t        cpr_surface;
         uint64_t        cpr_filtered;
         uint64_t        suppressed_altitude_messages;
-        uint64_t        json_highest_size;
 
         /* Network statistics:
          */
@@ -379,6 +380,7 @@ typedef struct global_data {
         uint16_t           *mag_lut;                  /**< I/Q -> Magnitude lookup table. */
         uint16_t           *log10_lut;                /**< Magnitude -> log10 lookup table. */
         convert_format      input_format;             /**< Converted input format. */
+        uint32_t            FIFO_acquire_ms;          /**< `fifo_acquire()` timeout in milli-sec (default 100). */
         bool                FIFO_active;              /**< We have (and need) a FIFO for `mag_buf` data. */
         bool                phase_enhance;            /**< Enable phase enhancement in `demod_*()`. */
         int                 infile_fd;                /**< File descriptor for `--infile` option. */
@@ -538,7 +540,7 @@ extern global_data Modes;
 #define MODES_ICAO_CACHE_TTL         60   /* Time to live of cached addresses (sec). */
 
 /**
- * Flags for the various demod*.c functions:
+ * Flags for the various `demod-*.c' functions:
  */
 #define MODEAC_MSG_SQUELCH_LEVEL   0x07FF                 /* Average signal strength limit */
 #define MODES_MSG_SQUELCH_DB       4.0                    /* Minimum SNR, in dB */
@@ -553,26 +555,27 @@ extern global_data Modes;
 #define MAX_POWER                  (MAX_AMPLITUDE * MAX_AMPLITUDE)
 
 /**
- * When debug is set to DEBUG_NOPREAMBLE, the first sample must be
+ * When debug is set to `DEBUG_NOPREAMBLE', the first sample must be
  * at least greater than a given level for us to dump the signal.
  */
 #define DEBUG_NOPREAMBLE_LEVEL         25
 
 /**
- * Timeout for a screen refresh in interactive mode and
+ * Timeout (milli-sec) for a screen refresh in interactive mode and
  * timeout for removing a stale aircraft.
  */
 #define MODES_INTERACTIVE_REFRESH_TIME  250
 #define MODES_INTERACTIVE_TTL         60000
 
-/* Set on addresses to indicate they are not ICAO addresses.
+/**
+ * Set on addresses to indicate they are not ICAO addresses.
  * The 24-bit mask 0xFFFFFF is used to detect such an address.
  */
 #define MODES_NON_ICAO_ADDRESS  (1 << 24)
 #define MODES_ICAO_ADDRESS_MASK 0xFFFFFF
 
 /**
- * \enum datasource_t
+ * \typedef datasource_t
  * Where did a bit of data arrive from? In order of increasing priority
  */
 typedef enum datasource_t {
@@ -602,6 +605,7 @@ typedef struct modeS_message {
         int      error_bits;                 /**< Number of bits corrected. */
         int      score;                      /**< Scoring from score modeS_message, if used. */
         uint32_t addr;                       /**< ICAO Address, little endian. */
+        uint16_t addrtype;                   /**< Address format / source. \ref addrtype_t */
         bool     phase_corrected;            /**< True if phase correction was applied. */
         bool     reliable;                   /**< True if ... */
         uint32_t AC_flags;                   /**< Flags. \ref AIRCRAFT_FLAGS. */
@@ -616,7 +620,7 @@ typedef struct modeS_message {
          */
         int      ME_type;                    /**< Extended squitter message type. */
         int      ME_subtype;                 /**< Extended squitter message subtype. */
-        int      heading;                    /**< Horizontal angle of flight. */
+        double   heading;                    /**< Horizontal angle of flight. [0 .. 360] */
         int      aircraft_type;              /**< Aircraft identification. "Type A..D". */
         int      odd_flag;                   /**< 1 = Odd, 0 = Even CPR message. */
         int      UTC_flag;                   /**< UTC synchronized? */
@@ -630,14 +634,13 @@ typedef struct modeS_message {
         int      vert_rate_source;           /**< Vertical rate source. */
         int      vert_rate_sign;             /**< Vertical rate sign. */
         int      vert_rate;                  /**< Vertical rate. */
-        int      velocity;                   /**< Computed from EW and NS velocity. In Knots */
+        double   velocity;                   /**< Computed from EW and NS velocity. In Knots */
         pos_t    position;                   /**< Coordinates obtained from CPR encoded data if/when decoded */
         unsigned nuc_p;                      /**< NUCp value implied by message type
                                               * NUCp == "Navigation Uncertainty Category"
                                               * \sa https://www.icao.int/APAC/Documents/edocs/cns/AIGD%20Edition%2015.0.pdf
                                               * \sa The-1090MHz-Riddle.pdf Chapter 9.2.1
                                               */
-
         /** DF 18
          */
         int      cf;                         /**< Control Field */
@@ -662,6 +665,13 @@ typedef struct modeS_message {
         int           HAE_delta;
         metric_unit_t unit;
         datasource_t  source;
+
+        /** Raw data, just extracted directly from the message
+         */
+        uint8_t       MB [7];
+        uint8_t       MD [10];
+        uint8_t       ME [7];
+        uint8_t       MV [7];
 
         /** For messages from a TCP SBS source (basestation input)
          */
@@ -745,7 +755,7 @@ extern const char *AIS_charset;
 extern const char *AIS_junk;
 
 /*
- * Functions in 'misc.c'
+ * Functions in `misc.c'
  */
 bool        init_misc (void);
 bool        str_startswith (const char *s1, const char *s2);
@@ -796,14 +806,14 @@ void        show_version_info (bool verbose);
 
 /*
  * Functions removed from Mongoose ver 7.15
- * readded to 'misc.c':
+ * re-added to `misc.c':
  */
 uint32_t mg_unhex  (const char *str);
 uint32_t mg_unhexn (const char *str, size_t len);
 char    *mg_hex (const void *buf, size_t len, char *to);
 
 /*
- * in 'pconsole.c'. Not used yet.
+ * in `pconsole.c'. Not used yet.
  */
 typedef struct pconsole_t pconsole_t;
 bool pconsole_create (pconsole_t *pty, const char *cmd_path, const char **cmd_argv);
@@ -834,7 +844,7 @@ const wchar_t *u8_format (const char *s, int min_width);
 #endif
 
 /**
- * GNU-like getopt_long() / getopt_long_only() with 4.4BSD optreset extension.
+ * GNU-like `getopt_long()' / `getopt_long_only()'.
  *
  * \def no_argument
  * The option takes no argument
@@ -856,12 +866,12 @@ typedef struct option {
         const char *name; /**< name of long option */
 
         /**
-         * one of `no_argument`, `required_argument` or `optional_argument`:<br>
+         * One of `no_argument`, `required_argument` or `optional_argument`:<br>
          * whether option takes an argument.
          */
         int  has_arg;
         int *flag;    /**< if not NULL, set *flag to val when option found. */
-        int  val;     /**< if flag not NULL, value to set \c *flag to; else return value. */
+        int  val;     /**< if flag not NULL, value to set `*flag to'; else return value. */
       } option;
 
 int getopt_long (int, char * const *, const char *, const option *, int *);
