@@ -593,8 +593,8 @@ static void apply_phase_correction (uint16_t *payload)
 }
 
 /**
- * Detect a Mode S messages inside the magnitude buffer pointed by 'mag' and of
- * size 'mlen' bytes. Every detected Mode S message is convert it into a
+ * Detect a Mode S messages inside the magnitude buffer pointed by `mag` and of
+ * size `mlen` bytes. Every detected Mode S message is convert it into a
  * stream of bits and passed to the function to display it.
  */
 void demod_2000 (const mag_buf *mag)
