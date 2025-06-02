@@ -29,6 +29,7 @@
 
 static bool modeS_log_reinit (const SYSTEMTIME *st);
 static bool modeS_log_ignore (const char *msg);
+static void warnx (const char *fmt, ...);
 static void test_asprintf (void);
 extern void PDC_scr_close (void);
 static BOOL WINAPI console_handler (DWORD event);
@@ -107,7 +108,9 @@ char *modeS_err_get (void)
 
 /**
  * Print a character `c` to `Modes.log` or `stdout`.
- * Used only if `(Modes.debug & DEBUG_MONGOOSE)` is enabled by `--debug m`.
+ *
+ * Used only if `(Modes.debug & DEBUG_MONGOOSE)` is enabled by `--debug m`. <br>
+ * Or more details with `(Modes.debug & DEBUG_MONGOOSE2); i.e. `--debug M`.
  */
 void modeS_logc (char c, void *param)
 {
@@ -182,6 +185,13 @@ void modeS_log_set (void)
   {
     mg_log_set_fn (modeS_logc, NULL);
     mg_log_set (MG_LL_VERBOSE);
+  }
+
+  static bool done = false;
+  if (!done &&  Modes.log && (Modes.debug & (DEBUG_MONGOOSE | DEBUG_MONGOOSE2)))
+  {
+    warnx ("All Mongoose details goes to '%s'\n", Modes.logfile_current);
+    done = true;
   }
 }
 
