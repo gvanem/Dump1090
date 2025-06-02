@@ -94,6 +94,7 @@ typedef struct flight_info {
         FILETIME            created;           /**< time when this record was created and requested (UTC) */
         FILETIME            responded;         /**< time when this record had a response (UTC) */
         int                 http_status;       /**< the HTTP status-code (or 0) */
+        bool                done_trace;        /**< relax the `API_TRACE()` for this record */
       } flight_info;
 
 /**
@@ -1038,7 +1039,7 @@ static bool API_thread_worker (flight_info *f)
 }
 
 /**
- * In `--test`, `--debug A` or `--raw` modes (`g_data.do_trace == true`),
+ * In `--test`, `--debug g` or `--raw` modes (`g_data.do_trace == true`),
  * just trace current flight-stats.
  */
 static void airports_API_show_stats (void)
@@ -1183,9 +1184,9 @@ void airports_background (uint64_t now)
     if (flight_info_write(file, f))
        num++;
   }
-
   fclose (file);
-  LOG_FILEONLY ("dumped %d LIVE records to cache.\n", num);
+
+  LOG_FILEONLY2 ("dumped %d LIVE records to cache.\n", num);
 }
 
 /**
@@ -1275,12 +1276,12 @@ static void *read_route_records (FILE *f, const BIN_header *hdr)
 
   if (!mem)
   {
-    fprintf (stderr, "Failed to allocate %zu bytes for %s!\n", size, g_data.routes_bin);
+    LOG_STDERR ("Failed to allocate %zu bytes for %s!\n", size, g_data.routes_bin);
     return (NULL);
   }
   if (fread(mem, 1, size, f) != size)
   {
-    fprintf (stderr, "Failed to read %zu bytes for %s!\n", size, g_data.routes_bin);
+    LOG_STDERR ("Failed to read %zu bytes for %s!\n", size, g_data.routes_bin);
     return (NULL);
   }
   route_records_num = hdr->rec_num;
@@ -1355,12 +1356,12 @@ static FILE *airports_init_one_BIN (const char *fname, BIN_header *hdr)
 
   if (!f)
   {
-    fprintf (stderr, "Failed to open %s! errno: %d/%s\n", fname, errno, strerror(errno));
+    LOG_STDERR ("Failed to open %s! errno: %d/%s\n", fname, errno, strerror(errno));
     return (NULL);
   }
   if (fread(hdr, 1, sizeof(*hdr), f) != sizeof(*hdr))
   {
-    fprintf (stderr, "Failed to read header for %s!\n", fname);
+    LOG_STDERR ("Failed to read header for %s!\n", fname);
     fclose (f);
     return (NULL);
   }
@@ -2137,11 +2138,16 @@ bool airports_API_get_flight_info (const char  *call_sign,
                                    const char **destination)
 {
   const char  *type;
-  const char   *end;
-  bool          fixed;
+  const char  *end;
+  bool         fixed;
+  bool         log_it = !(Modes.debug & DEBUG_PLANE);  /* Do not disturb */
+  bool         save = g_data.do_trace;
   flight_info *f;
 
   *departure = *destination = NULL;
+
+  if (!log_it)
+     g_data.do_trace = false;
 
   /* No point getting the route-info for a helicopter.
    * There will never be any response for such a request.
@@ -2149,12 +2155,14 @@ bool airports_API_get_flight_info (const char  *call_sign,
   if (aircraft_is_helicopter(addr, NULL))
   {
     API_TRACE ("addr: %06X is a helicoper\n", addr);
+    g_data.do_trace = save;
     return (false);
   }
 
   if (*call_sign == '\0')
   {
     API_TRACE ("Empty 'call_sign'!\n");
+    g_data.do_trace = save;
     return (false);
   }
 
@@ -2162,7 +2170,8 @@ bool airports_API_get_flight_info (const char  *call_sign,
    */
   if (strpbrk(call_sign, AIS_junk))
   {
-    LOG_FILEONLY ("Junk call_sign: '%s', addr: %06X\n", call_sign, addr);
+    LOG_FILEONLY2 ("Junk call_sign: '%s', addr: %06X\n", call_sign, addr);
+    g_data.do_trace = save;
     return (false);
   }
 
@@ -2174,6 +2183,7 @@ bool airports_API_get_flight_info (const char  *call_sign,
   {
     flight_info_create (call_sign, addr, AIRPORT_API_PENDING);
     API_TRACE ("Created PENDING record for call_sign: '%s'\n", call_sign);
+    g_data.do_trace = save;
     return (false);
   }
 
@@ -2188,13 +2198,19 @@ bool airports_API_get_flight_info (const char  *call_sign,
 
   if (f->type == AIRPORT_API_LIVE || f->type == AIRPORT_API_CACHED)
   {
-    API_TRACE ("call_sign: '%s', type: %s, '%s' -> '%s'\n", call_sign, type, f->departure, f->destination);
+    if (!f->done_trace)
+       API_TRACE ("call_sign: '%s', type: %s, '%s' -> '%s'\n", call_sign, type, f->departure, f->destination);
     *departure   = f->departure;
     *destination = f->destination;
+    g_data.do_trace = save;
     return (true);
   }
 
-  API_TRACE ("call_sign: '%s', type: %s, ? -> ?\n", call_sign, type);
+  if (!f->done_trace)
+     API_TRACE ("call_sign: '%s', type: %s, ? -> ?\n", call_sign, type);
+
+  f->done_trace = true;
+  g_data.do_trace = save;
   return (false);
 }
 
@@ -2374,6 +2390,6 @@ bool airports_API_flight_log_leaving (const aircraft *a)
    *  2) the distance + remaining flight-time to the destination airport.
    *
    * Add a `find_airport_pos_by_ICAO (&dest_pos)` function and use
-   * `distance = geo_great_circle_dist (plane_pos_now, dest_pos)`.
+   * `distance = geo_great_circle_dist (&a->position, &dest_pos)`.
    */
 }
