@@ -95,9 +95,10 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * ```
  */
-static void  modeS_exit (void);
+static void  modeS_cleanup (void);
+static void  modeS_exit (int rc);
 static void  modeS_send_raw_output (const modeS_message *mm);
-static void  modeS_send_SBS_output (const modeS_message *mm, const aircraft *a);
+static void  modeS_send_SBS_output (const modeS_message *mm);
 static void  add_unrecognized_ME (int type, int subtype, bool test);
 
 static bool  set_bandwidth (const char *arg);
@@ -152,6 +153,7 @@ static const struct cfg_table config[] = {
     { "aircrafts",        ARG_STRCPY,  (void*) &Modes.aircraft_db },
     { "aircrafts-url",    ARG_STRDUP,  (void*) &Modes.aircraft_db_url },
     { "bandwidth",        ARG_FUNC,    (void*) set_bandwidth },
+    { "fifo-acquire",     ARG_ATO_U32, (void*) &Modes.FIFO_acquire_ms },
     { "freq",             ARG_FUNC,    (void*) set_frequency },
     { "agc",              ARG_ATOB,    (void*) &Modes.dig_agc },
     { "interactive-ttl",  ARG_FUNC,    (void*) set_interactive_ttl },
@@ -479,7 +481,7 @@ static void modeS_init_config (void)
 
   Modes.infile_fd        = -1;      /* no --infile */
   Modes.gain_auto        = true;
-  Modes.bytes_per_sample = 2;
+  Modes.bytes_per_sample = 2;       /* I + Q == 2 bytes */
   Modes.converter_func   = dummy_converter;
   Modes.demod_func       = dummy_demod;
   Modes.sample_rate      = MODES_DEFAULT_RATE;
@@ -490,6 +492,7 @@ static void modeS_init_config (void)
   Modes.tui_interface    = TUI_WINCON;
   Modes.min_dist         = 0.0;         /* 0 Km default min distance */
   Modes.max_dist         = 500000.0;    /* 500 Km default max distance */
+  Modes.FIFO_acquire_ms  = 100;         /* timeout for `fifo_acquire()` */
 
   Modes.error_correct_1 = true;
   Modes.error_correct_2 = false;
@@ -603,8 +606,7 @@ static bool modeS_init_hardware (void)
   {
     /* use whatever '--informat' was set to 'Modes.input_format' */
   }
-  else if (Modes.rtlsdr.index >= 0 ||
-           modeS_net_services [MODES_NET_SERVICE_RTL_TCP].host[0])
+  else if (Modes.rtlsdr.index >= 0 || net_handler_host(MODES_NET_SERVICE_RTL_TCP))
   {
     /* A local or remote RTLSDR device
      */
@@ -619,7 +621,8 @@ static bool modeS_init_hardware (void)
     Modes.bytes_per_sample = 4;
   }
 
-  if (!fifo_init(MODES_MAG_BUFFERS, MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
+  if (!fifo_init(2 * MODES_MAG_BUFFERS,  // !!
+                 MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
   {
     LOG_STDERR ("Out of memory allocating FIFO\n");
     return (false);
@@ -628,15 +631,20 @@ static bool modeS_init_hardware (void)
 
   char *rtl_name = Modes.rtlsdr.name;
 
-  /* We cannot test for `Modes.rtl_tcp_in != NULL` since `net_init()` has not
-   * been called at this point. But simply test for `MODES_NET_SERVICE_RTL_TCP::host/port`
+  /* We cannot test for `Modes.rtl_tcp_in != NULL` (or `net_handler_url()')
+   * since `net_init()` has not been called at this point.
+   *
+   * So simply test for `MODES_NET_SERVICE_RTL_TCP::proocol/host/port`
    * and use that as the `rtl_name`.
    */
   if (!rtl_name && Modes.rtlsdr.index == -1)
-     rtl_name = mg_mprintf ("%s://%s:%u",
-                            modeS_net_services[MODES_NET_SERVICE_RTL_TCP].protocol,
-                            modeS_net_services[MODES_NET_SERVICE_RTL_TCP].host,
-                            modeS_net_services[MODES_NET_SERVICE_RTL_TCP].port);
+  {
+    rtl_name = mg_mprintf ("%s://%s:%u",
+                           net_handler_protocol(MODES_NET_SERVICE_RTL_TCP),
+                           net_handler_host(MODES_NET_SERVICE_RTL_TCP),
+                           net_handler_port(MODES_NET_SERVICE_RTL_TCP));
+    Modes.selected_dev = rtl_name;
+  }
 
   LOG_FILEONLY ("Modes.rtlsdr.index:     %2d (name: '%s')\n"
                 "              Modes.sdrplay.index:    %2d (name: '%s')\n"
@@ -648,7 +656,7 @@ static bool modeS_init_hardware (void)
                 "              Modes.measure_noise:    %d\n"
                 "              Modes.phase_enhance:    %d\n"
                 "              Modes.demod_func:       demod_%u()\n\n",
-                Modes.rtlsdr.index, rtl_name,
+                Modes.rtlsdr.index, rtl_name ? rtl_name : "<none>",
                 Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : "<none>",
                 (double)Modes.sample_rate / 1E6,
                 Modes.bytes_per_sample,
@@ -658,8 +666,6 @@ static bool modeS_init_hardware (void)
                 Modes.measure_noise,
                 Modes.phase_enhance,
                 Modes.sample_rate / 1000);
-
-  free (rtl_name);
 
   Modes.converter_func = convert_init (Modes.input_format,
                                        Modes.sample_rate,
@@ -807,7 +813,7 @@ static bool modeS_init (void)
  *   product: RTL2838-Blue,   serial: 00000001
  *  ```
  *
- * \note Not called for a remote RTL_TCP device.
+ * \note Not called for a remote RTL_TCP / RTL_UDP device.
  */
 static bool modeS_init_RTLSDR (void)
 {
@@ -938,7 +944,7 @@ static mag_buf *rx_callback_to_fifo (uint32_t in_len, unsigned *to_convert)
   uint64_t        block_duration;
   mag_buf        *out_buf;
 
-  out_buf = fifo_acquire (0);  /* Was '100' */
+  out_buf = fifo_acquire (Modes.FIFO_acquire_ms);
   if (!out_buf)
   {
     /* FIFO is full. Drop this block.
@@ -947,13 +953,13 @@ static mag_buf *rx_callback_to_fifo (uint32_t in_len, unsigned *to_convert)
     return (NULL);
   }
 
-  out_buf->flags = 0;
+  out_buf->flags = MAGBUF_ZERO;
 
   /* We previously dropped some samples due to no buffers being available
    */
   if (dropped)
   {
-    out_buf->flags |= MAGBUF_DISCONTINUOUS;
+    out_buf->flags   = MAGBUF_DISCONTINUOUS;
     out_buf->dropped = dropped;
   }
 
@@ -992,13 +998,12 @@ static mag_buf *rx_callback_to_fifo (uint32_t in_len, unsigned *to_convert)
  * depends highly on sample-rate.
  *
  * \note A Mutex is used to avoid race-condition with the decoding thread.
- * \note "Mode S" is "Mode Select Beacon System" (\ref "The-1090MHz-riddle.pdf" chapter 1.4.)
  */
 void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
 {
   volatile bool exit = *(volatile bool*) ctx;
   mag_buf      *out_buf;
-  unsigned      to_convert = 0; /* samples to convert */
+  unsigned      to_convert = 0;    /* samples to convert */
   uint32_t      samples_read = in_len / Modes.bytes_per_sample;
 
   if (exit)
@@ -1008,6 +1013,7 @@ void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
     SleepEx (100, TRUE);
     return;
   }
+
   if (samples_read == 0)
      return;
 
@@ -1022,7 +1028,8 @@ void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
      */
     fifo_enqueue (out_buf);
 
-    /* Since `sizeof(*out_buf->overlap) == Modes.bytes_per_sample`,
+    /**
+     * Since `sizeof(*out_buf->overlap) == Modes.bytes_per_sample`,
      * this is valid pointer arithmetics. But what about SDRPlay?
      */
     out_buf->valid_length = out_buf->overlap + to_convert;
@@ -1059,7 +1066,6 @@ static DWORD WINAPI data_thread_fn (void *arg)
                              MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
 
     LOG_STDERR ("sdrplay_read_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
- /* WaitForSingleObject (Modes.reader_event, INFINITE); !! */
     modeS_signal_handler (0);   /* break out of main_data_loop() */
   }
   else if (Modes.rtlsdr.device)
@@ -1074,8 +1080,8 @@ static DWORD WINAPI data_thread_fn (void *arg)
   {
     while (!Modes.exit)
     {
-     /* Not much to do here. For RTL_TCP, enqueueing to the FIFO is done in
-      * `rx_callback()` via `rtl_tcp_recv_data()` in net_io.c.
+     /* Not much to do here. For RTL_TCP, enqueueing to the FIFO is
+      * done in `rx_callback()` via `rtl_tcp_recv_data()` in net_io.c.
       * For RAW_IN, everything runs out of `background_tasks()`.
       */
       Sleep (100);
@@ -1113,8 +1119,8 @@ static void main_data_loop (void)
 
       (*Modes.demod_func) (buf);   /* call `demod_2000()` etc. */
 
-      Modes.stat.samples_processed += buf->valid_length - buf->overlap;
-      Modes.stat.samples_dropped   += buf->dropped;
+      Modes.stat.samples_processed += (buf->valid_length - buf->overlap) / Modes.bytes_per_sample;
+      Modes.stat.samples_dropped   += buf->dropped / Modes.bytes_per_sample;
 
       fifo_release (buf);
     }
@@ -1339,6 +1345,225 @@ static int decode_movement_field (int movement)
   return (gspeed);
 }
 
+#if 0 /**\ todo Add this? */
+/**
+ * Extract one bit from a message.
+ */
+static __inline unsigned get_bit (const uint8_t *data, unsigned bitnum)
+{
+  unsigned bi = bitnum - 1;
+  unsigned by = bi >> 3;
+  unsigned mask = 1 << (7 - (bi & 7));
+
+  return (data[by] & mask) != 0;
+}
+
+/**
+ * Extract some bits  (first_bit .. last_bit inclusive) from a message.
+ */
+static __inline unsigned get_bits (const uint8_t *data, unsigned first_bit, unsigned last_bit)
+{
+  unsigned num_bits   = (last_bit - first_bit + 1);
+  unsigned first_bi   = first_bit - 1;
+  unsigned last_bi    = last_bit - 1;
+  unsigned first_byte = first_bi >> 3;
+  unsigned last_byte  = last_bi >> 3;
+  unsigned num_bytes  = (last_byte - first_byte) + 1;
+  unsigned shift      = 7 - (last_bi & 7);
+  unsigned top_mask   = 0xFF >> (first_bi & 7);
+
+  assert (first_bi <= last_bi);
+  assert (num_bits <= 32);
+  assert (num_bytes <= 5);
+
+  if (num_bytes == 5)
+     return ((data[first_byte] & top_mask) << (32 - shift)) |
+            (data[first_byte + 1] << (24 - shift)) |
+            (data[first_byte + 2] << (16 - shift)) |
+            (data[first_byte + 3] << (8 - shift)) |
+            (data[first_byte + 4] >> shift);
+
+  if (num_bytes == 4)
+     return ((data[first_byte] & top_mask) << (24 - shift)) |
+            (data[first_byte + 1] << (16 - shift)) |
+            (data[first_byte + 2] << (8 - shift)) |
+            (data[first_byte + 3] >> shift);
+
+  if (num_bytes == 3)
+     return ((data[first_byte] & top_mask) << (16 - shift)) |
+            (data[first_byte + 1] << (8 - shift)) |
+            (data[first_byte + 2] >> shift);
+
+  if (num_bytes == 2)
+     return ((data[first_byte] & top_mask) << (8 - shift)) | (data[first_byte + 1] >> shift);
+
+  if (num_bytes == 1)
+     return (data[first_byte] & top_mask) >> shift;
+
+  return 0;
+}
+
+/**
+ * Handle setting a non-ICAO address
+ */
+static void set_IMF (struct modeS_message *mm)
+{
+  mm->addr |= MODES_NON_ICAO_ADDRESS;
+  switch (mm->addrtype)
+  {
+    case ADDR_ADSB_ICAO:
+    case ADDR_ADSB_ICAO_NT:
+         mm->addrtype = ADDR_ADSB_OTHER;
+         break;
+
+    case ADDR_TISB_ICAO:
+         mm->addrtype = ADDR_TISB_TRACKFILE;
+         break;
+
+    case ADDR_ADSR_ICAO:
+         mm->addrtype = ADDR_ADSR_OTHER;
+         break;
+
+    default:
+        break;
+  }
+}
+
+static void decode_ES_airborne_velocity (modeS_message *mm, bool check_imf)
+{
+  uint8_t *me = mm->ME;
+  uint16_t ew_raw, ns_raw, airspeed;
+
+  /* 1-5: ME type */
+  /* 6-8: ME subtype */
+  mm->ME_subtype = get_bits (me, 6, 8);
+
+  if (mm->ME_subtype < 1 || mm->ME_subtype > 4)
+     return;
+
+  /* 9: IMF or Intent Change */
+  if (check_imf && get_bit(me, 9))
+     set_IMF (mm);
+
+  /* 10: reserved */
+  /* 11-13: NACv (NUCr in v0, maps directly to NACv in v2) */
+  mm->accuracy.nac_v_valid = 1;
+  mm->accuracy.nac_v = get_bits (me, 11, 13);
+
+  /* 14-35: speed/velocity depending on subtype
+   */
+  switch (mm->ME_subtype)
+  {
+    case 1:
+    case 2:
+         /* 14:    E/W direction */
+         /* 15-24: E/W speed */
+         /* 25:    N/S direction */
+         /* 26-35: N/S speed */
+         ew_raw = get_bits (me, 15, 24);
+         ns_raw = get_bits (me, 26, 35);
+
+         if (ew_raw && ns_raw)
+         {
+           int ew_vel = (ew_raw - 1) * (get_bit(me, 14) ? -1 : 1) * ((mm->ME_subtype == 2) ? 4 : 1);
+           int ns_vel = (ns_raw - 1) * (get_bit(me, 25) ? -1 : 1) * ((mm->ME_subtype == 2) ? 4 : 1);
+
+           /* Compute velocity and angle from the two speed components
+            */
+           mm->gs.v0 = mm->gs.v2 = mm->gs.selected = sqrtf ((ns_vel * ns_vel) + (ew_vel * ew_vel) + 0.5);
+           mm->gs_valid = 1;
+
+           if (mm->gs.selected > 0)
+           {
+             double ground_track = (atan2 (ew_vel, ns_vel) * 180.0) / M_PI;
+
+             /* We don't want negative values but a 0-360 scale
+              */
+             if (ground_track < 0.0)
+                ground_track += 360.0;
+             mm->heading       = ground_track;
+             mm->heading_type  = HEADING_GROUND_TRACK;
+             mm->heading_valid = 1;
+           }
+         }
+         break;
+
+    case 3:
+    case 4:
+         /* 14:    heading status */
+         /* 15-24: heading */
+         if (get_bit(me, 14))
+         {
+           mm->heading_valid = 1;
+           mm->heading = get_bits (me, 15, 24) * 360.0 / 1024.0;
+           mm->heading_type = HEADING_MAGNETIC_OR_TRUE;
+         }
+
+         /* 25: airspeed type */
+         /* 26-35: airspeed */
+         airspeed = get_bits (me, 26, 35);
+         if (airspeed)
+         {
+             unsigned speed = (airspeed - 1) * (mm->ME_subtype == 4 ? 4 : 1);
+
+             if (get_bit(me, 25))
+             {
+               mm->tas_valid = 1;
+               mm->tas = speed;
+             }
+             else
+             {
+               mm->ias_valid = 1;
+               mm->ias = speed;
+             }
+         }
+         break;
+  }
+
+  /* 36: vert rate source */
+  /* 37: vert rate sign */
+  /* 38-46: vert rate magnitude */
+  unsigned vert_rate         = get_bits (me, 38, 46);
+  unsigned vert_rate_is_baro = get_bit (me, 36);
+
+  if (vert_rate)
+  {
+    int rate = (vert_rate - 1) * (get_bit(me, 37) ? -64 : 64);
+
+    if (vert_rate_is_baro)
+    {
+      mm->baro_rate = rate;
+      mm->baro_rate_valid = 1;
+    }
+    else
+    {
+      mm->geom_rate = rate;
+      mm->geom_rate_valid = 1;
+    }
+  }
+
+  /* 47-48: reserved */
+
+  /* 49: baro/geom delta sign */
+  /* 50-56: baro/geom delta magnitude */
+  unsigned raw_delta = get_bits (me, 50, 56);
+
+  if (raw_delta)
+  {
+    mm->geom_delta_valid = 1;
+    mm->geom_delta = (raw_delta - 1) * (get_bit(me, 49) ? -25 : 25);
+  }
+}
+
+/**
+ * Decode DF16 message?
+ * \sa https://github.com/e5150/msdec/blob/master/df16.c
+ */
+static void decode_DF16 (modeS_message *mm)
+{
+}
+#endif // 0
+
 static bool set_callsign (modeS_message *mm, uint32_t chars1, uint32_t chars2)
 {
   char flight [sizeof(mm->flight)];
@@ -1403,6 +1628,8 @@ static void decode_extended_squitter (modeS_message *mm)
   int      ME_type, ME_subtype;
   bool     check_imf = false;
 
+  memcpy (mm->ME, &msg[4], sizeof(mm->ME));
+
   /* Extended squitter message type
    */
   ME_type = mm->ME_type = (msg[4] >> 3);
@@ -1418,14 +1645,17 @@ static void decode_extended_squitter (modeS_message *mm)
     switch (mm->cf)
     {
       case 0:      /* ADS-B ES/NT devices that report the ICAO 24-bit address in the AA field */
+           mm->addrtype = ADDR_ADSB_ICAO_NT;
            break;
 
       case 1:      /* Reserved for ADS-B for ES/NT devices that use other addressing techniques in the AA field */
            mm->addr |= MODES_NON_ICAO_ADDRESS;
+           mm->addrtype = ADDR_ADSB_OTHER;
            break;
 
       case 2:      /* Fine TIS-B message (formats are close enough to DF17 for our purposes) */
            mm->AC_flags |= MODES_ACFLAGS_FROM_TISB;
+           mm->addrtype = ADDR_TISB_ICAO;
            check_imf = true;
            break;
 
@@ -1434,6 +1664,7 @@ static void decode_extended_squitter (modeS_message *mm)
             * For now we only look at the IMF bit.
             */
            mm->AC_flags |= MODES_ACFLAGS_FROM_TISB;
+           mm->addrtype = ADDR_TISB_ICAO;
            if (msg[4] & 0x80)
               mm->addr |= MODES_NON_ICAO_ADDRESS;
            return;
@@ -1441,14 +1672,17 @@ static void decode_extended_squitter (modeS_message *mm)
       case 5:      /* TIS-B messages that relay ADS-B Messages using anonymous 24-bit addresses (format not explicitly defined, but it seems to follow DF17) */
            mm->AC_flags |= MODES_ACFLAGS_FROM_TISB;
            mm->addr |= MODES_NON_ICAO_ADDRESS;
+           mm->addrtype = ADDR_TISB_OTHER;
            break;
 
       case 6:      /* ADS-B rebroadcast using the same type codes and message formats as defined for DF = 17 ADS-B messages */
+           mm->addrtype = ADDR_ADSR_ICAO;
            check_imf = true;
            break;
 
       default:     /* All others, we don't know the format */
            mm->addr |= MODES_NON_ICAO_ADDRESS;    /* assume non-ICAO */
+           mm->addrtype = ADDR_UNKNOWN;
            return;
     }
   }
@@ -1531,16 +1765,15 @@ static void decode_extended_squitter (modeS_message *mm)
              /* Compute velocity and angle from the two speed components
               */
              mm->AC_flags |= (MODES_ACFLAGS_SPEED_VALID | MODES_ACFLAGS_HEADING_VALID | MODES_ACFLAGS_NSEWSPD_VALID);
-             mm->velocity = (int) sqrt ((ns_vel * ns_vel) + (ew_vel * ew_vel));
-
-             if (mm->velocity)
+             mm->velocity = sqrt ((ns_vel * ns_vel) + (ew_vel * ew_vel) + 0.5);
+             if (mm->velocity > SMALL_VAL)
              {
-               mm->heading = (int) (atan2(ew_vel, ns_vel) * 180.0 / M_PI);
+               mm->heading = atan2 (ew_vel, ns_vel) * 180.0 / M_PI;
 
                /* We don't want negative values but a 0 - 360 scale
                 */
-               if (mm->heading < 0)
-                  mm->heading += 360;
+               if (mm->heading < 0.0)
+                  mm->heading += 360.0;
              }
            }
          }
@@ -1583,7 +1816,7 @@ static void decode_extended_squitter (modeS_message *mm)
          mm->AC_flags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
          mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
          mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
-         mm->AC_flags     |= (mm->msg[6] & 0x04) ? MODES_ACFLAGS_LLODD_VALID : MODES_ACFLAGS_LLEVEN_VALID;
+         mm->AC_flags |= (mm->msg[6] & 0x04) ? MODES_ACFLAGS_LLODD_VALID : MODES_ACFLAGS_LLEVEN_VALID;
 
          movement = ((msg[4] << 4) | (msg[5] >> 4)) & 0x007F;
          if (movement && movement < 125)
@@ -1650,14 +1883,14 @@ static void decode_extended_squitter (modeS_message *mm)
               */
              mm->altitude_HAE = decode_AC12_field (AC12_field, &mm->unit);
              if (mm->altitude_HAE != INVALID_ALTITUDE)
-                mm->AC_flags  |= MODES_ACFLAGS_ALTITUDE_HAE_VALID;
+                mm->AC_flags |= MODES_ACFLAGS_ALTITUDE_HAE_VALID;
 
            }
            else
            {
              mm->altitude = decode_AC12_field (AC12_field, &mm->unit);
              if (mm->altitude != INVALID_ALTITUDE)
-                mm->AC_flags  |= MODES_ACFLAGS_ALTITUDE_VALID;
+                mm->AC_flags |= MODES_ACFLAGS_ALTITUDE_VALID;
            }
          }
 
@@ -1813,8 +2046,14 @@ static const char *get_ME_description (const modeS_message *mm)
   if (mm->ME_type == 29 && (mm->ME_subtype == 0 || mm->ME_subtype == 1))
      return ("Target State and Status Message");
 
-  if (mm->ME_type == 31 && (mm->ME_subtype == 0 || mm->ME_subtype == 1))
-     return ("Aircraft Operational Status Message");
+  if (mm->ME_type == 30)
+     return ("Aircraft Operational Coordination");
+
+  if (mm->ME_type == 31 && mm->ME_subtype == 0)
+     return ("Aircraft Operational Status (airborne)");
+
+  if (mm->ME_type == 31 && mm->ME_subtype == 1)
+     return ("Aircraft Operational Status (surface)");
 
   snprintf (buf, sizeof(buf), "Unknown: %d/%d", mm->ME_type, mm->ME_subtype);
   return (buf);
@@ -1986,8 +2225,8 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
          * DF for simplicity.
          */
         mm->msg_type = 24;
-        mm->source = SOURCE_MODE_S;
-        mm->addr   = mm->CRC;
+        mm->source   = SOURCE_MODE_S;
+        mm->addr     = mm->CRC;
         mm->reliable = false;
         break;
 
@@ -2016,7 +2255,7 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
     {
       mm->altitude = decode_AC13_field (AC13_field, &mm->unit);
       if (mm->altitude != INVALID_ALTITUDE)
-          mm->AC_flags  |= MODES_ACFLAGS_ALTITUDE_VALID;
+          mm->AC_flags |= MODES_ACFLAGS_ALTITUDE_VALID;
     }
   }
 
@@ -2042,7 +2281,7 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
   /* FS (Flight Status) */
   if (mm->msg_type == 4 || mm->msg_type == 5 || mm->msg_type == 20 || mm->msg_type == 21)
   {
-    mm->AC_flags  |= MODES_ACFLAGS_FS_VALID;
+    mm->AC_flags |= MODES_ACFLAGS_FS_VALID;
     mm->flight_status = msg[0] & 7;
     if (mm->flight_status <= 3)
     {
@@ -2070,7 +2309,9 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
   if (mm->msg_type == 20 || mm->msg_type == 21)
      decode_comm_B (mm);
 
-  /* MD (message, Comm-D) not decoded */
+  /* MD (message, Comm-D) */
+  if (mm->msg_type == 24)
+     memcpy (mm->MD, &msg[1], sizeof(mm->MD));
 
   /* ME (message, extended squitter) */
   if (mm->msg_type == 17 ||   /* Extended squitter */
@@ -2143,6 +2384,7 @@ void decode_mode_A_message (modeS_message *mm, int ModeA)
   * so use 32 to indicate Mode A/C
   */
   mm->msg_type = 32;
+  mm->addrtype = ADDR_MODE_A;
 
   mm->msg_bits = 16;   /* Fudge up a Mode S style data stream */
   mm->msg [0] = (ModeA >> 8);
@@ -2341,23 +2583,16 @@ static void test_print_unrecognized_ME (void)
 
   puts ("                              ME: sub (num, ..)");
   print_unrecognized_ME();
-  modeS_exit();
-  exit (0);
+  modeS_exit (0);
 }
 
 static bool display_brief_message (modeS_message *mm)
 {
-  const aircraft *a;
   const char     *dist = "-";
   char            buf [200];
+  const aircraft *a = aircraft_find (mm->addr);
 
-#if 0
-  if (mm->addr & MODES_NON_ICAO_ADDRESS)
-     return (false);
-#endif
-
-  a = aircraft_update_from_message (mm);
-  if (!a)     /* memory failure?! */
+  if (!a)
      return (false);
 
   if (a->distance_ok &&
@@ -2368,6 +2603,110 @@ static bool display_brief_message (modeS_message *mm)
   }
   printf ("%06X dist: %s\n", a->addr, dist);
   return (true);
+}
+
+static const char *ac_type_str[] = {
+                  "Aircraft Type D",
+                  "Aircraft Type C",
+                  "Aircraft Type B",
+                  "Aircraft Type A"
+                 };
+
+static bool display_extended_squitter (const modeS_message *mm)
+{
+  /* Decode the extended squitter message. */
+  if (mm->ME_type >= 1 && mm->ME_type <= 4)
+  {
+    /* Aircraft identification
+     */
+    LOG_STDOUT ("    Aircraft Type  : %s\n", ac_type_str[mm->aircraft_type]);
+    LOG_STDOUT ("    Identification : %s\n", mm->flight);
+    return (true);
+  }
+
+  if (mm->ME_type >= 9 && mm->ME_type <= 18)
+  {
+    LOG_STDOUT ("    F flag   : %s\n", mm->odd_flag ? "odd" : "even");
+    LOG_STDOUT ("    T flag   : %s\n", mm->UTC_flag ? "UTC" : "non-UTC");
+    LOG_STDOUT ("    Altitude : %d feet\n", mm->altitude);
+    LOG_STDOUT ("    Latitude : %d (not decoded)\n", mm->raw_latitude);
+    LOG_STDOUT ("    Longitude: %d (not decoded)\n", mm->raw_longitude);
+    return (true);
+  }
+
+  if (mm->ME_type == 19 && mm->ME_subtype >= 1 && mm->ME_subtype <= 4)
+  {
+    if (mm->ME_subtype == 1 || mm->ME_subtype == 2)
+    {
+      /* Velocity */
+      LOG_STDOUT ("    EW direction      : %d\n", mm->EW_dir);
+      LOG_STDOUT ("    EW velocity       : %d\n", mm->EW_velocity);
+      LOG_STDOUT ("    NS direction      : %d\n", mm->NS_dir);
+      LOG_STDOUT ("    NS velocity       : %d\n", mm->NS_velocity);
+      LOG_STDOUT ("    Vertical rate src : %d\n", mm->vert_rate_source);
+      LOG_STDOUT ("    Vertical rate sign: %d\n", mm->vert_rate_sign);
+      LOG_STDOUT ("    Vertical rate     : %d\n", mm->vert_rate);
+    }
+    else if (mm->ME_subtype == 3 || mm->ME_subtype == 4)
+    {
+      LOG_STDOUT ("    Heading status: %d\n", (mm->AC_flags & MODES_ACFLAGS_HEADING_VALID) ? 1 : 0);
+      LOG_STDOUT ("    Heading: %d\n", (int)mm->heading);
+    }
+    return (true);
+  }
+
+  if (mm->ME_type == 23)  /* Test Message */
+  {
+    if (mm->ME_subtype == 7)
+         LOG_STDOUT ("    Squawk: %04x\n", mm->identity);
+    else LOG_STDOUT ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
+    return (true);
+  }
+
+  if (mm->ME_type == 28)  /* Extended Squitter Aircraft Status */
+  {
+    if (mm->ME_subtype == 1)
+    {
+      LOG_STDOUT ("    Emergency State: %s\n", emerg_state_str[(mm->msg[5] & 0xE0) >> 5]);
+      LOG_STDOUT ("    Squawk: %04x\n", mm->identity);
+    }
+    else
+      LOG_STDOUT ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
+    return (true);
+  }
+
+#if 1
+  if (mm->ME_type == 29)
+  {
+    /**\todo
+     * Target State + Status Message
+     *
+     * \ref
+     *   the `if tc == 29:` part in `pyModeS/decoder/__init__.py`
+     */
+    add_unrecognized_ME (29, mm->ME_subtype, false);
+    return (false);
+  }
+
+  if (mm->ME_type == 31)  /* Aircraft operation status */
+  {
+    /**\todo Ref: chapter 8 in `The-1090MHz-riddle.pdf`
+     */
+    add_unrecognized_ME (31, mm->ME_subtype, false);
+    return (false);
+  }
+#endif
+
+  LOG_STDOUT ("    Unrecognized ME type: %d, subtype: %d\n", mm->ME_type, mm->ME_subtype);
+  add_unrecognized_ME (mm->ME_type, mm->ME_subtype, false);
+  return (false);
+}
+
+static void display_addr (const modeS_message *mm, int extra_space)
+{
+  if (mm->addr & MODES_NON_ICAO_ADDRESS)
+       LOG_STDOUT ("  Other Address%*s: %06X (%s)\n", extra_space, "", mm->addr & MODES_ICAO_ADDRESS_MASK, aircraft_get_details(mm));
+  else LOG_STDOUT ("  ICAO Address%*s: %06X (%s)\n", extra_space, "", mm->addr, aircraft_get_details(mm));
 }
 
 /**
@@ -2419,21 +2758,26 @@ static bool modeS_message_display (modeS_message *mm)
   if (mm->sig_level > 0)
      LOG_STDOUT ("RSSI: %.1lf dBFS\n", 10 * log10(mm->sig_level));
 
+  const char *ground = "";
+
+  if ((mm->AC_flags & MODES_ACFLAGS_AOG_VALID) && (mm->AC_flags & MODES_ACFLAGS_AOG))
+     ground = ", Ground";
+
   if (mm->msg_type == 0)
   {
     /* DF0 */
     LOG_STDOUT ("DF 0: Short Air-Air Surveillance.\n");
-    LOG_STDOUT ("  Altitude       : %d %s\n", mm->altitude, UNIT_NAME(mm->unit));
-    LOG_STDOUT ("  ICAO Address   : %s\n", aircraft_get_details(mm->addr));
+    LOG_STDOUT ("  Altitude    : %d %s%s\n", mm->altitude, UNIT_NAME(mm->unit), ground);
+    display_addr (mm, 0);
   }
   else if (mm->msg_type == 4 || mm->msg_type == 20)
   {
     LOG_STDOUT ("DF %d: %s, Altitude Reply.\n", mm->msg_type, mm->msg_type == 4 ? "Surveillance" : "Comm-B");
-    LOG_STDOUT ("  Flight Status  : %s\n", flight_status_str [mm->flight_status]);
-    LOG_STDOUT ("  DR             : %d\n", mm->DR_status);
-    LOG_STDOUT ("  UM             : %d\n", mm->UM_status);
-    LOG_STDOUT ("  Altitude       : %d %s\n", mm->altitude, UNIT_NAME(mm->unit));
-    LOG_STDOUT ("  ICAO Address   : %s\n", aircraft_get_details(mm->addr));
+    LOG_STDOUT ("  Flight Status: %s\n", flight_status_str [mm->flight_status]);
+    LOG_STDOUT ("  DR           : %d\n", mm->DR_status);
+    LOG_STDOUT ("  UM           : %d\n", mm->UM_status);
+    LOG_STDOUT ("  Altitude     : %d %s\n", mm->altitude, UNIT_NAME(mm->unit));
+    display_addr (mm, 1);
 
     if (mm->msg_type == 20)
     {
@@ -2443,11 +2787,11 @@ static bool modeS_message_display (modeS_message *mm)
   else if (mm->msg_type == 5 || mm->msg_type == 21)
   {
     LOG_STDOUT ("DF %d: %s, Identity Reply.\n", mm->msg_type, mm->msg_type == 5 ? "Surveillance" : "Comm-B");
-    LOG_STDOUT ("  Flight Status  : %s\n", flight_status_str [mm->flight_status]);
-    LOG_STDOUT ("  DR             : %d\n", mm->DR_status);
-    LOG_STDOUT ("  UM             : %d\n", mm->UM_status);
-    LOG_STDOUT ("  Squawk         : %d\n", mm->identity);
-    LOG_STDOUT ("  ICAO Address   : %s\n", aircraft_get_details(mm->addr));
+    LOG_STDOUT ("  Flight Status: %s\n", flight_status_str [mm->flight_status]);
+    LOG_STDOUT ("  DR           : %d\n", mm->DR_status);
+    LOG_STDOUT ("  UM           : %d\n", mm->UM_status);
+    LOG_STDOUT ("  Squawk       : %d\n", mm->identity);
+    display_addr (mm, 1);
 
     if (mm->msg_type == 21)
     {
@@ -2458,99 +2802,20 @@ static bool modeS_message_display (modeS_message *mm)
   {
     /* DF11 */
     LOG_STDOUT ("DF 11: All Call Reply.\n");
-    LOG_STDOUT ("  Capability  : %s\n", capability_str[mm->capa]);
-    LOG_STDOUT ("  ICAO Address: %s\n", aircraft_get_details(mm->addr));
+    LOG_STDOUT ("  Capability  : %d (%s)\n", mm->capa, capability_str[mm->capa]);
+    display_addr (mm, 0);
   }
   else if (mm->msg_type == 17)
   {
     /* DF17 */
     LOG_STDOUT ("DF 17: ADS-B message.\n");
-    LOG_STDOUT ("  Capability     : %d (%s)\n", mm->capa, capability_str[mm->capa]);
-    LOG_STDOUT ("  ICAO Address   : %s\n", aircraft_get_details(mm->addr));
+    LOG_STDOUT ("  Capability  : %d (%s)\n", mm->capa, capability_str[mm->capa]);
+    display_addr (mm, 0);
     LOG_STDOUT ("  Extended Squitter Type: %d\n", mm->ME_type);
     LOG_STDOUT ("  Extended Squitter Sub : %d\n", mm->ME_subtype);
     LOG_STDOUT ("  Extended Squitter Name: %s\n", get_ME_description(mm));
 
-    /* Decode the extended squitter message. */
-    if (mm->ME_type >= 1 && mm->ME_type <= 4)
-    {
-      /* Aircraft identification
-       */
-      const char *ac_type_str [4] = {
-                 "Aircraft Type D",
-                 "Aircraft Type C",
-                 "Aircraft Type B",
-                 "Aircraft Type A"
-             };
-      LOG_STDOUT ("    Aircraft Type  : %s\n", ac_type_str[mm->aircraft_type]);
-      LOG_STDOUT ("    Identification : %s\n", mm->flight);
-    }
-    else if (mm->ME_type >= 9 && mm->ME_type <= 18)
-    {
-      LOG_STDOUT ("    F flag   : %s\n", mm->odd_flag ? "odd" : "even");
-      LOG_STDOUT ("    T flag   : %s\n", mm->UTC_flag ? "UTC" : "non-UTC");
-      LOG_STDOUT ("    Altitude : %d feet\n", mm->altitude);
-      LOG_STDOUT ("    Latitude : %d (not decoded)\n", mm->raw_latitude);
-      LOG_STDOUT ("    Longitude: %d (not decoded)\n", mm->raw_longitude);
-    }
-    else if (mm->ME_type == 19 && mm->ME_subtype >= 1 && mm->ME_subtype <= 4)
-    {
-      if (mm->ME_subtype == 1 || mm->ME_subtype == 2)
-      {
-        /* Velocity */
-        LOG_STDOUT ("    EW direction      : %d\n", mm->EW_dir);
-        LOG_STDOUT ("    EW velocity       : %d\n", mm->EW_velocity);
-        LOG_STDOUT ("    NS direction      : %d\n", mm->NS_dir);
-        LOG_STDOUT ("    NS velocity       : %d\n", mm->NS_velocity);
-        LOG_STDOUT ("    Vertical rate src : %d\n", mm->vert_rate_source);
-        LOG_STDOUT ("    Vertical rate sign: %d\n", mm->vert_rate_sign);
-        LOG_STDOUT ("    Vertical rate     : %d\n", mm->vert_rate);
-      }
-      else if (mm->ME_subtype == 3 || mm->ME_subtype == 4)
-      {
-        LOG_STDOUT ("    Heading status: %d\n", (mm->AC_flags & MODES_ACFLAGS_HEADING_VALID) ? 1 : 0);
-        LOG_STDOUT ("    Heading: %d\n", mm->heading);
-      }
-    }
-    else if (mm->ME_type == 23)  /* Test Message */
-    {
-      if (mm->ME_subtype == 7)
-           LOG_STDOUT ("    Squawk: %04x\n", mm->identity);
-      else LOG_STDOUT ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
-    }
-    else if (mm->ME_type == 28)  /* Extended Squitter Aircraft Status */
-    {
-      if (mm->ME_subtype == 1)
-      {
-        LOG_STDOUT ("    Emergency State: %s\n", emerg_state_str[(mm->msg[5] & 0xE0) >> 5]);
-        LOG_STDOUT ("    Squawk: %04x\n", mm->identity);
-      }
-      else
-        LOG_STDOUT ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
-    }
-#if 1
-    else if (mm->ME_type == 29)
-    {
-      /**\todo
-       * Target State + Status Message
-       *
-       * \ref
-       *   the `if tc == 29:` part in `pyModeS/decoder/__init__.py`
-       */
-      add_unrecognized_ME (29, mm->ME_subtype, false);
-    }
-    else if (mm->ME_type == 31)  /* Aircraft operation status */
-    {
-      /**\todo Ref: chapter 8 in `The-1090MHz-riddle.pdf`
-       */
-      add_unrecognized_ME (31, mm->ME_subtype, false);
-    }
-#endif
-    else
-    {
-      LOG_STDOUT ("    Unrecognized ME type: %d, subtype: %d\n", mm->ME_type, mm->ME_subtype);
-      add_unrecognized_ME (mm->ME_type, mm->ME_subtype, false);
-    }
+    display_extended_squitter (mm);
   }
   else
   {
@@ -2705,7 +2970,6 @@ int modeS_message_score (const uint8_t *msg, int valid_bits)
         /* unknown message type */
         return (-2);
   }
-//(void) addr;
 }
 
 /**
@@ -2726,7 +2990,7 @@ void modeS_user_message (modeS_message *mm)
   if (a &&
       Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS_OUT] > 0 &&  /* If we have accepted >=1 client */
       net_handler_sending(MODES_NET_SERVICE_SBS_OUT))             /* and we're still sending */
-     modeS_send_SBS_output (mm, a);                               /* Feed SBS output clients. */
+     modeS_send_SBS_output (mm);                                  /* Feed SBS output clients. */
 
   /* In non-interactive mode, display messages on standard output.
    * In silent-mode, do nothing just to consentrate on network traces.
@@ -2761,8 +3025,8 @@ static bool strip_mode (int level)
   uint64_t c = 0;
   int      I, Q;
 
-  SETMODE (_fileno(stdin), O_BINARY);
-  SETMODE (_fileno(stdout), O_BINARY);
+  _setmode (_fileno(stdin), O_BINARY);
+  _setmode (_fileno(stdout), O_BINARY);
 
   while ((I = getchar()) != EOF && (Q = getchar()) != EOF)
   {
@@ -2778,8 +3042,8 @@ static bool strip_mode (int level)
     putchar (I);
     putchar (Q);
   }
-  SETMODE (_fileno(stdin), O_TEXT);
-  SETMODE (_fileno(stdout), O_TEXT);
+  _setmode (_fileno(stdin), O_TEXT);
+  _setmode (_fileno(stdout), O_TEXT);
   return (true);
 }
 
@@ -2799,7 +3063,7 @@ static void modeS_send_raw_output (const modeS_message *mm)
   p = strchr (p, '\0');
   *p++ = ';';
   *p++ = '\n';
-  net_connection_send (MODES_NET_SERVICE_RAW_OUT, msg, p - msg);
+  net_handler_send (MODES_NET_SERVICE_RAW_OUT, msg, p - msg);
 }
 
 /**
@@ -2810,7 +3074,6 @@ static const char *get_SBS_timestamp (void)
   int         ts_len;
   char        ts_buf [30];
   static char timestamp [2*sizeof(ts_buf)];
-
   FILETIME    ft;
   SYSTEMTIME  st;
 
@@ -2833,7 +3096,7 @@ static const char *get_SBS_timestamp (void)
 /**
  * Write SBS output to TCP clients (Base Station format).
  */
-static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
+static void modeS_send_SBS_output (const modeS_message *mm)
 {
   char  msg [MODES_MAX_SBS_SIZE], *p = msg;
   int   emergency = 0, ground = 0, alert = 0, spi = 0;
@@ -2890,18 +3153,18 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
   }
   else if (mm->msg_type == 17 && mm->ME_type >= 9 && mm->ME_type <= 18)
   {
-    if (!VALID_POS(a->position))
-         p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,,,,,0,0,0,0",
+    if (mm->AC_flags & MODES_ACFLAGS_LATLON_VALID)
+         p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
+                       mm->addr, date_str, mm->altitude, mm->position.lat, mm->position.lon);
+    else p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,,,,,0,0,0,0",
                        mm->addr, date_str, mm->altitude);
-    else p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
-                       mm->addr, date_str, mm->altitude, a->position.lat, a->position.lon);
   }
   else if (mm->msg_type == 17 && mm->ME_type == 19 && mm->ME_subtype == 1)
   {
     int vr = (mm->vert_rate_sign == 0 ? 1 : -1) * 64 * (mm->vert_rate - 1);
 
     p += sprintf (p, "MSG,4,1,1,%06X,1,%s,,,%d,%d,,,%i,,0,0,0,0",
-                  mm->addr, date_str, a->speed, a->heading, vr);
+                  mm->addr, date_str, (int)round(mm->velocity), (int)round(mm->heading), vr);
   }
   else if (mm->msg_type == 21)
   {
@@ -2912,7 +3175,7 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
     return;
 
   *p++ = '\n';
-  net_connection_send (MODES_NET_SERVICE_SBS_OUT, msg, p - msg);
+  net_handler_send (MODES_NET_SERVICE_SBS_OUT, msg, p - msg);
 }
 
 /**
@@ -3211,7 +3474,7 @@ bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
 /**
  * Show the program usage
  */
-static void NO_RETURN show_help (const char *fmt, ...)
+static void show_help (const char *fmt, ...)
 {
   if (fmt)
   {
@@ -3240,6 +3503,7 @@ static void NO_RETURN show_help (const char *fmt, ...)
             "                        n = Log network debugging information.\n"
             "                        N = A bit more network information than flag `n'.\n"
             "                        p = Log frames with bad preamble.\n"
+            "                        P = Log a single plane at a time with details (ref `LOG_FOLLOW()`).\n"
             "  --device <N / name>   Select RTLSDR/SDRPlay device (default: 0; first found).\n"
             "                        e.g. `--device 0'               - select first RTLSDR device found.\n"
             "                             `--device RTL2838-silver'  - select on RTLSDR name.\n"
@@ -3269,8 +3533,7 @@ static void NO_RETURN show_help (const char *fmt, ...)
             "  Shows only non-matching ICAO-addresses; `dump1090.exe --only-addr !48*`.\n\n"
             "  Refer the `%s` file for other settings.\n", Modes.cfg_file);
   }
-  modeS_exit();
-  exit (0);
+  modeS_exit (0);
 }
 
 /**
@@ -3320,9 +3583,19 @@ void background_tasks (void)
     Modes.home_pos_ok = true;
   }
 
+  static bool shown_home_pos = false;
+
+  if (Modes.home_pos_ok && !shown_home_pos)
+  {
+    LOG_FILEONLY ("Modes.home_pos: %.07lf %s, %.07lf %s\n",
+                  fabs(Modes.home_pos.lon), Modes.home_pos.lon > 0.0 ? "E" : "W",
+                  fabs(Modes.home_pos.lat), Modes.home_pos.lat > 0.0 ? "N" : "S");
+    shown_home_pos = true;
+  }
+
   static uint32_t fifo_stat = 0;
 
-  if ((++fifo_stat % 100) == 0)   /* every 100th time; approx 25 sec */
+  if ((++fifo_stat % 240) == 0)     /* every 240th time; approx 1 min */
      fifo_stats();
 
   aircraft_remove_stale (now);
@@ -3339,10 +3612,8 @@ void background_tasks (void)
     interactive_update_gain();
     interactive_other_stats();  /* Only effective if 'tui = curses' was used */
   }
-#if 0
   else
     interactive_raw_SBS_stats();
-#endif
 }
 
 /**
@@ -3404,18 +3675,18 @@ void modeS_signal_handler (int sig)
 }
 
 /*
- * Show decoder statistics for a RTLSDR / SDRPlay device.
+ * Show decoder statistics for a RTLSDR / RTLTCP / SDRPlay device.
  */
 static void show_decoder_stats (void)
 {
-  FILETIME now;
-  double   percent, delta_s;
-
   LOG_STDOUT ("Decoder statistics:\n");
   interactive_clreol();  /* to clear the lines from startup messages */
 
   if (Modes.stat.FIFO_enqueue + Modes.stat.FIFO_dequeue + Modes.stat.FIFO_full > 0ULL)
   {
+    double   percent, delta_s;
+    FILETIME now;
+
     get_FILETIME_now (&now);
 
     /* Program runtime; in 100 nsec units to seconds as a double
@@ -3433,7 +3704,14 @@ static void show_decoder_stats (void)
     if (Modes.stat.FIFO_enqueue > 0)
          percent = 100.0 * ((double)Modes.stat.FIFO_full / (double)Modes.stat.FIFO_enqueue);
     else percent = 0.0;
-    LOG_STDOUT (" %8llu FIFO full events (%.1lf%%).\n", Modes.stat.FIFO_full, percent);
+    LOG_STDOUT (" %8llu FIFO full events (%.2lf%%).\n", Modes.stat.FIFO_full, percent);
+    interactive_clreol();
+  }
+
+  if (Modes.rtl_tcp_in)
+  {
+    LOG_STDOUT (" %8llu RTLTCP samples, processed %llu.\n",
+                Modes.stat.samples_recv_rtltcp, Modes.stat.samples_processed);
     interactive_clreol();
   }
 
@@ -3482,9 +3760,6 @@ static void show_decoder_stats (void)
   LOG_STDOUT (" %8llu unique aircrafts of which %llu was in CSV-file and %llu in SQL-file.\n",
               Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV, Modes.stat.unique_aircrafts_SQL);
 
-  interactive_clreol();
-  LOG_STDOUT (" %8llu highest JSON-size.\n", Modes.stat.json_highest_size);   // debug
-
   print_unrecognized_ME();
 }
 
@@ -3510,9 +3785,19 @@ static void show_statistics (void)
 }
 
 /**
- * Our exit function. Free all resources here.
+ * Our exit function. Free all resources and `exit()`
+ * with specific error-level (0 or 1).
  */
-static void modeS_exit (void)
+static void __declspec(noreturn) modeS_exit (int rc)
+{
+  modeS_cleanup();
+  exit (rc);
+}
+
+/**
+ * Free all resources.
+ */
+static void modeS_cleanup (void)
 {
   int rc;
 
@@ -3617,8 +3902,7 @@ static void set_device (const char *arg)
     if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].is_ip6)
     {
       LOG_STDERR ("IPv6 is not yet supported for RTL_TCP.\n");
-      modeS_exit();
-      exit (1);
+      modeS_exit (1);
     }
   }
   else
@@ -3692,6 +3976,8 @@ static bool set_tui (const char *arg)
 
 static void set_debug_bits (const char *flags)
 {
+  char buf [200], *p, *end;
+
   while (*flags)
   {
     switch (*flags)
@@ -3738,11 +4024,18 @@ static void set_debug_bits (const char *flags)
            Modes.debug |= (DEBUG_NET2 | DEBUG_NET);  /* A bit more network details */
            break;
       case 'p':
-      case 'P':
            Modes.debug |= DEBUG_NOPREAMBLE;
            break;
+      case 'P':
+           Modes.debug |= DEBUG_PLANE;
+           break;
       default:
-           show_help ("Unknown debugging flag: %c\n", *flags);
+           p = buf;
+           end = p + sizeof(buf);
+           p += snprintf (p, end - p, "Unknown debugging flag: `%c`", *flags);
+           if (*flags == '-' && flags[1])
+              p += snprintf (p, end - p, ". Did you mean `--debug %s`", flags+1);
+           show_help ("%s\n", buf);
            /* not reached */
            break;
     }
@@ -4082,7 +4375,7 @@ int main (int argc, char **argv)
       if (rc)
          goto quit;
     }
-    else if (!modeS_net_services[MODES_NET_SERVICE_RTL_TCP].host[0])
+    else if (!net_handler_host(MODES_NET_SERVICE_RTL_TCP))
     {
       rc = modeS_init_RTLSDR();  /* not using a remote RTL_TCP input device */
       DEBUG (DEBUG_GENERAL, "modeS_init_RTLSDR(): rc: %d.\n", rc);
@@ -4143,6 +4436,6 @@ int main (int argc, char **argv)
 quit:
   if (!init_error && !Modes.no_stats)
      show_statistics();
-  modeS_exit();
+  modeS_cleanup();
   return (0);
 }
