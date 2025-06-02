@@ -129,11 +129,6 @@ CFLAGS = -nologo -c -Zi -W4        \
          -I./$(OBJ_DIR)
 
 #
-# Extra trace for 'aircraft.c' + 'cpr.c':
-#
-# CFLAGS += -DCPR_DEBUG
-
-#
 # Handling of 'volatile' variables:
 #   https://learn.microsoft.com/en-us/cpp/build/reference/volatile-volatile-keyword-interpretation?view=msvc-170
 #
