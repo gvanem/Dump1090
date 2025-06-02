@@ -9,35 +9,31 @@
  */
 #include "misc.h"
 
-static CRITICAL_SECTION   fifo_mutex;          /**< mutex protecting the queues */
-static CONDITION_VARIABLE fifo_notempty_cond;  /**< condition used to signal FIFO-not-empty */
-static CONDITION_VARIABLE fifo_empty_cond;     /**< condition used to signal FIFO-empty */
-static CONDITION_VARIABLE fifo_free_cond;      /**< condition used to signal freelist-not-empty (by `fifo_acquire()`) */
+static CRITICAL_SECTION   fifo_mutex;          /**< Mutex protecting the queues */
+static CONDITION_VARIABLE fifo_notempty_cond;  /**< Condition used to signal FIFO-not-empty */
+static CONDITION_VARIABLE fifo_empty_cond;     /**< Condition used to signal FIFO-empty */
+static CONDITION_VARIABLE fifo_free_cond;      /**< Condition used to signal freelist-not-empty (by `fifo_acquire()`) */
 
-static mag_buf  *fifo_head;                    /**< head of queued buffers awaiting demodulation */
-static mag_buf  *fifo_tail;                    /**< tail of queued buffers awaiting demodulation */
-static mag_buf  *fifo_freelist;                /**< freelist of preallocated buffers */
-static u_int     overlap_length;               /**< desired overlap size in samples (size of overlap_buffer) */
-static uint16_t *overlap_buffer;               /**< buffer used to save overlapping data */
-static bool      fifo_halted = false;          /**< true if queue has been halted */
+static mag_buf  *fifo_head;                    /**< Head of queued buffers awaiting demodulation */
+static mag_buf  *fifo_tail;                    /**< Tail of queued buffers awaiting demodulation */
+static mag_buf  *fifo_freelist;                /**< Freelist of preallocated buffers */
+static u_int     overlap_length;               /**< Desired overlap size in samples (size of overlap_buffer) */
+static uint16_t *overlap_buffer;               /**< Buffer used to save overlapping data */
+static bool      fifo_halted = false;          /**< True if queue has been halted */
 
 /**
- * Create the queue structures. Not threadsafe.
+ * Create the queue structures.
  */
 bool fifo_init (unsigned buffer_count, unsigned buffer_size, unsigned overlap)
 {
   unsigned i;
 
-  static bool done = false;
+  InitializeCriticalSection (&fifo_mutex);
+  EnterCriticalSection (&fifo_mutex);
 
-  if (!done)
-  {
-    InitializeCriticalSection (&fifo_mutex);
-    InitializeConditionVariable (&fifo_notempty_cond);
-    InitializeConditionVariable (&fifo_empty_cond);
-    InitializeConditionVariable (&fifo_free_cond);
-    done = true;
-  }
+  InitializeConditionVariable (&fifo_notempty_cond);
+  InitializeConditionVariable (&fifo_empty_cond);
+  InitializeConditionVariable (&fifo_free_cond);
 
   overlap_buffer = calloc (overlap, sizeof(overlap_buffer[0]));
   if (!overlap_buffer)
@@ -62,9 +58,11 @@ bool fifo_init (unsigned buffer_count, unsigned buffer_size, unsigned overlap)
     newbuf->next  = fifo_freelist;
     fifo_freelist = newbuf;
   }
+  LeaveCriticalSection (&fifo_mutex);
   return (true);
 
 nomem:
+  LeaveCriticalSection (&fifo_mutex);
   fifo_exit();
   return (false);
 }
@@ -149,7 +147,7 @@ mag_buf *fifo_acquire (uint32_t timeout_ms)
       DWORD err = GetLastError();
 
       if (err != ERROR_TIMEOUT)
-         TRACE ("%s(): err: %s", __FUNCTION__, win_strerror(err));
+         LOG_FILEONLY ("%s(): err: %s", __FUNCTION__, win_strerror(err));
       goto done; /* done waiting */
     }
   }
@@ -173,6 +171,7 @@ mag_buf *fifo_acquire (uint32_t timeout_ms)
 done:
   if (!result)
      Modes.stat.FIFO_full++;
+
   LeaveCriticalSection (&fifo_mutex);
   return (result);
 }
@@ -195,7 +194,7 @@ void fifo_enqueue (mag_buf *buf)
 
   /* Populate the overlap region
    */
-  if (buf->flags & MAGBUF_DISCONTINUOUS)
+  if (buf->flags == MAGBUF_DISCONTINUOUS)
   {
     /* This buffer is discontinuous to the previous, so the
      * overlap region is not valid; zero it out
@@ -248,7 +247,7 @@ mag_buf *fifo_dequeue (uint32_t timeout_ms)
       DWORD err = GetLastError();
 
       if (err != ERROR_TIMEOUT)
-         TRACE ("%s(): err: %s", __FUNCTION__, win_strerror(err));
+         LOG_FILEONLY ("%s(): err: %s", __FUNCTION__, win_strerror(err));
       goto done; /* done waiting */
     }
   }
@@ -291,12 +290,14 @@ void fifo_stats (void)
   static uint64_t old_enqueue = 0ULL, old_dequeue = 0ULL, old_full = 0ULL;
   uint64_t delta_enqueue, delta_dequeue, delta_full;
 
-  if (!overlap_buffer || !Modes.log)
-     return;
-
   delta_enqueue = Modes.stat.FIFO_enqueue - old_enqueue;
   delta_dequeue = Modes.stat.FIFO_dequeue - old_dequeue;
   delta_full    = Modes.stat.FIFO_full    - old_full;
+
+  if (!overlap_buffer || !Modes.log ||
+      delta_full == 0ULL ||         /* nothing dropped this period */
+      (Modes.debug & DEBUG_PLANE))  /* do not disturb plane details */
+     return;
 
   LOG_FILEONLY ("FIFO_enqueue: %llu (%llu), FIFO_dequeue: %llu (%llu), FIFO_full: %llu (%llu)\n",
                 Modes.stat.FIFO_enqueue, delta_enqueue,

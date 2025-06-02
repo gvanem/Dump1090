@@ -70,7 +70,7 @@ typedef struct mag_buf {
 typedef void (*demod_func) (const struct mag_buf *mag);
 
 /**
- * Initialize the queue structures. Not threadsafe.
+ * Initialize the queue structures.
  * Returns true on success.
  *
  * \param in buffer_count  the number of buffers to preallocate
