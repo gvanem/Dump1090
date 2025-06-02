@@ -48,10 +48,9 @@ static bool sql_begin (void);
 static bool sql_end (void);
 static bool sql_add_entry (uint32_t num, const aircraft_info *rec);
 
-static aircraft *aircraft_find (uint32_t addr);
-static const     aircraft_info *CSV_lookup_entry (uint32_t addr);
-static const     aircraft_info *SQL_lookup_entry (uint32_t addr);
-static bool      is_helicopter_type (const char *type);
+static const aircraft_info *CSV_lookup_entry (uint32_t addr);
+static const aircraft_info *SQL_lookup_entry (uint32_t addr);
+static bool  is_helicopter_type (const char *type);
 
 /**
  * Lookup an aircraft in the CSV `Modes.aircraft_list_CSV`,
@@ -142,7 +141,7 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
  *
  * \param in addr  the specific ICAO address.
  */
-static aircraft *aircraft_find (uint32_t addr)
+aircraft *aircraft_find (uint32_t addr)
 {
   aircraft *a;
   int       i, max = smartlist_len (Modes.aircrafts);
@@ -1391,25 +1390,41 @@ const char *aircraft_get_military (uint32_t addr)
   return (buf);
 }
 
+static const char *addrtype_to_string (addrtype_t type)
+{
+  static const search_list types[] = {
+             { ADDR_ADSB_ICAO,      "Mode S / ADS-B" },
+             { ADDR_ADSB_ICAO_NT,   "ADS-B, non-transponder" },
+             { ADDR_ADSB_OTHER,     "ADS-B, other addressing scheme" },
+             { ADDR_TISB_ICAO,      "TIS-B" },
+             { ADDR_TISB_OTHER,     "TIS-B, other addressing scheme" },
+             { ADDR_TISB_TRACKFILE, "TIS-B, Mode A code and track file number" },
+             { ADDR_ADSR_ICAO,      "ADS-R" },
+             { ADDR_ADSR_OTHER,     "ADS-R, other addressing scheme" },
+             { ADDR_MODE_A,         "Mode A" }
+             };
+  return search_list_name (type, types, DIM(types));
+}
+
 /**
  * Return the hex-string for the 24-bit ICAO address in `addr`.
  * Also look for the registration number and manufacturer from
  * the CSV or SQL data structures.
  */
-const char *aircraft_get_details (uint32_t addr)
+const char *aircraft_get_details (const modeS_message *mm)
 {
   static char          buf [100];
   const aircraft_info *a;
-  char                *p = buf;
-  size_t               sz, left = sizeof(buf);
+  char                *p   = buf;
+  char                *end = buf + sizeof(buf);
+  uint32_t             addr;
 
-  sz = snprintf (p, left, "%06X", addr);
-  p    += sz;
-  left -= sz;
+  p += snprintf (p, end - p, "%s", addrtype_to_string(mm->addrtype));
 
+  addr = mm->addr;
   a = aircraft_lookup (addr, NULL);
   if (a && a->reg_num[0])
-     snprintf (p, left, " (reg-num: %s, manuf: %s, call-sign: %s%s)",
+     snprintf (p, end - p, ", reg-num: %s, manuf: %s, call-sign: %s%s",
                a->reg_num, a->manufact[0] ? a->manufact : "?", a->call_sign[0] ? a->call_sign : "?",
                aircraft_is_military(addr, NULL) ? ", Military" : "");
   return (buf);
@@ -1829,7 +1844,7 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
 
   if (a->AC_flags & MODES_ACFLAGS_HEADING_VALID)
   {
-    size  = mg_snprintf (p, left, ",\"track\":%d", a->heading);
+    size  = mg_snprintf (p, left, ",\"track\":%d", (int)a->heading);
     p    += size;
     left -= (int)size;
   }
@@ -1947,7 +1962,6 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
 char *aircraft_make_json (bool extended_client)
 {
   static uint32_t json_file_num = 0;
-  static uint32_t json_high_size = 0;
   struct timeval  tv_now;
   uint64_t        now;
   int             size;
@@ -1998,17 +2012,8 @@ char *aircraft_make_json (bool extended_client)
 #endif
 
     size = aircraft_make_one_json (a, extended_client, p, left, now);
-    if (size > (int)json_high_size)
-    {
-      json_high_size = size;
-      if (json_high_size > Modes.stat.json_highest_size)
-         Modes.stat.json_highest_size = json_high_size;
-    }
-
     p    += size;
     left -= size;
-
-//  ASSERT_LEFT (100, buf, NULL);
 
     aircrafts++;
 
@@ -2022,13 +2027,6 @@ char *aircraft_make_json (bool extended_client)
          return (NULL);
 
       p = buf + used;
-      if (used + left > (int)json_high_size)
-      {
-        json_high_size = used + left;
-        if (json_high_size > Modes.stat.json_highest_size)
-           Modes.stat.json_highest_size = json_high_size;
-      }
-
     }
   }
 
@@ -2180,8 +2178,7 @@ void aircraft_remove_stale (uint64_t now)
     }
     else if (diff > Modes.interactive_ttl)
     {
-      if (a->addr && a->addr == Modes.a_follow)
-         LOG_UNFOLLOW (a);
+      LOG_UNFOLLOW (a);
 
       /* Remove the element from the smartlist.
        * \todo
@@ -2212,13 +2209,20 @@ void aircraft_remove_stale (uint64_t now)
  */
 void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
 {
-  double      distance, gc_distance, cart_distance;
-  double      delta_X, delta_Y;
+  double      dist, gc_dist, cart_dist;
+  double      d_X, d_Y, d_S;
   cartesian_t cpos = { 0.0, 0.0, 0.0 };
   pos_t       epos;
-  uint32_t    speed = round ((double)a->speed * 1.852);  /* Km/h */
+  double      speed = (double)a->speed * 1852;  /* m/sec */
+  double      heading;
 
-  if (!Modes.home_pos_ok || speed == 0 || !(a->AC_flags & MODES_ACFLAGS_HEADING_VALID))
+  if (!Modes.home_pos_ok || !(a->AC_flags & MODES_ACFLAGS_HEADING_VALID))
+     return;
+
+  if (speed <= SMALL_VAL || !(a->AC_flags & MODES_ACFLAGS_SPEED_VALID))
+     return;
+
+  if (!(a->AC_flags & MODES_ACFLAGS_LATLON_VALID))
      return;
 
   if (!VALID_POS(a->position_EST) || a->seen_pos_EST < a->seen_last)
@@ -2226,54 +2230,54 @@ void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
 
   ASSERT_POS (a->position_EST);
 
-  /* If some issue with speed changing too fast,
-   * use the last good speed.
-   */
-  if (a->speed_last && abs((int)speed - (int)a->speed_last) > 20)
-     speed = a->speed_last;
-
   epos = a->position_EST;
   geo_spherical_to_cartesian (a, &epos, &cpos);
 
   /* Ensure heading is in range '[-Phi .. +Phi]'
    */
-  if (a->heading >= 180)
-       a->heading_rad = a->heading - 360;
-  else a->heading_rad = a->heading;
+  heading = a->heading;
+  if (heading > 180.0)
+       a->heading_rad = M_PI * (heading - 360.0) / 180.0;
+  else a->heading_rad = (M_PI * heading) / 180.0;
 
-  a->heading_rad = (TWO_PI * a->heading_rad) / 360;  /* convert to radians */
-
-  /* knots (1852 m/s) to distance (in meters) traveled in dT msec:
+  /* dist: meters traveled in 'd_S':
    */
-  distance = 0.001852 * (double)speed * (now - a->seen_pos_EST);
+  d_S  = (double) (now - a->seen_pos_EST) / 1E3;
+  dist = speed * d_S;
+  a->seen_pos_EST = now;
 
-  delta_X = distance * sin (a->heading_rad);
-  delta_Y = distance * cos (a->heading_rad);
-  cpos.c_x += delta_X;
-  cpos.c_y += delta_Y;
+  d_X = dist * sin (a->heading_rad);
+  d_Y = dist * cos (a->heading_rad);
+  cpos.c_x += d_X;
+  cpos.c_y += d_Y;
 
   if (!geo_cartesian_to_spherical(a, &cpos, &epos))
   {
-    LOG_FILEONLY ("%s %04X: Invalid epos: %+7.03f lon, %+8.03f lat from heading: %+7.1lf. delta_X: %+8.3lf, delta_Y: %+8.3lf.\n",
-                  a->is_helicopter ? "helicopter" : "plane",
-                  a->addr, epos.lon, epos.lat,
-                  360.0 * a->heading_rad / TWO_PI, delta_X, delta_Y);
+    if (!(Modes.debug & DEBUG_PLANE) || (a->addr == Modes.a_follow))
+       LOG_FILEONLY ("%04X: Invalid epos: %+7.03f lon, %+8.03f lat from "
+                     "heading: %+6.1lf. d_X: %+8.3lf, d_Y: %+8.3lf, d_S: %.3lf sec\n",
+                     a->addr, epos.lon, epos.lat, (180.0 * a->heading_rad / M_PI),
+                     d_X, d_Y, d_S);
     return;
   }
 
-  a->seen_pos_EST = now;
   a->position_EST = epos;
   ASSERT_POS (a->position_EST);
 
-  gc_distance     = geo_great_circle_dist (a->position_EST, Modes.home_pos);
-  cart_distance   = geo_cartesian_distance (a, &cpos, &Modes.home_pos_cart);
-  a->distance_EST = geo_closest_to (a->distance_EST, gc_distance, cart_distance);
+  gc_dist   = geo_great_circle_dist (&a->position_EST, &Modes.home_pos);
+  cart_dist = geo_cartesian_distance (a, &cpos, &Modes.home_pos_cart);
 
-#if 0
-  LOG_FILEONLY ("%s %04X: heading: %+7.1lf, delta_X: %+8.3lf, delta_Y: %+8.3lf, gc_distance: %6.1lf, cart_distance: %6.1lf\n",
-                a->is_helicopter ? "helicopter" : "plane",
-                a->addr, 360.0 * a->heading_rad / TWO_PI,
-                delta_X, delta_Y, gc_distance/1000, cart_distance/1000);
+  if ((Modes.debug & DEBUG_PLANE) && a->addr == Modes.a_follow)
+     LOG_FILEONLY ("%06X: heading: %+5.0lf, speed: %5.1lf, d_X: %+8.0lf, d_Y: %+8.0lf, "
+                   "distance_EST: %4.0lf, gc_dist: %5.0lf, cart_dist: %5.0lf, dist: %5.0lf, d_S: %.3lf\n",
+                   a->addr, (180.0 * a->heading_rad) / M_PI, speed,
+                   d_X, d_Y, a->distance_EST / 1E3, gc_dist / 1E3, cart_dist / 1E3,
+                   dist / 1E3, d_S);
+
+#if 1
+  a->distance_EST = geo_closest_to (a->distance_EST, gc_dist, cart_dist);
+#else
+  a->distance_EST = cart_dist;
 #endif
 }
 
@@ -2479,7 +2483,7 @@ static void aircraft_update_pos (aircraft *a, modeS_message *mm, uint64_t now)
     a->AC_flags |= (MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
     a->position = new_pos;
     a->pos_nuc  = new_nuc;
-    a->distance = geo_great_circle_dist (Modes.home_pos, a->position);
+    a->distance = geo_great_circle_dist (&Modes.home_pos, &a->position);
     a->seen_pos = a->seen_last;
 /*  aircraft_update_histogram (a); */ /**< \todo Add periodic histogram */
   }
@@ -2488,19 +2492,20 @@ static void aircraft_update_pos (aircraft *a, modeS_message *mm, uint64_t now)
 /**
  * Handle a new message `mm`.
  * Find and modify the aircraft state or create a new aircraft.
+ *
+ * Called from `modeS_user_message()`.
  */
 aircraft *aircraft_update_from_message (modeS_message *mm)
 {
   aircraft *a;
   uint64_t  now = MSEC_TIME();
-  bool      is_new;      /* a new aircraft for this message? */
+  bool      is_new;      /* a new aircraft from this message? */
 
   a = aircraft_find_or_create (mm->addr, now, &is_new);
   if (!a)
      return (NULL);
 
-  if (a->addr && Modes.a_follow == 0)
-     LOG_FOLLOW (a);
+  LOG_FOLLOW (a);
 
   if (mm->sig_level > 0)
   {
@@ -2644,6 +2649,9 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
   {
     a->heading = mm->heading;
     a->AC_flags |= MODES_ACFLAGS_HEADING_VALID;
+
+    if (a->AC_flags &  MODES_ACFLAGS_LATLON_VALID)
+       LOG_BEARING (a);
   }
 
   /* If a (new) SPEED has been received, copy it to the aircraft structure
