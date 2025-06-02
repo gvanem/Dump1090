@@ -103,10 +103,6 @@ static char        *net_store_error (intptr_t service, const char *err);
 static char        *net_error_details (mg_connection *c, const char *in_out, const void *ev_data);
 static char        *net_str_addr (const mg_addr *a, char *buf, size_t len);
 static char        *net_str_addr_port (const mg_addr *a, char *buf, size_t len);
-static uint32_t    *net_num_connections (intptr_t service);
-static const char  *net_service_descr (intptr_t service);
-static char        *net_service_error (intptr_t service);
-static char        *net_service_url (intptr_t service);
 static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str);
 static bool         client_is_extern (const mg_addr *addr);
 static bool         client_handler (mg_connection *c, intptr_t service, int ev);
@@ -226,7 +222,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     LOG_STDERR ("'udp://%s:%u' is not allowed for service %s (only TCP).\n",
                 modeS_net_services [service].host,
                 modeS_net_services [service].port,
-                net_service_descr(service));
+                net_handler_descr(service));
     goto quit;
   }
 
@@ -262,7 +258,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     modeS_net_services [service].url = url;
 
     DEBUG (DEBUG_NET, "Connecting to '%s' (service \"%s\").\n",
-           url, net_service_descr(service));
+           url, net_handler_descr(service));
 
     net_timer_add (service, timeout, MG_TIMER_ONCE);
     c = mg_connect (&Modes.mgr, url, net_handler, (void*)service);
@@ -336,7 +332,7 @@ static void net_connection_recv (connection *conn, net_msg_handler handler, bool
  *  \li This function is not used for sending HTTP data.
  *  \li This function is not called when `--net-active` is used.
  */
-void net_connection_send (intptr_t service, const void *msg, size_t len)
+void net_handler_send (intptr_t service, const void *msg, size_t len)
 {
   connection *conn;
   int         found = 0;
@@ -351,7 +347,7 @@ void net_connection_send (intptr_t service, const void *msg, size_t len)
   }
   if (found > 0)
      DEBUG (DEBUG_NET2, "Sent %zd bytes to %d clients in service \"%s\".\n",
-            len, found, net_service_descr(service));
+            len, found, net_handler_descr(service));
 }
 
 /**
@@ -714,7 +710,7 @@ static void net_timeout (void *arg)
      what = "data from";
 
   snprintf (err, sizeof(err), "Timeout in %s host %s (service: \"%s\")",
-            what, net_service_url(service), net_service_descr(service));
+            what, net_handler_url(service), net_handler_descr(service));
   net_store_error (service, err);
 
   modeS_signal_handler (0);  /* break out of main_data_loop()  */
@@ -730,8 +726,8 @@ static void net_timer_add (intptr_t service, int timeout_ms, int flag)
        return;
 
     modeS_net_services [service].timer = t;
-    DEBUG (DEBUG_NET, "Added timer-id %lu for %s, %d msec, %s.\n",
-           t->id, net_service_descr(service), timeout_ms, flag == MG_TIMER_ONCE ? "MG_TIMER_ONCE" : "MG_TIMER_REPEAT");
+    DEBUG (DEBUG_NET, "Added timer for %s, %d msec, %s.\n",
+           net_handler_descr(service), timeout_ms, flag == MG_TIMER_ONCE ? "MG_TIMER_ONCE" : "MG_TIMER_REPEAT");
   }
 }
 
@@ -742,7 +738,7 @@ static void net_timer_del (intptr_t service)
   if (!t)
      return;
 
-  DEBUG (DEBUG_NET, "Stopping timer-id %lu for %s\n", t->id, net_service_descr(service));
+  DEBUG (DEBUG_NET, "Stopping timer for %s\n", net_handler_descr(service));
   mg_timer_free (&Modes.mgr.timers, t);
   modeS_net_services [service].timer = NULL;
   free (t);
@@ -913,8 +909,8 @@ static void tls_handler (mg_connection *c, const char *host)
     opts.skip_verification = true;
   }
   mg_tls_init (c, &opts);
-  LOG_FILEONLY ("%s (\"%s\"): conn-id: %lu.\n",
-                __FUNCTION__, host ? host : "NULL", c->id);
+  LOG_FILEONLY2 ("%s (\"%s\"): conn-id: %lu.\n",
+                 __FUNCTION__, host ? host : "NULL", c->id);
 }
 
 static void tls_error (intptr_t service, const char *err)
@@ -976,7 +972,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
   if (ev == MG_EV_RESOLVE)
   {
     DEBUG (DEBUG_NET, "MG_EV_RESOLVE: address %s (service: \"%s\")\n",
-           remote, net_service_url(service));
+           remote, net_handler_url(service));
     return;
   }
 
@@ -1002,7 +998,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     }
 
     DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\"%s).\n",
-           remote, net_service_descr(service), is_tls);
+           remote, net_handler_descr(service), is_tls);
     net_timer_del (service);
 
     if (service == MODES_NET_SERVICE_RTL_TCP && !rtl_tcp_connect(c))
@@ -1010,7 +1006,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 
     LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
 
-    ++ (*net_num_connections (service));  /* should never go above 1 */
+    modeS_net_services [service].num_connections++;  /* should never go above 1 */
     Modes.stat.srv_connected [service]++;
     return;
   }
@@ -1039,7 +1035,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 
     LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
 
-    ++ (*net_num_connections (service));
+    modeS_net_services [service].num_connections++;
     Modes.stat.cli_accepted [service]++;
     return;
   }
@@ -1050,7 +1046,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     Modes.stat.bytes_recv [service] += bytes;
 
     DEBUG (DEBUG_NET2, "%s: %lu bytes from %s (service \"%s\")\n",
-           event_name(ev), bytes, remote, net_service_descr(service));
+           event_name(ev), bytes, remote, net_handler_descr(service));
 
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
@@ -1078,7 +1074,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     bytes = *(const long*) ev_data;
     Modes.stat.bytes_sent [service] += bytes;
     DEBUG (DEBUG_NET2, "%s: %ld bytes to %s (\"%s\").\n",
-           event_name(ev), bytes, remote, net_service_descr(service));
+           event_name(ev), bytes, remote, net_handler_descr(service));
     return;
   }
 
@@ -1091,6 +1087,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 
     conn = connection_get (c, service, true);
     net_conn_free (conn, service);
+    modeS_net_services [service].num_connections--;
     return;
   }
 
@@ -1129,7 +1126,7 @@ static bool connection_setup_active (intptr_t service, mg_connection **c)
 #if 0
     net_store_error (service, err);
 #else
-    LOG_STDERR ("Active socket for %s failed; %s.\n", net_service_descr(service), err);
+    LOG_STDERR ("Active socket for %s failed; %s.\n", net_handler_descr(service), err);
 #endif
     return (false);
   }
@@ -1148,7 +1145,7 @@ static bool connection_setup_listen (intptr_t service, mg_connection **c, bool s
 #if 0
     net_store_error (service, err);
 #else
-    LOG_STDERR ("Listen socket for \"%s\" failed; %s.\n", net_service_descr(service), err);
+    LOG_STDERR ("Listen socket for \"%s\" failed; %s.\n", net_handler_descr(service), err);
 #endif
     return (false);
   }
@@ -1193,7 +1190,7 @@ static void net_conn_free (connection *this_conn, intptr_t service)
   DEBUG (DEBUG_NET, "Freeing %s at %s (conn-id: %lu, url: %s, service: \"%s\").\n",
          is_server == 1 ? "server" :
          is_server == 0 ? "client" : "?", addr, id,
-         net_service_url(service), net_service_descr(service));
+         net_handler_url(service), net_handler_descr(service));
 }
 
 /**
@@ -1214,17 +1211,22 @@ static uint32_t net_conn_free_all (void)
       net_conn_free (conn, service);
       num++;
     }
-    free (net_service_url(service));
-    free (net_service_error(service));
+    free (net_handler_url(service));
+    free (net_handler_error(service));
   }
   return (num);
 }
 
 static char *net_store_error (intptr_t service, const char *err)
 {
+  char *_err;
+
   ASSERT_SERVICE (service);
 
-  FREE (modeS_net_services [service].last_err);
+  _err = modeS_net_services [service].last_err;
+  free (_err);
+  modeS_net_services [service].last_err = NULL;
+
   if (err)
   {
     modeS_net_services [service].last_err = strdup (err);
@@ -1233,16 +1235,18 @@ static char *net_store_error (intptr_t service, const char *err)
   return (modeS_net_services [service].last_err);
 }
 
-static uint32_t *net_num_connections (intptr_t service)
-{
-  ASSERT_SERVICE (service);
-  return (&modeS_net_services [service].num_connections);
-}
-
-static const char *net_service_descr (intptr_t service)
+char *net_handler_descr (intptr_t service)
 {
   ASSERT_SERVICE (service);
   return (modeS_net_services [service].descr);
+}
+
+char *net_handler_host (intptr_t service)
+{
+  ASSERT_SERVICE (service);
+  if (modeS_net_services[service].host[0])
+     return (modeS_net_services [service].host);
+  return (NULL);
 }
 
 uint16_t net_handler_port (intptr_t service)
@@ -1251,19 +1255,19 @@ uint16_t net_handler_port (intptr_t service)
   return (modeS_net_services [service].port);
 }
 
-const char *net_handler_protocol (intptr_t service)
+char *net_handler_protocol (intptr_t service)
 {
   ASSERT_SERVICE (service);
   return (modeS_net_services [service].protocol);
 }
 
-static char *net_service_url (intptr_t service)
+char *net_handler_url (intptr_t service)
 {
   ASSERT_SERVICE (service);
   return (modeS_net_services [service].url);
 }
 
-static char *net_service_error (intptr_t service)
+char *net_handler_error (intptr_t service)
 {
   ASSERT_SERVICE (service);
   return (modeS_net_services [service].last_err);
@@ -1501,8 +1505,6 @@ static bool add_deny (const char *val, bool is_ip6)
   {
     no_CIDR = (strpbrk(val, "+-/,") == NULL);
 
-    printf ("ip: %s, no_CIDR: %d\n", val, no_CIDR);
-
     strncpy (deny->acl, val, sizeof(deny->acl)-1);
     deny->no_CIDR = no_CIDR;
     deny->is_ip6  = is_ip6;
@@ -1716,19 +1718,17 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
       if (unique && unique->rr && unique->rr->ptr_name[0])
          snprintf (ptr_buf, sizeof(ptr_buf), "%s, ", unique->rr->ptr_name);
 
-      LOG_FILEONLY ("%s connection: %s (%sconn-id: %lu, service: \"%s\"%s).\n",
-                    deny ? "Denied" : "Accepted",
-                    addr_buf, ptr_buf, c->id, net_service_descr(service), is_tls);
+      LOG_FILEONLY2 ("%s: %s (%sconn-id: %lu, service: \"%s\"%s).\n",
+                     deny ? "Denied connection" : "Accepted connection",
+                     addr_buf, ptr_buf, c->id, net_handler_descr(service), is_tls);
       return (!deny);
     }
   }
 
-  -- (*net_num_connections (service));
-
-  if (client_is_extern(addr))
+  if (ev == MG_EV_CLOSE && client_is_extern(addr))
   {
-    LOG_FILEONLY ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
-                  net_str_addr_port(addr, addr_buf, sizeof(addr_buf)), c->id, net_service_descr(service));
+    LOG_FILEONLY2 ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
+                   net_str_addr_port(addr, addr_buf, sizeof(addr_buf)), c->id, net_handler_descr(service));
   }
   return (true);   /* ret-val ignored for MG_EV_CLOSE */
 }
@@ -2048,7 +2048,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
     if (ftime == NULL &&     /* When called from 'packed_open()' */
         !str_endswith(fname, ".gz"))
     {
-      LOG_FILEONLY ("found: %d, lookups: %u/%u, fname: '%s'\n", p ? 1 : 0, num_lookups, num_misses, fname);
+      LOG_FILEONLY2 ("found: %d, lookups: %u/%u, fname: '%s'\n", p ? 1 : 0, num_lookups, num_misses, fname);
       num_lookups = num_misses = 0;
     }
     return (p ? (const char*)p->data : NULL);
@@ -2097,12 +2097,12 @@ static int net_show_server_errors (void)
 
   for (service = MODES_NET_SERVICE_FIRST; service <= MODES_NET_SERVICE_LAST; service++)
   {
-    const char *err = net_service_error (service);
+    const char *err = net_handler_error (service);
 
     if (!err)
        continue;
 
-    LOG_STDOUT ("  %s: %s.\n", net_service_descr(service), err);
+    LOG_STDOUT ("  %s: %s.\n", net_handler_descr(service), err);
     net_store_error (service, NULL);
     num++;
   }
@@ -2111,9 +2111,9 @@ static int net_show_server_errors (void)
 
 static bool show_raw_common (int s)
 {
-  const char *url = net_service_url (s);
+  const char *url = net_handler_url (s);
 
-  LOG_STDOUT ("  %s (%s):\n", net_service_descr(s), url ? url : "none");
+  LOG_STDOUT ("  %s (%s):\n", net_handler_descr(s), url ? url : "none");
 
   if (Modes.stat.bytes_recv [s] == 0)
   {
@@ -2166,7 +2166,7 @@ void net_show_stats (void)
 
   for (s = MODES_NET_SERVICE_FIRST; s <= MODES_NET_SERVICE_LAST; s++)
   {
-    const char *url = net_service_url (s);
+    const char *url = net_handler_url (s);
     uint64_t    sum;
 
     if (s == MODES_NET_SERVICE_RAW_IN ||  /* These are printed separately */
@@ -2174,13 +2174,13 @@ void net_show_stats (void)
         s == MODES_NET_SERVICE_RTL_TCP)
        continue;
 
-    LOG_STDOUT ("  %s (%s):\n", net_service_descr(s), url ? url : "none");
+    LOG_STDOUT ("  %s (%s):\n", net_handler_descr(s), url ? url : "none");
 
     if (Modes.net_active)
          sum = Modes.stat.srv_connected [s] + Modes.stat.srv_removed [s] + Modes.stat.srv_unknown [s];
     else sum = Modes.stat.cli_accepted [s]  + Modes.stat.cli_removed [s] + Modes.stat.cli_unknown [s];
 
-    sum += Modes.stat.bytes_sent [s] + Modes.stat.bytes_recv [s] + *net_num_connections (s);
+    sum += Modes.stat.bytes_sent [s] + Modes.stat.bytes_recv [s] + modeS_net_services [s].num_connections;
     if (sum == 0ULL)
     {
       LOG_STDOUT ("    Nothing.\n");
@@ -2206,14 +2206,14 @@ void net_show_stats (void)
       LOG_STDOUT ("    %8llu server connections done.\n", Modes.stat.srv_connected [s]);
       LOG_STDOUT ("    %8llu server connections removed.\n", Modes.stat.srv_removed [s]);
       LOG_STDOUT ("    %8llu server connections unknown.\n", Modes.stat.srv_unknown [s]);
-      LOG_STDOUT ("    %8u server connections now.\n", *net_num_connections(s));
+      LOG_STDOUT ("    %8u server connections now.\n", modeS_net_services [s].num_connections);
     }
     else
     {
       LOG_STDOUT ("    %8llu client connections accepted.\n", Modes.stat.cli_accepted [s]);
       LOG_STDOUT ("    %8llu client connections removed.\n", Modes.stat.cli_removed [s]);
       LOG_STDOUT ("    %8llu client connections unknown.\n", Modes.stat.cli_unknown [s]);
-      LOG_STDOUT ("    %8u client(s) now.\n", *net_num_connections(s));
+      LOG_STDOUT ("    %8u client(s) now.\n", modeS_net_services [s].num_connections);
     }
     unique_ips_print (s);
   }
@@ -2386,7 +2386,7 @@ static void net_reverse_write (void)
              rr->status);
     num++;
   }
-  LOG_FILEONLY ("dumped %d reverse-records to cache.\n", num);
+  LOG_FILEONLY2 ("dumped %d reverse-records to cache.\n", num);
   fclose (f);
 }
 
@@ -2821,8 +2821,8 @@ bool net_init (void)
   if (Modes.dns6)
      Modes.mgr.dns6.url = Modes.dns6;
 
-  LOG_FILEONLY ("Added %zu IPv4 and %zu IPv6 addresses to deny.\n",
-               deny_list_num4(), deny_list_num6());
+  LOG_FILEONLY2 ("Added %zu IPv4 and %zu IPv6 addresses to deny.\n",
+                 deny_list_num4(), deny_list_num6());
 
   if (test_mode)
   {
@@ -2945,15 +2945,16 @@ void net_poll (void)
   static uint64_t tc_last2 = 0;
   uint64_t        tc_now;
 
-  /* Poll Mongoose for network events
+  /* Poll Mongoose for network events.
+   * Block for max. 50 msec.
    */
-  mg_mgr_poll (&Modes.mgr, 50 /* MODES_INTERACTIVE_REFRESH_TIME / 2 */);   /* == 125 msec max */
+  mg_mgr_poll (&Modes.mgr, 50);
 
   /* If the RTL_TCP server went away, that's fatal
    */
   if (Modes.stat.srv_removed [MODES_NET_SERVICE_RTL_TCP] > 0)
   {
-    LOG_STDERR ("RTL_TCP-server at '%s' vanished!\n", net_service_url (MODES_NET_SERVICE_RTL_TCP));
+    LOG_STDERR ("RTL_TCP-server at '%s' vanished!\n", net_handler_url(MODES_NET_SERVICE_RTL_TCP));
     Modes.exit = true;
   }
 
@@ -2996,22 +2997,23 @@ static const char *get_tuner_type (int type)
  */
 static bool get_gain_values (const RTL_TCP_info *info, int **gains, int *gain_count)
 {
-  static int e4k_gains []    = { -10,  15,  40,  65,  90, 115, 140,
+  static int e4k_gains [14]  = { -10,  15,  40,  65,  90, 115, 140,
                                  165, 190, 215, 240, 290, 340, 420
                                };
-  static int fc0012_gains [] = { -99, -40,  71, 179, 192 };
-  static int fc0013_gains [] = { -99, -73, -65, -63, -60, -58, -54,  58,
-                                  61,  63,  65,  67,  68,  70,  71, 179,
-                                 181, 182, 184, 186, 188, 191, 197
-                              };
-  static int r82xx_gains [] = {   0,   9,  14,  27,  37,  77,  87, 125,
-                                144, 157, 166, 197, 207, 229, 254, 280,
-                                297, 328, 338, 364, 372, 386, 402, 421,
-                                434, 439, 445, 480, 496
-                              };
+  static int fc0012_gains [5]  = { -99, -40,  71, 179, 192 };
+  static int fc0013_gains [23] = { -99, -73, -65, -63, -60, -58, -54,  58,
+                                    61,  63,  65,  67,  68,  70,  71, 179,
+                                   181, 182, 184, 186, 188, 191, 197
+                                 };
+  static int r82xx_gains [29] = {   0,   9,  14,  27,  37,  77,  87, 125,
+                                  144, 157, 166, 197, 207, 229, 254, 280,
+                                  297, 328, 338, 364, 372, 386, 402, 421,
+                                  434, 439, 445, 480, 496
+                                };
   uint32_t gcount = ntohl (info->tuner_gain_count);
+  uint32_t tuner  = ntohl (info->tuner_type);
 
-  switch (info->tuner_type)
+  switch (tuner)
   {
     case RTLSDR_TUNER_E4000:
          *gains      = e4k_gains;
@@ -3044,9 +3046,10 @@ static bool get_gain_values (const RTL_TCP_info *info, int **gains, int *gain_co
 
   if (gcount != (uint32_t) *gain_count)
   {
-    LOG_STDERR ("Unexpected number of gain values reported by server: %u vs. %d (tuner: %s)\n",
-                gcount, *gain_count, get_tuner_type(info->tuner_type));
-    return (false);
+    LOG_STDERR ("Unexpected number of gain values reported by server: %u vs. %d (tuner: %s). "
+                "Truncating to %d.\n",
+                gcount, *gain_count, get_tuner_type(info->tuner_type), gcount);
+    *gain_count = gcount;
   }
    return (true);
 }
@@ -3118,9 +3121,11 @@ static void rtl_tcp_recv_info (mg_iobuf *msg)
 
 /**
  * The read event handler for the RTL_TCP raw IQ data.
+ * Update sample-counter; 1 sample is (I+Q bytes) / bytes per sample.
  */
 static void rtl_tcp_recv_data (mg_iobuf *msg)
 {
+  Modes.stat.samples_recv_rtltcp += msg->len / 2 / Modes.bytes_per_sample;
   rx_callback (msg->buf, msg->len, (void*)&Modes.exit);
   mg_iobuf_del (msg, 0, msg->len);
 }
