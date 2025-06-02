@@ -13,8 +13,8 @@
  * A position on a Geoid. (ignoring altitude).
  */
 typedef struct pos_t {
-        double lat;   /* geodetic latitude */
-        double lon;
+        double lat;   /**< geodetic latitude; North > 0.0, South < 0.0 */
+        double lon;   /**< longitude; East > 0.0, West < 0.0 */
       } pos_t;
 
 /**
@@ -46,8 +46,10 @@ typedef struct cartesian_t {
 
 struct aircraft;
 
-void   geo_spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, cartesian_t *cart);
-bool   geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *cart, pos_t *pos);
-double geo_cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2);
-double geo_great_circle_dist (pos_t pos1, pos_t pos2);
-double geo_closest_to (double val, double val1, double val2);
+void        geo_spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, cartesian_t *cart);
+bool        geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *cart, pos_t *pos);
+double      geo_cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2);
+double      geo_great_circle_dist (const pos_t *pos1, const pos_t *pos2);
+double      geo_get_bearing (const pos_t *pos1, const pos_t *pos2);
+double      geo_closest_to (double val, double val1, double val2);
+const char *geo_bearing_name (double bearing);

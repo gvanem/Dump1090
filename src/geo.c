@@ -10,7 +10,7 @@
 /**
  * \def EARTH_RADIUS
  * Earth's radius in meters. Assuming a sphere.
- * Approx. 40.000.000 / TWO_PI meters.
+ * Approx. 40.000.000 / (2*M_PI) meters.
  */
 #define EARTH_RADIUS  6371000.0
 
@@ -48,9 +48,8 @@ static void check_cart (const struct aircraft *a, const cartesian_t *c, double h
     if (a)
        snprintf (ICAO, sizeof(ICAO), "%06X", a->addr);
 
-    LOG_FILEONLY ("geo.c(%u): ICAO: %s, x=%.0f, y=%.0f, z=%.0f, heading=%.3f.\n",
-                  line, ICAO, x, y, z, M_PI * heading / 180);
-//  abort();
+    LOG_FILEONLY2 ("geo.c(%u): ICAO: %s, x=%.0f, y=%.0f, z=%.0f, heading=%.3f.\n",
+                   line, ICAO, x, y, z, M_PI * heading / 180);
   }
 }
 
@@ -96,13 +95,15 @@ void geo_spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, car
  */
 bool geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *cart, pos_t *pos)
 {
-  pos_t  _pos;
+  pos_t _pos;
+
+#if 0
   double h = hypot (cart->c_x, cart->c_y);
 
   if (h < SMALL_VAL)
   {
-    LOG_FILEONLY ("geo.c(%u): ICAO: %06X, c_x=%.0f, c_y=%.0f, heading=%.0f.\n",
-                  __LINE__, a ? a->addr : 0, cart->c_x, cart->c_y, M_PI * a->heading_rad / 180);
+    LOG_FILEONLY2 ("geo.c(%u): ICAO: %06X, c_x=%.0f, c_y=%.0f, heading=%.0f.\n",
+                   __LINE__, a ? a->addr : 0, cart->c_x, cart->c_y, M_PI * a->heading_rad / 180);
     return (false);
   }
 
@@ -114,6 +115,22 @@ bool geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *ca
    */
   _pos.lon = 180.0 * atan2 (cart->c_y, cart->c_x) / M_PI;
   _pos.lat = 180.0 * atan2 (h, cart->c_z) / M_PI;
+
+#else
+  /*
+   * https://www.omnicalculator.com/math/spherical-coordinates
+   * https://math.stackexchange.com/questions/2444965/relationship-between-cartesian-velocity-and-polar-velocity
+   */
+  double radius = sqrt (cart->c_x * cart->c_x + cart->c_y * cart->c_y + cart->c_z * cart->c_z);
+  double theta  = atan2 (cart->c_y, cart->c_x);  /* azimuth angle */
+  double phi    = acos (cart->c_z / radius);     /* polar angle */
+
+  _pos.lon = 180.0 * theta / M_PI;
+  _pos.lat = 180.0 * phi / M_PI;
+
+  (void) a;
+#endif
+
   *pos = _pos;
   return (VALID_POS(_pos));
 }
@@ -123,20 +140,15 @@ bool geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *ca
  */
 double geo_cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2)
 {
-  static double old_rc = 0.0;
-  double delta_X, delta_Y, rc;
+  double d_X, d_Y, rc;
 
   check_cart (a, c1, 0.0, __LINE__);
   check_cart (a, c2, 0.0, __LINE__);
 
-  delta_X = c2->c_x - c1->c_x;
-  delta_Y = c2->c_y - c1->c_y;
+  d_X = c2->c_x - c1->c_x;
+  d_Y = c2->c_y - c1->c_y;
 
-  rc = hypot (delta_X, delta_Y);   /* sqrt (delta_X*delta_X, delta_Y*delta_Y) */
-
-//assert (fabs(rc - old_rc) < 6000.0);  /* 6 km */
-  old_rc = rc;
-  (void) old_rc;
+  rc = hypot (d_X, d_Y);   /* sqrt (d_X*d_X, d_Y*d_Y) */
   return (rc);
 }
 
@@ -158,20 +170,19 @@ double geo_closest_to (double val, double val1, double val2)
  *
  * \sa https://en.wikipedia.org/wiki/Great-circle_distance
  */
-double geo_great_circle_dist (pos_t pos1, pos_t pos2)
+double geo_great_circle_dist (const pos_t *pos1, const pos_t *pos2)
 {
-  double lat1 = (TWO_PI * pos1.lat) / 360.0;  /* convert to radians */
-  double lon1 = (TWO_PI * pos1.lon) / 360.0;
-  double lat2 = (TWO_PI * pos2.lat) / 360.0;
-  double lon2 = (TWO_PI * pos2.lon) / 360.0;
+  double lat1 = (M_PI * pos1->lat) / 180.0;  /* convert to radians */
+  double lon1 = (M_PI * pos1->lon) / 180.0;
+  double lat2 = (M_PI * pos2->lat) / 180.0;
+  double lon2 = (M_PI * pos2->lon) / 180.0;
   double dlat = fabs (lat2 - lat1);
   double dlon = fabs (lon2 - lon1);
   double a;
 
   if (dlat < SMALL_VAL && dlon < SMALL_VAL)
   {
-    /*
-     * Use haversine for small distances.
+    /* Use haversine for small distances.
      */
     a = sin (dlat/2) * sin (dlat/2) + cos (lat1) * cos (lat2) * sin (dlon/2) * sin (dlon/2);
     return (EARTH_RADIUS * 2 * atan2 (sqrt(a), sqrt(1.0 - a)));
@@ -184,3 +195,54 @@ double geo_great_circle_dist (pos_t pos1, pos_t pos2)
   return (EARTH_RADIUS * acos(a));
 }
 
+/**
+ * Return the bearing between 2 points on a spherical earth.
+ *
+ * \retval an angle in range [0 ... 360]
+ * The clockwise angle from north.
+ */
+double geo_get_bearing (const pos_t *pos1, const pos_t *pos2)
+{
+  double dlon;
+  double lat0 = pos1->lat * M_PI / 180.0;
+  double lon0 = pos1->lon * M_PI / 180.0;
+  double lat1 = pos2->lat * M_PI / 180.0;
+  double lon1 = pos2->lon * M_PI / 180.0;
+
+  dlon = (lon1 - lon0);
+
+  double x = (cos(lat0) * sin(lat1)) -
+             (sin(lat0) * cos(lat1) * cos(dlon));
+  double y = sin (dlon) * cos (lat1);
+  double deg = atan2 (y, x) * 180.0 / M_PI;
+
+  if (deg < 0.0)
+      deg += 360.0;
+  return (deg);
+}
+
+/**
+ * Return the short name of a bearing.
+ *
+ * \param in  an angle in range [0 ... 360]
+ * \retval    it's name
+ *
+ * \sa https://www.quora.com/What-direction-is-North-by-Northwest
+ */
+const char *geo_bearing_name (double bearing)
+{
+  static const char *names[16] = { "N",  "NNE",
+                                   "NE", "ENE",
+                                   "E",  "ESE",
+                                   "SE", "SSE",
+                                   "S",  "SSW",
+                                   "SW", "WSW",
+                                   "W",  "WNW",
+                                   "NW", "NNW"
+                                 };
+  int idx = (int) round (bearing / 22.5);
+
+  if (idx < 0 || idx >= DIM(names))
+     return ("?");
+  return names [idx];
+}
