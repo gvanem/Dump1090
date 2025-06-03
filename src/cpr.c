@@ -239,12 +239,9 @@ int cpr_do_global (struct aircraft *a, const struct modeS_message *mm, uint64_t 
   if (result < 0)
   {
     if (mm->AC_flags & MODES_ACFLAGS_FROM_MLAT)
-       CPR_TRACE ("decode failure from MLAT (%06X) (%d). "
-                  "even: %d %d, odd: %d %d, odd_packet: %s\n",
-                  a->addr, result,
-                  a->even_CPR_lat, a->even_CPR_lon,
-                  a->odd_CPR_lat, a->odd_CPR_lon,
-                  odd_packet ? "odd" : "even");
+       CPR_TRACE ("%06X: decode failure from MLAT (%d). even: %d %d, odd: %d %d, odd_packet: %s\n",
+                  a->addr, result, a->even_CPR_lat, a->even_CPR_lon,
+                  a->odd_CPR_lat, a->odd_CPR_lon, odd_packet ? "odd" : "even");
     return CPR_set_error (result, a, now);
   }
 
@@ -256,19 +253,19 @@ int cpr_do_global (struct aircraft *a, const struct modeS_message *mm, uint64_t 
   {
     double distance = geo_great_circle_dist (&Modes.home_pos, new_pos);
 
-    LOG_DISTANCE (a, distance, distance <= Modes.max_dist);
-
     if (distance > Modes.max_dist)
     {
-      CPR_TRACE ("global distance check failed: %06X: (%.3f,%.3f), max dist %.1fkm, actual %.1fkm\n",
+      CPR_TRACE ("%06X: global distance check failed (%.3f,%.3f), max dist %.1fkm, actual %.1fkm\n",
                  a->addr, new_pos->lat, new_pos->lon, Modes.max_dist / 1000.0, distance / 1000.0);
 
       Modes.stat.cpr_global_dist_checks++;
       return (-2);    /* we consider an out-of-distance value to be bad data */
     }
+
     a->distance     = distance;
     a->distance_ok  = true;
     a->position_EST = *new_pos;
+    LOG_DISTANCE (a);
   }
 
   /* For MLAT results, skip the speed check
@@ -350,16 +347,16 @@ int cpr_do_local (struct aircraft *a, const struct modeS_message *mm, uint64_t n
   {
     double distance = geo_great_circle_dist (&ref_pos, new_pos);
 
-    LOG_DISTANCE (a, distance, distance <= distance_limit);
-
     if (distance > distance_limit)
     {
       Modes.stat.cpr_local_dist_checks++;
       return (-1);
     }
+
     a->distance     = distance;
     a->distance_ok  = true;
     a->position_EST = *new_pos;
+    LOG_DISTANCE (a);
   }
 
   /* Check speed limit
@@ -664,7 +661,7 @@ static bool CPR_speed_check (aircraft            *a,
 {
   uint64_t elapsed;
   double   max_dist, distance, elapsed_sec, speed_Ms;
-  int      speed;          /* in knots */
+  double   speed;          /* in knots */
   bool     dist_ok;
 
   if (!(a->AC_flags & MODES_ACFLAGS_LATLON_VALID))
@@ -678,7 +675,7 @@ static bool CPR_speed_check (aircraft            *a,
        speed = mm->velocity;
   else if ((a->AC_flags & MODES_ACFLAGS_SPEED_VALID) && (now - a->seen_speed) < 30000)
        speed = a->speed;
-  else speed = surface ? 100 : 600;   /* A guess; in knots */
+  else speed = surface ? 100.0 : 600.0;   /* A guess; in knots */
 
   /* Work out a reasonable speed to use:
    *   current speed + 1/3
@@ -688,15 +685,15 @@ static bool CPR_speed_check (aircraft            *a,
   speed = speed * 4 / 3;
   if (surface)
   {
-    if (speed < 20)
-        speed = 20;
-    if (speed > 150)
-        speed = 150;
+    if (speed < 20.0)
+        speed = 20.0;
+    if (speed > 150.0)
+        speed = 150.0;
   }
   else
   {
-    if (speed < 200)
-        speed = 200;
+    if (speed < 200.0)
+        speed = 200.0;
   }
 
   /* 100m (surface) or 500m (airborne) base distance to allow for minor errors,
@@ -707,7 +704,7 @@ static bool CPR_speed_check (aircraft            *a,
   else max_dist = 500.0;
 
   elapsed_sec = (elapsed + 1000.0) / 1000.0;
-  speed_Ms    = (speed * 1852.0) / 3600.0;     /* meters/sec */
+  speed_Ms    = (speed * 1852.0) / 3600.0;     /* Knots -> meters/sec */
 
   max_dist += elapsed_sec * speed_Ms;
 
@@ -717,8 +714,11 @@ static bool CPR_speed_check (aircraft            *a,
   dist_ok  = (distance <= max_dist);
 
   if (!dist_ok)
-     CPR_TRACE ("speed check failed: %06X: %.1f seconds, speed_Ms %.1f M/s, max_dist %.1f km, actual %.1f km\n",
-                a->addr, elapsed_sec, speed_Ms, max_dist / 1000.0, distance / 1000.0);
+  {
+    a->seen_pos_EST = 0;
+    CPR_TRACE ("%06X: speed check failed, %.1f sec, speed_Ms %.1f M/s, max_dist %.1f km, actual %.1f km\n",
+               a->addr, elapsed_sec, speed_Ms, max_dist / 1000.0, distance / 1000.0);
+  }
   else
   {
     a->distance    = distance;
