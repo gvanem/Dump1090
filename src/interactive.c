@@ -603,7 +603,7 @@ void interactive_show_data (uint64_t now)
 
     if (a->show != A_SHOW_NONE)
     {
-//    aircraft_set_est_home_distance (a, now);
+      aircraft_set_est_home_distance (a, now);
       show_one_aircraft (a, row, now);
       row++;
     }
