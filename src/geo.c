@@ -8,13 +8,6 @@
 #include "geo.h"
 
 /**
- * \def EARTH_RADIUS
- * Earth's radius in meters. Assuming a sphere.
- * Approx. 40.000.000 / (2*M_PI) meters.
- */
-#define EARTH_RADIUS  6371000.0
-
-/**
  * From SDRangel's 'sdrbase/util/azel.cpp':
  *
  * Convert geodetic latitude to geocentric latitude;
@@ -24,7 +17,7 @@
  *
  * \param[in] lat  The geodetic latitude in radians.
  */
-static double geocentric_latitude (double lat)
+double geo_centric_latitude (double lat)
 {
   double e2 = 0.00669437999014;
 
@@ -35,7 +28,7 @@ static double geocentric_latitude (double lat)
  * Try to figure out some issues with cartesian position going crazy.
  * Ignore the `z` axis (just print level above earth).
  */
-static void check_cart (const struct aircraft *a, const cartesian_t *c, double heading, unsigned line)
+static void check_cart (const aircraft *a, const cartesian_t *c, double heading, unsigned line)
 {
   if (fabs(c->c_x) > EARTH_RADIUS || fabs(c->c_y) > EARTH_RADIUS)
   {
@@ -69,7 +62,7 @@ void geo_spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, car
   ASSERT_POS (_pos);
   lat  = (M_PI * _pos.lat) / 180.0;
   lon  = (M_PI * _pos.lon) / 180.0;
-  geo_lat = geocentric_latitude (lat);
+  geo_lat = geo_centric_latitude (lat);
 
   cart->c_x = EARTH_RADIUS * cos (lon) * cos (geo_lat);
   cart->c_y = EARTH_RADIUS * sin (lon) * cos (geo_lat);
@@ -96,18 +89,23 @@ void geo_spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, car
 bool geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *cart, pos_t *pos)
 {
   pos_t _pos;
+  double radians;
 
-#if 0
+  if (a->heading > 180.0)
+       radians = M_PI * (a->heading - 360.0) / 180.0;
+  else radians = (M_PI * a->heading) / 180.0;
+
+#if 1
   double h = hypot (cart->c_x, cart->c_y);
 
   if (h < SMALL_VAL)
   {
-    LOG_FILEONLY2 ("geo.c(%u): ICAO: %06X, c_x=%.0f, c_y=%.0f, heading=%.0f.\n",
-                   __LINE__, a ? a->addr : 0, cart->c_x, cart->c_y, M_PI * a->heading_rad / 180);
+    LOG_FILEONLY ("geo.c(%u): ICAO: %06X, c_x=%.0f, c_y=%.0f, heading=%.0f.\n",
+                  __LINE__, a ? a->addr : 0, cart->c_x, cart->c_y, M_PI * radians / 180.0);
     return (false);
   }
 
-  check_cart (a, cart, a->heading_rad, __LINE__);
+  check_cart (a, cart, radians, __LINE__);
 
   /* We do not need this; close to EARTH_RADIUS.
    *
@@ -125,8 +123,8 @@ bool geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *ca
   double theta  = atan2 (cart->c_y, cart->c_x);  /* azimuth angle */
   double phi    = acos (cart->c_z / radius);     /* polar angle */
 
-  _pos.lon = 180.0 * theta / M_PI;
-  _pos.lat = 180.0 * phi / M_PI;
+  _pos.lon = (180.0 * theta) / M_PI;
+  _pos.lat = (180.0 * phi) / M_PI;
 
   (void) a;
 #endif
@@ -140,7 +138,7 @@ bool geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *ca
  */
 double geo_cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2)
 {
-  double d_X, d_Y, rc;
+  double d_X, d_Y;
 
   check_cart (a, c1, 0.0, __LINE__);
   check_cart (a, c2, 0.0, __LINE__);
@@ -148,8 +146,7 @@ double geo_cartesian_distance (const struct aircraft *a, const cartesian_t *c1, 
   d_X = c2->c_x - c1->c_x;
   d_Y = c2->c_y - c1->c_y;
 
-  rc = hypot (d_X, d_Y);   /* sqrt (d_X*d_X, d_Y*d_Y) */
-  return (rc);
+  return hypot (d_X, d_Y);   /* sqrt (d_X*d_X, d_Y*d_Y) */
 }
 
 /**
@@ -203,21 +200,18 @@ double geo_great_circle_dist (const pos_t *pos1, const pos_t *pos2)
  */
 double geo_get_bearing (const pos_t *pos1, const pos_t *pos2)
 {
-  double dlon;
   double lat0 = pos1->lat * M_PI / 180.0;
   double lon0 = pos1->lon * M_PI / 180.0;
   double lat1 = pos2->lat * M_PI / 180.0;
   double lon1 = pos2->lon * M_PI / 180.0;
-
-  dlon = (lon1 - lon0);
-
+  double dlon = (lon1 - lon0);
   double x = (cos(lat0) * sin(lat1)) -
              (sin(lat0) * cos(lat1) * cos(dlon));
   double y = sin (dlon) * cos (lat1);
   double deg = atan2 (y, x) * 180.0 / M_PI;
 
   if (deg < 0.0)
-      deg += 360.0;
+     deg += 360.0;
   return (deg);
 }
 
@@ -240,7 +234,7 @@ const char *geo_bearing_name (double bearing)
                                    "W",  "WNW",
                                    "NW", "NNW"
                                  };
-  int idx = (int) round (bearing / 22.5);
+  int idx = (int) floor (bearing / 22.5);
 
   if (idx < 0 || idx >= DIM(names))
      return ("?");

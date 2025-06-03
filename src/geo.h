@@ -44,8 +44,16 @@ typedef struct cartesian_t {
                            assert (pos.lat >= -90  && pos.lat < 90);  \
                          } while (0)
 
+/**
+ * \def EARTH_RADIUS
+ * Earth's radius in meters. Assuming a sphere.
+ * Approx. 40.000.000 / (2*M_PI) meters.
+ */
+#define EARTH_RADIUS  6371000.0
+
 struct aircraft;
 
+double      geo_centric_latitude (double lat);
 void        geo_spherical_to_cartesian (const struct aircraft *a, const pos_t *pos, cartesian_t *cart);
 bool        geo_cartesian_to_spherical (const struct aircraft *a, const cartesian_t *cart, pos_t *pos);
 double      geo_cartesian_distance (const struct aircraft *a, const cartesian_t *c1, const cartesian_t *c2);
