@@ -255,7 +255,6 @@ typedef struct statistics {
         uint64_t        unique_helicopters;
         uint64_t        cart_errors;
         uint64_t        cpr_errors;
-        uint64_t        AIS_junk;
 
         uint64_t        cpr_global_ok;
         uint64_t        cpr_global_bad;
@@ -380,6 +379,7 @@ typedef struct global_data {
         uint16_t           *mag_lut;                  /**< I/Q -> Magnitude lookup table. */
         uint16_t           *log10_lut;                /**< Magnitude -> log10 lookup table. */
         convert_format      input_format;             /**< Converted input format. */
+        uint32_t            FIFO_init_bufs;           /**< # of buffers for `fifo_init()` */
         uint32_t            FIFO_acquire_ms;          /**< `fifo_acquire()` timeout in milli-sec (default 100). */
         bool                FIFO_active;              /**< We have (and need) a FIFO for `mag_buf` data. */
         bool                phase_enhance;            /**< Enable phase enhancement in `demod_*()`. */
@@ -747,12 +747,6 @@ int  modeS_message_len_by_type (int type);
 int  modeS_message_score (const uint8_t *msg, int valid_bits);
 int  mode_A_to_mode_C (u_int Mode_A);
 void background_tasks (void);
-
-/*
- * And some variables:
- */
-extern const char *AIS_charset;
-extern const char *AIS_junk;
 
 /*
  * Functions in `misc.c'

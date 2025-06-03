@@ -60,10 +60,10 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
  * This *Mode S* decoder is based on the Dump1090 by *Salvatore Sanfilippo*.
  *
  * ### Basic block-diagram:
- * \image html dump1090-blocks.png
+ * \image html img/dump1090-blocks.png
  *
  * ### Example Web-client page:
- * \image html dump1090-24MSs.png
+ * \image html img/dump1090-24MSs.png
  *
  * ### More here later ...
  *
@@ -124,10 +124,6 @@ static bool  set_sample_rate (const char *arg);
 static bool  set_tui (const char *arg);
 static bool  set_web_page (const char *arg);
 
-const char *AIS_charset = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?";
-const char *AIS_junk    = "[\\]^_ !\"#$%&'()*+,-./:;<=>?";
-const char *AIS_flight  = "[\\]^_!\"#$%&'()*+,-./:;<=>?";  /* == AIS_junk except ' ' */
-
 static uint32_t sample_rate;
 static uint64_t max_messages;
 
@@ -153,6 +149,7 @@ static const struct cfg_table config[] = {
     { "aircrafts",        ARG_STRCPY,  (void*) &Modes.aircraft_db },
     { "aircrafts-url",    ARG_STRDUP,  (void*) &Modes.aircraft_db_url },
     { "bandwidth",        ARG_FUNC,    (void*) set_bandwidth },
+    { "fifo-bufs",        ARG_ATO_U32, (void*) &Modes.FIFO_init_bufs },
     { "fifo-acquire",     ARG_ATO_U32, (void*) &Modes.FIFO_acquire_ms },
     { "freq",             ARG_FUNC,    (void*) set_frequency },
     { "agc",              ARG_ATOB,    (void*) &Modes.dig_agc },
@@ -490,10 +487,10 @@ static void modeS_init_config (void)
   Modes.a_sort           = INTERACTIVE_SORT_NONE;
   Modes.json_interval    = 1000;
   Modes.tui_interface    = TUI_WINCON;
-  Modes.min_dist         = 0.0;         /* 0 Km default min distance */
-  Modes.max_dist         = 500000.0;    /* 500 Km default max distance */
-  Modes.FIFO_acquire_ms  = 100;         /* timeout for `fifo_acquire()` */
-
+  Modes.min_dist         = 0.0;                /* 0 Km default min distance */
+  Modes.max_dist         = 500000.0;           /* 500 Km default max distance */
+  Modes.FIFO_acquire_ms  = 100;                /* timeout for `fifo_acquire()` */
+  Modes.FIFO_init_bufs   = MODES_MAG_BUFFERS;  /* # of buffers for `fifo_init()` */
   Modes.error_correct_1 = true;
   Modes.error_correct_2 = false;
 
@@ -623,12 +620,12 @@ static bool modeS_init_hardware (void)
     Modes.bytes_per_sample = 4;
   }
 
-  if (!fifo_init(2 * MODES_MAG_BUFFERS,  // !!
-                 MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
+  if (!fifo_init(Modes.FIFO_init_bufs, MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
   {
     LOG_STDERR ("Out of memory allocating FIFO\n");
     return (false);
   }
+
   Modes.FIFO_active = true;
 
   char *rtl_name = Modes.rtlsdr.name;
@@ -653,11 +650,13 @@ static bool modeS_init_hardware (void)
                 "              Modes.sample_rate:      %.1lf MS/s\n"
                 "              Modes.bytes_per_sample: %d\n"
                 "              Modes.trailing_samples: %u\n"
-                "              Modes.input_format:     %d/%s\n"
+                "              Modes.input_format:     %d / %s\n"
                 "              Modes.DC_filter:        %d\n"
                 "              Modes.measure_noise:    %d\n"
                 "              Modes.phase_enhance:    %d\n"
-                "              Modes.demod_func:       demod_%u()\n\n",
+                "              Modes.demod_func:       demod_%u()\n"
+                "              Modes.FIFO_init_bufs:   %u\n"
+                "              Modes.FIFO_acquire_ms:  %u\n\n",
                 Modes.rtlsdr.index, rtl_name ? rtl_name : "<none>",
                 Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : "<none>",
                 (double)Modes.sample_rate / 1E6,
@@ -667,7 +666,9 @@ static bool modeS_init_hardware (void)
                 Modes.DC_filter,
                 Modes.measure_noise,
                 Modes.phase_enhance,
-                Modes.sample_rate / 1000);
+                Modes.sample_rate / 1000,
+                Modes.FIFO_init_bufs,
+                Modes.FIFO_acquire_ms);
 
   Modes.converter_func = convert_init (Modes.input_format,
                                        Modes.sample_rate,
@@ -1568,6 +1569,9 @@ static void decode_DF16 (modeS_message *mm)
 
 static bool set_callsign (modeS_message *mm, uint32_t chars1, uint32_t chars2)
 {
+  static const char *AIS_charset = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?";
+  static const char *AIS_junk    = "[\\]^_!\"#$%&'()*+,-./:;<=>?";
+
   char flight [sizeof(mm->flight)];
   bool valid;
 
@@ -1588,16 +1592,11 @@ static bool set_callsign (modeS_message *mm, uint32_t chars1, uint32_t chars2)
   flight [4] = AIS_charset [chars2 & 0x3F];
   flight [8] = '\0';
 
-  valid = (strpbrk(flight, AIS_flight) == NULL);
+  valid = (strpbrk(flight, AIS_junk) == NULL);
   if (valid)
   {
     mm->AC_flags |= MODES_ACFLAGS_CALLSIGN_VALID;
     strcpy (mm->flight, str_trim(flight));
-    if (strpbrk(mm->flight, AIS_junk))
-    {
-      Modes.stat.AIS_junk++;
-      LOG_FILEONLY ("%06X: AIS_junk: '%s'\n", mm->addr, mm->flight);
-    }
   }
   return (valid);
 }
@@ -3717,7 +3716,13 @@ static void show_decoder_stats (void)
     interactive_clreol();
   }
 
-  LOG_STDOUT (" %8llu valid preambles.\n", Modes.stat.valid_preamble);
+  char buf [20];
+
+  if (Modes.stat.valid_preamble >= 1000000ULL)
+       snprintf (buf, sizeof(buf), "%6llu M", Modes.stat.valid_preamble / 1000000ULL);
+  else snprintf (buf, sizeof(buf), "%8llu", Modes.stat.valid_preamble);
+
+  LOG_STDOUT (" %s valid preambles.\n", buf);
   interactive_clreol();
 
   LOG_STDOUT (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
@@ -3751,9 +3756,6 @@ static void show_decoder_stats (void)
 
   if (Modes.stat.cpr_errors)
      LOG_STDOUT (" %8llu CPR errors.\n", Modes.stat.cpr_errors);
-
-  if (Modes.stat.AIS_junk)
-     LOG_STDOUT (" %8llu call-signs with AIS junk.\n", Modes.stat.AIS_junk);
 
   interactive_clreol();
 
