@@ -713,7 +713,7 @@ define DUMP1090_DOXYFILE
                           $(DOXY_HEADERS)
 
   EXAMPLE_PATH          = ..
-  IMAGE_PATH            = .. ../.. ../../docs
+  IMAGE_PATH            = .. ../.. ../../docs ../../img
   INLINE_SIMPLE_STRUCTS = yes
   SOURCE_BROWSER        = yes
   CALL_GRAPH            = yes

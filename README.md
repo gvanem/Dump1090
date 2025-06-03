@@ -139,13 +139,13 @@ to your browser to **http://localhost:8080**, use this command:
   ```
 
   It will present live traffic to the Web-browser:
-  **![web-page](dump1090-web.png)**
+  **![web-page](img/dump1090-web.png)**
 
   and the *Windows Legacy Console*:
-  **![console output](dump1090-win.png)**
+  **![console output](img/dump1090-win.png)**
 
   or with `tui = curses` in the `dump1090.cfg` file and started as `c:\dev\Dump1090> dump1090 --interactive` inside
-  [**Windows Terminal**](https://github.com/microsoft/terminal) and a suitable background image: **![curses WinTerm](dump1090-wt-1.png)**
+  [**Windows Terminal**](https://github.com/microsoft/terminal) and a suitable background image: **![curses WinTerm](img/dump1090-wt-1.png)**
 
 In this interactive mode there is a more compact output. Where the screen is refreshed
 up to 4 times per second displaying all the recently seen aircrafts with some additional
@@ -170,7 +170,7 @@ Running with `web-page = %~dp0\web_root-Tar1090\index.html` in the `dump1090.cfg
 
 will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/) and data from
 [**Tar1090-DB**](https://github.com/wiedehopf/tar1090-db/):
-![**tar1090 output**](dump1090-tar1090-web.png)**
+![**tar1090 output**](img/dump1090-tar1090-web.png)**
 
 Building with a *packed Web-filesystem* is also possible. Then **all** web-pages are built into a `web-pages.dll` file. <nl>
 Ref. `USE_PACKED_WEB = 1` in [**Makefile.Windows**](https://github.com/gvanem/Dump1090/blob/main/Makefile.Windows#L22)
@@ -179,7 +179,7 @@ and a `web-page = web-pages.dll;N` in the [**config-file**](dump1090.cfg).
 The default sample-rate is now **2.4 MHz** (thanks to Oliver Jowett's excellent [**src/demod-2400.c**](https://github.com/gvanem/Dump1090/blob/main/src/demod-2400.c)).
 This increases the accuracy and sensitivety of detection. The detection range (depending on antenna etc.) should become around 300 km as shown in
 [**Tar1090**](https://github.com/wiedehopf/tar1090/) here:
-![2.4MHz sampler](dump1090-24MSs.png)
+![2.4MHz sampler](img/dump1090-24MSs.png)
 
 
 ## Using RTL1090 as RAW source
@@ -190,7 +190,7 @@ the collector and generator of **RAW-IN** messages, and Dump1090 started like:
  dump1090.exe --net-active --interactive --config host-raw.cfg
  ```
 
- both programs in combination may look like this: ![rtl1090 output](rtl1090.jpg).
+ both programs in combination may look like this: ![rtl1090 output](img/rtl1090.png).
 
  (the 2 lower screens above are the [Beta3](https://www.jetvision.de/manuals/rtl1090.beta3.zip) version).
 
@@ -341,7 +341,7 @@ see on the console what's happening: <nl>
     This can be used to feed data to various sharing sites without the need to use another decoder.
 
     This is a screen-shot of dump1090 together with [**tools/SBS_client.py**](tools/SBS_client.py):
-    **![SBS_client](dump1090-SBS.png)** invoked by [**run-dump1090-SBS.bat**](run-dump1090-SBS.bat).
+    **![SBS_client](img/dump1090-SBS.png)** invoked by [**run-dump1090-SBS.bat**](run-dump1090-SBS.bat).
 
 
 ## Antenna
@@ -397,7 +397,7 @@ log, use `dump1090 --help` to obtain a list of available debug flags.
 Debug mode includes an optional JavaScript output (`frames.js`) that is
 used to visualize packets using a web browser, you can use
 **[tools/debug.html](tools/debug.html)** to load and analyze the generated
-`frames.js` file:  ![Example](debug-frames.png).
+`frames.js` file:  ![Example](img/debug-frames.png).
 
 ## How this program works?
 
