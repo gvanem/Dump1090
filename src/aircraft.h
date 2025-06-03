@@ -156,7 +156,6 @@ typedef struct aircraft {
         double    speed;                  /**< Velocity computed from EW and NS components. In Knots */
         uint64_t  seen_speed;             /**< Tick-time (in milli-sec) at which speed was measured */
         double    heading;                /**< Horizontal angle of flight; [0 ... 360] */
-        double    heading_rad;            /**< Heading in radians; [-Phi ... +Phi] */
         bool      is_helicopter;          /**< It is a helicopter */
         bool      done_flight_info;       /**< Have we shown the flight-info? */
 
@@ -172,7 +171,7 @@ typedef struct aircraft {
         double    distance;               /**< Distance (in meters) to home position */
         bool      distance_ok;            /**< Distance is valid */
         char      distance_buf [20];      /**< Buffer for `get_home_distance()` */
-        double    distance_EST;           /**< Estimated `distance` based on last `speed` and `heading` */
+        double    distance_EST;           /**< Estimated `distance` based on last `speed` and `heading`. In meters. */
         char      distance_buf_EST [20];  /**< Buffer for `get_est_home_distance()` */
         double    sig_levels [4];         /**< RSSI signal-levels from the last 4 messages */
         int       sig_idx;
@@ -212,7 +211,7 @@ typedef struct aircraft {
 /**
  * \def LOG_FOLLOW(a)
  * \def LOG_UNFOLLOW(a)
- * \def LOG_DISTANCE()
+ * \def LOG_DISTANCE(a)
  * \def LOG_BEARING(a)
  *
  * To verify the CPR stuff works correctly;
@@ -223,8 +222,7 @@ typedef struct aircraft {
  */
 #define LOG_FOLLOW(a) do {                             \
         if ((Modes.debug & DEBUG_PLANE) &&             \
-            a->addr && Modes.a_follow == 0)            \
-        {                                              \
+            a->addr && Modes.a_follow == 0) {          \
           LOG_FILEONLY ("%06X: Following\n", a->addr); \
           Modes.a_follow = a->addr;                    \
         }                                              \
@@ -232,30 +230,26 @@ typedef struct aircraft {
 
 #define LOG_UNFOLLOW(a) do {                             \
         if ((Modes.debug & DEBUG_PLANE) &&               \
-            a->addr && a->addr == Modes.a_follow)        \
-        {                                                \
+            a->addr && a->addr == Modes.a_follow) {      \
           LOG_FILEONLY ("%06X: Unfollowing\n", a->addr); \
           Modes.a_follow = 0;                            \
         }                                                \
       } while (0)
 
-#define LOG_DISTANCE(a, dist_m, dist_ok) do {             \
-        if ((Modes.debug & DEBUG_PLANE) &&                \
-            Modes.a_follow && a->addr == Modes.a_follow)  \
-        {                                                 \
-          LOG_FILEONLY ("%06X: %7.3f km, dist_ok: %d\n",  \
-                        a->addr, dist_m / 1000, dist_ok); \
-        }                                                 \
+#define LOG_DISTANCE(a) do {                             \
+        if ((Modes.debug & DEBUG_PLANE) &&               \
+            Modes.a_follow && a->addr == Modes.a_follow) \
+          LOG_FILEONLY ("%06X: dist: %7.3f km\n",        \
+                        a->addr, a->distance / 1000.0);  \
       } while (0)
 
-#define LOG_BEARING(a) do {                                                 \
-        if ((Modes.debug & DEBUG_PLANE) &&                                  \
-            a->addr == Modes.a_follow && Modes.home_pos_ok)                 \
-        {                                                                   \
-          double bearing = geo_get_bearing (&Modes.home_pos, &a->position); \
-          LOG_FILEONLY ("%06X: bearing: %.1lf / %s\n",                      \
-                        a->addr, bearing, geo_bearing_name(bearing));       \
-        }                                                                   \
+#define LOG_BEARING(a) do {                                                   \
+        if ((Modes.debug & DEBUG_PLANE) &&                                    \
+            a->addr == Modes.a_follow && Modes.home_pos_ok) {                 \
+           double _bearing = geo_get_bearing (&Modes.home_pos, &a->position); \
+           LOG_FILEONLY ("%06X: bearing: %.1lf / %s\n",                       \
+                         a->addr, _bearing, geo_bearing_name(_bearing));      \
+        }                                                                     \
       } while (0)
 
 bool        aircraft_init (void);
@@ -275,7 +269,7 @@ bool        aircraft_is_military (uint32_t addr, const char **country);
 bool        aircraft_is_helicopter (uint32_t addr, const char **code);
 bool        aircraft_match_init (const char *arg);
 bool        aircraft_match (uint32_t addr);
-void        aircraft_set_est_home_distance (aircraft *a, uint64_t now);
+bool        aircraft_set_est_home_distance (aircraft *a, uint64_t now);
 char       *aircraft_make_json (bool extended_client);
 void        aircraft_remove_stale (uint64_t now);
 void        aircraft_show_stats (void);
