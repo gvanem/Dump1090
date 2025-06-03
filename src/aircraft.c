@@ -1284,7 +1284,7 @@ static const ICAO_range military_range [] = {
      { 0x3EA000,  0x3EBFFF, NULL },
      { 0x3F4000,  0x3FBFFF, NULL },
      { 0x400000,  0x40003F, NULL },
-     { 0x43C000,  0x43CFFF, "UK" },
+     { 0x43C000,  0x43CFFF, "GB" },
      { 0x444000,  0x446FFF, NULL },
      { 0x44F000,  0x44FFFF, NULL },
      { 0x457000,  0x457FFF, NULL },
@@ -2207,79 +2207,76 @@ void aircraft_remove_stale (uint64_t now)
  * Assuming a constant good last heading and speed, calculate the
  * new position from that using the elapsed time.
  */
-void aircraft_set_est_home_distance (aircraft *a, uint64_t now)
+bool aircraft_set_est_home_distance (aircraft *a, uint64_t now)
 {
-  double      dist, gc_dist, cart_dist;
-  double      d_X, d_Y, d_S;
-  cartesian_t cpos = { 0.0, 0.0, 0.0 };
-  pos_t       epos;
-  double      speed = (double)a->speed * 1852;  /* m/sec */
-  double      heading;
+  double dist_m, est_dist_m;
+  double d_X, d_Y, d_S;
+  double speed = (a->speed * 1852.0) / 3600.0;  /* knots -> m/sec */
+  double heading, scale;
+  pos_t  epos;
+  bool   valid;
 
   if (!Modes.home_pos_ok || !(a->AC_flags & MODES_ACFLAGS_HEADING_VALID))
-     return;
+     return (false);
 
   if (speed <= SMALL_VAL || !(a->AC_flags & MODES_ACFLAGS_SPEED_VALID))
-     return;
+     return (false);
 
   if (!(a->AC_flags & MODES_ACFLAGS_LATLON_VALID))
-     return;
+     return (false);
 
   if (!VALID_POS(a->position_EST) || a->seen_pos_EST < a->seen_last)
-     return;
+     return (false);
 
-  ASSERT_POS (a->position_EST);
+  if (now - a->seen_last > 10000)     /* to old */
+     return (false);
 
   epos = a->position_EST;
-  geo_spherical_to_cartesian (a, &epos, &cpos);
 
-  /* Ensure heading is in range '[-Phi .. +Phi]'
+  /* Convert to radians. Ensure heading is
+   * in range '[-Phi .. +Phi]'.
    */
   heading = a->heading;
   if (heading > 180.0)
-       a->heading_rad = M_PI * (heading - 360.0) / 180.0;
-  else a->heading_rad = (M_PI * heading) / 180.0;
+       heading = M_PI * (heading - 360.0) / 180.0;
+  else heading = (M_PI * heading) / 180.0;
 
-  /* dist: meters traveled in 'd_S':
+  if (a->seen_pos_EST == now)
+     now++;
+
+  /* dist_m: meters traveled in 'd_S':
    */
-  d_S  = (double) (now - a->seen_pos_EST) / 1E3;
-  dist = speed * d_S;
-  a->seen_pos_EST = now;
+  d_S = (double) (now - a->seen_pos_EST) / 1E3;
+  dist_m = speed * d_S;
 
-  d_X = dist * sin (a->heading_rad);
-  d_Y = dist * cos (a->heading_rad);
-  cpos.c_x += d_X;
-  cpos.c_y += d_Y;
+  d_X = dist_m * sin (heading);
+  d_Y = dist_m * cos (heading);
 
-  if (!geo_cartesian_to_spherical(a, &cpos, &epos))
-  {
-    if (!(Modes.debug & DEBUG_PLANE) || (a->addr == Modes.a_follow))
-       LOG_FILEONLY ("%04X: Invalid epos: %+7.03f lon, %+8.03f lat from "
-                     "heading: %+6.1lf. d_X: %+8.3lf, d_Y: %+8.3lf, d_S: %.3lf sec\n",
-                     a->addr, epos.lon, epos.lat, (180.0 * a->heading_rad / M_PI),
-                     d_X, d_Y, d_S);
-    return;
-  }
+  scale = (2 * M_PI * 360.0) / EARTH_RADIUS;
+  epos.lon += d_X * scale;
+  epos.lat += d_Y * scale;
 
-  a->position_EST = epos;
-  ASSERT_POS (a->position_EST);
+  est_dist_m = geo_great_circle_dist (&epos, &Modes.home_pos);
 
-  gc_dist   = geo_great_circle_dist (&a->position_EST, &Modes.home_pos);
-  cart_dist = geo_cartesian_distance (a, &cpos, &Modes.home_pos_cart);
+  /* difference < 10%
+   */
+  valid = fabs (est_dist_m - a->distance) / a->distance < 0.1;
 
   if ((Modes.debug & DEBUG_PLANE) && a->addr == Modes.a_follow)
-     LOG_FILEONLY ("%06X: heading: %+5.0lf, speed: %5.1lf, d_X: %+8.0lf, d_Y: %+8.0lf, "
-                   "distance_EST: %4.0lf, gc_dist: %5.0lf, cart_dist: %5.0lf, dist: %5.0lf, d_S: %.3lf\n",
-                   a->addr, (180.0 * a->heading_rad) / M_PI, speed,
-                   d_X, d_Y, a->distance_EST / 1E3, gc_dist / 1E3, cart_dist / 1E3,
-                   dist / 1E3, d_S);
+     LOG_FILEONLY ("%06X: speed: %5.1lf, heading: %+5.1lf, d_X: %+5.0lf, d_Y: %+5.0lf, "
+                   "dist_m: %5.0lf, d_S: %.3lf, est_dist_m: %4.2lf km%c\n",
+                   a->addr, speed, 180.0 * heading / M_PI, d_X, d_Y, dist_m, d_S,
+                   est_dist_m / 1E3, valid ? ' ' : '!');
 
-#if 1
-  a->distance_EST = geo_closest_to (a->distance_EST, gc_dist, cart_dist);
-#else
-  a->distance_EST = cart_dist;
-#endif
+  if (valid)
+  {
+    a->position_EST = epos;
+    a->distance_EST = est_dist_m;
+    a->seen_pos_EST = now;
+  }
+  return (valid);
 }
+
 
 /**
  * Called from show_statistics() to print statistics collected here.
@@ -2408,7 +2405,7 @@ static void aircraft_update_pos (aircraft *a, modeS_message *mm, uint64_t now)
     if (CPR_result == -2)
     {
       if (mm->AC_flags & MODES_ACFLAGS_FROM_MLAT)
-         CPR_TRACE ("failure from MLAT (%06X)\n", a->addr);
+         CPR_TRACE ("%06X: failure from MLAT\n", a->addr);
 
       /* Global CPR failed because the position produced implausible results.
        * This is bad data. Discard both odd and even messages and wait for a fresh pair.
@@ -2437,7 +2434,7 @@ static void aircraft_update_pos (aircraft *a, modeS_message *mm, uint64_t now)
     if (CPR_result == -1)
     {
       if (mm->AC_flags & MODES_ACFLAGS_FROM_MLAT)
-         CPR_TRACE ("skipped from MLAT (%06X)\n", a->addr);
+         CPR_TRACE ("%06X: skipped from MLAT\n", a->addr);
 
       /* No local reference for surface position available, or the two messages crossed a zone.
        * Nonfatal, try again later.
