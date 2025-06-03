@@ -107,7 +107,7 @@ static int bin_read (void)
     uint32_t samples_read;
     struct   mag_buf *out_buf;
 
-    TRACE ("%s(): Modes.sample_counter: %llu", __FUNCTION__, Modes.sample_counter);
+    TRACE ("%s(): Modes.sample_counter: %llu\n", __FUNCTION__, Modes.sample_counter);
 
     out_buf = fifo_acquire (100);
     if (!out_buf)
@@ -130,7 +130,7 @@ static int bin_read (void)
       rdata      += nread;
       bytes_read += nread;
       toread     -= nread;
-      TRACE ("  nread: %d, bytes_read: %llu, eof: %d", nread, bytes_read, eof);
+      TRACE ("  nread: %d, bytes_read: %llu, eof: %d\n", nread, bytes_read, eof);
     }
 
     samples_read = nread / Modes.bytes_per_sample;
@@ -149,7 +149,7 @@ static int bin_read (void)
      * And dequeue it immediately. There should be something to process
      */
     fifo_enqueue (out_buf);
-    out_buf = fifo_dequeue (0);
+    out_buf = fifo_dequeue (100);
     if (out_buf)
     {
       (*Modes.demod_func) (out_buf);
@@ -321,7 +321,7 @@ static bool csv_parse_file (void)
   }
 
   puts ("");
-  TRACE ("Parsed %u records in %.3f msec from: \"%s\"",
+  TRACE ("Parsed %u records in %.3f msec from: \"%s\"\n",
          g_data.ctx.rec_num, (get_usec_now() - start_t) / 1E3, g_data.ctx.file_name);
   return (true);
 }
@@ -395,7 +395,7 @@ static int csv_read (void)
       msg.len = strlen ((const char*)rec->raw_msg);
 
       rc = (int) decode_RAW_message (&msg, 0);
-      TRACE ("  msg: %3d, rc: %d, Modes.stat.RAW_good: %llu",
+      TRACE ("  msg: %3d, rc: %d, Modes.stat.RAW_good: %llu\n",
              num, rc, Modes.stat.RAW_good);
 
       num++;

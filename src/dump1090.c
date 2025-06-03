@@ -601,7 +601,10 @@ static bool modeS_init_hardware (void)
 
   if (Modes.infile[0])
   {
-    /* use whatever '--informat' was set to 'Modes.input_format' */
+    /* Unless not set, use whatever '--informat' was set to 'Modes.input_format'
+     */
+    if (Modes.input_format == INPUT_ILLEGAL)
+       Modes.input_format = INPUT_UC8;
   }
   else if (Modes.rtlsdr.index >= 0 ||                    /* --device N */
            Modes.rtlsdr.name       ||                    /* --device name */
