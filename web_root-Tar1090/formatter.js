@@ -406,7 +406,7 @@ function wqi(data) {
     const INT32_MAX = 2147483647;
     const buffer = data.buffer;
     //console.log(buffer);
-    let u32 = new Uint32Array(data.buffer, 0, 12);
+    let u32 = new Uint32Array(data.buffer, 0, 13);
     data.now = u32[0] / 1000 + u32[1] * 4294967.296;
     //console.log(data.now);
     let stride = u32[2];
@@ -429,6 +429,9 @@ function wqi(data) {
     const binCraftVersion = u32[10];
 
     data.messageRate = u32[11] / 10;
+
+    const flags = u32[12];
+    const useMessageRate = flags & (1 << 0);
 
     if (receiver_lat != 0 && receiver_lon != 0) {
         //console.log("receiver_lat: " + receiver_lat + " receiver_lon: " + receiver_lon);
@@ -500,7 +503,7 @@ function wqi(data) {
         ac.ias = u16[29];
         ac.rc  = u16[30];
 
-        if (globeIndex && binCraftVersion >= 20220916) {
+        if (useMessageRate) {
             ac.messageRate = u16[31] / 10;
         } else {
             ac.messages = u16[31];

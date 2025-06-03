@@ -1745,7 +1745,9 @@ jQuery('#selected_altitude_geom1')
         jQuery('#imageConfigLink').text(imageConfigText)
         jQuery('#imageConfigHeader').show();
     }
-
+    if (aiscatcher_server) {
+        aiscatcher_server = aiscatcher_server.replace('HOSTNAME', window.location.hostname);
+    }
 
     if (hideButtons) {
         showHideButtons();
@@ -3666,7 +3668,10 @@ function refreshSelected() {
     jQuery('#selected_sitedist1').updateText(format_distance_long(sitedist, DisplayUnits));
     jQuery('#selected_sitedist2').updateText(format_distance_long(sitedist, DisplayUnits));
     jQuery('#selected_rssi1').updateText(selected.rssi != null ? selected.rssi.toFixed(1) : "n/a");
-    if (globeIndex && binCraft && !showTrace) {
+    if (
+        ((selected.messages == undefined && selected.receiverCount) || (globeIndex && binCraft))
+        && !showTrace
+    ) {
         jQuery('#selected_message_count').prev().updateText('Receivers:');
         jQuery('#selected_message_count').prop('title', 'Number of receivers receiving this aircraft');
         if (selected.receiverCount >= 5 && selected.dataSource != 'mlat') {
