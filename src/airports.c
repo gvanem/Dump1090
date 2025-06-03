@@ -21,6 +21,8 @@
 #define API_SERVICE_URL     "https://vrs-standing-data.adsb.lol/routes/%.2s/%s.json"
 #define API_SERVICE_503     "<html><head><title>503 Service Temporarily Unavailable"
 
+#define API_SERVICE_URL2    "https://adsb.im/api/0/routeset"
+
 #define API_AIRPORT_IATA    "\"_airport_codes_iata\": "    /* what to look for in response */
 #define API_AIRPORT_ICAO    "\"airport_codes\": "          /* todo: look for these ICAO codes too */
 #define API_SLEEP_MS        100                            /* Sleep() granularity */
@@ -2162,15 +2164,6 @@ bool airports_API_get_flight_info (const char  *call_sign,
   if (*call_sign == '\0')
   {
     API_TRACE ("Empty 'call_sign'!\n");
-    g_data.do_trace = save;
-    return (false);
-  }
-
-  /* Check for junk characters from `AIS_charset[]` coming through
-   */
-  if (strpbrk(call_sign, AIS_junk))
-  {
-    LOG_FILEONLY2 ("Junk call_sign: '%s', addr: %06X\n", call_sign, addr);
     g_data.do_trace = save;
     return (false);
   }
