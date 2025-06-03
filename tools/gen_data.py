@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """
-A rewrite of https://vrs-standing-data.adsb.lol/generate-csvs.sh
-into Python. Plus some more features.
-
-Generate these files:
-  aircrafts.csv + aircrafts.bin + test-aircrafts.exe
-  airports.csv  + airports.bin  + test-airports.exe
-  routes.csv    + routes.bin    + test-routes.exe
-
-from 'https://github.com/vradarserver/standing-data/archive/refs/heads/main.zip'
+Download 'https://github.com/vradarserver/standing-data/archive/refs/heads/main.zip'
+as needed and generate these files:
+  aircrafts.csv   + aircrafts.bin   + test-aircrafts.exe
+  airports.csv    + airports.bin    + test-airports.exe
+  routes.csv      + routes.bin      + test-routes.exe
+                    code-blocks.bin + test-code-blocks.exe
 """
 
 from __future__ import print_function
@@ -31,7 +28,7 @@ header     = "-" * 80
 my_time    = os.stat(__file__).st_mtime
 
 bin_marker = "BIN-dump1090"   # magic marker
-bin_header = "<12sqII"        # must match 'struct BIN_header'
+bin_header = "<12sqII"        # must match 'struct BIN_header' ==
 
 def error (s, prefix = ""):
   if s is None:
@@ -167,23 +164,49 @@ def routes_record (data):
   airports  = to_bytes (data[4])
   return struct.pack (routes_format, call_sign, airports)
 
+blocks_format  = "<IIIIIB2s"
+blocks_rec_len = 4 + 4 + 4 + 4 + 4 + 1 + 2   # = 23
+
+def blocks_record (data):
+  start        = int (data[0], 16)
+  finish       = int (data[1], 16)
+  count        = int (data[2])
+  bitmask      = int (data[3], 16)
+  sign_bitmask = int (data[4], 16)
+  is_military  = int (data[5])
+  country_ISO  = to_bytes (data[6])
+  return struct.pack (blocks_format, start, finish, count, bitmask, sign_bitmask, is_military, country_ISO)
+
 #
 # Class for handling all CSV files
 #
 class csv_handler():
-  def __init__ (self, name, rec_len, rec_func):
+  def __init__ (self, name, rec_len, rec_func, no_csv = False):
     self._dict      = dict()
     self._dict_name = name + "_files"
     self.rec_num    = 0
     self.rec_len    = rec_len
     self.rec_func   = rec_func
-    self.csv_dir    = zip_dir + "/" + name
-    self.csv_result = result_dir + "/" + name + ".csv"
+    self.no_csv     = no_csv   # Do not create a .CSV-file
+
+    if self.no_csv:
+       from_file = name
+       name = os.path.basename (name)
+       name = name [0:name.index (".csv")]
+       self.csv_dir    = None
+       self.csv_result = from_file
+
+    else:
+       self.csv_dir    = zip_dir + "/" + name
+       self.csv_result = result_dir + "/" + name + ".csv"
+
     self.bin_result = result_dir + "/" + name + ".bin"
     self.c_test     = result_dir + "/test-" + name + ".c"
     self.exe_test   = result_dir + "/test-" + name + ".exe"
-    self.define     = name.upper() + "_LOOKUP"
-    walk_csv_tree (self.csv_dir, self._dict)
+    self.define     = name.upper().replace("-", "_") + "_LOOKUP"
+
+    if not self.no_csv:
+       walk_csv_tree (self.csv_dir, self._dict)
 
   def list_files (self):
     print (f"Listing of '{self._dict_name}':")
@@ -216,6 +239,7 @@ class csv_handler():
     for rows, d in enumerate(data):
         if rows > 0:      # ignore the CSV header row
            f_bin.write (self.rec_func(d))
+
     #
     # Seek to start of .BIN file and write the header
     #
@@ -233,10 +257,12 @@ class csv_handler():
     create_c_test_file (self.c_test, self.bin_result, self.rec_len, self.rec_num)
 
   #
-  # Compile and link 'self.c_test' to 'self.exe_test' if needed and run it.
+  # Compile and link 'self.c_test' to 'self.exe_test' if needed
+  # and run it if opt.test == True.
   #
   def build_and_run (self):
-    if not os.path.exists(self.exe_test):
+    if not os.path.exists(self.exe_test) or \
+       os.stat(self.exe_test).st_mtime < os.stat(self.c_test).st_mtime:
        cmd = [ "cl.exe", "clang-cl.exe" ] [opt.clang]
        cmd += " -nologo -MD -W3 -Zi -I%s -Fe%s -Fo%s -D%s %s" % \
               (result_dir,
@@ -247,7 +273,9 @@ class csv_handler():
        cmd += " -link -nologo -incremental:no"
        if run_prog (cmd) != 0:
           error ("Compile failed: '%s'" % cmd)
-    return run_prog (self.exe_test, "-" * 80)
+    if opt.test:
+       return run_prog (self.exe_test, "-" * 80)
+    return 0
 
 #
 # Class for handling all ZIP operation; exist, download, extract and listing
@@ -327,14 +355,14 @@ def create_gen_data_h (h_file):
 
 /* Note: these 'char' members may NOT have be 0-terminated.
  */
-typedef struct aircraft_record {  /* matching 'aircraft_format = "%s"' */
+typedef struct aircraft_record {  /* matching 'aircraft_format = "%s"' == %d */
         char icao_addr [6];
         char regist   [10];
         char manuf    [10];
         char model    [40];
       } aircraft_record;
 
-typedef struct airport_record {   /* matching 'airport_format = "%s"' */
+typedef struct airport_record {   /* matching 'airport_format = "%s"' == %d */
         char  icao_name [4];
         char  iata_name [3];
         char  full_name [40];
@@ -344,16 +372,28 @@ typedef struct airport_record {   /* matching 'airport_format = "%s"' */
         float longitude;
       } airport_record;
 
-typedef struct route_record {     /* matching 'routes_format = "%s"' */
+typedef struct route_record {     /* matching 'routes_format = "%s"' == %d*/
         char call_sign [8];
         char airports [20];
       } route_record;
 
+typedef struct blocks_record {    /* matching 'blocks_format = "%s"' == %d */
+        uint32_t start;
+        uint32_t finish;
+        uint32_t count;
+        uint32_t bitmask;
+        uint32_t sign_bitmask;
+        char     is_military;
+        char     country_ISO [2];
+      } blocks_record;
+
+#pragma pack(pop)
+
 extern const aircraft_record *gen_aircraft_lookup (const char *icao_addr);
 extern const airport_record  *gen_airport_lookup (const char *icao_addr);
 extern const route_record    *gen_route_lookup (const char *call_sign);
+extern const blocks_record   *gen_blocks_lookup (uint32_t icao_addr);
 
-#pragma pack(pop)
 
 #if defined(AIRCRAFT_LOOKUP)
   #define RECORD   aircraft_record
@@ -366,6 +406,11 @@ extern const route_record    *gen_route_lookup (const char *call_sign);
 #elif defined(ROUTES_LOOKUP)
   #define RECORD   route_record
   #define FIELD_1  call_sign
+
+#elif defined(CODE_BLOCKS_LOOKUP)
+  #define RECORD   blocks_record
+//#define FIELD_1  start
+//#define FIELD_2  finish
 #endif
 
 #if defined(AIRCRAFT_LOOKUP) || defined(AIRPORTS_LOOKUP) || defined(ROUTES_LOOKUP)
@@ -374,7 +419,10 @@ extern const route_record    *gen_route_lookup (const char *call_sign);
 #endif
 
 #endif /* GEN_DATA_H */
-"""  % (aircraft_format, airport_format, routes_format))
+"""  % (aircraft_format, aircraft_rec_len,
+        airport_format,  airport_rec_len,
+        routes_format,   routes_rec_len,
+        blocks_format,   blocks_rec_len))
   f.close()
   sys.stdout.flush()
 
@@ -388,7 +436,6 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
 #include "gen_data.h"
 #include <time.h>
 #include <io.h>
-#include <stdbool.h>
 #include <windows.h>
 
 #pragma pack(push, 1)
@@ -398,7 +445,7 @@ typedef struct BIN_header {
         time_t   created;           /* time of creation (64-bits) */
         uint32_t rec_num;           /* number of records in .BIN-file == %u */
         uint32_t rec_len;           /* sizeof(record) in .BIN-file == %u */
-      } BIN_header;
+      } BIN_header;                 /* == %u bytes */
 
 #pragma pack(pop)
 
@@ -413,9 +460,18 @@ typedef struct BIN_header {
 static const char *bin_file = "%s";
 
 static char buf [2000];  /* work buffer */
-""" % (len(bin_marker), bin_marker, rec_num, rec_len, bin_file))
+""" % (len(bin_marker), bin_marker, rec_num, rec_len, struct.calcsize(bin_header), bin_file))
 
   f.write ("""
+/*
+ * Turn off this annoying and incorrect warning:
+ * precision used with 'S' conversion specifier, resulting in undefined behavior
+ */
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wformat"
+#endif
+
 #if defined(AIRCRAFT_LOOKUP)
   #define HEADER  "ICAO    Regist      Manuf       Model"
 
@@ -487,28 +543,69 @@ static char buf [2000];  /* work buffer */
     (void) FIELD_1;
     return (NULL);
   }
+
+#elif defined(CODE_BLOCKS_LOOKUP)
+  #define HEADER  "Start     Finish       Count   Bitmask  Sign-bitmask is_mil  ISO2"
+
+  static const char *format_rec (const blocks_record *rec)
+  {
+    snprintf (buf, sizeof(buf), "0x%06X  0x%06X  %8u  0x%06X     0x%06X       %u  %.2s",
+              rec->start, rec->finish, rec->count, rec->bitmask,
+              rec->sign_bitmask, rec->is_military, rec->country_ISO);
+    return (buf);
+  }
+
+  const blocks_record *gen_blocks_lookup (uint32_t FIELD_1)
+  {
+    (void) FIELD_1;
+    return (NULL);
+  }
 #else
-  #error "A 'x_TEST' must be defined."
+  #error "A 'x_LOOKUP' must be defined."
+#endif
+
+#ifdef __clang__
+#pragma clang diagnostic pop
 #endif
 """)
 
   f.write ("""
-#if defined(AIRCRAFT_LOOKUP) || defined(AIRPORTS_LOOKUP) || defined(ROUTES_LOOKUP)
+#if defined(AIRCRAFT_LOOKUP) || defined(AIRPORTS_LOOKUP) || defined(ROUTES_LOOKUP) || defined(CODE_BLOCKS_LOOKUP)
 
 static uint32_t num_rec = 0;  /* record-counter; [ 0 - hdr.rec_num-1] */
 static uint32_t num_err = 0;  /* number of sort errors */
+static uint32_t num_mil = 0;  /* number of 'rec->is_military' records */
 
 /*
  * Check that 'rec->FIELD_1' is sorted accending.
  */
+#if defined(CODE_BLOCKS_LOOKUP)
 static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECORD *prev_rec)
 {
   static char buf [100];
 
   buf[0] = '\\0';
 
-  /* Check that 'rec->FIELD_1' is sorted accending.
-   */
+  if (num_rec >= 1)
+  {
+    if (prev_rec->start > rec->start)
+    {
+      snprintf (buf, sizeof(buf), " start:  0x%06X not greater than 0x%06X", rec->start, prev_rec->start);
+      num_err++;
+    }
+  }
+  if (rec->is_military)
+     num_mil++;
+  return (buf);
+}
+
+#else
+static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECORD *prev_rec)
+{
+  static char buf [100];
+
+  buf[0] = '\\0';
+
   if (num_rec >= 1 && rec->FIELD_1[0] &&
       strnicmp(prev_rec->FIELD_1, rec->FIELD_1, FIELD_1_SIZE) >= 0)
   {
@@ -519,6 +616,7 @@ static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECO
   }
   return (buf);
 }
+#endif  /* CODE_BLOCKS_LOOKUP */
 
 static void *allocate_records (const BIN_header *hdr)
 {
@@ -559,7 +657,7 @@ int main (void)
 
   start = allocate_records (&hdr);
 
-  printf ("Record %s\\n-------------------------------------------------"
+  printf ("%s\\n-------------------------------------------------"
           "-------------------------------------------\\n", HEADER);
 
   for (rec = start; num_rec < hdr.rec_num; rec++)
@@ -573,10 +671,16 @@ int main (void)
 
   fclose (f);
   free (start);
+
+#if defined(CODE_BLOCKS_LOOKUP)
+  printf ("\\nnum_mil: %u, num_err: %u\\n", num_mil, num_err);
+#else
   printf ("\\nnum_err: %u\\n", num_err);
+#endif
+
   return (num_err == 0 ? 0 : 1);
 }
-#endif /* AIRCRAFT_LOOKUP || AIRPORTS_LOOKUP || ROUTES_LOOKUP */
+#endif /* AIRCRAFT_LOOKUP || AIRPORTS_LOOKUP || ROUTES_LOOKUP || CODE_BLOCK_LOOKUP */
 """)
   f.close()
 
@@ -601,10 +705,11 @@ def show_help():
 
   print ("""Usage: %s [options]
   -c, --clang:  Use 'clang-cl.exe' to compile (not 'cl.exe').
-  -C, --clean:  Clean all built stuff in '%s'.
+  -C, --clean:  Clean ALL stuff under '%s'.
   -h, --help:   Show this help.
   -l, --list:   List all .csv-file
-  -t, --test:   Run the test-programs '%s/*.exe'.""" % (__file__, result_dir, result_dir))
+  -t, --test:   Build and run the test-programs '%s/*.exe'.""" % \
+    (__file__, zip_dir, result_dir))
   sys.exit (0)
 
 def parse_cmdline():
@@ -639,6 +744,7 @@ def main():
   aircraft = csv_handler ("aircraft", aircraft_rec_len, aircraft_record)
   airports = csv_handler ("airports", airport_rec_len, airport_record)
   routes   = csv_handler ("routes", routes_rec_len, routes_record)
+  blocks   = csv_handler ("%s/code-blocks/schema-01/code-blocks.csv" % zip_dir, blocks_rec_len, blocks_record, True)
 
   if opt.list:
      num, fsize = Zip.list_files()
@@ -657,23 +763,27 @@ def main():
   aircraft.create_bin_file()
   airports.create_bin_file()
   routes.create_bin_file()
+  blocks.create_bin_file()
 
   aircraft.create_c_test()
   airports.create_c_test()
   routes.create_c_test()
+  blocks.create_c_test()
+
   create_gen_data_h (result_dir + "/gen_data.h")
 
+  rc  = aircraft.build_and_run()
+  rc += airports.build_and_run()
+  rc += routes.build_and_run()
+  rc += blocks.build_and_run()
   if opt.test:
-     rc  = aircraft.build_and_run()
-     rc += airports.build_and_run()
-     rc += routes.build_and_run()
      if rc == 0:
         print ("All tests succeeded!", file = sys.stderr)
      else:
         error ("There were some errors!")
   else:
-     print ("\nRun '%s %s --test' to test these:\n  %s\n  %s\n  %s\n" % \
-            (sys.executable, __file__, aircraft.exe_test, airports.exe_test, routes.exe_test))
+     print ("\nRun '%s %s --test' to test these:\n  %s\n  %s\n  %s\n  %s\n" % \
+            (sys.executable, __file__, aircraft.exe_test, airports.exe_test, blocks.exe_test, routes.exe_test))
 
 if __name__ == "__main__":
   main()
