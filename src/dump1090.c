@@ -468,7 +468,7 @@ static void modeS_init_config (void)
 
   /* No device selected yet
    */
-  Modes.rtlsdr.index  = -1;
+  Modes.rtlsdr.index  = 0;  /* but the first RTLSDR device is default */
   Modes.sdrplay.index = -1;
 
   /* Defaults for SDRPlay:
@@ -553,7 +553,9 @@ static void modeS_init_log (void)
 }
 
 /**
- * Initialize hardware stuff prior to initialising RTLSDR/SDRPlay.
+ * Part of step 2:
+ *
+ * Initialize hardware stuff **prior** to initialising RTLSDR/SDRPlay.
  *
  * Also needed for a remote `rtl_tcp / rtl_tcp2 /rtl_udp` program. <br>
  * A remote connection to `rtl_tcp` will be done in `net_init()` later in main.
@@ -563,7 +565,14 @@ static void modeS_init_log (void)
  */
 static bool modeS_init_hardware (void)
 {
-  uint32_t samplerate = Modes.sample_rate;
+  uint32_t    samplerate = Modes.sample_rate;
+  bool        use_rtltcp;
+  const char *p;
+
+  /* If `--device tcp://host:port' specified
+   */
+  p = net_handler_host (MODES_NET_SERVICE_RTL_TCP);
+  use_rtltcp = (p && *p);
 
   switch (samplerate)
   {
@@ -608,7 +617,7 @@ static bool modeS_init_hardware (void)
   }
   else if (Modes.rtlsdr.index >= 0 ||                    /* --device N */
            Modes.rtlsdr.name       ||                    /* --device name */
-           net_handler_host(MODES_NET_SERVICE_RTL_TCP))  /* --device tcp://host:port */
+           use_rtltcp)
   {
     /* A local or remote RTLSDR device
      */
@@ -639,7 +648,7 @@ static bool modeS_init_hardware (void)
    * So simply test for `MODES_NET_SERVICE_RTL_TCP::proocol/host/port`
    * and use that as the `rtl_name`.
    */
-  if (!rtl_name && Modes.rtlsdr.index == -1)
+  if (!rtl_name && Modes.rtlsdr.index == -1 && use_rtltcp)
   {
     rtl_name = mg_mprintf ("%s://%s:%u",
                            net_handler_protocol(MODES_NET_SERVICE_RTL_TCP),
@@ -740,17 +749,11 @@ static bool modeS_init (void)
 
   crc_init ((int)Modes.error_correct_1 + (int)Modes.error_correct_2);
 
-  if (!Modes.tests || !test_contains(Modes.tests, "aircraft"))
-  {
-    if (!aircraft_init())
-       return (false);
-  }
+  if (!aircraft_init())
+     return (false);
 
-  if (!Modes.tests || !test_contains(Modes.tests, "airport"))
-  {
-    if (!airports_init())
-       return (false);
-  }
+  if (!airports_init())
+     return (false);
 
   /**
    * Allocate the ICAO address cache. We use two uint32_t for every
@@ -3719,10 +3722,13 @@ static void show_decoder_stats (void)
     interactive_clreol();
   }
 
-  char buf [20];
+  char   buf [20];
+  double val = (double) Modes.stat.valid_preamble;
 
-  if (Modes.stat.valid_preamble >= 1000000ULL)
-       snprintf (buf, sizeof(buf), "%6llu M", Modes.stat.valid_preamble / 1000000ULL);
+  if (val >= 1E9)
+       snprintf (buf, sizeof(buf), "%6.1lf M", val / 1E9);
+  else if (val >= 1E6)
+       snprintf (buf, sizeof(buf), "%6.1lf M", val / 1E6);
   else snprintf (buf, sizeof(buf), "%8llu", Modes.stat.valid_preamble);
 
   LOG_STDOUT (" %s valid preambles.\n", buf);
@@ -4399,7 +4405,7 @@ int main (int argc, char **argv)
     if (!rc)
     {
       LOG_STDERR ("net_init() failed.\n");
-      if (!Modes.tests) /* not fatal for test-modes */
+      if (!Modes.tests)      /* not fatal for test-modes */
          goto quit;
     }
     DEBUG (DEBUG_GENERAL, "Modes.rtl_tcp_in: %p\n", Modes.rtl_tcp_in);
