@@ -1,7 +1,7 @@
 ## External dependencies
 
 Keep most externals here. Only in source form:
- * `Curses/*.[ch] ---------` : The **[PDCurses](https://github.com/wmcbrine/PDCurses)** screen library used when `USE_CURSES=1`.
+ * `Curses/*.[ch] ---------` : The **[PDCurses](https://github.com/wmcbrine/PDCurses)** screen library.
  * `mongoose.[ch] ---------` : The Web-server code from **[Mongoose](https://github.com/cesanta/mongoose)**.
  * `rtl-sdr/*.[ch] --------` : *RTLSDR* interface; heavily modified from **[old-DAB's](https://github.com/old-dab/rtlsdr)** version.
  * `SDRplay-API/*.h -------` : The *SDRPlay API* (v. 3.15) `.h`-files from **[SDRplay Ltd](https://www.sdrplay.com)**.
