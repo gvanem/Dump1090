@@ -880,7 +880,8 @@ int main (void)
   size_t i;
 
   srand (time(NULL));
-  puts ("ICAO      rec  Mil  Country");
+  puts ("50 random ICAO-addresses:\\n"
+        "ICAO      rec  Mil  Country");
   puts ("------------------------------");
 
   for (i = 0; i < 50; i++)
