@@ -289,14 +289,15 @@ static const struct {
        bool           can_filter_DC;
        bool           can_compute_power;
        convert_func   func;
+       const char    *func_name;
        const char    *description;
    } converters_table[] = {      /* In order of preference */
-    { INPUT_UC8,     false, false, convert_uc8_nodc_nopower,  "UC8, integer/table path" },
-    { INPUT_UC8,     false, true,  convert_uc8_nodc_power,    "UC8, integer/table path, with power measurement" },
-    { INPUT_UC8,     true,  true,  convert_uc8_generic,       "UC8, float path" },
-    { INPUT_SC16,    false, false, convert_sc16_nodc_nopower, "SC16, integer path" },
-    { INPUT_SC16,    true,  true,  convert_sc16_generic,      "SC16, float path" },
-    { INPUT_SC16Q11, true,  true,  convert_sc16q11_generic,   "SC16Q11, float path" }
+    { INPUT_UC8,     false, false, convert_uc8_nodc_nopower,  "convert_uc8_nodc_nopower",  "UC8, integer/table path" },
+    { INPUT_UC8,     false, true,  convert_uc8_nodc_power,    "convert_uc8_nodc_power",    "UC8, integer/table path, with power measurement" },
+    { INPUT_UC8,     true,  true,  convert_uc8_generic,       "convert_uc8_generic",       "UC8, float path" },
+    { INPUT_SC16,    false, false, convert_sc16_nodc_nopower, "convert_sc16_nodc_nopower", "SC16, integer path" },
+    { INPUT_SC16,    true,  true,  convert_sc16_generic,      "convert_sc16_generic",      "SC16, float path" },
+    { INPUT_SC16Q11, true,  true,  convert_sc16q11_generic,   "convert_sc16q11_generic",   "SC16Q11, float path" }
   };
 
 convert_func convert_init (convert_format  format,
@@ -333,6 +334,7 @@ convert_func convert_init (convert_format  format,
     return (NULL);
   }
 
+  state->func_name   = converters_table[i].func_name;
   state->description = converters_table[i].description;
   state->z1_I = 0;
   state->z1_Q = 0;

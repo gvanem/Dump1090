@@ -14,6 +14,7 @@ typedef struct convert_state {
         float       DC_B;
         float       z1_I;
         float       z1_Q;
+        const char *func_name;
         const char *description;
       } convert_state;
 
