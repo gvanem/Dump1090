@@ -669,7 +669,7 @@ static bool modeS_init_hardware (void)
                 "              Modes.demod_func:       demod_%u()\n"
                 "              Modes.FIFO_init_bufs:   %u\n"
                 "              Modes.FIFO_acquire_ms:  %u\n"
-                "              Using converter: %s(),  '%s'\n\n",
+                "              Using converter:        %s(), '%s'\n\n",
                 Modes.rtlsdr.index, Modes.rtlsdr.name ? Modes.rtlsdr.name : "<none>",
                 Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : "<none>",
                 (double)Modes.sample_rate / 1E6,
