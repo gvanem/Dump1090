@@ -685,13 +685,15 @@ static bool modeS_init_hardware (void)
   Modes.converter_func = convert_init (Modes.input_format,
                                        Modes.sample_rate,
                                        Modes.DC_filter,
-                                       Modes.measure_noise, /* total power is interesting if we want noise */
+                                       Modes.measure_noise,   /* total power is interesting if we want noise */
                                        &Modes.converter_state);
   if (!Modes.converter_func)
   {
     LOG_STDERR ("Can't initialize sample converter\n");
     return (false);
   }
+  LOG_FILEONLY ("Using converter: %s(), '%s'\n",
+                Modes.converter_state->func_name, Modes.converter_state->description);
   return (true);
 }
 
