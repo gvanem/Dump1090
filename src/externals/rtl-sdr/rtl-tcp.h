@@ -25,11 +25,11 @@ typedef enum RTL_CMD_cmds {
         RTL_SET_TEST_MODE           = 0x07,
         RTL_SET_AGC_MODE            = 0x08,
         RTL_SET_DIRECT_SAMPLING     = 0x09,
-        RTL_SET_OFFSET_TUNING       = 0x0a,
-        RTL_SET_RTL_CRYSTAL         = 0x0b,
-        RTL_SET_TUNER_CRYSTAL       = 0x0c,
-        RTL_SET_TUNER_GAIN_BY_INDEX = 0x0d,
-        RTL_SET_BIAS_TEE            = 0x0e,
+        RTL_SET_OFFSET_TUNING       = 0x0A,
+        RTL_SET_RTL_CRYSTAL         = 0x0B,
+        RTL_SET_TUNER_CRYSTAL       = 0x0C,
+        RTL_SET_TUNER_GAIN_BY_INDEX = 0x0D,
+        RTL_SET_BIAS_TEE            = 0x0E,
         RTL_SET_TUNER_BANDWIDTH     = 0x40,
         RTL_SET_I2C_TUNER_REGISTER  = 0x43,
         RTL_SET_SIDEBAND            = 0x46,
@@ -48,8 +48,8 @@ typedef enum RTL_CMD_cmds {
  * The RTL_TCP command is a packed structure of 5 bytes.
  */
 typedef struct RTL_TCP_cmd {
-        uint8_t cmd;     /**< The command byte == `RTL_x` */
-        u_int   param;   /**< 32-bit parameter on network order */
+        uint8_t  cmd;     /**< The command byte == `RTL_x` */
+        uint32_t param;   /**< 32-bit parameter on network order */
       } RTL_TCP_cmd;
 
 
@@ -66,7 +66,7 @@ typedef struct RTL_TCP_cmd {
  * A info-structure for the RTLSDR dongle received on a `mg_connect()`.
  */
 typedef struct RTL_TCP_info {
-        char     magic [4];          /**< == RTL_TCP_MAGIC */
+        char     magic [4];          /**< marker == RTL_TCP_MAGIC */
         uint32_t tuner_type;         /**< the `RTLSDR_TUNER_x` type (network order) */
         uint32_t tuner_gain_count;   /**< the number of gains supported (network order) */
       } RTL_TCP_info;
