@@ -468,7 +468,7 @@ static void modeS_init_config (void)
 
   /* No device selected yet
    */
-  Modes.rtlsdr.index  = 0;  /* but the first RTLSDR device is default */
+  Modes.rtlsdr.index  = 0;    /* but the first RTLSDR device found is the default */
   Modes.sdrplay.index = -1;
 
   /* Defaults for SDRPlay:
@@ -553,9 +553,7 @@ static void modeS_init_log (void)
 }
 
 /**
- * Part of step 2:
- *
- * Initialize hardware stuff **prior** to initialising RTLSDR/SDRPlay.
+ * Initialize hardware stuff **after** to initialising RTLSDR/SDRPlay.
  *
  * Also needed for a remote `rtl_tcp / rtl_tcp2 /rtl_udp` program. <br>
  * A remote connection to `rtl_tcp` will be done in `net_init()` later in main.
@@ -640,26 +638,28 @@ static bool modeS_init_hardware (void)
 
   Modes.FIFO_active = true;
 
-  char *rtl_name = Modes.rtlsdr.name;
-
-  /* We cannot test for `Modes.rtl_tcp_in != NULL` (or `net_handler_url()')
-   * since `net_init()` has not been called at this point.
-   *
-   * So simply test for `MODES_NET_SERVICE_RTL_TCP::proocol/host/port`
-   * and use that as the `rtl_name`.
-   */
-  if (!rtl_name && Modes.rtlsdr.index == -1 && use_rtltcp)
+  Modes.converter_func = convert_init (Modes.input_format,
+                                       Modes.sample_rate,
+                                       Modes.DC_filter,
+                                       Modes.measure_noise,   /* total power is interesting if we want noise */
+                                       &Modes.converter_state);
+  if (!Modes.converter_func)
   {
-    rtl_name = mg_mprintf ("%s://%s:%u",
-                           net_handler_protocol(MODES_NET_SERVICE_RTL_TCP),
-                           net_handler_host(MODES_NET_SERVICE_RTL_TCP),
-                           net_handler_port(MODES_NET_SERVICE_RTL_TCP));
-    Modes.selected_dev = rtl_name;
+    LOG_STDERR ("Can't initialize sample converter for %s\n", Modes.selected_dev);
+    return (false);
   }
+
+  if (use_rtltcp)
+     Modes.rtltcp.remote = mg_mprintf ("%s://%s:%u",
+                                       net_handler_protocol(MODES_NET_SERVICE_RTL_TCP),
+                                       net_handler_host(MODES_NET_SERVICE_RTL_TCP),
+                                       net_handler_port(MODES_NET_SERVICE_RTL_TCP));
 
   LOG_FILEONLY ("Modes.rtlsdr.index:     %2d (name: '%s')\n"
                 "              Modes.sdrplay.index:    %2d (name: '%s')\n"
                 "              Modes.sample_rate:      %.1lf MS/s\n"
+                "              Modes.rtltcp.remote:    %s\n"
+                "              Modes.selected_dev:     %s\n"
                 "              Modes.bytes_per_sample: %d\n"
                 "              Modes.trailing_samples: %u\n"
                 "              Modes.input_format:     %d / %s\n"
@@ -668,10 +668,13 @@ static bool modeS_init_hardware (void)
                 "              Modes.phase_enhance:    %d\n"
                 "              Modes.demod_func:       demod_%u()\n"
                 "              Modes.FIFO_init_bufs:   %u\n"
-                "              Modes.FIFO_acquire_ms:  %u\n\n",
-                Modes.rtlsdr.index, rtl_name ? rtl_name : "<none>",
+                "              Modes.FIFO_acquire_ms:  %u\n\n"
+                "              Using converter: %s(),  '%s'\n",
+                Modes.rtlsdr.index, Modes.rtlsdr.name ? Modes.rtlsdr.name : "<none>",
                 Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : "<none>",
                 (double)Modes.sample_rate / 1E6,
+                Modes.rtltcp.remote ? Modes.rtltcp.remote : "<n/a>",
+                Modes.selected_dev,
                 Modes.bytes_per_sample,
                 Modes.trailing_samples,
                 Modes.input_format, convert_format_name(Modes.input_format),
@@ -680,19 +683,7 @@ static bool modeS_init_hardware (void)
                 Modes.phase_enhance,
                 Modes.sample_rate / 1000,
                 Modes.FIFO_init_bufs,
-                Modes.FIFO_acquire_ms);
-
-  Modes.converter_func = convert_init (Modes.input_format,
-                                       Modes.sample_rate,
-                                       Modes.DC_filter,
-                                       Modes.measure_noise,   /* total power is interesting if we want noise */
-                                       &Modes.converter_state);
-  if (!Modes.converter_func)
-  {
-    LOG_STDERR ("Can't initialize sample converter\n");
-    return (false);
-  }
-  LOG_FILEONLY ("Using converter: %s(), '%s'\n",
+                Modes.FIFO_acquire_ms,
                 Modes.converter_state->func_name, Modes.converter_state->description);
   return (true);
 }
@@ -770,9 +761,6 @@ static bool modeS_init (void)
     LOG_STDERR ("Out of memory allocating buffers.\n");
     return (false);
   }
-
-  if (!Modes.net_only && !Modes.tests && !modeS_init_hardware())
-     return (false);
 
 #if 0
   /**
@@ -3861,6 +3849,7 @@ static void modeS_cleanup (void)
   free (Modes.ICAO_cache);
   free (Modes.selected_dev);
   free (Modes.rtlsdr.name);
+  free (Modes.rtltcp.remote);
   free (Modes.sdrplay.name);
   free (Modes.aircraft_db_url);
   free (Modes.tests);
@@ -4399,6 +4388,9 @@ int main (int argc, char **argv)
     }
   }
 
+  if (!Modes.net_only && !Modes.tests && !modeS_init_hardware())
+     goto quit;
+
   if (Modes.net)
   {
     /* This will also setup a service for the remote RTL_TCP input device.
@@ -4410,7 +4402,6 @@ int main (int argc, char **argv)
       if (!Modes.tests)      /* not fatal for test-modes */
          goto quit;
     }
-    DEBUG (DEBUG_GENERAL, "Modes.rtl_tcp_in: %p\n", Modes.rtl_tcp_in);
   }
 
   init_error = false;

@@ -327,6 +327,7 @@ typedef struct rtlsdr_conf {
  * The device configuration for a remote RTLSDR device.
  */
 typedef struct rtltcp_conf {
+        char         *remote;            /**< The URL of the RTLTCP host */
         void         *info;              /**< The "RTL0" info message is here if we've got it (\ref RTL_TCP_info) */
         int           ppm_error;         /**< Set RTLSDR frequency correction */
         int           calibrate;         /**< Enable calibration for R820T/R828D type devices */
