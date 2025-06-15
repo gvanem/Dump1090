@@ -8,14 +8,8 @@ as needed and generate these files:
                     code-blocks.bin + test-code-blocks.exe
 """
 
-from __future__ import print_function
-
 import os, sys, stat, struct, time, csv, argparse, zipfile
 import fnmatch, msvcrt, shutil
-
-if sys.version [0] < '3':
-   print ("Only Python3 supported")
-   sys.exit (1)
 
 #
 # Globals:
@@ -28,12 +22,13 @@ header     = "-" * 80
 my_time    = os.stat(__file__).st_mtime
 
 bin_marker = "BIN-dump1090"   # magic marker
-bin_header = "<12sqII"        # must match 'struct BIN_header' ==
+bin_header = "<12sqII"        # must match 'struct BIN_header' == 28 byte
+
 
 def error (s, prefix = ""):
   if s is None:
      s = ""
-  sys.stderr.write ("%s%s\n" % (prefix, s))
+  print ("%s%s" % (prefix, s), file=sys.stderr)
   sys.exit (1)
 
 def fatal (s):
@@ -66,9 +61,9 @@ def open_file (fname, mode, encoding = None):
   except (IOError, NameError):
     fatal ("Failed to open %s (mode=\"%s\")." % (fname, mode))
 
-def create_c_file (file):
-  f = open_file (file, "w+t")
-  print ("Creating %s" % file)
+def create_c_file (fname):
+  f = open_file (fname, "w+t")
+  print ("Creating %s" % fname)
   f.write ("""/*
  * Generated at %s by:
  * %s %s
@@ -184,6 +179,7 @@ class csv_handler():
   def __init__ (self, name, rec_len, rec_func, no_csv = False):
     self._dict      = dict()
     self._dict_name = name + "_files"
+    self.data       = list()
     self.rec_num    = 0
     self.rec_len    = rec_len
     self.rec_func   = rec_func
@@ -239,6 +235,7 @@ class csv_handler():
     for rows, d in enumerate(data):
         if rows > 0:      # ignore the CSV header row
            f_bin.write (self.rec_func(d))
+           self.data.append (d)
 
     #
     # Seek to start of .BIN file and write the header
@@ -350,6 +347,9 @@ def create_gen_data_h (h_file):
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
+#include <io.h>
+#include <windows.h>
 
 #pragma pack(push, 1)
 
@@ -409,8 +409,7 @@ extern const blocks_record   *gen_blocks_lookup (uint32_t icao_addr);
 
 #elif defined(CODE_BLOCKS_LOOKUP)
   #define RECORD   blocks_record
-//#define FIELD_1  start
-//#define FIELD_2  finish
+  #define FIELD_1  start
 #endif
 
 #if defined(AIRCRAFT_LOOKUP) || defined(AIRPORTS_LOOKUP) || defined(ROUTES_LOOKUP)
@@ -434,9 +433,6 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
   f = create_c_file (c_file)
   f.write ("""
 #include "gen_data.h"
-#include <time.h>
-#include <io.h>
-#include <windows.h>
 
 #pragma pack(push, 1)
 
@@ -574,12 +570,13 @@ static char buf [2000];  /* work buffer */
 
 static uint32_t num_rec = 0;  /* record-counter; [ 0 - hdr.rec_num-1] */
 static uint32_t num_err = 0;  /* number of sort errors */
+
+#if defined(CODE_BLOCKS_LOOKUP)
 static uint32_t num_mil = 0;  /* number of 'rec->is_military' records */
 
 /*
- * Check that 'rec->FIELD_1' is sorted accending.
+ * Check that 'rec->start' is sorted accending.
  */
-#if defined(CODE_BLOCKS_LOOKUP)
 static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECORD *prev_rec)
 {
   static char buf [100];
@@ -590,7 +587,8 @@ static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECO
   {
     if (prev_rec->start > rec->start)
     {
-      snprintf (buf, sizeof(buf), " start:  0x%06X not greater than 0x%06X", rec->start, prev_rec->start);
+      snprintf (buf, sizeof(buf), " start:  0x%06X not greater than 0x%06X",
+                rec->start, prev_rec->start);
       num_err++;
     }
   }
@@ -598,8 +596,13 @@ static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECO
      num_mil++;
   return (buf);
 }
+""")
 
+  f.write ("""
 #else
+/*
+ * Check that 'rec->FIELD_1' is sorted accending.
+ */
 static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECORD *prev_rec)
 {
   static char buf [100];
@@ -617,11 +620,12 @@ static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECO
   return (buf);
 }
 #endif  /* CODE_BLOCKS_LOOKUP */
+""")
 
-static void *allocate_records (const BIN_header *hdr)
+  f.write ("""
+static void *allocate_records (size_t size)
 {
-  size_t size = hdr->rec_len * hdr->rec_num;
-  void  *mem = malloc (size);
+  void *mem = malloc (size);
 
   if (!mem)
   {
@@ -637,6 +641,8 @@ int main (void)
   BIN_header    hdr;
   RECORD       *rec, *start, *prev_rec = NULL;
   const uint8_t BOM[] = { 0xEF, 0xBB, 0xBF };
+  size_t        dsize;        /* data-size excluding BIN_header */
+  long          fsize;        /* size of .BIN-file */
 
   if (!f)
   {
@@ -650,12 +656,27 @@ int main (void)
      fwrite (&BOM, sizeof(BOM), 1, stdout);
 
   fread (&hdr, 1, sizeof(hdr), f);
-  printf ("bin_marker: %.*s\\n", (int)sizeof(hdr.bin_marker), hdr.bin_marker);
+
+  printf ("bin_marker: %.*s, sizeof(BIN_header): %zu\\n", (int)sizeof(hdr.bin_marker), hdr.bin_marker, sizeof(hdr));
   printf ("created:    %.24s\\n", ctime(&hdr.created));
   printf ("rec_len:    %u\\n", hdr.rec_len);
   printf ("rec_num:    %u\\n\\n", hdr.rec_num);
 
-  start = allocate_records (&hdr);
+  /* Check the file-size vs. BIN-header
+   */
+  fsize = filelength (fileno(f));
+  dsize = hdr.rec_len * hdr.rec_num;
+
+  if (fsize != dsize + sizeof(hdr))
+  {
+    fprintf (stderr,
+            "Something is wrong with the records!\\n"
+            "file-size: %ld\\n"
+            "expecting: %zu (%u*%u + %zu)\\n", fsize, dsize + sizeof(hdr), hdr.rec_len, hdr.rec_num, sizeof(hdr));
+    exit (1);
+  }
+
+  start = allocate_records (dsize);
 
   printf ("%s\\n-------------------------------------------------"
           "-------------------------------------------\\n", HEADER);
@@ -669,19 +690,20 @@ int main (void)
     num_rec++;
   }
 
-  fclose (f);
-  free (start);
-
 #if defined(CODE_BLOCKS_LOOKUP)
   printf ("\\nnum_mil: %u, num_err: %u\\n", num_mil, num_err);
 #else
   printf ("\\nnum_err: %u\\n", num_err);
 #endif
 
+  fclose (f);
+  free (start);
+
   return (num_err == 0 ? 0 : 1);
 }
 #endif /* AIRCRAFT_LOOKUP || AIRPORTS_LOOKUP || ROUTES_LOOKUP || CODE_BLOCK_LOOKUP */
 """)
+
   f.close()
 
 #
@@ -704,11 +726,12 @@ def show_help():
   print ("The above are generated under '%s'.\n" % result_dir)
 
   print ("""Usage: %s [options]
-  -c, --clang:  Use 'clang-cl.exe' to compile (not 'cl.exe').
-  -C, --clean:  Clean ALL stuff under '%s'.
-  -h, --help:   Show this help.
-  -l, --list:   List all .csv-file
-  -t, --test:   Build and run the test-programs '%s/*.exe'.""" % \
+  -c, --clang:         Use 'clang-cl.exe' to compile (not 'cl.exe').
+  -C, --clean:         Clean ALL stuff under '%s'.
+  -g, --gen-c <file>:  Generate .c-code from 'code-blocks.bin' into '<file>'.
+  -h, --help:          Show this help.
+  -l, --list:          List all .csv-file
+  -t, --test:          Build and run the test-programs '%s/*.exe'.""" % \
     (__file__, zip_dir, result_dir))
   sys.exit (0)
 
@@ -716,6 +739,7 @@ def parse_cmdline():
   parser = argparse.ArgumentParser (add_help = False)
   parser.add_argument ("-c", "--clang", dest = "clang", action = "store_true")
   parser.add_argument ("-C", "--clean", dest = "clean", action = "store_true")
+  parser.add_argument ("-g", "--gen-c", dest = "gen_c", type = str, default = None)
   parser.add_argument ("-h", "--help",  dest = "help",  action = "store_true")
   parser.add_argument ("-l", "--list",  dest = "list",  action = "store_true")
   parser.add_argument ("-t", "--test",  dest = "test",  action = "store_true")
@@ -772,6 +796,9 @@ def main():
 
   create_gen_data_h (result_dir + "/gen_data.h")
 
+  if opt.gen_c:
+     gen_c_file (blocks)
+
   rc  = aircraft.build_and_run()
   rc += airports.build_and_run()
   rc += routes.build_and_run()
@@ -785,5 +812,108 @@ def main():
      print ("\nRun '%s %s --test' to test these:\n  %s\n  %s\n  %s\n  %s\n" % \
             (sys.executable, __file__, aircraft.exe_test, airports.exe_test, blocks.exe_test, routes.exe_test))
 
+#
+# For gen_data.py --gen-c:
+#
+generate_c_code_top = """
+#include "gen_data.h"
+
+/*
+ * Squelch this:
+ *   warning C4295: 'country_ISO': array is too small to include a terminating null character
+ */
+#pragma warning (disable: 4295)
+
+/*
+ * From `%s/code-blocks/schema-01/README.md:
+ *   Iterate through each code block in descending order of `SignificantBitmask`.
+ *   AND the aircraft Mode-S identifier with the `SignificantBitmask`.
+ *   If the result equals the `Bitmask` then the code block matches.
+ *   Stop searching as soon as you find a match.
+ *
+ * Create an array sorted on `data->sign_bitmask' (descending order)
+ * as a static C-array. It could be included into `aircraft.c'
+ * to replace `aircraft_is_military()'.
+ */
+static const blocks_record sorted_blocks[] = {
+  /* start     finish      count   bitmask  sign_bitmask is_mil country_ISO
+   */
+"""
+
+generate_c_code_bottom_1 = """
+  };
+
+static size_t num_sorted_blocks = %u;
+"""
+
+generate_c_code_bottom_2 = """
+const blocks_record *aircraft_find_block (uint32_t addr)
+{
+  const blocks_record *b = sorted_blocks + 0;
+  size_t i;
+
+  for (i = 0; i < num_sorted_blocks; i++, b++)
+     if ((addr & b->sign_bitmask) == b->bitmask)
+        return (b);
+  return (NULL);
+}
+
+#ifdef TEST_CODE_BLOCKS
+static uint32_t random_range (uint32_t min, uint32_t max)
+{
+  double scaled = (double) rand() / RAND_MAX;
+  return (uint32_t) ((max - min + 1) * scaled) + min;
+}
+
+static void find_and_print_block (uint32_t addr)
+{
+  const blocks_record *b = aircraft_find_block (addr);
+
+  if (!b)
+       printf ("%06X: not found!!\\n", addr);
+  else printf ("%06X: %5zu  %d    '%.2s'\\n",
+               addr, ((char*)b - (char*)&sorted_blocks[0]) / sizeof(*b), b->is_military, b->country_ISO);
+}
+
+int main (void)
+{
+  size_t i;
+
+  srand (time(NULL));
+  puts ("ICAO      rec  Mil  Country");
+  puts ("------------------------------");
+
+  for (i = 0; i < 50; i++)
+      find_and_print_block (random_range(0, 0x7FFFFF));
+
+  puts ("\\nSome 47xx addresses:");
+  find_and_print_block (0x4780C6);
+  find_and_print_block (0x4780E0);
+  find_and_print_block (0x47FFFF);
+  return (0);
+}
+#endif /* TEST_CODE_BLOCKS */
+"""
+
+def gen_c_file (blocks):
+  f = create_c_file (opt.gen_c)
+  f.write (generate_c_code_top % zip_dir)
+  for d in sorted (blocks.data, reverse = True, key = lambda field: field[4]):
+      f.write ("   { 0x%06X, 0x%06X, %7u, 0x%06X, 0x%06X,     %d,    \"%.2s\" },\n" % \
+        (int(d[0], 16),    # blocks_record::start
+         int(d[1], 16),    # blocks_record::finish
+         int(d[2]),        # blocks_record::count
+         int(d[3], 16),    # blocks_record::bitmask
+         int(d[4], 16),    # blocks_record::sign_bitmask, field[4]
+         int(d[5]),        # blocks_record::is_military
+         d[6]))            # blocks_record::country_ISO
+
+  f.write (generate_c_code_bottom_1 % blocks.rec_num)
+  f.write (generate_c_code_bottom_2)
+  f.close()
+
+##########################################################
+
 if __name__ == "__main__":
   main()
+
