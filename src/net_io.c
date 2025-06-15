@@ -875,7 +875,13 @@ static void connection_failed_active (mg_connection *c, intptr_t service, const 
   const char *err = net_error_details (c, "Connection out ", ev_data);
 
   net_store_error (service, err);
-  Modes.no_stats = true;
+
+  /* No samples, no statistics to show.
+   */
+  if (service == MODES_NET_SERVICE_RTL_TCP &&
+      Modes.stat.samples_recv_rtltcp == 0)
+     Modes.no_stats = true;
+
   LOG_STDERR ("connect() to %s failed; %s.\n", modeS_net_services [service].url, err);
 }
 
