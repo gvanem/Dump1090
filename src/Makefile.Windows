@@ -22,6 +22,7 @@ USE_CRT_DEBUG ?= 0
 #   $(TEMP)/dump1090/standing-data/results/aircrafts.bin
 #   $(TEMP)/dump1090/standing-data/results/airports.bin
 #   $(TEMP)/dump1090/standing-data/results/routes.bin
+#   $(TEMP)/dump1090/standing-data/results/code-blocks.bin
 #
 USE_BIN_FILES ?= 0
 
@@ -155,8 +156,10 @@ ifeq ($(CC),clang-cl)
             -ferror-limit=5    \
             -Wno-unused-command-line-argument
   RCFLAGS += -D__clang__
+  gen_data_arg = -c
 else
   RCFLAGS += -D_MSC_VER
+  gen_data_arg =
 endif
 
 #
@@ -387,6 +390,21 @@ $(OBJ_DIR) doxy-docs:
 ../utf8_test.exe: $(OBJ_DIR)/utf8_test.obj
 	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
 
+ifeq ($(USE_BIN_FILES),1)
+  BIN_DIR = $(realpath $(TEMP))/dump1090/standing-data/results
+  CFLAGS += -I$(BIN_DIR)
+
+  ../blocks_test.exe: $(OBJ_DIR)/gen-code-blocks.obj
+	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
+
+  $(OBJ_DIR)/gen-code-blocks.obj: $(OBJ_DIR)/gen-code-blocks.c | $(CC).args
+	$(call C_compile, $@, -DTEST_CODE_BLOCKS $<)
+
+  $(OBJ_DIR)/gen-code-blocks.c: ../tools/gen_data.py | $(OBJ_DIR)
+	$(call green_msg, Generating $@)
+	$< $(gen_data_arg) --gen-c $@
+endif
+
 ../sqlite3.exe: $(OBJ_DIR)/sqlite3.obj $(OBJ_DIR)/sqlite3-shell.obj
 	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
@@ -539,6 +557,7 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map)     \
                       $(TARGETS:.exe=.pdb)     \
                       $(TARGETS:.exe=.exp)     \
                       $(TARGETS:.exe=.lib)     \
+                      ../blocks_test.{map,pdb} \
                       ../color_test.{map,pdb}  \
                       ../packed_test.{map,pdb} \
                       ../speech_test.{map,pdb} \
@@ -554,7 +573,7 @@ clean: docs_clean DLL_clean VS_clean
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
 realclean vclean: clean
-	rm -f $(TARGETS) ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
+	rm -f $(TARGETS) ../blocks_test.exe ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
 #
@@ -863,6 +882,10 @@ DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.obj: @'
 # Fixed dependencies:
 #
 $(OBJ_DIR)/misc.obj: dump1090_config.h $(OBJ_DIR)/cflags_$(CC).h $(OBJ_DIR)/ldflags_$(CC).h
+
+ifeq ($(USE_BIN_FILES),1)
+  $(OBJ_DIR)/aircraft.obj: $(OBJ_DIR)/gen-code-blocks.c
+endif
 
 CURSES_SRC = $(addprefix externals/Curses/, \
                addch.c                      \

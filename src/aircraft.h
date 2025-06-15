@@ -276,5 +276,10 @@ void        aircraft_show_stats (void);
 bool        aircraft_set_sort (const char *arg);
 int         aircraft_sort (void);
 
+#if defined(USE_BIN_FILES)
+  const char *aircraft_get_country2 (uint32_t addr, bool get_short);
+  bool        aircraft_is_military2 (uint32_t addr, const char **country);
+#endif
+
 #define AIRCRAFT_GET_ADDR(a) aircraft_get_addr ((const uint8_t*)(a))
 
