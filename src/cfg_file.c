@@ -25,8 +25,7 @@
  */
 #undef  TRACE
 #define TRACE(fmt, ...)  DEBUG (DEBUG_CFG_FILE, fmt, ## __VA_ARGS__)
-#define TRACE_ARG(x)     TRACE ("Doing '%s' for '%s = %s', is_internal: %d.\n", \
-                                #x, key, value, is_internal);
+#define TRACE_ARG(type)  TRACE ("Doing '%s' for '%s = %s'.\n", #type, key, value)
 
 /**
  * \def MAX_VALUE_LEN
@@ -57,13 +56,13 @@ static_assert (MAX_VALUE_LEN >= sizeof(mg_file_path), "MAX_VALUE_LEN too small")
  * The context for one config-file.
  */
 typedef struct cfg_context {
-        cfg_table    *table;
-        FILE         *file;
-        mg_file_path  current_file;      /**< Current config-file; Possibly included from context above us. */
-        mg_file_path  current_dir;       /**< Directory of current config-file; Not CWD. */
-        unsigned      current_line;
-        char          current_key [256];
-        char          current_val [512];
+        const cfg_table *table;
+        FILE            *file;
+        mg_file_path     current_file;    /**< Current config-file; Possibly included from context above us. */
+        mg_file_path     current_dir;     /**< Directory of current config-file; Not CWD. */
+        unsigned         current_line;
+        char             current_key [256];
+        char             current_val [512];
       } cfg_context;
 
 /**
@@ -71,28 +70,11 @@ typedef struct cfg_context {
  */
 static cfg_context g_ctx [4];
 static int         g_idx = 0;
-static bool        g_test_mode = false;
 
-static bool handle_include   (const char *value);
-static bool handle_message   (const char *value);
-static bool handle_ipv4_test (const char *value);
-static bool handle_ipv6_test (const char *value);
-static bool handle_deny4_test(const char *value);
-
-static cfg_table internals [] = {
-    { "include",           ARG_FUNC, (void*) handle_include },
-    { "message",           ARG_FUNC, (void*) handle_message },
-    { "internal.ip4_test", ARG_FUNC, (void*) handle_ipv4_test },
-    { "internal.ip6_test", ARG_FUNC, (void*) handle_ipv6_test },
-    { "internal.deny4",    ARG_FUNC, (void*) handle_deny4_test },
-    { NULL,                0,        NULL }
-  };
-
-static int   cfg_parse_file      (cfg_context *ctx);
-static bool  cfg_parse_line      (cfg_context *ctx, char **key_p, char **value_p);
-static bool  cfg_parse_table     (cfg_context *ctx, const char *key, const char *value, bool is_internal);
-static bool  cfg_parse_internals (cfg_context *ctx, const char *key, const char *value);
-static char *cfg_getenv_expand   (cfg_context *ctx, const char *variable);
+static int   cfg_parse_file    (cfg_context *ctx);
+static bool  cfg_parse_line    (cfg_context *ctx, char **key_p, char **value_p);
+static bool  cfg_parse_table   (cfg_context *ctx, const char *key, const char *value);
+static char *cfg_getenv_expand (cfg_context *ctx, const char *variable);
 
 char *cfg_current_file (void)
 {
@@ -114,7 +96,7 @@ unsigned cfg_current_line (void)
  * \param fname the config-file to parse.
  * \param table the config-table to use for matching key/values.
  *
- * \retval false for externals on an error.
+ * \retval false for externals on error.
  * \retval true  for externals on success.
  * \retval true  for internal values to avoid calling `cfg_parse_table()`
  *               again for external key/values.
@@ -125,15 +107,11 @@ bool cfg_open_and_parse (const char *fname, const cfg_table *table)
   cfg_context *ctx;
   FILE        *file;
   DWORD        len;
-  int          rc = 0;
-
-  g_test_mode = test_contains (Modes.tests, "config");
+  int          i, rc = 0;
 
   if (g_idx == DIM(g_ctx))
   {
     CFG_WARN ("Too many nested include files. Max %zu.\n", DIM(g_ctx));
-    if (table == internals)
-       return (true);
     return (false);
   }
 
@@ -154,15 +132,13 @@ bool cfg_open_and_parse (const char *fname, const cfg_table *table)
     g_idx++;
     CFG_WARN ("Failed to open \"%s\".\n", fname);
     g_idx--;
-    if (table == internals)
-       return (true);
     return (false);
   }
 
   ctx->table = (cfg_table*) table;
   ctx->file  = file;
 
-  TRACE ("is_internal: %d, g_idx: %d\n", table == internals, g_idx);
+  TRACE ("g_idx: %d\n", g_idx);
   g_idx++;
 
   rc = cfg_parse_file (ctx);
@@ -170,6 +146,7 @@ bool cfg_open_and_parse (const char *fname, const cfg_table *table)
 
   fclose (ctx->file);
   g_idx--;
+
   memset (ctx, '\0', sizeof(*ctx));
   return (rc > 0);
 }
@@ -188,6 +165,46 @@ bool cfg_true (const char *arg)
      CFG_WARN ("failed to match '%s' as 'false'.\n", arg);
 
   return (false);
+}
+
+/**
+ * Handle an `include = "file"` statement.
+ *
+ * \todo Handle recursive inclusion of a previous file.
+ */
+static int cfg_include_file (const char *value)
+{
+  struct stat st;
+  const char *new_file = value;
+  bool        ignore   = false;
+
+  memset (&st, '\0', sizeof(st));
+
+  if (*new_file != '?' && (stat(new_file, &st) || ((st.st_mode) & _S_IFMT) != _S_IFREG))
+  {
+    CFG_WARN ("include-file \"%s\" does not exist.\n", new_file);
+    return (1);
+  }
+
+  if (*new_file == '?')
+  {
+    new_file++;
+    if (stat(new_file, &st) || ((st.st_mode) & _S_IFMT) != _S_IFREG)
+    {
+      CFG_WARN ("Ignoring include-file \"%s\" not found.\n", new_file);
+      ignore = true;
+    }
+  }
+
+  if (!ignore)
+  {
+    const cfg_table *table = g_ctx [g_idx-1].table;
+
+    table = g_ctx [0].table;
+    TRACE ("new_file \"%s\", ignore: %d, g_idx: %d, table: 0x%p\n", new_file, ignore, g_idx, table);
+     return cfg_open_and_parse (new_file, table);
+  }
+  return (1);
 }
 
 /**
@@ -211,12 +228,22 @@ static int cfg_parse_file (cfg_context *ctx)
        continue;
 
      expanded = cfg_getenv_expand (ctx, value);
+     if (expanded)
+        value = expanded;
 
-     if (cfg_parse_internals(ctx, key, expanded ? expanded : value))
-        rc++;
-     else if (cfg_parse_table(ctx, key, expanded ? expanded : value, false))
-        rc++;
-
+     if (!stricmp(key, "message"))
+     {
+       printf ("Message: '%s'\n", value);
+       rc++;
+     }
+     else if (!stricmp(key, "include"))
+     {
+       rc += cfg_include_file (value);
+     }
+     else
+     {
+       rc += cfg_parse_table (ctx, key, value);
+     }
      free (expanded);
   }
   while (1);
@@ -235,6 +262,9 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
   while (1)
   {
     char buf [MAX_LINE_LEN];
+    int  num;
+
+    ctx->current_key[0] = ctx->current_val[0] = '\0';
 
     if (!fgets(buf, sizeof(buf)-1, ctx->file))  /* EOF */
     {
@@ -255,9 +285,12 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
       continue;
     }
 
-    if (sscanf(p, "%[^= ] = %[^\r\n]", ctx->current_key, ctx->current_val) != 2)
+    num = sscanf (p, "%[^= ] = %[^\r\n]", ctx->current_key, ctx->current_val);
+    if (num != 2)
     {
-      TRACE ("%s(%u): No match for key/val in '%s'\n", ctx->current_file, ctx->current_line, p);
+      if (num == 1 || !ctx->current_val[0])
+           TRACE ("%s(%u): Empty value for '%s'\n", ctx->current_file, ctx->current_line, ctx->current_key);
+      else TRACE ("%s(%u): No match for key/val in '%s'\n", ctx->current_file, ctx->current_line, p);
       ctx->current_line++;
       continue;
     }
@@ -374,25 +407,7 @@ static bool parse_and_set_ip (const char *value, void *arg, bool is_ip6)
   return (true);
 }
 
-static bool is_internal_key (const char *key)
-{
-  if (!stricmp(key, "include") || !stricmp(key, "message") || !strnicmp(key, "internal.", 9))
-     return (true);
-  return (false);
-}
-
-static bool cfg_parse_internals (cfg_context *ctx, const char *key, const char *value)
-{
-  cfg_table *old = ctx->table;
-  bool       rc;
-
-  ctx->table = internals;
-  rc = cfg_parse_table (ctx, key, value, true);
-  ctx->table = old;
-  return (rc);
-}
-
-static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *value, bool is_internal)
+static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *value)
 {
   const cfg_table *table;
   bool  rc    = false;
@@ -452,11 +467,8 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
            break;
 
       case ARG_FUNC:
-           if (is_internal_key(key))
-              is_internal = true;
            TRACE_ARG (ARG_FUNC);
            rc = ((cfg_callback) arg) (value);
-           is_internal = false;
            break;
 
       case ARG_STRDUP:
@@ -476,10 +488,8 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
     break;
   }
 
-  /* Warn only on unknown external key/values
-   */
-  if (!found && ctx->table != internals)
-     CFG_WARN ("Unknown key/value: '%s = %s', is_internal: %d.\n", key, value, is_internal);
+  if (!found)
+     CFG_WARN ("Unknown key/value: '%s = %s'\n", key, value);
   return (rc);
 }
 
@@ -551,180 +561,3 @@ static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
   rc = (var && var[0]) ? strdup(var) : NULL;
   return (rc);
 }
-
-/**
- * Functions for `internals[]` tests:
- */
-static bool handle_ipv4_test (const char *value)
-{
-  mg_host_name addr;
-  mg_addr      ip;
-  bool         rc;
-
-  if (!g_test_mode)
-     return (true);
-
-  memset (&ip, '\0', sizeof(ip));
-  rc = parse_and_set_ip (value, &ip, false);
-  if (rc)
-     mg_snprintf (addr, sizeof(addr), "%M", mg_print_ip, &ip);
-  printf ("  internal.ip4_test: %s\n", rc ? addr : "??");
-  return (true);
-}
-
-static bool handle_ipv6_test (const char *value)
-{
-  mg_host_name addr;
-  mg_addr      ip;
-  bool         rc;
-
-  if (!g_test_mode)
-     return (true);
-
-  memset (&ip, '\0', sizeof(ip));
-  rc = parse_and_set_ip (value, &ip, true);
-  if (rc)
-     mg_snprintf (addr, sizeof(addr), "%M", mg_print_ip, &ip);
-  printf ("  internal.ip6_test: %s\n", rc ? addr : "??");
-  return (true);
-}
-
-/**
- * Accept both a single IP to deny or a CIDR spec.
- * ```
- *  68.69.184.218           -> deny
- *  80.94.2.0, -80.94.1/8   -> allow
- *  +80.94.2.0, -80.94.1/8  -> allow
- *  -80.94.1.9, +80.94/16   -> deny
- * ```
- */
-static bool _handle_deny4_simple_test (const char *str)
-{
-  mg_addr ip;
-
-  memset (&ip, '\0', sizeof(ip));
-
-  if (!mg_aton(mg_str(str), &ip))
-  {
-    printf ("  internal.deny4_test: illegal IP: '%s'\n", str);
-    return (false);
-  }
-  printf ("  internal.deny4_test: ip_str: '%-15s'\n", str);
-  net_deny4 (str);
-  return (true);
-}
-
-static bool _handle_deny4_CIDR_test (const char *str, char *ip_str)
-{
-  char    spec2 [MAX_VALUE_LEN] = "-";
-  mg_addr ip;
-  char    *spec, *slash;
-  int     a, b, c, d, rc;
-
-  memset (&ip, '\0', sizeof(ip));
-
-  if (!mg_aton(mg_str(ip_str), &ip))
-  {
-    printf ("  internal.deny4_test: use 'ip, [+-]spec'. str: '%s', ip_str: '%s'\n", str, ip_str);
-    return (false);
-  }
-
-  spec = strtok (NULL, ", ");
-  if (!spec)
-  {
-    printf ("  internal.deny4_test: use 'ip, [+-]spec'. str: '%s', ip_str: '%s'\n", str, ip_str);
-    return (false);
-  }
-
-  slash = strrchr (spec, '/');
-  b = c = d = 0;
-
-  /* A hack for Mongoose' parse_net() that does not handle CIDR addresses
-   */
-  if (slash && (rc = sscanf(spec, "%d.%d.%d.%d", &a, &b, &c, &d)) < 4)
-  {
-    if (rc == 1)
-       snprintf (spec2, sizeof(spec2), "%.*s.0.0.0/%s", (int)(slash - spec), spec, slash+1);
-    else if (rc == 2)
-       snprintf (spec2, sizeof(spec2), "%.*s.0.0/%s", (int)(slash - spec), spec, slash+1);
-    else if (rc == 3)
-       snprintf (spec2, sizeof(spec2), "%.*s.0/%s", (int)(slash - spec), spec, slash+1);
-    spec = spec2;
-  }
-
-  rc = mg_check_ip_acl (mg_str(spec), &ip);
-  printf ("  internal.deny4_test: ip_str: '%-15s', spec: '%-15s', spec2: '%-15s', rc: %d\n",
-         ip_str, spec, spec2, rc);
-  return (rc == 0);
-}
-
-static bool _handle_deny4_test (const char *value)
-{
-  char  str [MAX_VALUE_LEN];
-  char *ip_str;
-
-  strncpy (str, value, sizeof(str)-1);
-  ip_str = strtok (str, ", ");
-  if (ip_str)
-    return _handle_deny4_CIDR_test (str, ip_str);
-  return _handle_deny4_simple_test (str);
-}
-
-static bool handle_deny4_test (const char *value)
-{
-  int  save = Modes.debug;
-  bool rc;
-
-  if (!g_test_mode)
-     return (true);
-
-  Modes.debug |= DEBUG_GENERAL;
-  rc = _handle_deny4_test (value);
-  Modes.debug = save;
-  return (rc);
-}
-
-/**
- * Handle a `message = "text"` statement.
- */
-static bool handle_message (const char *value)
-{
-  printf ("Message: '%s'\n", value);
-  return (true);
-}
-
-/**
- * Handle an `include = "file"` statement.
- *
- * \todo Handle recursive inclusion of a previous file.
- */
-static bool handle_include (const char *value)
-{
-  struct stat st;
-  const char *new_file = value;
-  bool        ignore   = false;
-
-  memset (&st, '\0', sizeof(st));
-
-  if (*new_file != '?' && (stat(new_file, &st) || ((st.st_mode) & _S_IFMT) != _S_IFREG))
-  {
-    CFG_WARN ("include-file \"%s\" does not exist.\n", new_file);
-    return (true);
-  }
-
-  if (*new_file == '?')
-  {
-    new_file++;
-    if (stat(new_file, &st) || ((st.st_mode) & _S_IFMT) != _S_IFREG)
-    {
-      CFG_WARN ("Ignoring include-file \"%s\" not found.\n", new_file);
-      ignore = true;
-    }
-  }
-
-  TRACE ("new_file \"%s\", ignore: %d\n", new_file, ignore);
-  if (!ignore)
-     return cfg_open_and_parse (new_file, g_ctx [g_idx-1].table);
-  return (true);
-}
-
