@@ -1,7 +1,7 @@
 /**
  * \file    dump1090.c
  * \ingroup Main
- * \brief   Dump1090, a Mode-S messages decoder for RTLSDR devices.
+ * \brief   Dump1090, a Mode-S messages decoder for RTLSDR / SDRPlay devices.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -127,7 +127,7 @@ static bool  set_web_page (const char *arg);
 static uint32_t sample_rate;
 static uint64_t max_messages;
 
-static const struct cfg_table config[] = {
+static const cfg_table config[] = {
     { "adsb-mode",        ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
     { "bias-t",           ARG_FUNC,    (void*) set_bias_tee },
     { "DC-filter",        ARG_ATOB,    (void*) &Modes.DC_filter },
@@ -567,6 +567,9 @@ static bool modeS_init_hardware (void)
   bool        use_rtltcp;
   const char *p;
 
+  if (Modes.net_only || Modes.tests)  /* no need for this */
+     return (true);
+
   /* If `--device tcp://host:port' specified
    */
   p = net_handler_host (MODES_NET_SERVICE_RTL_TCP);
@@ -717,7 +720,7 @@ static bool modeS_init (void)
   if (Modes.http_ipv6_only)
      Modes.http_ipv6 = true;
 
-  if (Modes.logfile_initial[0])
+  if (Modes.logfile_initial[0] && stricmp(Modes.logfile_initial, "NUL"))
      modeS_init_log();
 
   if (Modes.speech_enable && !speak_init(0, Modes.speech_volume))
@@ -3012,8 +3015,7 @@ void modeS_user_message (modeS_message *mm)
 
 /**
  * Read raw IQ samples from `stdin` and filter everything that is lower than the
- * specified level for more than 256 samples in order to reduce
- * example file size.
+ * specified level for more than 256 samples in order to reduce example file size.
  *
  * Will print to `stdout` in BINARY-mode.
  */
@@ -3520,7 +3522,7 @@ static void show_help (const char *fmt, ...)
             "  --raw                 Output raw hexadecimal messages only.\n"
             "  --samplerate/-s <S/s> Sample-rate (2M, 2.4M, 8M). Overrides setting in config-file.\n"
             "  --strip <level>       Output missing the I/Q parts that are below the specified level.\n"
-            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `config', `cpr', `locale', `misc`, `net' or `*')\n"
+            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `cpr', `locale', `misc`, `net' or `*')\n"
             "  --update              Update missing or old \"*.csv\" files and exit.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
@@ -3624,8 +3626,8 @@ void modeS_signal_handler (int sig)
 {
   int rc;
 
-  if (sig > 0)
-     signal (sig, SIG_DFL);   /* reset signal handler - bit extra safety */
+  if (sig > 0)                /* Restore signal handler */
+     signal (sig,modeS_signal_handler);
 
   Modes.exit = true;          /* Signal to threads that we are done */
 
@@ -4283,12 +4285,7 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 's':
-           sample_rate = ato_hertz (optarg);
-           if (sample_rate != MODES_DEFAULT_RATE &&
-               sample_rate != 2400000            &&
-               sample_rate != 8000000)
-              show_help ("Illegal `--samplerate %s` value. "
-                         "Use '2M, 2.4M or 8M (for SDRPlay)'.\n", optarg);
+           set_sample_rate (optarg);
            break;
 
       case 'S':
@@ -4354,7 +4351,7 @@ int main (int argc, char **argv)
 
     if ((Modes.rtlsdr.name  || Modes.rtlsdr.index > -1 ||
          Modes.sdrplay.name || Modes.sdrplay.index > -1) &&
-        !Modes.rtl_tcp_in)
+        !net_handler_host(MODES_NET_SERVICE_RTL_TCP))
     {
       strcpy (notice, " The `--device x' option has no effect now.");
     }
@@ -4388,7 +4385,7 @@ int main (int argc, char **argv)
     }
   }
 
-  if (!Modes.net_only && !Modes.tests && !modeS_init_hardware())
+  if (!modeS_init_hardware())
      goto quit;
 
   if (Modes.net)
@@ -4410,7 +4407,8 @@ int main (int argc, char **argv)
      goto quit;
 
   /**
-   * \todo Move processing of `Modes.infile` to the same thread
+   * \todo
+   * Move processing of `Modes.infile` to the same thread
    * for consistent handling of all sample-sources.
    */
   if (Modes.infile[0])
