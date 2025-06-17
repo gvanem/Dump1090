@@ -1683,9 +1683,6 @@ static void print_LDFLAGS (void)
 
 static const char *__DATE__str (void)
 {
-#if 0
-  return (__DATE__);    /* e.g. "Mar  2 2024" */
-#else
   /*
    * Convert `__DATE__ into `DD MMM YYYY`.
    * Based on:
@@ -1714,7 +1711,6 @@ static const char *__DATE__str (void)
   snprintf (buf, sizeof(buf), "%d %.3s %04d",
             DAY(), months + 3*MONTH(), YEAR());
   return (buf);         /* e.g. "2 Mar 2024" */
-#endif
 }
 
 static void print_BIN_files (void)
@@ -1724,6 +1720,7 @@ static void print_BIN_files (void)
   size_t      i;
   const char *bin_files[] = { "aircraft.bin",
                               "airports.bin",
+                              "code-blocks.bin",
                               "routes.bin"
                             };
 
