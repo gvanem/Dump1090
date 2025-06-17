@@ -107,7 +107,7 @@ bool cfg_open_and_parse (const char *fname, const cfg_table *table)
   cfg_context *ctx;
   FILE        *file;
   DWORD        len;
-  int          i, rc = 0;
+  int          rc = 0;
 
   if (g_idx == DIM(g_ctx))
   {
