@@ -152,6 +152,7 @@
   <ItemGroup>
     <ClCompile Include="aircraft.c" />
     <ClCompile Include="airports.c" />
+    <ClCompile Include="airspy.c" />
     <ClCompile Include="cfg_file.c" />
     <ClCompile Include="convert.c" />
     <ClCompile Include="cpr.c" />
@@ -186,6 +187,7 @@
   <ItemGroup>
     <ClInclude Include="aircraft.h" />
     <ClInclude Include="airports.h" />
+    <ClInclude Include="airspy.h" />
     <ClInclude Include="cfg_file.h" />
     <ClInclude Include="convert.h" />
     <ClInclude Include="cpr.h" />
