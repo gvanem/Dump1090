@@ -10,8 +10,8 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <wchar.h>
-#include <rtl-sdr.h>
-#include <sdrplay_api.h>
+#include <rtl-sdr/rtl-sdr.h>
+#include <SDRplay-API/sdrplay_api.h>
 
 #include "mongoose.h"
 #include "cfg_file.h"
@@ -361,6 +361,18 @@ typedef struct sdrplay_conf {
       } sdrplay_conf;
 
 /**
+ * The device configuration for a AirSpy device.
+ */
+typedef struct airspy_conf {
+        mg_file_path     dll_name;           /**< Name and (relative) path of the "airspy.dll" to use */
+        char            *name;               /**< Name of the AirSpy device to use */
+        int              index;              /**< The index of the AirSpy device to use. As in e.g. `"--device airspy0"` */
+        void            *device;             /**< Device-handle from `airspy_init()` */
+        int             *gains;
+        int              gain_count;
+      } airspy_conf;
+
+/**
  * All program global state is in this structure.
  */
 typedef struct global_data {
@@ -419,6 +431,7 @@ typedef struct global_data {
         rtlsdr_conf         rtlsdr;                   /**< RTLSDR local specific settings. */
         rtltcp_conf         rtltcp;                   /**< RTLSDR remote specific settings. */
         sdrplay_conf        sdrplay;                  /**< SDRplay specific settings. */
+        airspy_conf         airspy;                   /**< AirSpy specific settings. */
 
         /** Lists of connections for each network service:
          */
@@ -497,6 +510,7 @@ typedef struct global_data {
         mg_str        icao_filter;
         bool          icao_invert;
         bool          internal_error;
+        bool          wincon_vt_enable;           /**< Use VT-sequences for WinCon and interactive mode. */
 
         /** For handling a `Modes.aircraft_db` file:
          */
