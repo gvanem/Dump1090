@@ -30,6 +30,7 @@
 #include "sdrplay.h"
 #include "speech.h"
 #include "location.h"
+#include "airspy.h"
 #include "airports.h"
 #include "aircraft.h"
 #include "interactive.h"
@@ -187,6 +188,7 @@ static const cfg_table config[] = {
     { "error-correct1",   ARG_ATOB,    (void*) &Modes.error_correct_1 },
     { "error-correct2",   ARG_ATOB,    (void*) &Modes.error_correct_2 },
     { "web-send-rssi",    ARG_ATOB,    (void*) &Modes.web_send_rssi },
+    { "wincon-vt-enable", ARG_ATOB,    (void*) &Modes.wincon_vt_enable },
     { NULL,               0,           NULL }
   };
 
@@ -470,6 +472,7 @@ static void modeS_init_config (void)
    */
   Modes.rtlsdr.index  = 0;    /* but the first RTLSDR device found is the default */
   Modes.sdrplay.index = -1;
+  Modes.airspy.index  = -1;
 
   /* Defaults for SDRPlay:
    */
@@ -630,6 +633,13 @@ static bool modeS_init_hardware (void)
     /* A local SDRPlay device
      */
     Modes.input_format = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always */
+    Modes.bytes_per_sample = 4;
+  }
+  else if (Modes.airspy.index >= 0)
+  {
+    /* A local AirSpy device
+     */
+    Modes.input_format = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always? */
     Modes.bytes_per_sample = 4;
   }
 
@@ -1050,6 +1060,8 @@ void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
 static DWORD WINAPI data_thread_fn (void *arg)
 {
   int rc;
+
+//SetThreadPriority (GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
 #if 0  /** \todo see below */
   if (Modes.infile[0])
@@ -3626,10 +3638,10 @@ void modeS_signal_handler (int sig)
 {
   int rc;
 
-  if (sig > 0)                /* Restore signal handler */
-     signal (sig,modeS_signal_handler);
+  if (sig > 0)               /* Reset signal handler */
+     signal (sig, SIG_DFL);
 
-  Modes.exit = true;          /* Signal to threads that we are done */
+  Modes.exit = true;         /* Signal to threads that we are done */
 
   /* When PDCurses exists, it restores the startup console-screen.
    * Hence make it clear what is printed on exit by separating the
@@ -3853,6 +3865,7 @@ static void modeS_cleanup (void)
   free (Modes.rtlsdr.name);
   free (Modes.rtltcp.remote);
   free (Modes.sdrplay.name);
+  free (Modes.airspy.name);
   free (Modes.aircraft_db_url);
   free (Modes.tests);
   free (Modes.icao_spec);
@@ -3928,6 +3941,18 @@ static void set_device (const char *arg)
     else
       Modes.sdrplay.index = -1;
   }
+  else if (!strnicmp(arg, "airspy", 6))
+  {
+    Modes.airspy.name = strdup (arg);
+    if (isdigit(arg[6]))
+    {
+      Modes.airspy.index   = atoi (arg + 6);
+      Modes.airspy.name[7] = '\0';
+    }
+    else
+      Modes.airspy.index = -1;
+  }
+
   dev_selection_done = true;
 }
 
@@ -4349,8 +4374,9 @@ int main (int argc, char **argv)
   {
     char notice [100] = "";
 
-    if ((Modes.rtlsdr.name  || Modes.rtlsdr.index > -1 ||
-         Modes.sdrplay.name || Modes.sdrplay.index > -1) &&
+    if ((Modes.rtlsdr.name  || Modes.rtlsdr.index  > -1 ||
+         Modes.sdrplay.name || Modes.sdrplay.index > -1 ||
+         Modes.airspy.name  || Modes.airspy.index  > -1) &&
         !net_handler_host(MODES_NET_SERVICE_RTL_TCP))
     {
       strcpy (notice, " The `--device x' option has no effect now.");
@@ -4373,6 +4399,13 @@ int main (int argc, char **argv)
     {
       rc = sdrplay_init (Modes.sdrplay.name, Modes.sdrplay.index, &Modes.sdrplay.device);
       DEBUG (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
+      if (rc)
+         goto quit;
+    }
+    else if (Modes.airspy.name)
+    {
+      rc = airspy_init (Modes.airspy.name, Modes.airspy.index, &Modes.airspy.device);
+      DEBUG (DEBUG_GENERAL, "airspy_init(): rc: %d / %s.\n", rc, airspy_strerror(rc));
       if (rc)
          goto quit;
     }

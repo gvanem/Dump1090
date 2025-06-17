@@ -125,8 +125,6 @@ CFLAGS = -nologo -c -Zi -W4        \
          -I.                       \
          -I./externals             \
          -I./externals/Curses      \
-         -I./externals/rtl-sdr     \
-         -I./externals/SDRplay-API \
          -I./$(OBJ_DIR)
 
 #
@@ -249,6 +247,7 @@ TARGETS = ../dump1090.exe
 
 SOURCES = aircraft.c    \
           airports.c    \
+          airspy.c      \
           cfg_file.c    \
           color.c       \
           convert.c     \
@@ -400,7 +399,7 @@ ifeq ($(USE_BIN_FILES),1)
   $(OBJ_DIR)/gen-code-blocks.obj: $(OBJ_DIR)/gen-code-blocks.c | $(CC).args
 	$(call C_compile, $@, -DTEST_CODE_BLOCKS $<)
 
-  $(OBJ_DIR)/gen-code-blocks.c: ../tools/gen_data.py | $(OBJ_DIR)
+  $(OBJ_DIR)/gen-code-blocks.c: ../tools/gen_data.py $(BIN_DIR)/code-blocks.bin | $(OBJ_DIR)
 	$(call green_msg, Generating $@)
 	$< $(gen_data_arg) --gen-c $@
 endif
@@ -921,7 +920,7 @@ CURSES_SRC = $(addprefix externals/Curses/, \
                window.c)
 
 $(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
-$(OBJ_DIR)/net_io.obj:       server-cert-key.h
+$(OBJ_DIR)/net_io.obj:       client-cert-key.h server-cert-key.h
 
 depend:
 	$(call generate, .depend.Windows, #)
