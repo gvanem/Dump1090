@@ -61,8 +61,7 @@ typedef struct reverse_rec {
         DNS_STATUS   status;
       } reverse_rec;
 
-static smartlist_t *g_reverse_rec  = NULL;
-
+static smartlist_t *g_reverse_rec = NULL;
 static mg_file_path g_reverse_file = { '\0' };
 static time_t       g_reverse_maxage;
 
@@ -113,6 +112,7 @@ const char         *mg_unpack (const char *path, size_t *size, time_t *mtime);
  */
 static bool rtl_tcp_connect (mg_connection *c);
 static bool rtl_tcp_decode (mg_iobuf *msg, int loop_cnt);
+static void rtl_tcp_no_stats (intptr_t service);
 
 /**
  * \def ASSERT_SERVICE(s)
@@ -707,7 +707,10 @@ static void net_timeout (void *arg)
   intptr_t    service = (intptr_t) arg;
 
   if (service == MODES_NET_SERVICE_RTL_TCP)
-     what = "data from";
+  {
+    what = "data from";
+    rtl_tcp_no_stats (service);
+  }
 
   snprintf (err, sizeof(err), "Timeout in %s host %s (service: \"%s\")",
             what, net_handler_url(service), net_handler_descr(service));
@@ -875,12 +878,7 @@ static void connection_failed_active (mg_connection *c, intptr_t service, const 
   const char *err = net_error_details (c, "Connection out ", ev_data);
 
   net_store_error (service, err);
-
-  /* No samples, no statistics to show.
-   */
-  if (service == MODES_NET_SERVICE_RTL_TCP &&
-      Modes.stat.samples_recv_rtltcp == 0)
-     Modes.no_stats = true;
+  rtl_tcp_no_stats (service);
 
   LOG_STDERR ("connect() to %s failed; %s.\n", modeS_net_services [service].url, err);
 }
@@ -902,15 +900,20 @@ static void tls_handler (mg_connection *c, const char *host)
 {
   struct mg_tls_opts opts;
 
+#if (MG_TLS != MG_TLS_BUILTIN)
+  puts ( "tls_handler() needs 'MG_TLS == MG_TLS_BUILTIN'");
+  return;
+#endif
+
   memset (&opts, '\0', sizeof(opts));
   if (host)
   {
-    opts.ca   = mg_str (s_ca);
+    opts.ca   = mg_str (s_ca);        /* included from "client-cert-key.h" */
     opts.name = mg_url_host (host);
   }
   else
   {
-    opts.cert = mg_str (s_ssl_cert);
+    opts.cert = mg_str (s_ssl_cert);  /* included from "server-cert-key.h" */
     opts.key  = mg_str (s_ssl_key);
     opts.skip_verification = true;
   }
@@ -3205,3 +3208,11 @@ bool rtl_tcp_set_gain_mode (mg_connection *c, bool autogain)
   return rtl_tcp_command (c, RTL_SET_GAIN_MODE, autogain);
 }
 
+/*
+ * If no samples received, no statistics to show.
+ */
+static void rtl_tcp_no_stats (intptr_t service)
+{
+  if (service == MODES_NET_SERVICE_RTL_TCP && Modes.stat.samples_recv_rtltcp == 0)
+     Modes.no_stats = true;
+}
