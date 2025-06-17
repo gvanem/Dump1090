@@ -31,9 +31,9 @@
 #include <unistd.h>
 #endif
 
-#include "rtlsdr_i2c.h"
-#include "rtl-sdr.h"
-#include "tuner_fc001x.h"
+#include "rtl-sdr/rtlsdr_i2c.h"
+#include "rtl-sdr/rtl-sdr.h"
+#include "rtl-sdr/tuner_fc001x.h"
 
 /* Incomplete list of FC0012 register settings:
  *

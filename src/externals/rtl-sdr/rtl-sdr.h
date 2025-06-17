@@ -37,7 +37,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stddef.h>
-#include <rtl-sdr_export.h>
+#include <rtl-sdr/rtl-sdr_export.h>
 
 typedef struct rtlsdr_dev rtlsdr_dev_t;
 

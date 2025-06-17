@@ -12,7 +12,7 @@
 #include "aircraft.h"
 #include "smartlist.h"
 #include "net_io.h"
-#include "rtl-tcp.h"
+#include "rtl-sdr/rtl-tcp.h"
 #include "server-cert-key.h"
 #include "client-cert-key.h"
 

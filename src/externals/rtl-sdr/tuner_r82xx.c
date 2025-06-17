@@ -32,9 +32,9 @@
 #include <sys/time.h>
 #endif
 
-#include "rtl-sdr.h"
-#include "rtlsdr_i2c.h"
-#include "tuner_r82xx.h"
+#include "rtl-sdr/rtl-sdr.h"
+#include "rtl-sdr/rtlsdr_i2c.h"
+#include "rtl-sdr/tuner_r82xx.h"
 
 #define MHZ(x)		((x)*1000*1000)
 

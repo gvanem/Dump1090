@@ -38,13 +38,13 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#include "rtl-sdr.h"
-#include "tuner_e4k.h"
-#include "tuner_fc001x.h"
-#include "tuner_fc2580.h"
-#include "tuner_r82xx.h"
-#include "version.h"
-#include "trace.h"
+#include "rtl-sdr/rtl-sdr.h"
+#include "rtl-sdr/tuner_e4k.h"
+#include "rtl-sdr/tuner_fc001x.h"
+#include "rtl-sdr/tuner_fc2580.h"
+#include "rtl-sdr/tuner_r82xx.h"
+#include "rtl-sdr/version.h"
+#include "rtl-sdr/trace.h"
 
 #define WINUSB_REQUEST_TYPE_VENDOR (0x02 << 5)
 #define WINUSB_ENDPOINT_IN          0x80
@@ -3281,6 +3281,8 @@ static void softagc_init (rtlsdr_dev_t *dev)
   /* Create thread */
   agc->command_thread = _beginthread (softagc_control_worker, 0, dev);
   RTL_TRACE (1, "%s(): agc->command_thread: %zu\n", __FUNCTION__, agc->command_thread);
+  if (agc->command_thread == -1)
+     agc->command_thread = 0;
 }
 
 static void softagc_close (rtlsdr_dev_t *dev)

@@ -15,9 +15,9 @@
 #include <windows.h>
 #endif
 
-#include "rtlsdr_i2c.h"
-#include "rtl-sdr.h"
-#include "tuner_fc2580.h"
+#include "rtl-sdr/rtlsdr_i2c.h"
+#include "rtl-sdr/rtl-sdr.h"
+#include "rtl-sdr/tuner_fc2580.h"
 
 /*
 Registers

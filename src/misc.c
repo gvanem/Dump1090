@@ -18,8 +18,8 @@
 
 #include "sqlite3.h"
 #include "smartlist.h"
-#include "trace.h"
 #include "misc.h"
+#include "rtl-sdr/trace.h"
 #include "rtl-sdr/version.h"
 
 #define __SpeechConstants_MODULE_DEFINED__
