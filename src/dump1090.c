@@ -133,6 +133,7 @@ static const cfg_table config[] = {
     { "bias-t",           ARG_FUNC,    (void*) set_bias_tee },
     { "DC-filter",        ARG_ATOB,    (void*) &Modes.DC_filter },
     { "usb-bulk",         ARG_ATOB,    (void*) &Modes.sdrplay.USB_bulk_mode },
+    { "airspy-dll",       ARG_FUNC,    (void*) airspy_set_dll_name },
     { "sdrplay-dll",      ARG_FUNC,    (void*) sdrplay_set_dll_name },
     { "sdrplay-minver",   ARG_FUNC,    (void*) sdrplay_set_minver },
     { "calibrate",        ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
@@ -478,6 +479,10 @@ static void modeS_init_config (void)
    */
   strcpy (Modes.sdrplay.dll_name, "sdrplay_api.dll");  /* Assumed to be on PATH */
   Modes.sdrplay.min_version = SDRPLAY_API_VERSION;     /* = 3.14F */
+
+  /* Defaults for AirSpy:
+   */
+  strcpy (Modes.airspy.dll_name, "airspy.dll");        /* Assumed to be on PATH */
 
   Modes.infile_fd        = -1;      /* no --infile */
   Modes.gain_auto        = true;
@@ -1061,7 +1066,7 @@ static DWORD WINAPI data_thread_fn (void *arg)
 {
   int rc;
 
-//SetThreadPriority (GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+  SetThreadPriority (GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
 #if 0  /** \todo see below */
   if (Modes.infile[0])
