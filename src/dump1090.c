@@ -189,7 +189,6 @@ static const cfg_table config[] = {
     { "error-correct1",   ARG_ATOB,    (void*) &Modes.error_correct_1 },
     { "error-correct2",   ARG_ATOB,    (void*) &Modes.error_correct_2 },
     { "web-send-rssi",    ARG_ATOB,    (void*) &Modes.web_send_rssi },
-    { "wincon-vt-enable", ARG_ATOB,    (void*) &Modes.wincon_vt_enable },
     { NULL,               0,           NULL }
   };
 
@@ -800,13 +799,20 @@ static bool modeS_init (void)
 
   signal (SIGINT, modeS_signal_handler);
   signal (SIGBREAK, modeS_signal_handler);
-  signal (SIGABRT, modeS_signal_handler);
+
+#if !defined(_DEBUG)
+  if (!Modes.tests)
+     signal (SIGABRT, modeS_signal_handler);
+#endif
 
   if (test_contains(Modes.tests, "net"))
      Modes.net = true;    /* Will force `net_init()` and it's tests to be called */
 
   if (test_contains(Modes.tests, "cpr"))
      cpr_do_tests();
+
+  if (test_contains (Modes.tests, "console"))
+     Modes.interactive = true;    /* Will force `interactive_init()` and it's tests to be called */
 
   if (!rc)
      return (false);
@@ -1007,7 +1013,7 @@ static mag_buf *rx_callback_to_fifo (uint32_t in_len, unsigned *to_convert)
 
 /**
  * This RX-data callback gets data from the local RTLSDR, a remote RTLSDR
- * device or a local SDRplay device asynchronously.
+ * device or a local SDRplay / AirSpy device asynchronously.
  *
  * We then allocate a FIFO-buffer, call the "IQ to magnitude" converter function and
  * depending on sample-rate call the correct `Modes.demod_func` function.
@@ -1066,7 +1072,7 @@ static DWORD WINAPI data_thread_fn (void *arg)
 {
   int rc;
 
-  SetThreadPriority (GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+//SetThreadPriority (GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
 #if 0  /** \todo see below */
   if (Modes.infile[0])
@@ -1085,6 +1091,14 @@ static DWORD WINAPI data_thread_fn (void *arg)
                              MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
 
     LOG_STDERR ("sdrplay_read_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
+    modeS_signal_handler (0);   /* break out of main_data_loop() */
+  }
+  else if (Modes.airspy.device)
+  {
+    rc = airspy_read_async (Modes.airspy.device, rx_callback, (void*)&Modes.exit,
+                            MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
+
+    LOG_STDERR ("airspy_read_async(): rc: %d / %s.\n", rc, airspy_strerror(rc));
     modeS_signal_handler (0);   /* break out of main_data_loop() */
   }
   else if (Modes.rtlsdr.device)
@@ -3622,7 +3636,7 @@ void background_tasks (void)
   if (Modes.interactive)
      interactive_show_data (now);
 
-  if (Modes.rtlsdr.device || Modes.rtl_tcp_in || Modes.sdrplay.device || Modes.raw_in)
+  if (Modes.rtlsdr.device || Modes.rtl_tcp_in || Modes.sdrplay.device || Modes.airspy.device || Modes.raw_in)
   {
     interactive_title_stats();
     interactive_update_gain();
@@ -3687,6 +3701,11 @@ void modeS_signal_handler (int sig)
     DEBUG (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
 
  /* SetEvent (Modes.reader_event); */
+  }
+  else if (Modes.airspy.device)
+  {
+    rc = airspy_cancel_async (Modes.airspy.device);
+    DEBUG (DEBUG_GENERAL, "airspy_cancel_async(): rc: %d / %s.\n", rc, airspy_strerror(rc));
   }
 }
 
@@ -3791,7 +3810,8 @@ static void show_decoder_stats (void)
  */
 static void show_statistics (void)
 {
-  bool any_device = (Modes.rtlsdr.device || Modes.sdrplay.device || Modes.infile_fd > -1);
+  bool any_device = (Modes.rtlsdr.device || Modes.sdrplay.device ||
+                     Modes.airspy.device || Modes.infile_fd > -1);
 
   if (Modes.rtl_tcp_in)
      any_device = true;  /* connect() OK */
@@ -3848,6 +3868,13 @@ static void modeS_cleanup (void)
     free (Modes.sdrplay.gains);
     Modes.sdrplay.device = NULL;
     DEBUG (DEBUG_GENERAL2, "sdrplay_exit(), rc: %d.\n", rc);
+  }
+  else if (Modes.airspy.device)
+  {
+    rc = airspy_exit (Modes.airspy.device);
+    free (Modes.airspy.gains);
+    Modes.airspy.device = NULL;
+    DEBUG (DEBUG_GENERAL2, "airspy_exit(), rc: %d.\n", rc);
   }
 
   if (Modes.reader_thread)
@@ -3952,7 +3979,7 @@ static void set_device (const char *arg)
     if (isdigit(arg[6]))
     {
       Modes.airspy.index   = atoi (arg + 6);
-      Modes.airspy.name[7] = '\0';
+      Modes.airspy.name[6] = '\0';
     }
     else
       Modes.airspy.index = -1;

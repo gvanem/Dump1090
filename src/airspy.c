@@ -10,13 +10,10 @@
 #include "airspy.h"
 #include <AirSpy/airspy.h>
 
-#define MODES_RSP_BUF_SIZE   (256*1024)   /**< 256k, same as MODES_ASYNC_BUF_SIZE */
-#define MODES_RSP_BUFFERS     16          /**< Must be power of 2 */
+#define MODES_BUF_SIZE   (256*1024)   /**< 256k, same as MODES_ASYNC_BUF_SIZE */
+#define MODES_BUFFERS     16          /**< Must be power of 2 */
 
-#define RSP_MIN_GAIN_THRESH   512         /**< Increase gain if peaks below this */
-#define RSP_MAX_GAIN_THRESH  1024         /**< Decrease gain if peaks above this */
-#define RSP_ACC_SHIFT          13         /**< Sets time constant of averaging filter */
-#define MODES_RSP_INITIAL_GR   20
+#define AIRSPY_ACC_SHIFT  13          /**< Sets time constant of averaging filter */
 
 #define SAMPLE_TYPE      uint16_t
 #define SAMPLE_TYPE_STR "uint16_t"
@@ -52,7 +49,6 @@ typedef struct airspy_priv {
         airspy_lib_version_t        version;
         volatile bool               cancelling;
         volatile bool               uninit_done;
-
         airspy_device              *devices [4];     /**< 4 should be enough for `p_airspy_list_devices()`. */
         airspy_device              *chosen_dev;      /**< `airspy_select()` sets this to one of the above */
         uint64_t                    serials [4];
@@ -179,7 +175,7 @@ static void airspy_clear_error (void)
  * The AirSpy event callback.
  *
  * 16-bit data is received from RSP at 2MHz. It is interleaved into a circular buffer.
- * Each time the pointer passes a multiple of `MODES_RSP_BUF_SIZE`, that segment of
+ * Each time the pointer passes a multiple of `MODES_BUF_SIZE`, that segment of
  * buffer is handed off to the callback-routine `rx_callback()` in `dump1090.c`.
  *
  * For each packet from the RSP, the maximum `I` signal value is recorded.
@@ -225,15 +221,15 @@ static void airspy_callback_A (short        *xi,
    */
 
   end = rx_data_idx + (num_samples << 1);
-  count2 = end - (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS);
+  count2 = end - (MODES_BUF_SIZE * MODES_BUFFERS);
   if (count2 < 0)
      count2 = 0;            /* count2 is samples wrapping around to start of buf */
 
   count1 = (num_samples << 1) - count2;   /* count1 is samples fitting before the end of buf */
 
-  /* Flag is set if this packet takes us past a multiple of MODES_RSP_BUF_SIZE
+  /* Flag is set if this packet takes us past a multiple of MODES_BUF_SIZE
    */
-  new_buf_flag = ((rx_data_idx & (MODES_RSP_BUF_SIZE-1)) < (end & (MODES_RSP_BUF_SIZE-1))) ? false : true;
+  new_buf_flag = ((rx_data_idx & (MODES_BUF_SIZE-1)) < (end & (MODES_BUF_SIZE-1))) ? false : true;
 
   /* Now interleave data from I/Q into circular buffer, and note max I value
    */
@@ -256,12 +252,12 @@ static void airspy_callback_A (short        *xi,
    */
   max_sig -= 127;
   max_sig_acc += max_sig;
-  max_sig = max_sig_acc >> RSP_ACC_SHIFT;
+  max_sig = max_sig_acc >> AIRSPY_ACC_SHIFT;
   max_sig_acc -= max_sig;
 
   /* This code is triggered as we reach the end of our circular buffer
    */
-  if (rx_data_idx >= (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS))
+  if (rx_data_idx >= (MODES_BUF_SIZE * MODES_BUFFERS))
   {
     rx_data_idx = 0;  /* pointer back to start of buffer */
   }
@@ -283,12 +279,12 @@ static void airspy_callback_A (short        *xi,
   {
     /* Go back by one buffer length, then round down further to start of buffer
      */
-    end = rx_data_idx + MODES_RSP_BUF_SIZE * (MODES_RSP_BUFFERS-1);
-    end &= (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS) - 1;
-    end &= ~(MODES_RSP_BUF_SIZE - 1);
+    end = rx_data_idx + MODES_BUF_SIZE * (MODES_BUFFERS-1);
+    end &= (MODES_BUF_SIZE * MODES_BUFFERS) - 1;
+    end &= ~(MODES_BUF_SIZE - 1);
 
     sdr.rx_num_callbacks++;
-    (*sdr.rx_callback) ((uint8_t*)sdr.rx_data + end, MODES_RSP_BUF_SIZE, sdr.rx_context);
+    (*sdr.rx_callback) ((uint8_t*)sdr.rx_data + end, MODES_BUF_SIZE, sdr.rx_context);
   }
 
   /* Stash static values in `sdr` struct
@@ -476,7 +472,7 @@ int airspy_init (const char *name, int index, airspy_dev **device)
   Modes.airspy.over_sample     = true;
 #endif
 
-  sdr.rx_data = malloc (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS * sizeof(short));
+  sdr.rx_data = malloc (MODES_BUF_SIZE * MODES_BUFFERS * sizeof(short));
   if (!sdr.rx_data)
      goto nomem;
 
