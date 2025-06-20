@@ -201,6 +201,15 @@
 #endif
 
 /**
+ * Not defined in `Dump1090.vcxproj'
+ */
+#if defined(DOING_MSBUILD)
+  #define PDC_WIDE       1
+  #define PDC_FORCE_UTF8 1
+  #define PDC_NCMOUSE    1
+#endif
+
+/**
  * Options for `externals/sqlite3.c`:
  */
 #define SQLITE_API

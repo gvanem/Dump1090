@@ -128,6 +128,17 @@ CFLAGS = -nologo -c -Zi -W4        \
          -I./$(OBJ_DIR)
 
 #
+# Showing airport names correctly in `--interactive' mode needs
+# Wide-string and UTF8 in Curses.
+#
+CFLAGS += -DPDC_WIDE -DPDC_FORCE_UTF8
+
+#
+# To enable the Ncurses mouse API.
+#
+CFLAGS += -DPDC_NCMOUSE
+
+#
 # Handling of 'volatile' variables:
 #   https://learn.microsoft.com/en-us/cpp/build/reference/volatile-volatile-keyword-interpretation?view=msvc-170
 #
