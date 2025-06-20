@@ -4,6 +4,9 @@
  * \brief   Function for interactive mode.
  *
  * Using either Windows-Console or Curses functions.
+ *
+ * \note For VT-sequences, refer:
+ *  https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
  */
 #include <io.h>
 #include <conio.h>
@@ -11,6 +14,7 @@
 #include "interactive.h"
 #include "aircraft.h"
 #include "airports.h"
+#include "airspy.h"
 #include "sdrplay.h"
 #include "smartlist.h"
 #include "net_io.h"
@@ -26,6 +30,7 @@ typedef enum colours {
         COLOUR_RED,
         COLOUR_YELLOW,
         COLOUR_REVERSE,
+        COLOUR_HEADER,
         COLOUR_MAX
       } colours;
 
@@ -35,98 +40,340 @@ typedef struct colour_mapping {
       } colour_mapping;
 
 typedef struct API_funcs {
-        int  (*init) (void);
-        void (*exit) (void);
-        void (*set_colour) (enum colours colour);
-        int  (*clr_scr) (void);
-        int  (*clr_eol) (void);
-        int  (*gotoxy) (int y, int x);
-        int  (*refresh) (int y, int x);
-        int  (*print_line) (int y, int x, const char *str);
-        void (*print_header) (void);
+        bool   (*init) (void);
+        void   (*exit) (void);
+        void   (*set_colour) (enum colours colour);
+        void   (*set_cursor) (bool enable);
+        void   (*clr_scr) (void);
+        void   (*clr_eol) (void);
+        void   (*gotoxy) (int x, int y);
+        wint_t (*getch) (void);
+        void   (*print_line) (int x, int y, const char *str);
+        void   (*print_header) (void);
+        void   (*refresh) (int x, int y);
       } API_funcs;
 
-static int  wincon_init (void);
-static void wincon_exit (void);
-static void wincon_set_colour (enum colours colour);
-static int  wincon_gotoxy (int y, int x);
-static int  wincon_clreol (void);
-static int  wincon_clrscr (void);
-static int  wincon_refresh (int y, int x);
-static int  wincon_print_line (int y, int x, const char *str);
-static void wincon_print_header (void);
+static bool   wincon_init (void);
+static void   wincon_exit (void);
+static void   wincon_set_colour (enum colours colour);
+static void   wincon_set_cursor (bool enable);
+static void   wincon_gotoxy (int x, int y);
+static wint_t wincon_getch (void);
+static void   wincon_clreol (void);
+static void   wincon_clrscr (void);
+static void   wincon_refresh (int x, int y);
+static void   wincon_print_header (void);
+static void   wincon_print_line (int x, int y, const char *str);
 
-static CONSOLE_SCREEN_BUFFER_INFO  console_info;
-static HANDLE                      console_hnd = INVALID_HANDLE_VALUE;
-static DWORD                       console_mode = 0;
+static CONSOLE_SCREEN_BUFFER_INFO  con_info_out;
+static CONSOLE_SCREEN_BUFFER_INFO  con_info_in;
 static colour_mapping              colour_map [COLOUR_MAX];
 
-static int  curses_init (void);
-static void curses_exit (void);
-static void curses_set_colour (enum colours colour);
-static void curses_print_header (void);
-static int  curses_refresh (int y, int x);
-
-/* Or use CreatePseudoConsole() instead?
- * https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session
- */
-static WINDOW *stats_win  = NULL;
-static WINDOW *flight_win = NULL;
-
-static API_funcs curses_api = {
-       .init         = curses_init,
-       .exit         = curses_exit,
-       .set_colour   = curses_set_colour,
-       .clr_scr      = clear,
-       .clr_eol      = clrtoeol,
-       .gotoxy       = move,
-       .refresh      = curses_refresh,
-       .print_line   = mvaddstr,
-       .print_header = curses_print_header
-      };
-
-static API_funcs wincon_api = {
-       .init         = wincon_init,
-       .exit         = wincon_exit,
-       .set_colour   = wincon_set_colour,
-       .clr_scr      = wincon_clrscr,
-       .clr_eol      = wincon_clreol,
-       .gotoxy       = wincon_gotoxy,
-       .refresh      = wincon_refresh,
-       .print_line   = wincon_print_line,
-       .print_header = wincon_print_header,
-     };
-
-/* Show the "DEP  DST" columns if we have a good `Modes.airport_db` file.
- */
-static bool show_dep_dst = false;
-
-/* Use this header and `snprintf()` format for both `show_dep_dst == false` and `show_dep_dst == true`.
- */
-#define HEADER    "ICAO   Callsign  Reg-num  Cntry  %sAltitude  Speed   Lat      Long    Hdg   Dist  Msg  Seen %c"
-//                                                  |__ == "DEP  DST  " -- if 'show_dep_dst == true'
-
-#define LINE_FMT  "%06X %-9.9s %-8s %-5.5s  %s%-5s   %-5s %-7s %-8s %4.4s  %5.5s %5u %3llu s "
-//                 |    |      |    |       | |      |    |    |    |      |     |   |__ ms_diff / 1000
-//                 |    |      |    |       | |      |    |    |    |      |     |__ a->messages
-//                 |    |      |    |       | |      |    |    |    |      |__ distance_buf
-//                 |    |      |    |       | |      |    |    |    |__ heading_buf
-//                 |    |      |    |       | |      |    |    |__ lon_buf
-//                 |    |      |    |       | |      |    |__ lat_buf
-//                 |    |      |    |       | |      |__ speed_buf
-//                 |    |      |    |       | |__ alt_buf
-//                 |    |      |    |       |__ dep_dst_buf
-//                 |    |      |    |___ cc_short
-//                 |    |      |____ reg_num
-//                 |    |__ call_sign
-//                 |__ a->addr
-
-#define DEP_DST_COLUMNS "DEP  DEST  "
+static HANDLE  con_in  = INVALID_HANDLE_VALUE;
+static HANDLE  con_out = INVALID_HANDLE_VALUE;
+static DWORD   con_in_mode,  con_in_new_mode;
+static DWORD   con_out_mode, con_out_new_mode;
+static bool    vt_out_supported, vt_in_supported, test_mode;
+static int     x_scale, y_scale;
+static HWND    con_wnd;
+static FILE   *out;
+static int     spin_idx = 0;
+static char    spinner[] = "|/-\\";
 
 /*
  * List of API function for the TUI (text user interface).
  */
 static API_funcs *api = NULL;
+
+/*
+ * Or use CreatePseudoConsole() instead?
+ *   https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session
+ */
+static WINDOW *stats_win  = NULL;
+static WINDOW *flight_win = NULL;
+
+static bool   curses_init (void);
+static void   curses_exit (void);
+static void   curses_set_colour (enum colours colour);
+static void   curses_set_cursor (bool enable);
+static void   curses_gotoxy (int x, int y);
+static wint_t curses_getch (void);
+static void   curses_refresh (int x, int y);
+static void   curses_print_header (void);
+static void   curses_print_line (int x, int y, const char *str);
+static bool   interactive_test_loop (void);
+static bool   mouse_pos (HWND wnd, POINT *pos);
+static bool   mouse_lclick (void);
+
+static API_funcs curses_api = {
+      .init         = curses_init,
+      .exit         = curses_exit,
+      .set_colour   = curses_set_colour,
+      .set_cursor   = curses_set_cursor,
+      .clr_scr      = (void (*)(void)) clear,
+      .clr_eol      = (void (*)(void)) clrtoeol,
+      .gotoxy       = curses_gotoxy,
+      .getch        = curses_getch,
+      .print_line   = curses_print_line,
+      .print_header = curses_print_header,
+      .refresh      = curses_refresh
+     };
+
+static API_funcs wincon_api = {
+      .init         = wincon_init,
+      .exit         = wincon_exit,
+      .set_colour   = wincon_set_colour,
+      .set_cursor   = wincon_set_cursor,
+      .clr_scr      = wincon_clrscr,
+      .clr_eol      = wincon_clreol,
+      .gotoxy       = wincon_gotoxy,
+      .getch        = wincon_getch,
+      .print_line   = wincon_print_line,
+      .print_header = wincon_print_header,
+      .refresh      = wincon_refresh
+    };
+
+/*
+ * Show the "DEP  DST" columns if we have a good `Modes.airport_db` file.
+ */
+static bool show_dep_dst = false;
+
+/*
+ * Use this header and `snprintf()` format for both `show_dep_dst == [false | true]`.
+ */
+#define HEADER    "ICAO   Callsign  Reg-num  Cntry  %sAltitude  Speed   Lat      Long    Hdg   Dist   Msg Seen %c"
+//                                                  |__ == "DEP  DST  " -- if 'show_dep_dst == true'
+
+/*
+ * Use this format for `show_dep_dst == false`.
+ */
+#define LINE_FMT1  "%06X %-9.9s %-8s %-5.5s     %-5s   %-5s %-7s %-8s %4.4s  %5.5s %5u %3llu s "
+//                  |    |      |    |          |      |    |    |    |      |     |   |__ ms_diff / 1000
+//                  |    |      |    |          |      |    |    |    |      |     |__ a->messages
+//                  |    |      |    |          |      |    |    |    |      |__ distance_buf
+//                  |    |      |    |          |      |    |    |    |__ heading_buf
+//                  |    |      |    |          |      |    |    |__ lon_buf
+//                  |    |      |    |          |      |    |__ lat_buf
+//                  |    |      |    |          |      |__ speed_buf
+//                  |    |      |    |          |__ alt_buf
+//                  |    |      |    |___ cc_short
+//                  |    |      |____ reg_num
+//                  |    |__ call_sign
+//                  |__ a->addr
+
+/*
+ * Use these formats for `show_dep_dst == true`.
+ */
+#define LINE_FMT2_1  "%06X %-9.9s %-8s %-5.5s  %-20s"
+//                    |    |      |    |       |
+//                    |    |      |    |       |
+//                    |    |      |    |       |
+//                    |    |      |    |       |
+//                    |    |      |    |       |
+//                    |    |      |    |       |
+//                    |    |      |    |       |
+//                    |    |      |    |       |
+//                    |    |      |    |       |___ dep_dst_buf
+//                    |    |      |    |___ cc_short
+//                    |    |      |____ reg_num
+//                    |    |__ call_sign
+//                    |__ a->addr
+
+#define LINE_FMT2_2  "%-5s   %-5s %-7s %-8s %4.4s  %5.5s %5u %3llu s "
+//                    |      |    |    |    |      |     |   |__ ms_diff / 1000
+//                    |      |    |    |    |      |     |__ a->messages
+//                    |      |    |    |    |      |__ distance_buf
+//                    |      |    |    |    |__ heading_buf
+//                    |      |    |    |__ lon_buf
+//                    |      |    |__ lat_buf
+//                    |      |__ speed_buf
+//                    |__ alt_buf
+
+#define DEP_DST_COLUMNS  "DEP  DEST  "
+
+#ifndef STDOUT_FILENO
+#define STDOUT_FILENO 1
+#endif
+
+static const char *headers[] = {
+                  "ICAO   ",  "Callsign  ", "Reg-num  ", "Cntry  ",
+                  "DEP  DST   ", "Altitude  ", "Speed ",
+                  "  Lat    ", "  Long   ", " Hdg  ", " Dist   ",
+                  "Msg ", "Seen "
+                };
+
+static void curses_hilight_header (int x, int field)
+{
+  curses_set_colour (COLOUR_HEADER);
+  mvaddstr (0, x, headers[field]);
+  curses_set_colour (0);
+}
+
+/**
+ * Print a `header' field in highlighted background or underline colour
+ * when mouse is hovering on a header field or clicked.
+ */
+static void wincon_hilight_header (int x, int field)
+{
+  const char *bright = "\x1B[1;37;4;40m";
+  char        buf [50];
+  int         len;
+
+  wincon_gotoxy (x, 0);
+  len = snprintf (buf, sizeof(buf), "%s%s\x1B[m", bright, headers[field]);
+  WriteConsoleA (con_out, buf, len, NULL, NULL);
+}
+
+static a_sort_t field_to_sort [DIM(headers)] = {
+       INTERACTIVE_SORT_ICAO,
+       INTERACTIVE_SORT_CALLSIGN,
+       INTERACTIVE_SORT_REGNUM,
+       INTERACTIVE_SORT_COUNTRY,
+       INTERACTIVE_SORT_DEP_DEST,   /* not implemented */
+       INTERACTIVE_SORT_ALTITUDE,
+       INTERACTIVE_SORT_SPEED,
+       INTERACTIVE_SORT_DISTANCE,
+       INTERACTIVE_SORT_MESSAGES,
+       INTERACTIVE_SORT_SEEN
+     };
+
+static bool mouse_header_check (const POINT *pos, bool clicked)
+{
+  int field, x, s;
+  static int old_x = -1;
+
+  if (pos->x == -1 || pos->y != 0) /* Mouse not at HEADER */
+     return (false);
+
+  if (pos->x == old_x && !clicked)
+     return (false);
+
+  old_x = pos->x;
+
+  for (field = x = 0; field < DIM(headers); field++)
+  {
+    if (pos->x >= x && pos->x <= strlen(headers[field]) + x)
+    {
+      if (Modes.tui_interface == TUI_CURSES)
+           curses_hilight_header (x, field);
+      else wincon_hilight_header (x, field);
+
+      if (clicked)
+      {
+        s = field_to_sort [field];
+        if (Modes.a_sort == s)     /* toggle ascending/descending sort */
+           s = -s;
+        aircraft_sort (s);
+        LOG_FILEONLY ("field: %d (%s), clicked: 1, Modes.a_sort: %s\n", field, headers[field], aircraft_sort_name(Modes.a_sort));
+      }
+      else
+      {
+        LOG_FILEONLY ("field: %d (%s), clicked: 0\n", field, headers[field]);
+      }
+      return (true);
+    }
+    x += strlen (headers[field]);
+  }
+  return (false);
+}
+
+/**
+ * Common initialiser for both WinCon and Curses.
+ */
+static bool common_init (void)
+{
+  uint32_t num;
+
+  if (airports_num(&num) && num > 0)
+     show_dep_dst = true;
+
+  out = stdout;
+
+  if (_isatty(STDOUT_FILENO) == 0)
+  {
+    if (test_mode)
+       out = stderr;
+    else
+    {
+      LOG_STDERR ("Do not redirect 'stdout' in interactive mode.\n"
+                  "Do '%s [options] 2> file` instead.\n", Modes.who_am_I);
+      return (false);
+    }
+  }
+
+  /* Do `con_out'
+   */
+  con_out = GetStdHandle (STD_OUTPUT_HANDLE);
+  if (con_out != INVALID_HANDLE_VALUE)
+  {
+    CONSOLE_FONT_INFO fi;
+    COORD             xy;
+
+    GetConsoleScreenBufferInfo (con_out, &con_info_out);
+    GetConsoleMode (con_out, &con_out_mode);
+
+    GetCurrentConsoleFont (con_out, FALSE, &fi);
+    xy = GetConsoleFontSize (con_out, fi.nFont);
+    x_scale = xy.X;
+    y_scale = xy.Y;
+
+    con_wnd = GetConsoleWindow();
+
+    con_out_new_mode = con_out_mode & ~(ENABLE_ECHO_INPUT | ENABLE_QUICK_EDIT_MODE);
+    con_out_new_mode |= (ENABLE_EXTENDED_FLAGS |
+                         ENABLE_VIRTUAL_TERMINAL_PROCESSING |
+                         DISABLE_NEWLINE_AUTO_RETURN);
+
+    if (SetConsoleMode(con_out, con_out_new_mode))
+       vt_out_supported = (con_out_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+  }
+
+  /* Do `con_in'
+   */
+  con_in = GetStdHandle (STD_INPUT_HANDLE);
+  if (con_in != INVALID_HANDLE_VALUE)
+  {
+    GetConsoleScreenBufferInfo (con_in, &con_info_in);
+
+    GetConsoleMode (con_in, &con_in_mode);
+
+    con_in_new_mode = con_in_mode & ~(ENABLE_ECHO_INPUT      |
+                                      ENABLE_LINE_INPUT      |
+                                      ENABLE_PROCESSED_INPUT |
+                                   // ENABLE_VIRTUAL_TERMINAL_PROCESSING |
+                                      0);
+
+    /* If Quick Edit is enabled, it will mess with receiving mouse events.
+     * Hence disable it.
+     */
+    con_in_new_mode &= ~ENABLE_QUICK_EDIT_MODE;
+
+    con_in_new_mode |= (
+                     // ENABLE_MOUSE_INPUT     |
+                     // ENABLE_WINDOW_INPUT    |
+                        ENABLE_PROCESSED_INPUT |
+                        ENABLE_AUTO_POSITION   |
+                        ENABLE_EXTENDED_FLAGS  |
+                        ENABLE_VIRTUAL_TERMINAL_INPUT
+                       );
+
+    if (SetConsoleMode(con_in, con_in_new_mode))
+       vt_in_supported = (con_in_new_mode & ENABLE_VIRTUAL_TERMINAL_INPUT);
+  }
+  return (true);
+}
+
+static void common_exit (void)
+{
+  if (con_out != INVALID_HANDLE_VALUE)
+     SetConsoleMode (con_out, con_out_mode);
+
+  if (con_in != INVALID_HANDLE_VALUE)
+     SetConsoleMode (con_in, con_in_mode | ENABLE_EXTENDED_FLAGS);
+
+  con_out = INVALID_HANDLE_VALUE;
+  con_in  = INVALID_HANDLE_VALUE;
+}
 
 /**
  * Do some `assert()` checks first and if Curses interface was
@@ -135,23 +382,52 @@ static API_funcs *api = NULL;
  */
 bool interactive_init (void)
 {
+  bool rc1, rc2;
+
+  test_mode = test_contains (Modes.tests, "console");
+
   assert (api == NULL);
 
-  if (Modes.tui_interface == TUI_CURSES)
+  if (Modes.tui_interface == TUI_CURSES && !test_mode)
        api = &curses_api;
   else api = &wincon_api;
 
-  if (airports_rc() > 0)
-     show_dep_dst = true;
+  rc1 = common_init();
+  rc2 = (*api->init)();
+  (*api->set_cursor) (false);
 
-  return ((*api->init)() == 0);
+  if (test_mode)
+  {
+    fprintf (stderr,
+             "rc1: %d, rc2: %d, TUI: %s, con_in_mode: 0x%08lX, con_out_mode: 0x%08lX\n"
+             "con_info_out: Bottom: %4u, Top: %4u, Right: %4u, Left: %4u\n"
+             "con_info_in:  Bottom: %4u, Top: %4u, Right: %4u, Left: %4u\n"
+             "vt_out_supported: %d, vt_in_supported: %d\n\n",
+             rc1, rc2, Modes.tui_interface == TUI_CURSES ? "Curses" : "WinCon",
+             con_in_mode, con_out_mode,
+             con_info_out.srWindow.Bottom, con_info_out.srWindow.Top,
+             con_info_out.srWindow.Right,  con_info_out.srWindow.Left,
+             con_info_in.srWindow.Bottom,  con_info_in.srWindow.Top,
+             con_info_in.srWindow.Right,   con_info_in.srWindow.Left,
+             vt_out_supported, vt_in_supported);
+
+    con_in_new_mode &= ~ENABLE_MOUSE_INPUT;
+    SetConsoleMode (con_in, con_in_new_mode);
+    return interactive_test_loop();
+  }
+
+  return (rc1 && rc2);
 }
 
 void interactive_exit (void)
 {
   if (api)
+  {
+    (*api->set_cursor) (true);
     (*api->exit)();
+  }
   api = NULL;
+  common_exit();
 }
 
 void interactive_clreol (void)
@@ -229,13 +505,13 @@ void interactive_title_stats (void)
   else if (bad_CRC - last_bad_CRC > 2*(good_CRC - last_good_CRC))
   {
     overload = GAIN_TOO_HIGH;
-    overload_count = 4;     /* let it show for 4 period (1 sec) */
+    overload_count = 4;     /* let it show for 4 periods (1 sec) */
   }
 #if 0
   else if (bad_CRC == last_bad_CRC && good_CRC == last_good_CRC)
   {
     overload = GAIN_TOO_LOW;
-    overload_count = 4;     /* let it show for 4 period (1 sec) */
+    overload_count = 4;     /* let it show for 4 periods (1 sec) */
   }
 #endif
 
@@ -301,6 +577,12 @@ static int gain_increase (int gain_idx)
     sdrplay_set_gain (Modes.sdrplay.device, Modes.gain);
     LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
+  else if (Modes.airspy.device && gain_idx < Modes.airspy.gain_count-1)
+  {
+    Modes.gain = Modes.airspy.gains [++gain_idx];
+    airspy_set_gain (Modes.airspy.device, Modes.gain);
+    LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
+  }
   return (gain_idx);
 }
 
@@ -324,11 +606,17 @@ static int gain_decrease (int gain_idx)
     sdrplay_set_gain (Modes.sdrplay.device, Modes.gain);
     LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
+  else if (Modes.airspy.device && gain_idx > 0)
+  {
+    Modes.gain = Modes.airspy.gains [--gain_idx];
+    airspy_set_gain (Modes.airspy.device, Modes.gain);
+    LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
+  }
   return (gain_idx);
 }
 
 /**
- * Poll for '+/-' keypresses and adjust the RTLSDR / SDRplay gain accordingly.
+ * Poll for '+/-' keypresses and adjust the RTLSDR / SDRplay / AirSpy gain accordingly.
  * But within the min/max gain settings for the device.
  */
 void interactive_update_gain (void)
@@ -346,6 +634,8 @@ void interactive_update_gain (void)
         }
     if (Modes.sdrplay.device)
        gain_idx = Modes.sdrplay.gain_count / 2;
+    else if (Modes.airspy.device)
+       gain_idx = Modes.airspy.gain_count / 2;
   }
 
   if (!_kbhit())
@@ -375,6 +665,11 @@ void interactive_update_gain (void)
     {
       sdrplay_set_gain (Modes.sdrplay.device, 0);
       gain_idx = Modes.sdrplay.gain_count / 2;
+    }
+    else if (Modes.airspy.device)
+    {
+      airspy_set_gain (Modes.airspy.device, 0);
+      gain_idx = Modes.airspy.gain_count / 2;
     }
   }
 
@@ -410,28 +705,32 @@ void interactive_update_gain (void)
  * If `a->show == A_SHOW_FIRST_TIME`, print in GREEN colour.
  * If `a->show == A_SHOW_LAST_TIME`, print in RED colour.
  *
- * \param in a    the aircraft to show.
- * \param in now  the currect tick-timer in milli-seconds.
+ * \param in a        the aircraft to show.
+ * \param in row      the row to print the line at; `[1 .. Modes.interactive_rows]'.
+ * \param in mouse    the X/Y position of the mouse.
+ * \param in now      the currect tick-timer in milli-seconds.
  */
-static void show_one_aircraft (aircraft *a, int row, uint64_t now)
+static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_t now)
 {
-  int   altitude, speed;
-  char  alt_buf [10]      = "  - ";
-  char  lat_buf [10]      = "   - ";
-  char  lon_buf [10]      = "    - ";
-  char  speed_buf [8]     = " - ";
-  char  heading_buf [8]   = " - ";
-  char  distance_buf [10] = " - ";
-  char  dep_buf [30]      = " -";
-  char  dst_buf [30]      = " -";
-  char  dep_dst_buf [20]  = "  ";
-  char  line_buf [120];
-  bool  restore_colour    = false;
-  const char *reg_num     = "  -";
-  const char *call_sign   = "  -";
-  const char *km_nmiles   = NULL;
-  const char *cc_short;
-  int64_t     ms_diff;
+  int     altitude, speed;
+  char    alt_buf [10]      = "  - ";
+  char    lat_buf [10]      = "   - ";
+  char    lon_buf [10]      = "    - ";
+  char    speed_buf [8]     = " - ";
+  char    heading_buf [8]   = " - ";
+  char    distance_buf [10] = " - ";
+  char    dep_buf [30]      = " -";
+  char    dst_buf [30]      = " -";
+  char    dep_dst_buf [30]  = "";
+  char    line_buf [120];
+  bool    restore_colour    = false;
+  const   char *reg_num     = "  -";
+  const   char *call_sign   = "  -";
+  const   char *km_nmiles   = NULL;
+  const   char *cc_short;
+  int64_t       ms_diff;
+  int           min_x1, min_x2;  /* mouse hit-test */
+  int           max_x1, max_x2 = strlen ("ICAO   Callsign  Reg-num  Cntry  DEP  DEST");
 
   /* Convert units to metric if option `--metric` was used.
    */
@@ -452,7 +751,9 @@ static void show_one_aircraft (aircraft *a, int row, uint64_t now)
   }
   else if (a->AC_flags & MODES_ACFLAGS_ALTITUDE_VALID)
   {
-    snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
+    if (altitude < 0)
+         strcpy (alt_buf, " Grnd");
+    else snprintf (alt_buf, sizeof(alt_buf), "%5d", altitude);
   }
 
   if (a->position.lat != 0.0)
@@ -488,10 +789,10 @@ static void show_one_aircraft (aircraft *a, int row, uint64_t now)
   if (a->call_sign[0])
      call_sign = a->call_sign;
 
-  /* If it's valid plane and not a helicopter, post a ADSB-LOL API request for the flight-info.
-   * Or return already cached flight-info.
+  /* If it's valid plane and not a helicopter, post a ADSB-LOL API
+   * request for the flight-info. Or return already cached flight-info.
    */
-  if (!a->is_helicopter && call_sign[0] != ' ')
+  if (show_dep_dst && !a->is_helicopter && call_sign[0] != ' ')
   {
     const char *departure, *destination;
 
@@ -508,6 +809,29 @@ static void show_one_aircraft (aircraft *a, int row, uint64_t now)
     {
       strcpy (dep_buf, " ?");
       strcpy (dst_buf, " ?");
+    }
+
+    if (mouse->y == row)    /* mouse-Y at correct line */
+    {
+      min_x1 = strlen ("ICAO   Callsign  Reg-num  Cntry  ");
+      min_x2 = strlen ("ICAO   Callsign  Reg-num  Cntry  DEP ");
+      max_x1 = min_x2;
+
+      if (departure && mouse->x >= min_x1 && mouse->x <= max_x1)
+      {
+        /* show full name for DEP only
+         */
+        snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%ws",
+                  u8_format(airport_find_location(dep_buf), 0));
+      }
+      else if (destination && mouse->x >= min_x2 && mouse->x <= max_x2)
+      {
+        /* show short name for DEP and full name for DEST
+         */
+        snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%-4.4s %ws",
+                  dep_buf, u8_format(airport_find_location(dst_buf), 0));
+        alt_buf[0] = '\0';    /* do not print Altitude now */
+      }
     }
   }
 
@@ -549,13 +873,30 @@ static void show_one_aircraft (aircraft *a, int row, uint64_t now)
      cc_short = "--";
 
   if (show_dep_dst)
-     snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%-4.4s %-4.4s     ", dep_buf, dst_buf);
+  {
+    if (!dep_dst_buf[0])
+       snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%-4.4s %-4.4s", dep_buf, dst_buf);
 
-  snprintf (line_buf, sizeof(line_buf), LINE_FMT,
-            a->addr, call_sign, reg_num, cc_short, dep_dst_buf, alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
-            distance_buf, a->messages, ms_diff / 1000);
+    snprintf (line_buf, sizeof(line_buf), LINE_FMT2_1,
+              a->addr, call_sign, reg_num, cc_short, dep_dst_buf);
 
-  (*api->print_line) (row, 0, line_buf);
+    (*api->print_line) (0, row, line_buf);
+
+    snprintf (line_buf, sizeof(line_buf), LINE_FMT2_2,
+              alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
+              distance_buf, a->messages, ms_diff / 1000);
+
+    (*api->print_line) (max_x2 + 5, row, line_buf);
+  }
+  else
+  {
+    snprintf (line_buf, sizeof(line_buf), LINE_FMT1,
+              a->addr, call_sign, reg_num, cc_short,
+              alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
+              distance_buf, a->messages, ms_diff / 1000);
+
+    (*api->print_line) (0, row, line_buf);
+  }
 
   if (restore_colour)
      (*api->set_colour) (0);
@@ -569,9 +910,12 @@ static void show_one_aircraft (aircraft *a, int row, uint64_t now)
 void interactive_show_data (uint64_t now)
 {
   static int old_count = -1;
-  int        row = 1, count = 0;
+  int        row = 1;     /* HEADER at line 0, 1st aircraft at line 1 */
+  int        count = 0;
   int        i, max;
+  POINT      pos = { -1, -1 };
   bool       clear_screen = (Modes.raw == 0 ? true : false);
+  bool       rc = false;
 
   /* Unless `--raw` mode is active, clear the screen to remove old info.
    * But only if current number of aircrafts is less than last time.
@@ -580,31 +924,32 @@ void interactive_show_data (uint64_t now)
   if (clear_screen)
   {
     if (old_count == -1 || aircraft_numbers_valid() < old_count)
-       (*api->clr_scr)();
+    {
+      (*api->clr_scr)();
+      (*api->set_cursor) (false);   /* Need to hide the cursor again! */
+    }
     (*api->gotoxy) (0, 0);
 
-    if (Modes.a_sort != INTERACTIVE_SORT_NONE)
-    {
-      int max1 = aircraft_sort();
-      int max2 = smartlist_len (Modes.aircrafts);
-      assert (max1 == max2);
-    }
+    aircraft_sort (Modes.a_sort);
   }
 
-  (*api->print_header)();
+  mouse_pos (con_wnd, &pos);
+//rc = mouse_header_check (&pos, mouse_lclick());
+  if (!rc)
+     (*api->print_header)();
 
   max = smartlist_len (Modes.aircrafts);
-  for (i = count = 0; i < max && count < Modes.interactive_rows && !Modes.exit; i++)
+  for (i = count = 0; i < max && row < Modes.interactive_rows && !Modes.exit; i++)
   {
     aircraft *a = smartlist_get (Modes.aircrafts, i);
 
-    if (!aircraft_valid(a))    /* ignore these. "Mode A/C"? */
+    if (!aircraft_valid(a))    /* Ignore these. "Mode A/C"? */
        continue;
 
     if (a->show != A_SHOW_NONE)
     {
       aircraft_set_est_home_distance (a, now);
-      show_one_aircraft (a, row, now);
+      show_one_aircraft (a, row, &pos, now);
       row++;
     }
 
@@ -618,7 +963,7 @@ void interactive_show_data (uint64_t now)
     count++;
   }
 
-  (*api->refresh) (row, 0);
+  (*api->refresh) (0, row);
 
   old_count = count;
 }
@@ -626,129 +971,131 @@ void interactive_show_data (uint64_t now)
 /**
  * "Windows Console" API functions
  */
-static int wincon_init (void)
+static bool wincon_init (void)
 {
-  console_hnd = GetStdHandle (STD_OUTPUT_HANDLE);
-  if (console_hnd == INVALID_HANDLE_VALUE)
-     return (-1);
+  WORD bg = con_info_out.wAttributes & ~7;
 
-  if (_isatty(1) == 0)
-  {
-    LOG_STDERR ("Do not redirect 'stdout' in interactive mode.\n"
-                "Do '%s [options] 2> file` instead.\n", Modes.who_am_I);
-    return (-1);
-  }
+  Modes.interactive_rows = con_info_out.srWindow.Bottom - con_info_out.srWindow.Top - 1;
 
-  GetConsoleScreenBufferInfo (console_hnd, &console_info);
-  GetConsoleMode (console_hnd, &console_mode);
-  if (console_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING)
-     SetConsoleMode (console_hnd, console_mode | DISABLE_NEWLINE_AUTO_RETURN);
-
-  DWORD new_mode = console_mode & ~(ENABLE_ECHO_INPUT | ENABLE_QUICK_EDIT_MODE | ENABLE_MOUSE_INPUT);
-  SetConsoleMode (console_hnd, new_mode);
-
-  Modes.interactive_rows  = console_info.srWindow.Bottom - console_info.srWindow.Top - 1;
-
-  WORD bg = console_info.wAttributes & ~7;
-
-  colour_map [COLOUR_DEFAULT].attrib = console_info.wAttributes;  /* default colour */
+  colour_map [COLOUR_DEFAULT].attrib = con_info_out.wAttributes;  /* default colour */
   colour_map [COLOUR_WHITE  ].attrib = (bg | 15);                 /* bright white */
   colour_map [COLOUR_GREEN  ].attrib = (bg | 10);                 /* bright green */
   colour_map [COLOUR_RED    ].attrib = (bg | 12);                 /* bright red */
   colour_map [COLOUR_YELLOW ].attrib = (bg | 14);                 /* bright yellow */
   colour_map [COLOUR_REVERSE].attrib = 9 + (7 << 4);              /* bright blue on white */
-  return (0);
+  return (true);
 }
 
 static void wincon_exit (void)
 {
-  wincon_gotoxy (Modes.interactive_rows-1, 0);
+  if (!test_mode)
+     wincon_gotoxy (0, Modes.interactive_rows-1);
   wincon_set_colour (0);
-  if (console_hnd != INVALID_HANDLE_VALUE)
-     SetConsoleMode (console_hnd, console_mode);
-  console_hnd = INVALID_HANDLE_VALUE;
 }
 
-static int wincon_gotoxy (int y, int x)
+static wint_t wincon_getch (void)
+{
+  if (!_kbhit())
+     return (0);
+  return (wint_t) _getch();
+}
+
+static void wincon_gotoxy (int x, int y)
 {
   COORD coord;
 
-  if (console_hnd == INVALID_HANDLE_VALUE)
-     return (-1);
+  if (con_out == INVALID_HANDLE_VALUE)
+     return;
 
-  coord.X = x + console_info.srWindow.Left;
-  coord.Y = y + console_info.srWindow.Top;
-  SetConsoleCursorPosition (console_hnd, coord);
-  return (0);
+  coord.X = x + con_info_out.srWindow.Left;
+  coord.Y = y + con_info_out.srWindow.Top;
+  SetConsoleCursorPosition (con_out, coord);
 }
 
-static int wincon_clrscr (void)
+static void wincon_clrscr (void)
 {
-  WORD width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
-  WORD y = console_info.srWindow.Top;
+  WORD width = con_info_out.srWindow.Right - con_info_out.srWindow.Left + 1;
+  WORD y     = con_info_out.srWindow.Top;
 
-  while (y <= console_info.srWindow.Bottom)
+  while (y <= con_info_out.srWindow.Bottom)
   {
     DWORD written;
-    COORD coord = { console_info.srWindow.Left, y++ };
+    COORD coord = { con_info_out.srWindow.Left, y++ };
 
-    FillConsoleOutputCharacter (console_hnd, ' ', width, coord, &written);
-    FillConsoleOutputAttribute (console_hnd, console_info.wAttributes, width, coord, &written);
+    FillConsoleOutputCharacter (con_out, ' ', width, coord, &written);
+    FillConsoleOutputAttribute (con_out, con_info_out.wAttributes, width, coord, &written);
   }
-  return (0);
 }
 
 /*
  * Fill the current line with spaces and put the cursor back at position 0.
  */
-static int wincon_clreol (void)
+static void wincon_clreol (void)
 {
 #if 0
-  if (console_hnd != INVALID_HANDLE_VALUE)
+  if (con_out != INVALID_HANDLE_VALUE)
   {
-    WORD   width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
-    char *filler = alloca (width+1);
+    WORD   width = con_info_out.srWindow.Right - con_info_out.srWindow.Left + 1;
+    char *filler = alloca (width + 1);
 
-    memset (filler, ' ', width-3);
+    memset (filler, ' ', width - 3);
     filler [width-2] = '\r';
     filler [width-1] = '\0';
     fputs (filler, stdout);
   }
 #endif
-  return (0);
 }
 
 static void wincon_set_colour (enum colours colour)
 {
   assert (colour >= 0);
   assert (colour < COLOUR_MAX);
-  if (console_hnd != INVALID_HANDLE_VALUE)
-     SetConsoleTextAttribute (console_hnd, (WORD)colour_map [colour].attrib);
+  if (con_out != INVALID_HANDLE_VALUE)
+     SetConsoleTextAttribute (con_out, (WORD)colour_map [colour].attrib);
 }
 
-static int wincon_refresh (int y, int x)
+static void wincon_set_cursor (bool enable)
+{
+  CONSOLE_CURSOR_INFO ci;
+  static int orig_size = -1;
+
+  if (test_mode || con_out == INVALID_HANDLE_VALUE)
+     return;
+
+  GetConsoleCursorInfo (con_out, &ci);
+  if (orig_size == -1)
+     orig_size = ci.dwSize;
+
+  if (enable)
+  {
+    ci.bVisible = TRUE;
+    ci.dwSize   = orig_size;
+  }
+  else
+  {
+    ci.bVisible = FALSE;
+    ci.dwSize   = 1;       /* smallest value allowed, but ignored */
+  }
+  SetConsoleCursorInfo (con_out, &ci);
+}
+
+static void wincon_refresh (int x, int y)
 {
   /* Nothing to do here */
   (void) x;
   (void) y;
-  return (0);
 }
 
-static int wincon_print_line (int y, int x, const char *str)
+static void wincon_print_line (int x, int y, const char *str)
 {
+  wincon_gotoxy (x, y);
   puts (str);
-  (void) x;    /* Cursor already set */
-  (void) y;
-  return (0);
 }
-
-static int  spin_idx = 0;
-static char spinner[] = "|/-\\";
 
 static void wincon_print_header (void)
 {
   wincon_set_colour (COLOUR_REVERSE);
-  printf (HEADER, show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
+  printf (HEADER "\n", show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
   wincon_set_colour (0);
   spin_idx++;
 }
@@ -756,7 +1103,7 @@ static void wincon_print_header (void)
 /**
  * PDCurses API functions
  */
-static int curses_init (void)
+static bool curses_init (void)
 {
   bool slk_ok = (slk_init(1) == OK);
 
@@ -775,19 +1122,26 @@ static int curses_init (void)
 
   Modes.interactive_rows = getmaxy (stdscr);
   if (Modes.interactive_rows == 0)
-     return (-1);
+  {
+    LOG_STDERR ("getmaxy (stdscr) return 0!\n");
+    return (false);
+  }
 
   if (has_colors())
      start_color();
 
   use_default_colors();
   if (!can_change_color())
-     return (-1);
+  {
+    LOG_STDERR ("can_change_color() failed!\n");
+    return (false);
+  }
 
   init_pair (COLOUR_WHITE,  COLOR_WHITE, COLOR_BLUE);
   init_pair (COLOUR_GREEN,  COLOR_GREEN, COLOR_BLUE);
   init_pair (COLOUR_RED,    COLOR_RED,   COLOR_BLUE);
   init_pair (COLOUR_YELLOW, COLOR_YELLOW, COLOR_GREEN);
+  init_pair (COLOUR_HEADER, 254, 254);  /* for curses_hilight_header() */
 
   colour_map [COLOUR_DEFAULT].pair   = 0;
   colour_map [COLOUR_DEFAULT].attrib = A_NORMAL;
@@ -808,9 +1162,11 @@ static int curses_init (void)
   colour_map [COLOUR_REVERSE].attrib = A_REVERSE | COLOR_BLUE;
 
   noecho();
-  curs_set (0);
   mousemask (0, NULL);
-  clear();
+
+  if (!test_mode)
+     clear();
+
   refresh();
 
 #if 0   // \todo
@@ -823,7 +1179,7 @@ static int curses_init (void)
   LOG_FILEONLY ("flight_win: %p, SP->lines: %u, SP->cols: %u\n", flight_win, SP->lines, SP->cols);
 #endif
 
-  return (0);
+  return (true);
 }
 
 static void curses_exit (void)
@@ -846,7 +1202,7 @@ static void curses_set_colour (enum colours colour)
   assert (colour < COLOUR_MAX);
 
   pair = colour_map [colour].pair;
-  assert (pair < COLOR_PAIRS);
+  assert (pair < COLOR_PAIRS);  /* == 256 */
 
   attrib = colour_map [colour].attrib;
 
@@ -855,13 +1211,43 @@ static void curses_set_colour (enum colours colour)
   attrset (COLOR_PAIR(pair) | attrib);
 }
 
-static int curses_refresh (int y, int x)
+static void curses_set_cursor (bool enable)
+{
+  if (!test_mode)
+     curs_set (enable ? 1 : 0);
+}
+
+static void curses_refresh (int x, int y)
 {
   wrefresh (stats_win);
   move (y, x);
 //clrtobot();
   refresh();
-  return (0);
+}
+
+static void curses_gotoxy (int x, int y)
+{
+  move (y, x);
+}
+
+static wint_t curses_getch (void)
+{
+  wint_t c;
+
+#if defined (PDC_WIDE) || defined( PDC_FORCE_UTF8)
+  get_wch (&c);
+#else
+  c = getch();
+#endif
+
+  if (c == KEY_MOUSE)
+     c = 0;
+  return (wint_t) c;
+}
+
+static void curses_print_line (int x, int y, const char *str)
+{
+  mvaddstr (y, x, str);
 }
 
 static void curses_print_header (void)
@@ -870,4 +1256,52 @@ static void curses_print_header (void)
   mvprintw (0, 0, HEADER, show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
   curses_set_colour (0);
   spin_idx++;
+}
+
+static bool mouse_pos (HWND wnd, POINT *pos)
+{
+  pos->x = pos->y = -1;
+
+  if (!con_wnd || !GetCursorPos(pos) || !ScreenToClient(wnd, pos))
+     return (false);
+
+  pos->x /= x_scale;
+  pos->y /= y_scale;
+  return (true);
+}
+
+static bool mouse_lclick (void)
+{
+  return (GetAsyncKeyState(VK_LBUTTON) & 0x8001);
+}
+
+static bool interactive_test_loop (void)
+{
+  while (!Modes.exit)
+  {
+    POINT  pos;
+    wint_t ch;
+    bool   clicked;
+
+    mouse_pos (con_wnd, &pos);
+
+    if (pos.x > -1 && pos.y > -1)
+    {
+      clicked = mouse_lclick();
+      fprintf (out, "pos.x: %ld, pos.y: %ld, %s\r",
+               pos.x, pos.y, clicked ? "clicked" : "       ");
+      mouse_header_check (&pos, clicked);
+    }
+
+    ch = (*api->getch)();
+    if (ch)
+    {
+      fprintf (out, "ch: %d / '%c'               \n", ch, ch);
+      if (ch == 'q')
+         Modes.exit = true;
+    }
+    fflush (out);
+    Sleep (100);
+  }
+  return (false);
 }
