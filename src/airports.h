@@ -24,7 +24,7 @@
 #define AIRPORT_FREQ_CSV  "airport-frequencies.csv"
 
 uint32_t    airports_init (void);
-uint32_t    airports_rc (void);
+uint32_t    airports_num (uint32_t *num);
 void        airports_exit (bool free_airports);
 void        airports_show_stats (void);
 void        airports_background (uint64_t now);

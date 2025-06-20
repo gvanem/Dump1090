@@ -162,6 +162,7 @@ typedef struct airports_priv {
         unsigned          thread_id;      /**< Thread-ID from `_beginthreadex()` */
         bool              do_trace;       /**< Use `API_TRACE()` macro? */
         bool              do_trace_LOL;   /**< or use `API_TRACE_LOL()` macro? */
+        bool              no_db;          /**< Running w/o `Modes.airport_db' */
         bool              init_done;
         bool              test_mode;
         uint32_t          last_rc;
@@ -515,9 +516,16 @@ static bool airports_init_CSV (void)
   g_data.csv_ctx.callback   = CSV_callback;
   g_data.csv_ctx.num_fields = 7;
 
+  if (!Modes.airport_db[0] || !stricmp(Modes.airport_db, "NUL"))
+  {
+    LOG_STDERR ("Running with no `Modes.airport_db'\n");
+    g_data.no_db = true;
+    return (true);
+  }
+
   if (!CSV_open_and_parse_file(&g_data.csv_ctx))
   {
-    LOG_STDERR ("Parsing of \"%s\" failed: %s\n", Modes.airport_db, strerror(errno));
+    LOG_STDERR ("Parsing of \"Modes.airport_db = %s\" failed: %s\n", Modes.airport_db, strerror(errno));
     return (false);
   }
 
@@ -1247,7 +1255,7 @@ static bool airports_init_API (void)
       if (g_data.csv_ctx.state != STATE_EOF &&
           g_data.csv_ctx.state != STATE_NORMAL)
       {
-        LOG_STDERR ("Parsing of \"%s\" failed: %s\n", Modes.airport_cache, strerror(errno));
+        LOG_STDERR ("Parsing of \"Modes.airport_cache = %s\" failed: %s\n", Modes.airport_cache, strerror(errno));
         return (false);
       }
     }
@@ -1264,9 +1272,11 @@ static bool airports_init_API (void)
 
 /**
  * Return ret-val from `airports_init()`
+ * and number of airports
  */
-uint32_t airports_rc (void)
+uint32_t airports_num (uint32_t *num)
 {
+  *num = g_data.ap_stats.CSV_numbers;
   assert (g_data.init_done);
   return (g_data.last_rc);
 }
@@ -1486,7 +1496,7 @@ uint32_t airports_init (void)
    */
 done:
   g_data.init_done = true;
-  g_data.last_rc = rc ? g_data.ap_stats.CSV_numbers : 0;
+  g_data.last_rc = rc ? (g_data.ap_stats.CSV_numbers > 0 || g_data.no_db) : 0;
   return (g_data.last_rc);
 }
 
@@ -2200,7 +2210,9 @@ bool airports_API_get_flight_info (const char  *call_sign,
   if (f->type == AIRPORT_API_LIVE || f->type == AIRPORT_API_CACHED)
   {
     if (!f->done_trace)
-       API_TRACE ("call_sign: '%s', type: %s, '%s' -> '%s'\n", call_sign, type, f->departure, f->destination);
+       API_TRACE ("call_sign: '%s', type: %s, '%s' -> '%s', f: 0x%p, fixed: %d\n",
+                  call_sign, type, f->departure, f->destination, f, fixed);
+
     f->done_trace = true;
     *departure    = f->departure;
     *destination  = f->destination;
