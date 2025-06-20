@@ -320,6 +320,16 @@ static int compare_on_seen (const void **_a, const void **_b)
   return compare_on_icao (_a, _b);
 }
 
+static int compare_on_speed (const void **_a, const void **_b)
+{
+  const aircraft *a = *_a;
+  const aircraft *b = *_b;
+
+  if (a->speed == b->speed)
+     return compare_on_icao (_a, _b);
+  return (a->altitude - b->altitude);
+}
+
 static int compare_on_messages (const void **_a, const void **_b)
 {
   const aircraft *a = *_a;
@@ -338,53 +348,144 @@ static int compare_on_callsign (const void **_a, const void **_b)
   const aircraft *b = *_b;
   const char     *a_p = a->call_sign;
   const char     *b_p = b->call_sign;
+  int   rc;
 
   while (*a_p && isspace(*a_p))
         a_p++;
   while (*b_p && isspace(*b_p))
         b_p++;
 
-  int rc = strcmp (a_p, b_p);
+  rc = strcmp (a_p, b_p);
   if (!*a_p && !*b_p)
      rc = compare_on_icao (_a, _b);
   return (rc);
 }
 
-/**
- * Sort `Modes.aircrafts` list according to `--sort x` option
- */
-int aircraft_sort (void)
+static int compare_on_country (const void **_a, const void **_b)
 {
-  int num = smartlist_len (Modes.aircrafts);
+  const aircraft *a = *_a;
+  const aircraft *b = *_b;
+  const char *a_short = aircraft_get_country (a->addr, true);
+  const char *b_short = aircraft_get_country (b->addr, true);
+  int   rc;
 
-  if (num <= 1)   /* no point */
-     return (num);
+  if (!a_short)
+     a_short = "--";
+  if (!b_short)
+     b_short = "--";
 
-  switch (Modes.a_sort)
+  rc = strcmp (a_short, b_short);
+  if (rc == 0)
+     rc = compare_on_icao (_a, _b);
+  return (rc);
+}
+
+static int compare_on_regnum (const void **_a, const void **_b)
+{
+  const aircraft *a = *_a;
+  const aircraft *b = *_b;
+  const char     *a_reg_num = "-";
+  const char     *b_reg_num = "-";
+  int   rc;
+
+  if (a->SQL && a->SQL->reg_num[0])
+     a_reg_num = a->SQL->reg_num;
+  else if (a->CSV && a->CSV->reg_num[0])
+     a_reg_num = a->CSV->reg_num;
+
+  if (b->SQL && b->SQL->reg_num[0])
+     b_reg_num = b->SQL->reg_num;
+  else if (b->CSV && b->CSV->reg_num[0])
+     b_reg_num = b->CSV->reg_num;
+
+  rc = strcmp (a_reg_num, b_reg_num);
+  if (rc == 0)
+     rc = compare_on_icao (_a, _b);
+  return (rc);
+}
+
+#define ADD_VALUE(v)  { (DWORD)v, #v }
+
+static const search_list sort_names[] = {
+                         ADD_VALUE (INTERACTIVE_SORT_NONE),
+                         ADD_VALUE (INTERACTIVE_SORT_ICAO),
+                         ADD_VALUE (INTERACTIVE_SORT_CALLSIGN),
+                         ADD_VALUE (INTERACTIVE_SORT_REGNUM),
+                         ADD_VALUE (INTERACTIVE_SORT_COUNTRY),
+                         ADD_VALUE (INTERACTIVE_SORT_DEP_DEST),
+                         ADD_VALUE (INTERACTIVE_SORT_ALTITUDE),
+                         ADD_VALUE (INTERACTIVE_SORT_SPEED),
+                         ADD_VALUE (INTERACTIVE_SORT_DISTANCE),
+                         ADD_VALUE (INTERACTIVE_SORT_MESSAGES),
+                         ADD_VALUE (INTERACTIVE_SORT_SEEN)
+                       };
+
+const char *aircraft_sort_name (int s)
+{
+  static char  buf [100];
+  char        *p = buf, *end = p + sizeof(buf);
+  const  char *name = search_list_name (abs(s), sort_names, DIM(sort_names));
+
+  if (name)
+       p += snprintf (p, end - p, "%s", name);
+  else p += snprintf (p, end - p, "%d", s);
+  snprintf (p, end - p, ", %s", s < 0 ? "descending" : "ascending");
+  return (buf);
+}
+
+/**
+ * Sort `Modes.aircrafts` list according to `sort = x` cfg-setting.
+ */
+a_sort_t aircraft_sort (int s)
+{
+  int  num = smartlist_len (Modes.aircrafts);
+  bool reverse = (s < 0);
+
+  if (num <= 1 || s == INTERACTIVE_SORT_NONE)   /* no point */
+     return (Modes.a_sort);
+
+  switch (abs(s))
   {
     case INTERACTIVE_SORT_CALLSIGN:
-         smartlist_sort (Modes.aircrafts, compare_on_callsign);
+         smartlist_sort (Modes.aircrafts, compare_on_callsign, reverse);
+         Modes.a_sort = s;
+         break;
+    case INTERACTIVE_SORT_COUNTRY:
+         smartlist_sort (Modes.aircrafts, compare_on_country, reverse);
+         Modes.a_sort = s;
          break;
     case INTERACTIVE_SORT_ICAO:
-         smartlist_sort (Modes.aircrafts, compare_on_icao);
+         smartlist_sort (Modes.aircrafts, compare_on_icao, reverse);
+         Modes.a_sort = s;
          break;
     case INTERACTIVE_SORT_ALTITUDE:
-         smartlist_sort (Modes.aircrafts, compare_on_altitude);
+         smartlist_sort (Modes.aircrafts, compare_on_altitude, reverse);
+         Modes.a_sort = s;
          break;
     case INTERACTIVE_SORT_DISTANCE:
-         smartlist_sort (Modes.aircrafts, compare_on_distance);
+         smartlist_sort (Modes.aircrafts, compare_on_distance, reverse);
+         Modes.a_sort = s;
+         break;
+    case INTERACTIVE_SORT_REGNUM:
+         smartlist_sort (Modes.aircrafts, compare_on_regnum, reverse);
+         Modes.a_sort = s;
+         break;
+    case INTERACTIVE_SORT_SPEED:
+         smartlist_sort (Modes.aircrafts, compare_on_speed, reverse);
+         Modes.a_sort = s;
          break;
     case INTERACTIVE_SORT_SEEN:
-         smartlist_sort (Modes.aircrafts, compare_on_seen);
+         smartlist_sort (Modes.aircrafts, compare_on_seen, reverse);
+         Modes.a_sort = s;
          break;
     case INTERACTIVE_SORT_MESSAGES:
-         smartlist_sort (Modes.aircrafts, compare_on_messages);
+         smartlist_sort (Modes.aircrafts, compare_on_messages, reverse);
+         Modes.a_sort = s;
          break;
     default:
-         assert (false);
-         break;
+         LOG_FILEONLY ("Unimplemented sort-method '%s'.\n", aircraft_sort_name(s));
   }
-  return smartlist_len (Modes.aircrafts); /* should be the same as 'num' */
+  return (Modes.a_sort);
 }
 
 /**
@@ -406,13 +507,6 @@ bool aircraft_set_sort (const char *arg)
      sort = INTERACTIVE_SORT_MESSAGES;
   else if (!stricmp(arg, "age") || !stricmp(arg, "seen"))
      sort = INTERACTIVE_SORT_SEEN;
-
-#if 0
-\todo
-        INTERACTIVE_SORT_REGNUM
-        INTERACTIVE_SORT_COUNTRY
-        INTERACTIVE_SORT_DEP_DEST
-#endif
   else
   {
     LOG_STDERR ("Illegal 'sort' method '%s'. Use: 'call-sign', 'icao', 'altitude', "

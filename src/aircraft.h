@@ -274,7 +274,8 @@ char       *aircraft_make_json (bool extended_client);
 void        aircraft_remove_stale (uint64_t now);
 void        aircraft_show_stats (void);
 bool        aircraft_set_sort (const char *arg);
-int         aircraft_sort (void);
+a_sort_t    aircraft_sort (int s);
+const char *aircraft_sort_name (int s);
 
 #if defined(USE_BIN_FILES)
   const char *aircraft_get_country2 (uint32_t addr, bool get_short);
