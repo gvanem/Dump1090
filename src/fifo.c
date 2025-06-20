@@ -287,7 +287,9 @@ void fifo_release (mag_buf *buf)
 
 void fifo_stats (void)
 {
-  static uint64_t old_enqueue = 0ULL, old_dequeue = 0ULL, old_full = 0ULL;
+  static uint64_t old_enqueue = 0ULL;
+  static uint64_t old_dequeue = 0ULL;
+  static uint64_t old_full    = 0ULL;
   uint64_t delta_enqueue, delta_dequeue, delta_full;
 
   delta_enqueue = Modes.stat.FIFO_enqueue - old_enqueue;
