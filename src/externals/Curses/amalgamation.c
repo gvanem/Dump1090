@@ -24,6 +24,8 @@
  *   #define PDCDEBUG
  */
 
+#undef PDC_NCMOUSE
+
 #include "addch.c"
 #include "addstr.c"
 #include "attr.c"
