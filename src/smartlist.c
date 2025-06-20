@@ -193,20 +193,24 @@ static UserCmpFunc user_compare;
  * \li > 0 if `b` precedes `a`.
  * \li and 0 if `a` equals `b`.
  *
- * Do it via `__cdecl local_compare()` since the caller's `compare` may
- * be something else.
+ * Do it via `__cdecl compare_ascending()` or `__cdecl compare_descending()`.
  */
-static int __cdecl local_compare (const void *a, const void *b)
+static int __cdecl compare_ascending (const void *a, const void *b)
 {
   return (*user_compare) (a, b);
 }
 
-void smartlist_sort (smartlist_t *sl, smartlist_sort_func compare)
+static int __cdecl compare_descending (const void *a, const void *b)
+{
+  return (*user_compare) (b, a);
+}
+
+void smartlist_sort (smartlist_t *sl, smartlist_sort_func compare, int reverse)
 {
   if (sl->num_used > 0)
   {
     user_compare = (UserCmpFunc) compare;
-    qsort (sl->list, sl->num_used, sizeof(void*), local_compare);
+    qsort (sl->list, sl->num_used, sizeof(void*), reverse ? compare_descending : compare_ascending);
     user_compare = NULL;
   }
 }

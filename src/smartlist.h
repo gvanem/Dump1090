@@ -17,5 +17,5 @@ void         smartlist_free (smartlist_t *sl);
 void        *smartlist_add (smartlist_t *sl, void *element);
 void         smartlist_del (smartlist_t *sl, int idx);
 void         smartlist_wipe (smartlist_t *sl, smartlist_free_func free_fn);
-void         smartlist_sort (smartlist_t *sl, smartlist_sort_func compare);
+void         smartlist_sort (smartlist_t *sl, smartlist_sort_func compare, int reverse);
 
