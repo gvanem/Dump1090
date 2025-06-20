@@ -501,7 +501,7 @@ typedef struct global_data {
         bool          home_pos_ok;                /**< We have a good home position. */
         double        max_dist;                   /**< Absolute maximum decoding distance, in metres */
         double        min_dist;                   /**< Absolute minimum distance for '--only-addr', in metres */
-        a_sort_t      a_sort;                     /**< The column sort method for aircrafts in `--interactive` mode */
+        int           a_sort;                     /**< The column sort method for aircrafts in `--interactive` mode. >= 0 is ascending, < 0 descending */
         const char   *wininet_last_error;         /**< Last error from WinInet API. */
         char         *tests;                      /**< Perform tests specified by pattern. */
         int           tui_interface;              /**< Selected `--tui` interface. */
@@ -510,7 +510,6 @@ typedef struct global_data {
         mg_str        icao_filter;
         bool          icao_invert;
         bool          internal_error;
-        bool          wincon_vt_enable;           /**< Use VT-sequences for WinCon and interactive mode. */
 
         /** For handling a `Modes.aircraft_db` file:
          */
