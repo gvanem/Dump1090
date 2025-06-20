@@ -15,7 +15,6 @@ except ImportError:
 opt        = None
 files_dict = dict()
 my_name    = os.path.basename (__file__)
-PY2        = (sys.version_info.major == 2)
 
 total_in_bytes  = 0
 total_out_bytes = 0
@@ -125,10 +124,7 @@ def generate_array (in_file, out_file, num):
        for n in range(0, len_in):
            if n % 16 == 0:
               out_file.write ("\n  ")
-           if PY2:
-              out.write ("0x%02X," % ord(data_out[n]))
-           else:
-              out_file.write ("0x%02X," % data_out[n])
+           out_file.write ("0x%02X," % data_out[n])
        out_file.write ("0x00\n};\n\n")
   return len_in, len_out
 
@@ -191,7 +187,7 @@ def show_help (error=None):
   -i, --ignore X:     Ignore patterns matching 'X'.
   -m, --minify:       Compress the .js/.css/.html files first (not for Python2).
   -o, --outfile:      File to generate.
-  -r, --recursive:    Walk the sub-directies recursively.
+  -r, --recursive:    Walk the sub-directories recursively.
   -s, --strip Y:      Strip 'Y' from paths.
   -S, --suffix Z:     Suffix 'Z' to public functions.
   -v, --verbose:      Increate verbose-mode. I.e. '-vv' sets level=2.
@@ -221,9 +217,6 @@ if not opt.outfile:
 
 if not opt.spec:
    show_help ("Missing 'spec'")
-
-if PY2:
-   have_minify = False
 
 if opt.minify and not have_minify:
    show_help ("Option '--minify' not available")
