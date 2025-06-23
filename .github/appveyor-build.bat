@@ -84,7 +84,7 @@ if %LOCAL_TEST% == 1 (
 
 %_ECHO% "\e[1;33m--------------------------------------------------------------------------------------------------\e[0m"
 
-if %BUILDER%. == visualc. (
+if %BUILDER%. == MSVC. (
   %_ECHO% "\e[1;33m: Building for MVC/x64:\e[0m"
   make -f Makefile.Windows CC=cl
   exit /b
