@@ -432,7 +432,6 @@ ifeq ($(USE_BIN_FILES),1)
   # Change to suite.
   #
   BIN_DIR = $(realpath $(TEMP))/dump1090/standing-data/results
-  CFLAGS += -Ic:/temp/dump1090/standing-data/results
 
   ../blocks_test.exe: $(OBJ_DIR)/gen-code-blocks.obj
 	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
@@ -445,6 +444,7 @@ ifeq ($(USE_BIN_FILES),1)
   $(BIN_DIR)/code-blocks.bin: ../tools/gen_data.py | $(OBJ_DIR)
 	$(call green_msg, Generating $(BRIGHT_WHITE)$@)
 	$< $(gen_data_arg) --gen-c $(OBJ_DIR)/gen-code-blocks.c
+	cp --update $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
 endif
 
 ../sqlite3.exe: $(OBJ_DIR)/sqlite3.obj $(OBJ_DIR)/sqlite3-shell.obj
