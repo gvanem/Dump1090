@@ -1,6 +1,7 @@
 # Dump1090
 
 [![MSBuild](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml/badge.svg?branch=main)](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml)
+[![AppVeyor](https://ci.appveyor.com/api/projects/status/github/gvanem/Dump1090?branch=main&svg=true)](https://ci.appveyor.com/project/gvanem/Dump1090)
 
 A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<nl>
 It requires a RTL-SDR USB-stick (the **librtlsdr** interface is **[built-in](src/externals/rtl-sdr/)**).
