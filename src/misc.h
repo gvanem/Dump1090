@@ -406,6 +406,7 @@ typedef struct global_data {
         uint64_t            max_frames;               /**< How many frames in a sample-buffer to process (for testing SDRPlay). */
         bool                no_stats;                 /**< Set to `true` in case no point showing statistics. */
         bool                mode_AC;                  /**< Enable decoding of SSR Modes A & C. */
+        bool                under_appveyor;           /**< true if running on AppVeyor CI testing */
         uint32_t            a_follow;                 /**< Follow and log details of this aircraft. For debugging. */
 
         /** Common stuff for RTLSDR and SDRplay:
@@ -766,6 +767,7 @@ void background_tasks (void);
  * Functions in `misc.c'
  */
 bool        init_misc (void);
+const char *get_user_name (void);
 bool        str_startswith (const char *s1, const char *s2);
 bool        str_endswith (const char *s1, const char *s2);
 char       *str_ltrim (char *s);

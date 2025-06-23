@@ -1163,11 +1163,27 @@ static void init_timings (void)
 //SetConsoleCtrlHandler (console_handler, TRUE);
 }
 
+/**
+ * Return name of logged-in user.
+ */
+const char *get_user_name (void)
+{
+  static char user [100] = { "?" };
+  ULONG       ulen = sizeof(user);
+
+  if (user[0] != '?')
+     return (user);
+  GetUserName (user, &ulen);
+  return (user);
+}
+
 bool init_misc (void)
 {
   init_timings();
   if (test_contains(Modes.tests, "misc"))
      test_asprintf();
+
+  Modes.under_appveyor = (!stricmp(get_user_name(), "appveyor"));
   return (true);
 }
 
@@ -1770,6 +1786,7 @@ void show_version_info (bool verbose)
 
   if (verbose)
   {
+    printf ("User-name:    %s\n", get_user_name());
     printf ("Miniz ver:    %-7s from https://github.com/kuba--/zip\n", mz_version());
     printf ("Mongoose ver: %-7s from https://github.com/cesanta/mongoose\n", MG_VERSION);
     printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s\n",
