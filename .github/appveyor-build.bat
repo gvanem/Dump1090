@@ -33,8 +33,6 @@ if %APPVEYOR_PROJECT_NAME%. == . (
 set CI_ROOT=%APPVEYOR_BUILD_FOLDER%\CI-temp
 md %CI_ROOT% 2> NUL
 
-%_ECHO% "\n\e[1;33mBuilding for 'BUILDER=%BUILDER%'.\e[0m"
-
 ::
 :: Sanity check:
 ::
@@ -66,11 +64,18 @@ if %BUILDER%. == MSVC. (
 )
 
 ::
-:: Need to do 'call :install_CLANG' here to set the PATH for 'clang-cl.exe'!
+:: Need to do 'call :install_clang' here to set the PATH for 'clang-cl.exe'!
 ::
 if %BUILDER%. == clang. (
   cd ..
   call :install_clang
+
+  %_ECHO% "\e[1;33mdir 'c:\Program Files\LLVM\bin':\e[0m"
+  dir "c:\Program Files\LLVM\bin\"
+
+  %_ECHO% "\e[1;33mclang-cl -v:\e[0m"
+  c:\Program Files\LLVM\bin\clang-cl -v
+
   cd src
   %_ECHO% "\e[1;33mBuilding for clang-cl/x64:\e[0m"
   make -f Makefile.Windows CC=clang-cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 clean all
@@ -91,8 +96,6 @@ exit /b 1
   %_ECHO% "\e[1;33mInstalling 64-bit LLVM to 'c:\Program Files\LLVM' ...\e[0m"
   start /wait %CI_ROOT%\LLVM-win64.exe /S
 
-  dir "c:\Program Files\LLVM\bin\"
-  c:\Program Files\LLVM\bin\clang-cl -v
   %_ECHO% "\e[1;33mDone\n--------------------------------------------------------\e[0m"
   exit /b
 
