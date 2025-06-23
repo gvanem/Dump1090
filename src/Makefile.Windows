@@ -290,6 +290,12 @@ SOURCES += $(addprefix externals/, \
              zip.c                 \
              Curses/amalgamation.c)
 
+# vpath %.c  externals/AirSpy
+# SOURCES += externals/AirSpy/airspy.c
+
+# vpath %.c  externals/SDRPlay
+# SOURCES += externals/SDRPlay/sdrplay.c
+
 vpath %.c externals/rtl-sdr
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
@@ -358,32 +364,43 @@ PACKED_TEST_OBJ = $(call c_to_obj, $(PACKED_TEST_SRC))
 #
 TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
 
-ifeq ($(CC),clang-cl)
-  _CC = $(realpath $(CLANG_$(BITS)))/bin/clang-cl.exe
+#
+# If building on AppVeyor
+#
+ifneq ($(APPVEYOR_PROJECT_NAME),)
+ _CC = $(CC)
+
+ WindowsSdkDir =
+ WindowsSdkVer =
+
 else
-  _CC = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/cl.exe
+  ifeq ($(CC),clang-cl)
+    _CC = $(realpath $(CLANG_$(BITS)))/bin/clang-cl.exe
+  else
+    _CC = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/cl.exe
+  endif
+
+  #
+  # The path for the CRT libraries.
+  #
+  LDFLAGS += -libpath:$(TOOLS_ROOT)/lib/$(CPU)
+
+  #
+  # The path for the "Windows Kit" libraries.
+  #
+  # E.g. the User-Mode libraries for 'x86' are in:
+  #   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/x86/
+  #
+  LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/um/$(CPU)
+
+  #
+  # The path for the "Universal CRT" (UCRT) libraries.
+  #
+  # E.g. the UCRT libraries for 'x86' are in:
+  #   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/x86/
+  #
+  LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/ucrt/$(CPU)
 endif
-
-#
-# The path for the CRT libraries.
-#
-LDFLAGS += -libpath:$(TOOLS_ROOT)/lib/$(CPU)
-
-#
-# The path for the "Windows Kit" libraries.
-#
-# E.g. the User-Mode libraries for 'x86' are in:
-#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/x86/
-#
-LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/um/$(CPU)
-
-#
-# The path for the "Universal CRT" (UCRT) libraries.
-#
-# E.g. the UCRT libraries for 'x86' are in:
-#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/x86/
-#
-LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/ucrt/$(CPU)
 
 all: $(GENERATED) $(TARGETS) DLL_copy
 	$(call green_msg, Welcome to Dump1090.)
@@ -401,8 +418,14 @@ $(OBJ_DIR) doxy-docs:
 	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
 
 ifeq ($(USE_BIN_FILES),1)
-  BIN_DIR = $(realpath $(TEMP))/dump1090/standing-data/results
-  CFLAGS += -I$(BIN_DIR)
+  #
+  # In case 'make.exe' is a MSys make, the value of '$(realpath $(TEMP))'
+  # becomes something like '/c/temp' which if not understood by '$(CC)'.
+  # Hence use an 'c:/temp/dump1090/standing-data/results' explicitly.
+  # Change to suite.
+  #
+  BIN_DIR = $(TEMP)/dump1090/standing-data/results
+  CFLAGS += -Ic:/temp/dump1090/standing-data/results
 
   ../blocks_test.exe: $(OBJ_DIR)/gen-code-blocks.obj
 	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
@@ -665,10 +688,13 @@ define generate_ldflags_h
   $(file >> $(1),const char *ldflags = "$(strip $(2))";)
 endef
 
+#
+# Ignore any temp-file 't'
+#
 define generate_web_page
   $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
   $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --verbose --recursive \
-            --suffix=_$(strip $(3)) $(4) --strip $(2)/ $(2)/)
+            --suffix=_$(strip $(3)) --ignore t $(4) --strip $(2)/ $(2)/)
   @echo
 endef
 
