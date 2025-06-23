@@ -276,8 +276,6 @@ void crc_init (int fix_bits)
 {
   init_tables();
 
-  LOG_FILEONLY ("%s(): fix_bits: %d\n", __FUNCTION__, fix_bits);
-
   switch (fix_bits)
   {
     case 0:
@@ -301,8 +299,6 @@ void crc_init (int fix_bits)
          long_errors  = prepare_error_table (MODES_LONG_MSG_BITS, 2, 4, &long_errors_sz);
          break;
   }
-  LOG_FILEONLY ("%s(): short_errors_sz: %d, long_errors_sz: %d\n",
-                __FUNCTION__, short_errors_sz, long_errors_sz);
 }
 
 /**
