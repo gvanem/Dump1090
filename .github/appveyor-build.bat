@@ -25,6 +25,7 @@ if %APPVEYOR_PROJECT_NAME%. == . (
   set LOCAL_TEST=0
   set APPVEYOR_BUILD_FOLDER=c:\projects\Dump1090
   set _ECHO=c:\msys64\usr\bin\echo.exe -e
+  set PYTHON=py -3
 )
 
 ::
