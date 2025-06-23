@@ -1,0 +1,30 @@
+environment:
+  matrix:
+    - BUILDER: MSVC
+    - BUILDER: clang
+
+matrix:
+  #
+  # Immediately finish build if one of the above jobs fails.
+  #
+  fast_finish: true
+
+install:
+  #
+  # Prepend the PATH for 'make' + 'sh' etc.
+  # And set compiler environment for MSVC/clang-cl:
+  #
+  - cmd: set PATH=c:\msys64\usr\bin;%PATH%
+  - cmd: call "c:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x64
+
+build_script:
+    - cmd: appveyor-build.bat
+
+#
+# Try to preserve previously downloaded CI packages, the 'src/build'
+# and 'lib' files.
+#
+cache:
+  - '%APPVEYOR_BUILD_FOLDER%\CI-temp'
+  - 'c:\Program Files (x86)\LLVM'
+
