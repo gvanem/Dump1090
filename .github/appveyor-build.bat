@@ -61,7 +61,7 @@ if %LOCAL_TEST% == 1 (
 
 if %BUILDER%. == MSVC. (
   %_ECHO% "\e[1;33m: Building for MSVC/x64:\e[0m"
-  make -f Makefile.Windows CC=cl CPU=x64 USE_PACKED_DLL=0 USE_BIN_FILES=0 clean all
+  make -f Makefile.Windows CC=cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 USE_MP_COMPILE=1 clean all
   exit /b
 )
 
@@ -73,7 +73,7 @@ if %BUILDER%. == clang. (
   call :install_clang
   cd src
   %_ECHO% "\e[1;33mBuilding for clang-cl/x64:\e[0m"
-  make -f Makefile.Windows CC=clang-cl CPU=x64 USE_PACKED_DLL=0 USE_BIN_FILES=0 clean all
+  make -f Makefile.Windows CC=clang-cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 clean all
   exit /b
 )
 
