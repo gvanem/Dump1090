@@ -97,7 +97,7 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
  * ```
  */
 static void  modeS_cleanup (void);
-static void  modeS_exit (int rc);
+static void  __declspec(noreturn) modeS_exit (int rc);
 static void  modeS_send_raw_output (const modeS_message *mm);
 static void  modeS_send_SBS_output (const modeS_message *mm);
 static void  add_unrecognized_ME (int type, int subtype, bool test);
