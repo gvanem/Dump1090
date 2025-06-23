@@ -23,6 +23,7 @@
   #pragma clang diagnostic ignored "-Wunused-variable"
   #pragma clang diagnostic ignored "-Wunused-function"
   #pragma clang diagnostic ignored "-Wunused-label"
+  #pragma clang diagnostic ignored "-Wunused-parameter"
   #pragma clang diagnostic ignored "-Wpragma-pack"
   #pragma clang diagnostic ignored "-Wsign-compare"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
@@ -36,7 +37,6 @@
   #pragma clang diagnostic error "-Wformat-insufficient-args"
 
   #if defined(COMPILING_SQLITE3_SHELL)
-    #pragma clang diagnostic ignored "-Wunused-parameter"
     #pragma clang diagnostic ignored "-Wformat-security"
     #pragma clang diagnostic ignored "-Wnull-pointer-subtraction"
   #endif
@@ -232,6 +232,11 @@
  * Common stuff for compiling .rc files
  */
 #if defined(RC_INVOKED)
+  #undef _SAL1_Source_
+  #undef _SAL1_1_Source_
+  #undef _SAL1_2_Source_
+  #undef _SAL2_Source_
+
   #if defined(__clang__)
     #define RC_BUILDER  "clang-cl"
   #else
