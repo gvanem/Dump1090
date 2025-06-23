@@ -9,7 +9,7 @@ as needed and generate these files:
 """
 
 import os, sys, stat, struct, time, csv, argparse, zipfile
-import fnmatch, msvcrt, shutil
+import fnmatch, shutil
 
 #
 # Globals:
