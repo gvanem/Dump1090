@@ -232,11 +232,6 @@
  * Common stuff for compiling .rc files
  */
 #if defined(RC_INVOKED)
-  #undef _SAL1_Source_
-  #undef _SAL1_1_Source_
-  #undef _SAL1_2_Source_
-  #undef _SAL2_Source_
-
   #if defined(__clang__)
     #define RC_BUILDER  "clang-cl"
   #else
