@@ -8,10 +8,6 @@
 #include "misc.h"
 #include "sdrplay.h"
 
-#if defined(__clang__)
-static_assert (SDRPLAY_API_VERSION >= 3.14F, "Need SDRPlay API >= 3.14 to compile");
-#endif
-
 #define MODES_RSP_BUF_SIZE   (256*1024)   /**< 256k, same as MODES_ASYNC_BUF_SIZE */
 #define MODES_RSP_BUFFERS     16          /**< Must be power of 2 */
 
