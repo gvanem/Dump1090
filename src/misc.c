@@ -186,9 +186,14 @@ void modeS_log_set (void)
     mg_log_set_fn (modeS_logc, NULL);
     mg_log_set (MG_LL_VERBOSE);
   }
+  else if (Modes.log) /* Let HTTP hexdump etc. go to .log-file */
+  {
+    mg_log_set_fn (modeS_logc, NULL);
+    mg_log_set (MG_LL_INFO);
+  }
 
   static bool done = false;
-  if (!done &&  Modes.log && (Modes.debug & (DEBUG_MONGOOSE | DEBUG_MONGOOSE2)))
+  if (!done && Modes.log && (Modes.debug & (DEBUG_MONGOOSE | DEBUG_MONGOOSE2)))
   {
     warnx ("All Mongoose details goes to '%s'\n", Modes.logfile_current);
     done = true;
