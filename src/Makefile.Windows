@@ -443,7 +443,7 @@ ifeq ($(USE_BIN_FILES),1)
   $(BIN_DIR)/gen_data.h        \
   $(BIN_DIR)/code-blocks.bin: ../tools/gen_data.py | $(OBJ_DIR)
 	$(call green_msg, Generating $(BRIGHT_WHITE)$@)
-	$< $(gen_data_arg) --gen-c $(OBJ_DIR)/gen-code-blocks.c
+	$(PYTHON) $< $(gen_data_arg) --gen-c $(OBJ_DIR)/gen-code-blocks.c
 	cp --update $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
 endif
 
