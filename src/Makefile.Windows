@@ -121,7 +121,6 @@ GENERATED = $(OBJ_DIR)/cflags_$(CC).h \
 CFLAGS = -nologo -c -Zi -W4        \
          -FI./dump1090_config.h    \
          -Fd./$(OBJ_DIR)/vc14x.pdb \
-         -std:c17                  \
          -I.                       \
          -I./externals             \
          -I./externals/Curses      \
@@ -367,11 +366,19 @@ TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
 #
 # If building on AppVeyor
 #
-ifneq ($(APPVEYOR_PROJECT_NAME),)
- _CC = $(CC)
+APPVEYOR_PROJECT_NAME ?=
 
- WindowsSdkDir =
- WindowsSdkVer =
+ifneq ($(APPVEYOR_PROJECT_NAME),)
+  _CC = $(CC)
+
+  ifeq ($(CC),cl)
+    CFLAGS += -wd4054 -wd4055 -wd4204 -wd4221
+  else
+    CFLAGS += -Wno-unknown-warning-option
+  endif
+
+  WindowsSdkDir =
+  WindowsSdkVer =
 
 else
   ifeq ($(CC),clang-cl)
@@ -424,7 +431,7 @@ ifeq ($(USE_BIN_FILES),1)
   # Hence use an 'c:/temp/dump1090/standing-data/results' explicitly.
   # Change to suite.
   #
-  BIN_DIR = $(TEMP)/dump1090/standing-data/results
+  BIN_DIR = $(realpath $(TEMP))/dump1090/standing-data/results
   CFLAGS += -Ic:/temp/dump1090/standing-data/results
 
   ../blocks_test.exe: $(OBJ_DIR)/gen-code-blocks.obj
@@ -433,9 +440,11 @@ ifeq ($(USE_BIN_FILES),1)
   $(OBJ_DIR)/gen-code-blocks.obj: $(OBJ_DIR)/gen-code-blocks.c | $(CC).args
 	$(call C_compile, $@, -DTEST_CODE_BLOCKS $<)
 
-  $(OBJ_DIR)/gen-code-blocks.c: ../tools/gen_data.py $(BIN_DIR)/code-blocks.bin | $(OBJ_DIR)
-	$(call green_msg, Generating $@)
-	$< $(gen_data_arg) --gen-c $@
+  $(OBJ_DIR)/gen-code-blocks.c \
+  $(BIN_DIR)/gen_data.h        \
+  $(BIN_DIR)/code-blocks.bin: ../tools/gen_data.py | $(OBJ_DIR)
+	$(call green_msg, Generating $(BRIGHT_WHITE)$@)
+	$< $(gen_data_arg) --gen-c $(OBJ_DIR)/gen-code-blocks.c
 endif
 
 ../sqlite3.exe: $(OBJ_DIR)/sqlite3.obj $(OBJ_DIR)/sqlite3-shell.obj
@@ -920,7 +929,7 @@ DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.obj: @'
 $(OBJ_DIR)/misc.obj: dump1090_config.h $(OBJ_DIR)/cflags_$(CC).h $(OBJ_DIR)/ldflags_$(CC).h
 
 ifeq ($(USE_BIN_FILES),1)
-  $(OBJ_DIR)/aircraft.obj: $(OBJ_DIR)/gen-code-blocks.c
+  $(OBJ_DIR)/aircraft.obj: $(OBJ_DIR)/gen-code-blocks.c $(BIN_DIR)/gen_data.h
 endif
 
 CURSES_SRC = $(addprefix externals/Curses/, \
