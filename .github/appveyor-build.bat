@@ -58,8 +58,11 @@ if %LOCAL_TEST% == 1 (
 %_ECHO% "\e[1;33m--------------------------------------------------------------------------------------------------\e[0m"
 
 if %BUILDER%. == MSVC. (
-  %_ECHO% "\e[1;33m: Building for MSVC/x64:\e[0m"
-  make -f Makefile.Windows CC=cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 USE_MP_COMPILE=1 clean all
+  %_ECHO% "\e[1;33mBuilding for MSVC/x64:\e[0m"
+  make -f Makefile.Windows CC=cl CPU=x64 USE_PACKED_DLL=0 USE_BIN_FILES=1 USE_MP_COMPILE=1 clean all
+
+  %_ECHO% "\e[1;33mRunning '..\dump1090 -VV':\e[0m"
+  ..\dump1090 -VV
   exit /b
 )
 
@@ -67,18 +70,13 @@ if %BUILDER%. == MSVC. (
 :: Need to do 'call :install_clang' here to set the PATH for 'clang-cl.exe'!
 ::
 if %BUILDER%. == clang. (
-  cd ..
   call :install_clang
 
-  %_ECHO% "\e[1;33mdir 'c:\Program Files\LLVM\bin':\e[0m"
-  dir "c:\Program Files\LLVM\bin\"
-
-  %_ECHO% "\e[1;33mclang-cl -v:\e[0m"
-  c:\Program Files\LLVM\bin\clang-cl -v
-
-  cd src
   %_ECHO% "\e[1;33mBuilding for clang-cl/x64:\e[0m"
-  make -f Makefile.Windows CC=clang-cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 clean all
+  make -f Makefile.Windows CC=clang-cl CPU=x64 USE_PACKED_DLL=0 USE_BIN_FILES=1 clean all
+
+  %_ECHO% "\e[1;33mRunning '..\dump1090 -VV':\e[0m"
+  ..\dump1090 -VV
   exit /b
 )
 
