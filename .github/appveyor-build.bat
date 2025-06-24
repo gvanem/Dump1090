@@ -108,7 +108,7 @@ exit /b 1
   %_ECHO% "\e[1;33m\nRunning '..\dump1090 -VV':\e[0m"
   ..\dump1090 -VV
 
-  %_ECHO% "\e[1;33m\nRunning '..\dump1090 --test':\e[0m"
-  ..\dump1090 --test airport,aircraft,misc,net
+  %_ECHO% "\e[1;33m\nRunning '..\dump1090 --debug g --test airport,net':\e[0m"
+  ..\dump1090 --debug g --test airport,net
   exit /b
 
