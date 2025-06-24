@@ -315,7 +315,8 @@ bool modeS_log_add_ignore (const char *msg)
        *p = '\0';
 
     str_trim (ignore->msg);
-    smartlist_add (Modes.logfile_ignore, ignore);
+    if (strlen(ignore->msg) > 0)
+       smartlist_add (Modes.logfile_ignore, ignore);
   }
 
   max = smartlist_len (Modes.logfile_ignore);
