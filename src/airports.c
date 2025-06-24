@@ -530,7 +530,7 @@ static bool airports_init_CSV (void)
   }
 
   TRACE ("Parsed %u records in %.3f msec from: \"%s\"\n",
-         g_data.ap_stats.CSV_numbers, (get_usec_now() - start_t) / 1E3, Modes.airport_db);
+         g_data.ap_stats.CSV_numbers, (get_usec_now() - start_t) / 1E3, true_path(Modes.airport_db));
 
   TRACE ("ICAO names: %u, IATA names: %u\n",
          g_data.ap_stats.CSV_num_ICAO, g_data.ap_stats.CSV_num_IATA);
@@ -997,8 +997,14 @@ static bool API_thread_worker (flight_info *f)
   char  request [200];
   bool  rc = false;
 
-  /* A route for e.g. callsign "TVS4307" becomes:
-   * https://vrs-standing-data.adsb.lol/routes/TV/TVS4307.json
+  /**
+   * A route for e.g. callsign "TVS4307" becomes:
+   *   https://vrs-standing-data.adsb.lol/routes/TV/TVS4307.json
+   *
+   * \todo Replace WinInet with what
+   *   WebClient.exe -svrs-standing-data.adsb.lol -f/routes/TV/TVS4307.json
+   *
+   * does. Or add the WebClient.exe code into Mongoose as `MG_TLS=MG_TLS_CUSTOM`.
    */
   snprintf (request, sizeof(request), API_SERVICE_URL, f->call_sign, f->call_sign);
 

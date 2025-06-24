@@ -185,7 +185,7 @@ else
   $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
 endif
 
-OS_LIBS   = advapi32.lib dnsapi.lib iphlpapi.lib ole32.lib setupapi.lib uuid.lib user32.lib winusb.lib
+OS_LIBS   = advapi32.lib dnsapi.lib iphlpapi.lib ole32.lib setupapi.lib shlwapi.lib uuid.lib user32.lib winusb.lib
 ASAN_LIBS =
 COPY_DLLs =
 
@@ -349,7 +349,8 @@ vpath %.c ../tools
 PACKED_TEST_SRC = ../tools/packed_webfs_main.c \
                   $(OBJ_DIR)/packed_webfs_1.c  \
                   $(OBJ_DIR)/packed_webfs_2.c  \
-                  misc.c
+                  misc.c                       \
+                  smartlist.c
 
 PACKED_TEST_OBJ = $(call c_to_obj, $(PACKED_TEST_SRC))
 
@@ -512,10 +513,10 @@ $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
 ../packed_test.exe: $(PACKED_TEST_OBJ)
-	$(call link_EXE, $@, $^ $(ASAN_LIBS))
+	$(call link_EXE, $@, $^ $(ASAN_LIBS) advapi32.lib shlwapi.lib)
 
 ../speech_test.exe: $(OBJ_DIR)/speech_test.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj $(OBJ_DIR)/smartlist.obj
-	$(call link_EXE, $@, $^ $(ASAN_LIBS) ole32.lib)
+	$(call link_EXE, $@, $^ $(ASAN_LIBS) ole32.lib shlwapi.lib)
 
 $(CC).args: $(THIS_FILE)
 	$(call green_msg, All common CFLAGS are in $(BRIGHT_WHITE)$@)

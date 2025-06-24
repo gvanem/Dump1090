@@ -4264,7 +4264,10 @@ static bool set_web_page (const char *arg)
 {
   strcpy_s (Modes.web_root, sizeof(Modes.web_root), dirname(arg));
   strcpy_s (Modes.web_page, sizeof(Modes.web_page), basename(arg));
-  DEBUG (DEBUG_GENERAL, "Full-name of web_page: '%s/%s'\n", Modes.web_root, Modes.web_page);
+  snprintf (Modes.web_page_full, sizeof(Modes.web_page_full), "%s/%s", Modes.web_root, Modes.web_page);
+  true_path (Modes.web_page_full);
+
+  DEBUG (DEBUG_GENERAL, "Full-name of web_page: '%s'\n", Modes.web_page_full);
   return (true);
 }
 

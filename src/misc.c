@@ -8,6 +8,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <wininet.h>
+#include <shlwapi.h>
 
 #undef MOUSE_MOVED
 #include <curses.h>
@@ -877,6 +878,37 @@ char *slashify (char *fname)
     p++;
   }
   return (fname);
+}
+
+/**
+ * Copies `in_path` to `out_path` and replaces `/` with `\\`.
+ */
+char *copy_path (char *out_path, const char *in_path)
+{
+  char *p = strncpy (out_path, in_path, sizeof(mg_file_path));
+
+  while (*p)
+  {
+    if (*p == '/')
+        *p = '\\';
+    p++;
+  }
+  return (out_path);
+}
+
+/**
+ * Turns `path` into a canonical path.
+ *
+ * \note Assumes `path` is of type `mg_file_path` or at-least that long.
+ * \note the `path` doesn't have to exist.
+ */
+char *true_path (char *path)
+{
+  static mg_file_path copy, result;
+
+  copy_path (copy, path);
+  PathCanonicalizeA (result, copy);
+  return strncpy (path, result, sizeof(mg_file_path));
 }
 
 /**

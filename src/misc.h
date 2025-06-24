@@ -490,6 +490,7 @@ typedef struct global_data {
         int           http_ipv6_only;             /**< Allow only IPv6 for HTTP server. */
         int           speech_enable;              /**< Enable speech for planes entering and leaving. */
         int           speech_volume;              /**< Speech volume; 0 - 100 percent */
+        mg_file_path  web_page_full;              /**< The fully qualified path of web_page */
         mg_file_path  web_page;                   /**< The base-name of the web-page to server for HTTP clients. */
         mg_file_path  web_root;                   /**< And it's directory. */
         bool          web_root_touch;             /**< Touch all files in `web_root` first. */
@@ -762,12 +763,15 @@ int  modeS_message_len_by_type (int type);
 int  modeS_message_score (const uint8_t *msg, int valid_bits);
 int  mode_A_to_mode_C (u_int Mode_A);
 void background_tasks (void);
+void rx_callback (uint8_t *buf, uint32_t len, void *ctx);
 
 /*
  * Functions in `misc.c'
  */
 bool        init_misc (void);
 const char *get_user_name (void);
+char       *copy_path (char *out_path, const char *in_path);
+char       *true_path (char *path);
 bool        str_startswith (const char *s1, const char *s2);
 bool        str_endswith (const char *s1, const char *s2);
 char       *str_ltrim (char *s);
@@ -811,7 +815,6 @@ bool        test_contains (const char *pattern, const char *what);
 void        puts_long_line (const char *start, size_t indent);
 void        fputs_long_line (FILE *file, const char *start, size_t indent);
 const char *mz_version (void);                 /* in 'externals/zip.c' */
-void        rx_callback (uint8_t *buf, uint32_t len, void *ctx);
 void        show_version_info (bool verbose);
 
 /*
