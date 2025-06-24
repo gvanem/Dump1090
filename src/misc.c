@@ -2000,13 +2000,16 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
      DEBUG (DEBUG_NET, "InternetSetOptionA (INTERNET_OPTION_HTTP_DECODING) failed: %s.\n",
             win_strerror(GetLastError()));
 
-  /* Enable HTTP/2 protocol support
-   */
-  opt = HTTP_PROTOCOL_FLAG_HTTP2;
-  rc = (*p_InternetSetOptionA) (*h1, INTERNET_OPTION_ENABLE_HTTP_PROTOCOL, (void*)&opt, sizeof(opt));
-  if (!rc)
-     DEBUG (DEBUG_NET, "InternetSetOptionA (INTERNET_OPTION_ENABLE_HTTP_PROTOCOL) failed: %s.\n",
-            win_strerror(GetLastError()));
+  if (Modes.wininet_HTTP2)
+  {
+    /* Enable HTTP/2 protocol support. Needs Windows 10, version 1507 and later.
+     */
+    opt = HTTP_PROTOCOL_FLAG_HTTP2;
+    rc = (*p_InternetSetOptionA) (*h1, INTERNET_OPTION_ENABLE_HTTP_PROTOCOL, (void*)&opt, sizeof(opt));
+    if (!rc)
+       DEBUG (DEBUG_NET, "InternetSetOptionA (INTERNET_OPTION_ENABLE_HTTP_PROTOCOL) failed: %s.\n",
+              win_strerror(GetLastError()));
+  }
 
   url_flags = INTERNET_FLAG_RELOAD |
               INTERNET_FLAG_PRAGMA_NOCACHE |

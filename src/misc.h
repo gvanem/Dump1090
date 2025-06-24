@@ -504,6 +504,7 @@ typedef struct global_data {
         double        max_dist;                   /**< Absolute maximum decoding distance, in metres */
         double        min_dist;                   /**< Absolute minimum distance for '--only-addr', in metres */
         int           a_sort;                     /**< The column sort method for aircrafts in `--interactive` mode. >= 0 is ascending, < 0 descending */
+        bool          wininet_HTTP2;              /**< Enable HTTP/2 for WinInet API. */
         const char   *wininet_last_error;         /**< Last error from WinInet API. */
         char         *tests;                      /**< Perform tests specified by pattern. */
         int           tui_interface;              /**< Selected `--tui` interface. */

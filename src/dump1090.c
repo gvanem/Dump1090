@@ -159,6 +159,7 @@ static const cfg_table config[] = {
     { "keep-alive",       ARG_ATOB,    (void*) &Modes.keep_alive },
     { "http-ipv6",        ARG_ATOB,    (void*) &Modes.http_ipv6 },
     { "http-ipv6-only",   ARG_ATOB,    (void*) &Modes.http_ipv6_only },
+    { "http2",            ARG_ATOB,    (void*) &Modes.wininet_HTTP2 },
     { "logfile",          ARG_FUNC,    (void*) set_logfile },
     { "logfile-daily",    ARG_ATOB,    (void*) &Modes.logfile_daily },
     { "logfile-ignore",   ARG_FUNC,    (void*) modeS_log_add_ignore },
