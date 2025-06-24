@@ -31,7 +31,7 @@ USE_BIN_FILES ?= 0
 #   USE_NET_POLLER=WSAPOLL: use 'WSAPoll()'
 #   USE_NET_POLLER=SELECT:  use 'select()'
 #
-USE_NET_POLLER ?= WSAPOLL
+USE_NET_POLLER ?= SELECT
 
 #
 # Enable bundling *all* web_root pages inside '../web-pages.dll' as multiple resources.
