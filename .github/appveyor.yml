@@ -17,12 +17,14 @@ install:
   - cmd: set PATH=c:\msys64\usr\bin;%PATH%
   - cmd: call "c:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x64
 
+  #
+  # Build and do some tests
+  #
 build_script:
     - cmd: cd .github & appveyor-build.bat
 
 #
-# Try to preserve previously downloaded CI packages, the 'src/build'
-# and 'lib' files.
+# Try to preserve previously 'CI-temp' dir and clang compiler
 #
 cache:
   - '%APPVEYOR_BUILD_FOLDER%\CI-temp'

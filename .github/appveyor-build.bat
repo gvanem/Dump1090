@@ -13,12 +13,12 @@ set URL_CLANG_EXE=https://github.com/llvm/llvm-project/releases/download/llvmorg
 ::
 :: locally.
 ::
-:: Change this for an 'echo.exe' with colour support. Like Cygwin.
+:: Change value of '_ECHO' to an 'echo.exe' with colour support.
+:: Like Cygwin or MSys.
 ::
-set _ECHO=%CYGWIN_ROOT%\bin\echo.exe -e
-
 if %APPVEYOR_PROJECT_NAME%. == . (
   set LOCAL_TEST=1
+  set _ECHO=%CYGWIN_ROOT%\bin\echo.exe -e
   set APPVEYOR_BUILD_FOLDER=%CD%\..
 
 ) else (
@@ -33,6 +33,11 @@ if %APPVEYOR_PROJECT_NAME%. == . (
 ::
 set CI_ROOT=%APPVEYOR_BUILD_FOLDER%\CI-temp
 md %CI_ROOT% 2> NUL
+
+::
+:: For '..\dump1090 -VV'
+::
+set COLUMNS=100
 
 ::
 :: Sanity check:
@@ -52,7 +57,6 @@ cd ..\src
 :: Hence we cannot use a 'if x (what-ever) else (something else)' syntax with that.
 ::
 if %LOCAL_TEST% == 1 (
-  rem echo on
   if not exist "%APPVEYOR_BUILD_FOLDER%" (echo No '%APPVEYOR_BUILD_FOLDER%'. Edit this .bat-file & exit /b 1)
 )
 
@@ -61,10 +65,7 @@ if %LOCAL_TEST% == 1 (
 if %BUILDER%. == MSVC. (
   %_ECHO% "\e[1;33mBuilding for MSVC/x64:\e[0m"
   make -f Makefile.Windows CC=cl CPU=x64 USE_PACKED_DLL=0 USE_BIN_FILES=1 USE_MP_COMPILE=1 clean all
-
-  %_ECHO% "\e[1;33mRunning '..\dump1090 -VV':\e[0m"
-  ..\dump1090 -VV
-  exit /b
+  goto run_tests
 )
 
 ::
@@ -72,13 +73,9 @@ if %BUILDER%. == MSVC. (
 ::
 if %BUILDER%. == clang. (
   call :install_clang
-
   %_ECHO% "\e[1;33mBuilding for clang-cl/x64:\e[0m"
   make -f Makefile.Windows CC=clang-cl CPU=x64 USE_PACKED_DLL=0 USE_BIN_FILES=1 clean all
-
-  %_ECHO% "\e[1;33mRunning '..\dump1090 -VV':\e[0m"
-  ..\dump1090 -VV
-  exit /b
+  goto run_tests
 )
 
 %_ECHO% "\e[1;31mIllegal BUILDER (BUILDER=%BUILDER%) values! Remember cmd.exe is case-sensitive.\e[0m"
@@ -105,5 +102,13 @@ exit /b 1
     %_ECHO% "\e[1;31mThe curl download failed!\e[0m"
     exit /b 1
   )
+  exit /b
+
+:run_tests
+  %_ECHO% "\e[1;33m\nRunning '..\dump1090 -VV':\e[0m"
+  ..\dump1090 -VV
+
+  %_ECHO% "\e[1;33m\nRunning '..\dump1090 --test':\e[0m"
+  ..\dump1090 --test airport,aircraft,misc,net
   exit /b
 
