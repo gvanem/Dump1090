@@ -3553,7 +3553,7 @@ static void show_help (const char *fmt, ...)
             "  --raw                 Output raw hexadecimal messages only.\n"
             "  --samplerate/-s <S/s> Sample-rate (2M, 2.4M, 8M). Overrides setting in config-file.\n"
             "  --strip <level>       Output missing the I/Q parts that are below the specified level.\n"
-            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `cpr', `locale', `misc`, `net' or `*')\n"
+            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `console', `cpr', `locale', `misc`, `net' or `*')\n"
             "  --update              Update missing or old \"*.csv\" files and exit.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
