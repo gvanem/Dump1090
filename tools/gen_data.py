@@ -36,7 +36,7 @@ def fatal (s):
 
 def make_dir (d):
   try:
-    os.mkdir (d)
+    os.makedirs (d)
   except:
     pass
 
