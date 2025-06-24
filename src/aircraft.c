@@ -2475,12 +2475,6 @@ bool aircraft_init (void)
 
   aircraft_SQL_set_name();
 
-  if (Modes.under_appveyor)
-  {
-    LOG_STDERR ("WinInet wont work on AppVeyor\n");
-    return (true);
-  }
-
   if (strcmp(Modes.aircraft_db, "NUL") && (Modes.aircraft_db_url || Modes.update))
   {
     if (!aircraft_CSV_update(Modes.aircraft_db, Modes.aircraft_db_url))
