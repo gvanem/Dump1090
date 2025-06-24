@@ -1517,6 +1517,7 @@ void fputs_long_line (FILE *f, const char *start, size_t indent)
   {
     CONSOLE_SCREEN_BUFFER_INFO console_info;
     HANDLE  hnd = GetStdHandle (STD_OUTPUT_HANDLE);
+    const char *env = getenv ("COLUMNS");
 
     width = UINT_MAX;
 
@@ -1526,6 +1527,8 @@ void fputs_long_line (FILE *f, const char *start, size_t indent)
     {
       width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
     }
+    if (env && atoi(env) > 0)
+       width = atoi (env);
   }
 
   left = width - indent;
