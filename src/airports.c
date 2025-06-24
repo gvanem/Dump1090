@@ -183,6 +183,7 @@ typedef struct airports_priv {
          */
      }  airports_priv;
 
+static void         patch_call_signs_tests (void);
 static void         airport_API_test_1 (void);
 static void         airport_API_test_2 (void);
 static void         airport_CSV_test_1 (void);
@@ -215,14 +216,15 @@ static airports_priv g_data;
 /**
  * Used in `airport_API_test_1()` and `airport_API_test_2()`.
  *
- * \todo These are terribly outdated. Take some random routes from
- * the generated '%TEMP%/dump1090/standing-data/results/routes.bin'.
+ * These are terribly outdated. Hence these are patched to 6 random call-signs
+ * from the generated '%TEMP%/dump1090/standing-data/results/routes.bin'.
+ * \ref patch_call_signs_tests()
  */
-static const char *call_signs_tests[] = {
-                  "AAL292",  "SK293",
-                  "TY15",    "WIF17T",
-                  "CFG2092", "NOZ8LE"
-                };
+static char *call_signs_tests[] = {
+            "AAL292",  "SK293",
+            "TY15",    "WIF17T",
+            "CFG2092", "NOZ8LE"
+          };
 
 /*
  * Used in `airport_CSV_test_X()` before calling `airport_print_rec()`
@@ -1477,6 +1479,7 @@ uint32_t airports_init (void)
   {
     SetConsoleOutputCP (CP_UTF8);
 
+    patch_call_signs_tests();
     airport_CSV_test_1();
     airport_CSV_test_2();
     airport_CSV_test_3();
@@ -1833,6 +1836,19 @@ static void airport_loc_test_2 (void)
   puts ("");
 }
 
+static void patch_call_signs_tests (void)
+{
+#if defined(USE_BIN_FILES)
+  size_t i, num;
+
+  for (i = 0; i < DIM(call_signs_tests); i++)
+  {
+    num = (size_t) random_range (0, route_records_num - 1);
+    call_signs_tests [i] = route_records [num].call_sign;
+  }
+#endif
+}
+
 /**
  * Test the ADSB-LOL API lookup.
  */
@@ -1903,6 +1919,9 @@ static void airport_API_test_1 (void)
     airports_API_get_flight_info (call_signs_tests[i], ICAO_UNKNOWN, &departure, &destination);
     t_max += 200;  /* assume a slow internet connection */
   }
+
+  if (Modes.under_appveyor)
+     t_max += 2000;  /* Even slower on AppVeyor */
 
   API_dump_records();
   num_pending = API_num_pending();
