@@ -1841,6 +1841,8 @@ static void patch_call_signs_tests (void)
 #if defined(USE_BIN_FILES)
   size_t i, num;
 
+  printf ("%s():\n", __FUNCTION__);
+
   for (i = 0; i < DIM(call_signs_tests); i++)
   {
     num = (size_t) random_range (0, route_records_num - 1);
