@@ -11,7 +11,7 @@
 #include <windows.h>
 #include <wchar.h>
 #include <rtl-sdr/rtl-sdr.h>
-#include <SDRplay-API/sdrplay_api.h>
+#include <SDRplay/sdrplay_api.h>
 
 #include "mongoose.h"
 #include "cfg_file.h"
@@ -38,10 +38,11 @@
 #define MODES_NET_SERVICE_HTTP4     4
 #define MODES_NET_SERVICE_HTTP6     5
 #define MODES_NET_SERVICE_RTL_TCP   6
-#define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_RTL_TCP + 1)
+#define MODES_NET_SERVICE_DNS       7
+#define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_DNS + 1)
 
 #define MODES_NET_SERVICE_FIRST     0
-#define MODES_NET_SERVICE_LAST      MODES_NET_SERVICE_RTL_TCP
+#define MODES_NET_SERVICE_LAST      MODES_NET_SERVICE_DNS
 
 /**
  * \def DEF_WIN_FUNC
@@ -448,6 +449,7 @@ typedef struct global_data {
         mg_connection *http4_out;                   /**< HTTP listening connection. IPv4 */
         mg_connection *http6_out;                   /**< HTTP listening connection. IPv6 */
         mg_connection *rtl_tcp_in;                  /**< RTL_TCP active connection. IPv4 only */
+        mg_connection *dns_in;                      /**< DNS active connection. IPv4 only */
         mg_mgr         mgr;                         /**< Only one Mongoose connection manager */
         char          *dns4;                        /**< Use default Windows DNSv4 server (not 8.8.8.8) */
         char          *dns6;                        /**< Or a IPv6 server */
@@ -513,6 +515,7 @@ typedef struct global_data {
         mg_str        icao_filter;
         bool          icao_invert;
         bool          internal_error;
+        bool          cpr_trace;                 /**< Report CPR events to .log-file? default true */
 
         /** For handling a `Modes.aircraft_db` file:
          */
@@ -786,6 +789,7 @@ const char *unescape_hex (const char *value);
 char       *basename (const char *fname);
 char       *dirname (const char *fname);
 char       *slashify (char *fname);
+DWORD       search_list_value (const char *name, const search_list *sl, int num);
 const char *search_list_name (DWORD value, const search_list *sl, int num);
 const char *flags_decode (DWORD flags, const search_list *list, int num);
 int        _gettimeofday (struct timeval *tv, void *timezone);
