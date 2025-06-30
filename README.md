@@ -269,10 +269,10 @@ And also rebuild the `aircraft-database.csv.sqlite` file using the internal bund
 ## Using VirtualRadar as viewer
 
 [**VirtualRadar**](https://virtualradarserver.co.uk/) is an excellent program for Aircraft traffic. Using it as *backend* in Dump1090 needs data on the *RAW data* form. With the `--net` option, this is normally sent on port 30002. Ref. `net-ro-port = 30002` in the config-file. Hence **VirtualRadar** needs to be configured like this:
-![VirtualRadar configuration](img/dump1090-Vradar-conf.png)
+![VirtualRadar configuration](img/dump1090-VRadar-conf.png)
 
 And starting the Web-server in **VirtualRadar** can show the locally decoded messages like this:
-![VirtualRadar-web](img/dump1090-Vradar-web.png)
+![VirtualRadar-web](img/dump1090-VRadar-web.png)
 
 
 ## Additional options
