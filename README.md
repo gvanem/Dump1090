@@ -266,6 +266,15 @@ extract using the internal [**zip**](https://github.com/kuba--/zip) functions.
 And also rebuild the `aircraft-database.csv.sqlite` file using the internal bundled
 [**sqlite3.c**](src/externals/sqlite3.c).
 
+## Using VirtualRadar as viewer
+
+[**VirtualRadar**](https://virtualradarserver.co.uk/) is an excellent program for Aircraft traffic. Using it as *backend* in Dump1090 needs data on the *RAW data* form. With the `--net` option, this is normally sent on port 30002. Ref. `net-ro-port = 30002` in the config-file. Hence **VirtualRadar** needs to be configured like this:
+![VirtualRadar configuration](img/dump1090-Vradar-conf.png)
+
+And starting the Web-server in **VirtualRadar** can show the locally decoded messages like this:
+![VirtualRadar-web](img/dump1090-Vradar-web.png)
+
+
 ## Additional options
 
 *Dump1090* now has limited command line options. Seldom used settings are now in the default [**config-file**](dump1090.cfg). <nl>
