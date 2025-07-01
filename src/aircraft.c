@@ -420,6 +420,26 @@ static const search_list sort_names[] = {
                          ADD_VALUE (INTERACTIVE_SORT_SEEN)
                        };
 
+static const search_list sort_values[] = {
+                       { INTERACTIVE_SORT_ICAO,     "addr" },
+                       { INTERACTIVE_SORT_ICAO,     "icao" },
+                       { INTERACTIVE_SORT_CALLSIGN, "callsign" },
+                       { INTERACTIVE_SORT_CALLSIGN, "call-sign" },
+                       { INTERACTIVE_SORT_REGNUM,   "regnum" },
+                       { INTERACTIVE_SORT_COUNTRY,  "country" },
+                       { INTERACTIVE_SORT_DEP_DEST, "dep-dest" },
+                       { INTERACTIVE_SORT_DEP_DEST, "route" },
+                       { INTERACTIVE_SORT_ALTITUDE, "alt" },
+                       { INTERACTIVE_SORT_ALTITUDE, "altitude" },
+                       { INTERACTIVE_SORT_SPEED,    "speed" },
+                       { INTERACTIVE_SORT_DISTANCE, "dist" },
+                       { INTERACTIVE_SORT_DISTANCE, "distance" },
+                       { INTERACTIVE_SORT_MESSAGES, "msg" },
+                       { INTERACTIVE_SORT_MESSAGES, "messages" },
+                       { INTERACTIVE_SORT_SEEN,     "age"  },
+                       { INTERACTIVE_SORT_SEEN,     "seen" },
+                     };
+
 const char *aircraft_sort_name (int s)
 {
   static char  buf [100];
@@ -493,28 +513,50 @@ a_sort_t aircraft_sort (int s)
  */
 bool aircraft_set_sort (const char *arg)
 {
+#if 0
+  DWORD value = search_list_value (arg, sort_values, DIM(sort_values));
+
+  if (value == (DWORD)-1)
+  {
+    LOG_STDERR ("Illegal 'sort' method '%s'. Use: 'call-sign', 'country', 'icao', "
+                "'altitude', 'dep-dest', 'distance', 'messages', 'seen', 'speed' or 'regnum'\n", arg);
+    return (false);
+  }
+  Modes.a_sort = (enum a_sort_t) value;
+  return (true);
+
+#else
   enum a_sort_t sort;
 
-  if (!stricmp(arg, "callsign") || !stricmp(arg, "call-sign"))
-      sort = INTERACTIVE_SORT_CALLSIGN;
-  else if (!stricmp(arg, "addr") || !stricmp(arg, "icao"))
+  if (!stricmp(arg, "addr") || !stricmp(arg, "icao"))
      sort = INTERACTIVE_SORT_ICAO;
   else if (!stricmp(arg, "alt") || !stricmp(arg, "altitude"))
      sort = INTERACTIVE_SORT_ALTITUDE;
+  else if (!stricmp(arg, "callsign") || !stricmp(arg, "call-sign"))
+      sort = INTERACTIVE_SORT_CALLSIGN;
+  else if (!stricmp(arg, "country"))
+     sort = INTERACTIVE_SORT_COUNTRY;
+  else if (!stricmp(arg, "dep-dest") || !stricmp(arg, "route"))
+     sort = INTERACTIVE_SORT_DEP_DEST;
   else if (!stricmp(arg, "dist") || !stricmp(arg, "distance"))
      sort = INTERACTIVE_SORT_DISTANCE;
+  else if (!stricmp(arg, "regnum"))
+     sort = INTERACTIVE_SORT_REGNUM;
   else if (!stricmp(arg, "msg") || !stricmp(arg, "messages"))
      sort = INTERACTIVE_SORT_MESSAGES;
-  else if (!stricmp(arg, "age") || !stricmp(arg, "seen"))
+  else if (!stricmp(arg, "seen") || !stricmp(arg, "age"))
      sort = INTERACTIVE_SORT_SEEN;
+  else if (!stricmp(arg, "speed"))
+     sort = INTERACTIVE_SORT_SPEED;
   else
   {
-    LOG_STDERR ("Illegal 'sort' method '%s'. Use: 'call-sign', 'icao', 'altitude', "
-                "'distance', 'messages' or 'seen'\n", arg);
+    LOG_STDERR ("Illegal 'sort' method '%s'. Use: 'call-sign', 'country', 'icao', "
+                "'altitude', 'dep-dest', 'distance', 'messages', 'seen', 'speed' or 'regnum'\n", arg);
     return (false);
   }
   Modes.a_sort = sort;
   return (true);
+#endif
 }
 
 /**
