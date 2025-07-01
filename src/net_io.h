@@ -46,12 +46,14 @@ typedef char ip_address [MAX_ADDRESS];
 #define MODES_NET_PORT_SBS      30003
 #define MODES_NET_PORT_HTTP      8080
 #define MODES_NET_PORT_RTL_TCP   1234
+#define MODES_NET_PORT_DNS_UDP     53
 
 extern net_service modeS_net_services [MODES_NET_SERVICES_NUM];
 
 /**
  * \typedef net_msg_handler
- * The function-type for handling "RAW TCP Input" and "SBS TCP Input" messages.
+ * The function-type for handling "RAW TCP Input", "SBS TCP Input"
+ * and "DNS input" messages.
  */
 typedef bool (*net_msg_handler) (mg_iobuf *msg, int loop_cnt);
 
@@ -70,7 +72,6 @@ bool      net_set_host_port (const char *host_port, net_service *serv, uint16_t 
 void      net_show_stats (void);
 bool      net_deny4 (const char *val);
 bool      net_deny6 (const char *val);
-void      net_deny_dump (void);
 
 /**
  * Timeout for reception of RTL_TCP data.
