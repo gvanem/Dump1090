@@ -2285,12 +2285,6 @@ bool airports_API_flight_log_resolved (const aircraft *a)
   double       msec;
   flight_info *f;
 
-#if defined(USE_BIN_FILES)
-  #define WHEN  "from .BIN-file"
-#else
-  #define WHEN  "at startup"
-#endif
-
   assert (a->is_helicopter == false);
 
   f = find_by_callsign (a->call_sign, &fixed);
@@ -2301,9 +2295,8 @@ bool airports_API_flight_log_resolved (const aircraft *a)
 
   if (f->type == AIRPORT_API_LIVE || f->type == AIRPORT_API_CACHED)
   {
-    const char *dep_location  = airport_find_location (f->departure);
-    const char *dst_location  = airport_find_location (f->destination);
-
+    const char    *dep_location = airport_find_location (f->departure);
+    const char    *dst_location = airport_find_location (f->destination);
     const wchar_t *dep_location_w = NULL;
     const wchar_t *dst_location_w = NULL;
 
@@ -2312,8 +2305,15 @@ bool airports_API_flight_log_resolved (const aircraft *a)
       const char *when;
 
       if (fixed)
-           when = WHEN;
-      else when = modeS_FILETIME_to_loc_str (&f->created, true);
+      {
+#if defined(USE_BIN_FILES)
+        when = "from .BIN-file";
+#else
+        when = "at startup";
+#endif
+      }
+      else
+        when = modeS_FILETIME_to_loc_str (&f->created, true);
       snprintf (comment, sizeof(comment), "cached: %s", when);
     }
     else
