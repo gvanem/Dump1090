@@ -187,11 +187,6 @@ void modeS_log_set (void)
     mg_log_set_fn (modeS_logc, NULL);
     mg_log_set (MG_LL_VERBOSE);
   }
-  else if (Modes.log) /* Let HTTP hexdump etc. go to .log-file */
-  {
-    mg_log_set_fn (modeS_logc, NULL);
-    mg_log_set (MG_LL_INFO);
-  }
 
   static bool done = false;
   if (!done && Modes.log && (Modes.debug & (DEBUG_MONGOOSE | DEBUG_MONGOOSE2)))
@@ -483,6 +478,21 @@ const char *search_list_name (DWORD value, const search_list *list, int num)
     list++;
   }
   return (NULL);
+}
+
+/**
+ * Search `*list` for `name` and return it's value.
+ */
+DWORD search_list_value (const char *name, const search_list *list, int num)
+{
+  while (num > 0)
+  {
+    if (!stricmp(name, list->name))
+       return (list->value);
+    num--;
+    list++;
+  }
+  return (DWORD) -1;
 }
 
 /**
