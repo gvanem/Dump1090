@@ -27,10 +27,10 @@
 #include "demod.h"
 #include "geo.h"
 #include "convert.h"
-#include "sdrplay.h"
+#include "externals/AirSpy/airspy.h"
+#include "externals/SDRplay/sdrplay.h"
 #include "speech.h"
 #include "location.h"
-#include "airspy.h"
 #include "airports.h"
 #include "aircraft.h"
 #include "interactive.h"
@@ -131,6 +131,7 @@ static uint64_t max_messages;
 static const cfg_table config[] = {
     { "adsb-mode",        ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
     { "bias-t",           ARG_FUNC,    (void*) set_bias_tee },
+    { "cpr-trace",        ARG_ATOB,    (void*) &Modes.cpr_trace },
     { "DC-filter",        ARG_ATOB,    (void*) &Modes.DC_filter },
     { "usb-bulk",         ARG_ATOB,    (void*) &Modes.sdrplay.USB_bulk_mode },
     { "airspy-dll",       ARG_FUNC,    (void*) airspy_set_dll_name },
@@ -3710,6 +3711,18 @@ void modeS_signal_handler (int sig)
   }
 }
 
+static const char *format_value (double val)
+{
+  static char buf [20];
+
+  if (val >= 1E9)
+       snprintf (buf, sizeof(buf), "%6.1lf M", val / 1E9);
+  else if (val >= 1E6)
+       snprintf (buf, sizeof(buf), "%6.1lf M", val / 1E6);
+  else snprintf (buf, sizeof(buf), "%8llu", (uint64_t) val);
+  return (buf);
+}
+
 /*
  * Show decoder statistics for a RTLSDR / RTLTCP / SDRPlay device.
  */
@@ -3751,28 +3764,19 @@ static void show_decoder_stats (void)
     interactive_clreol();
   }
 
-  char   buf [20];
-  double val = (double) Modes.stat.valid_preamble;
-
-  if (val >= 1E9)
-       snprintf (buf, sizeof(buf), "%6.1lf M", val / 1E9);
-  else if (val >= 1E6)
-       snprintf (buf, sizeof(buf), "%6.1lf M", val / 1E6);
-  else snprintf (buf, sizeof(buf), "%8llu", Modes.stat.valid_preamble);
-
-  LOG_STDOUT (" %s valid preambles.\n", buf);
+  LOG_STDOUT (" %s valid preambles.\n", format_value((double)Modes.stat.valid_preamble));
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
+  LOG_STDOUT (" %s demodulated after phase correction.\n", format_value((double)Modes.stat.out_of_phase));
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu demodulated with 0 errors.\n", Modes.stat.demodulated);
+  LOG_STDOUT (" %s demodulated with 0 errors.\n", format_value((double)Modes.stat.demodulated));
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu with CRC okay.\n", Modes.stat.CRC_good);
+  LOG_STDOUT (" %s with CRC okay.\n", format_value((double)Modes.stat.CRC_good));
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu with CRC failure.\n", Modes.stat.CRC_bad);
+  LOG_STDOUT (" %s with CRC failure.\n", format_value((double)Modes.stat.CRC_bad));
   interactive_clreol();
 
   LOG_STDOUT (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.CRC_single_bit_fix);

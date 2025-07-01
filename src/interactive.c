@@ -14,11 +14,11 @@
 #include "interactive.h"
 #include "aircraft.h"
 #include "airports.h"
-#include "airspy.h"
-#include "sdrplay.h"
 #include "smartlist.h"
 #include "net_io.h"
 #include "misc.h"
+#include "externals/AirSpy/airspy.h"
+#include "externals/SDRplay/sdrplay.h"
 
 #undef MOUSE_MOVED
 #include <curses.h>
@@ -201,6 +201,26 @@ static const char *headers[] = {
                   "  Lat    ", "  Long   ", " Hdg  ", " Dist   ",
                   "Msg ", "Seen "
                 };
+
+/**
+ * \todo
+ * define the column header and width dynamically at runtime using this structure
+ */
+typedef struct col_widths {
+        int ICAO;
+        int call_sign;
+        int reg_num;
+        int cntry;
+        int DEP_DST;
+        int altitude;
+        int speed;
+        int lat;
+        int lon;
+        int hdg;
+        int dist;
+        int msg;
+        int seen;
+      } col_widths;
 
 static void curses_hilight_header (int x, int field)
 {

@@ -31,7 +31,7 @@ USE_BIN_FILES ?= 0
 #   USE_NET_POLLER=WSAPOLL: use 'WSAPoll()'
 #   USE_NET_POLLER=SELECT:  use 'select()'
 #
-USE_NET_POLLER ?= SELECT
+USE_NET_POLLER ?= WSAPOLL
 
 #
 # Enable bundling *all* web_root pages inside '../web-pages.dll' as multiple resources.
@@ -211,17 +211,15 @@ ifeq ($(USE_ASAN),1)
                 clang_rt.asan_dynamic_runtime_thunk-$(SUFFIX).lib \
                 kernel32.lib
   endif
-endif
 
-#
-# ASAN with clang-cl is a bit tricky with regard to linking;
-# Use an explicit '-libpath:' for it. Since a Visual-Studio .DLL
-# for ASAN could have missing imports needed by 'USE_ASAN=1'.
-#
-# Hence copy the needed .DLL over to current directory (and remove it on a 'make clean').
-#
-ifeq ($(CC),clang-cl)
-  ifneq ($(USE_ASAN),0)
+  #
+  # ASAN with clang-cl is a bit tricky with regard to linking;
+  # Use an explicit '-libpath:' for it. Since a Visual-Studio .DLL
+  # for ASAN could have missing imports needed by 'USE_ASAN=1'.
+  #
+  # Hence copy the needed .DLL over to current directory (and remove it on a 'make clean').
+  #
+  ifeq ($(CC),clang-cl)
     ifeq ($(CLANG_MAJOR_VER),)
       $(error 'CLANG_MAJOR_VER' must be set in your environment.)
     endif
@@ -235,10 +233,10 @@ ifeq ($(CC),clang-cl)
     LDFLAGS += -libpath:$(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
 
     COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-$(SUFFIX).dll
-  endif
 
-else ifeq ($(USE_ASAN),1)
-  COPY_DLLs = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/clang_rt.asan_dynamic-$(SUFFIX).dll
+  else
+    COPY_DLLs = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/clang_rt.asan_dynamic-$(SUFFIX).dll
+  endif
 endif
 
 RCFLAGS += -DRC_BITS=$(BITS)
@@ -257,7 +255,6 @@ TARGETS = ../dump1090.exe
 
 SOURCES = aircraft.c    \
           airports.c    \
-          airspy.c      \
           cfg_file.c    \
           color.c       \
           convert.c     \
@@ -276,24 +273,21 @@ SOURCES = aircraft.c    \
           misc.c        \
           net_io.c      \
           pconsole.c    \
-          sdrplay.c     \
           smartlist.c   \
           speech.c
 
-vpath %.c externals \
-          externals/Curses
+vpath %.c externals        \
+          externals/AirSpy \
+          externals/Curses \
+          externals/SDRplay
 
 SOURCES += $(addprefix externals/, \
              mongoose.c            \
              sqlite3.c             \
              zip.c                 \
-             Curses/amalgamation.c)
-
-# vpath %.c  externals/AirSpy
-# SOURCES += externals/AirSpy/airspy.c
-
-# vpath %.c  externals/SDRPlay
-# SOURCES += externals/SDRPlay/sdrplay.c
+             AirSpy/airspy.c       \
+             Curses/amalgamation.c \
+             SDRplay/sdrplay.c)
 
 vpath %.c externals/rtl-sdr
 

@@ -152,7 +152,6 @@
   <ItemGroup>
     <ClCompile Include="aircraft.c" />
     <ClCompile Include="airports.c" />
-    <ClCompile Include="airspy.c" />
     <ClCompile Include="cfg_file.c" />
     <ClCompile Include="convert.c" />
     <ClCompile Include="cpr.c" />
@@ -170,10 +169,10 @@
     <ClCompile Include="misc.c" />
     <ClCompile Include="net_io.c" />
     <ClCompile Include="pconsole.c" />
-    <ClCompile Include="sdrplay.c" />
     <ClCompile Include="smartlist.c" />
     <ClCompile Include="speech.c" />
     <ClCompile Include="externals\mongoose.c" />
+    <ClCompile Include="externals\AirSpy\airspy.c" />
     <ClCompile Include="externals\Curses\amalgamation.c" />
     <ClCompile Include="externals\sqlite3.c" />
     <ClCompile Include="externals\zip.c" />
@@ -183,11 +182,11 @@
     <ClCompile Include="externals\rtl-sdr\tuner_fc001x.c" />
     <ClCompile Include="externals\rtl-sdr\tuner_fc2580.c" />
     <ClCompile Include="externals\rtl-sdr\tuner_r82xx.c" />
+    <ClCompile Include="externals\SDRplay\sdrplay.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="aircraft.h" />
     <ClInclude Include="airports.h" />
-    <ClInclude Include="airspy.h" />
     <ClInclude Include="cfg_file.h" />
     <ClInclude Include="convert.h" />
     <ClInclude Include="cpr.h" />
@@ -202,7 +201,6 @@
     <ClInclude Include="misc.h" />
     <ClInclude Include="net_io.h" />
     <ClInclude Include="routes.h" />
-    <ClInclude Include="sdrplay.h" />
     <ClInclude Include="smartlist.h" />
     <ClInclude Include="speech.h" />
     <ClInclude Include="dump1090_config.h" />
@@ -210,6 +208,7 @@
     <ClInclude Include="externals\sqlite3.h" />
     <ClInclude Include="externals\zip.h" />
     <ClInclude Include="externals\miniz.h" />
+    <ClInclude Include="externals\AirSpy\airspy.h" />
     <ClInclude Include="externals\rtl-sdr\rtlsdr_i2c.h" />
     <ClInclude Include="externals\rtl-sdr\trace.h" />
     <ClInclude Include="externals\rtl-sdr\tuner_e4k.h" />
@@ -219,16 +218,17 @@
     <ClInclude Include="externals\rtl-sdr\rtl-sdr.h" />
     <ClInclude Include="externals\rtl-sdr\rtl-sdr_export.h" />
     <ClInclude Include="externals\rtl-sdr\version.h" />
-    <ClInclude Include="externals\SDRplay-API\sdrplay_api.h" />
-    <ClInclude Include="externals\SDRplay-API\sdrplay_api_callback.h" />
-    <ClInclude Include="externals\SDRplay-API\sdrplay_api_control.h" />
-    <ClInclude Include="externals\SDRplay-API\sdrplay_api_dev.h" />
-    <ClInclude Include="externals\SDRplay-API\sdrplay_api_rsp1a.h" />
-    <ClInclude Include="externals\SDRplay-API\sdrplay_api_rsp2.h" />
-    <ClInclude Include="externals\SDRplay-API\sdrplay_api_rspDuo.h" />
-    <ClInclude Include="externals\SDRplay-API\sdrplay_api_rspDx.h" />
-    <ClInclude Include="externals\SDRplay-API\sdrplay_api_rx_channel.h" />
-    <ClInclude Include="externals\SDRplay-API\sdrplay_api_tuner.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay_api.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay_api_callback.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay_api_control.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay_api_dev.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay_api_rsp1a.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay_api_rsp2.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay_api_rspDuo.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay_api_rspDx.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay_api_rx_channel.h" />
+    <ClInclude Include="externals\SDRplay\sdrplay_api_tuner.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
