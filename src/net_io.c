@@ -16,6 +16,14 @@
 #include "server-cert-key.h"
 #include "client-cert-key.h"
 
+#define USE_MG_DNS 1
+
+/*
+LOG93YE     EGPE-EGPA-EGPB ==
+
+           Inverness -> Orkney Islands -> Lerwick
+*/
+
 /**
  * Handlers for the network services.
  *
@@ -31,7 +39,8 @@ net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
           { &Modes.sbs_in,     "SBS TCP input",  "tcp", MODES_NET_PORT_SBS     },  // MODES_NET_SERVICE_SBS_IN
           { &Modes.http4_out,  "HTTP4 server",   "tcp", MODES_NET_PORT_HTTP    },  // MODES_NET_SERVICE_HTTP4
           { &Modes.http6_out,  "HTTP6 server",   "tcp", MODES_NET_PORT_HTTP    },  // MODES_NET_SERVICE_HTTP6
-          { &Modes.rtl_tcp_in, "RTL-TCP input",  "tcp", MODES_NET_PORT_RTL_TCP }   // MODES_NET_SERVICE_RTL_TCP
+          { &Modes.rtl_tcp_in, "RTL-TCP input",  "tcp", MODES_NET_PORT_RTL_TCP },  // MODES_NET_SERVICE_RTL_TCP
+          { &Modes.dns_in,     "DNS client",     "udp", MODES_NET_PORT_DNS_UDP }   // MODES_NET_SERVICE_DNS
         };
 
 /**
@@ -55,10 +64,13 @@ DEF_C_FUNC (const char *, mg_unlist, (size_t i));
  * For handling reverse DNS resolution
  */
 typedef struct reverse_rec {
+        mg_addr      addr;
         ip_address   ip_str;
         char         ptr_name [DNS_MAX_TEXT_STRING_LENGTH]; /* == 255 */
         time_t       timestamp;
         DNS_STATUS   status;
+        bool         pending;
+        uint16_t     txnid;
       } reverse_rec;
 
 static smartlist_t *g_reverse_rec = NULL;
@@ -102,6 +114,7 @@ static char        *net_store_error (intptr_t service, const char *err);
 static char        *net_error_details (mg_connection *c, const char *in_out, const void *ev_data);
 static char        *net_str_addr (const mg_addr *a, char *buf, size_t len);
 static char        *net_str_addr_port (const mg_addr *a, char *buf, size_t len);
+static reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name, time_t timestamp, DNS_STATUS status, bool pending);
 static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str);
 static bool         client_is_extern (const mg_addr *addr);
 static bool         client_handler (mg_connection *c, intptr_t service, int ev);
@@ -113,6 +126,12 @@ const char         *mg_unpack (const char *path, size_t *size, time_t *mtime);
 static bool rtl_tcp_connect (mg_connection *c);
 static bool rtl_tcp_decode (mg_iobuf *msg, int loop_cnt);
 static void rtl_tcp_no_stats (intptr_t service);
+
+#if USE_MG_DNS
+  static int  net_reverse_pending (void);
+  static bool dns_send_PTR (mg_connection *c, const reverse_rec *rr);
+  static bool dns_parse_message (mg_iobuf *msg, int loop_cnt);
+#endif
 
 /**
  * \def ASSERT_SERVICE(s)
@@ -191,8 +210,9 @@ static const char *event_name (int ev)
 static mg_connection *connection_setup (intptr_t service, bool listen, bool sending, bool is_ipv6)
 {
   mg_connection *c = NULL;
-  bool           allow_udp = (service == MODES_NET_SERVICE_RAW_IN ||
-                              service == MODES_NET_SERVICE_RTL_TCP);
+  bool           allow_udp = (service == MODES_NET_SERVICE_RAW_IN  ||
+                              service == MODES_NET_SERVICE_RTL_TCP ||
+                              service == MODES_NET_SERVICE_DNS);
   bool           use_udp = (modeS_net_services [service].is_udp && !modeS_net_services [service].is_ip6);
   char          *url;
   const char    *listen_fmt = "%s://0.0.0.0:%u";
@@ -241,7 +261,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
   }
   else
   {
-    /* For an active connect(), we'll get one of these event in net_handler():
+    /* For an active connect(), we'll get one of these events in net_handler():
      *  - MG_EV_ERROR    -- the `--host-xx` argument was not resolved or the connection failed or timed out.
      *  - MG_EV_RESOLVE  -- the `--host-xx` argument was successfully resolved to an IP-address.
      *  - MG_EV_CONNECT  -- successfully connected.
@@ -698,7 +718,7 @@ static int net_handler_websocket (mg_connection *c, const mg_ws_message *ws, int
 
 /**
  * The timer callback for an active `connect()`.
- * Or for data-timeout in `MODES_NET_SERVICE_RTL_TCP` service.
+ * Or for data-timeout in `MODES_NET_SERVICE_RTL_TCP` services.
  */
 static void net_timeout (void *arg)
 {
@@ -936,11 +956,13 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
   char        *remote;
   const char  *is_tls = "";
   mg_host_name remote_buf;
-  long         bytes;                           /* bytes read or written */
-  INT_PTR      service = (INT_PTR) c->fn_data;  /* 'fn_data' is arbitrary user data */
+  long         bytes;         /* bytes read or written */
+  INT_PTR      service;
 
   if (Modes.exit)
      return;
+
+  service = (INT_PTR) c->fn_data;  /* 'fn_data' is arbitrary user data */
 
   if (ev == MG_EV_POLL || ev == MG_EV_OPEN)     /* Ignore these events */
      return;
@@ -1075,6 +1097,13 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
       conn = connection_get (c, service, false);
       net_connection_recv (conn, rtl_tcp_decode, false);
     }
+    else if (service == MODES_NET_SERVICE_DNS)
+    {
+#if USE_MG_DNS
+      conn = connection_get (c, service, false);
+      net_connection_recv (conn, dns_parse_message, false);
+#endif
+    }
     return;
   }
 
@@ -1180,7 +1209,7 @@ static void net_conn_free (connection *this_conn, intptr_t service)
        continue;
 
     LIST_DELETE (connection, &Modes.connections [service], conn);
-    if (this_conn->c->is_accepted)
+    if (this_conn->c->is_accepted || this_conn->c->is_client)
     {
       Modes.stat.cli_removed [service]++;
       is_server = 0;
@@ -1354,7 +1383,7 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
   if (addr_none(addr))       /* ignore an ANY address */
      return (false);
 
-  int i, max = g_unique_ips ? smartlist_len (g_unique_ips) : 0;
+  int i, max = smartlist_len (g_unique_ips);
   for (i = 0; i < max; i++)
   {
     ip = smartlist_get (g_unique_ips, i);
@@ -1377,7 +1406,32 @@ static bool _client_is_unique (const mg_addr *addr, intptr_t service, unique_IP 
   get_FILETIME_now (&ip->seen);
 
   if (Modes.reverse_resolve)
-     ip->rr = net_reverse_resolve (&ip->addr, NULL);   /* This blocks! */
+  {
+#if USE_MG_DNS
+    if (test_mode)
+    {
+      net_reverse_resolve (&ip->addr, NULL);
+
+      while (1)
+      {
+        if (net_reverse_pending() > 0)
+             net_poll();
+        else break;
+      }
+    }
+    else
+    {
+      /**
+       * This blocks!
+       * \todo post an MG_EV_DNS_RESULT == MG_EV_USER to the
+       * event handler somehow.
+       */
+      ip->rr = net_reverse_resolve (&ip->addr, NULL);
+    }
+#else
+    ip->rr = net_reverse_resolve (&ip->addr, NULL);     /* This blocks! */
+#endif
+  }
 
   smartlist_add (g_unique_ips, ip);
 
@@ -1438,7 +1492,7 @@ static void unique_ips_print (intptr_t service)
   if (!Modes.log)
      return;
 
-  max = g_unique_ips ? smartlist_len (g_unique_ips) : 0;
+  max = smartlist_len (g_unique_ips);
   for (i = num = 0; i < max; i++)
   {
     ip = smartlist_get (g_unique_ips, i);
@@ -1506,9 +1560,6 @@ static bool add_deny (const char *val, bool is_ip6)
   if (!g_deny_list)  /* called from cfg_file.c */
      g_deny_list = smartlist_new();
 
-  if (!g_deny_list)
-     return (false);
-
   deny = calloc (sizeof(*deny), 1);
   if (deny)
   {
@@ -1549,7 +1600,7 @@ static bool client_deny (const mg_addr *a, int *rc)
 
   *rc = -3;      /* unknown */
 
-  int i, max = g_deny_list ? smartlist_len (g_deny_list) : 0;
+  int i, max = smartlist_len (g_deny_list);
   for (i = 0; i < max; i++)
   {
     d = smartlist_get (g_deny_list, i);
@@ -1576,7 +1627,7 @@ static size_t deny_list_dump (bool is_ip6)
   const deny_element *d;
   size_t              num = 0;
 
-  int i, max = g_deny_list ? smartlist_len (g_deny_list) : 0;
+  int i, max = smartlist_len (g_deny_list);
   for (i = 0; i < max; i++)
   {
     d = smartlist_get (g_deny_list, i);
@@ -1644,7 +1695,7 @@ static void deny_lists_test (void)
   }
 }
 
-void net_deny_dump (void)
+static void net_deny_dump (void)
 {
   deny_lists_dump();
   deny_lists_test();
@@ -1655,7 +1706,7 @@ static size_t deny_list_numX (bool is_ip6)
   const deny_element *d;
   size_t              num = 0;
 
-  int i, max = g_deny_list ? smartlist_len (g_deny_list) : 0;
+  int i, max = smartlist_len (g_deny_list);
   for (i = 0; i < max; i++)
   {
     d = smartlist_get (g_deny_list, i);
@@ -2272,11 +2323,11 @@ static void unique_ip_tests (void)
     unique_ip_add_hostile (HOSTILE_IP_1, service);
     unique_ip_add_hostile (HOSTILE_IP_2, service);
 
-    *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK);   /* == 127.0.0.1 */
+    *(uint32_t*) &addr.ip = mg_htonl (INADDR_LOOPBACK);   /* == 127.0.0.1 */
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
-    *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK+1); /* == 127.0.0.2 */
+    *(uint32_t*) &addr.ip = mg_htonl (INADDR_LOOPBACK+1); /* == 127.0.0.2 */
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
@@ -2288,11 +2339,11 @@ static void unique_ip_tests (void)
       Modes.stat.bytes_recv [service] += 10;
     }
 
-    *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK);    /* == 127.0.0.1 */
+    *(uint32_t*) &addr.ip = mg_htonl (INADDR_LOOPBACK);    /* == 127.0.0.1 */
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
-    *(uint32_t*) &addr.ip = htonl (INADDR_LOOPBACK+1);  /* == 127.0.0.2 */
+    *(uint32_t*) &addr.ip = mg_htonl (INADDR_LOOPBACK+1);  /* == 127.0.0.2 */
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
@@ -2353,7 +2404,21 @@ static void reverse_ip_tests (void)
 
   for (i = 0; i < DIM(tests); i++)
   {
-    rr    = net_reverse_resolve (NULL, tests[i].ip_str);
+#if USE_MG_DNS
+    net_reverse_resolve (NULL, tests[i].ip_str);
+
+    while (1)
+    {
+      if (net_reverse_pending() > 0)
+           net_poll();
+      else break;
+    }
+    /* fallthrough and get it from the cache
+     */
+#endif
+
+    rr = net_reverse_resolve (NULL, tests[i].ip_str);
+
     equal = rr && (strcmp(rr->ptr_name, tests[i].ptr_expected) == 0);
 
     printf ("  %-25s -> %-30s  %s\n",
@@ -2375,7 +2440,7 @@ static void net_reverse_write (void)
   /* `net_reverse_init()` was not called.
    * Or nothing to write to cache.
    */
-  if (!g_reverse_file[0] || !g_reverse_rec)
+  if (!g_reverse_file[0])
      return;
 
   f = fopen (g_reverse_file, "w+t");
@@ -2388,6 +2453,9 @@ static void net_reverse_write (void)
   for (i = 0; i < max; i++)
   {
     rr = smartlist_get (g_reverse_rec, i);
+    if (rr->status == DNS_INFO_NO_RECORDS)
+       continue;
+
     fprintf (f, "%s,%s,%lld,%ld\n",
              rr->ip_str,
              rr->ptr_name[0] ? rr->ptr_name : NONE_STR,
@@ -2399,18 +2467,33 @@ static void net_reverse_write (void)
   fclose (f);
 }
 
+static int net_reverse_pending (void)
+{
+  int   i, max, num = 0;
+  const reverse_rec *rr;
+
+  max = smartlist_len (g_reverse_rec);
+  for (i = 0; i < max; i++)
+  {
+    rr = smartlist_get (g_reverse_rec, i);
+    if (rr->pending)
+       num++;
+  }
+  if (test_mode)
+      printf ("  net_reverse_pending(): %d\n", num);
+  return (num);
+}
+
 /**
  * Add a new (or modify an existing) record to the `g_reverse_rec` linked-list.
  */
 static reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name,
-                                     time_t timestamp, DNS_STATUS status)
+                                     time_t timestamp, DNS_STATUS status, bool pending)
 {
-  reverse_rec *rr;
+  static uint16_t txnid = 0; /* Transaction ID */
+  reverse_rec    *rr;
 
   if (timestamp < g_reverse_maxage)  /* too old; ignore */
-     return (NULL);
-
-  if (!g_reverse_rec)
      return (NULL);
 
   /* Check if the `ptr_name` has changed.
@@ -2424,6 +2507,7 @@ static reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name,
       strcpy_s (rr->ptr_name, sizeof(rr->ptr_name), ptr_name);
       rr->timestamp = timestamp;
       rr->status    = status;
+      rr->pending   = false;
       return (rr);
     }
   }
@@ -2436,8 +2520,11 @@ static reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name,
 
   strcpy_s (rr->ip_str, sizeof(rr->ip_str), ip_str);
   strcpy_s (rr->ptr_name, sizeof(rr->ptr_name), ptr_name);
+  rr->pending   = pending;
   rr->timestamp = timestamp;
   rr->status    = status;
+  if (rr->pending)
+     rr->txnid = ++txnid;
 
   smartlist_add (g_reverse_rec, rr);
   return (rr);
@@ -2466,17 +2553,18 @@ static int net_reverse_callback (struct CSV_context *ctx, const char *value)
   else if (ctx->field_num == 3)   /* "status" and last field */
   {
     rr.status = strtold (value, NULL);
-    net_reverse_add (rr.ip_str, rr.ptr_name, rr.timestamp, rr.status);
+    net_reverse_add (rr.ip_str, rr.ptr_name, rr.timestamp, rr.status, rr.pending);
     memset (&rr, '\0', sizeof(rr));
   }
   return (1);
 }
 
 /**
- * Initialize the reverse-resolver:
- *  \li Create a linked-list (`g_reverse_rec`) of previous CSV records.
+ * Initialize the reverse-resolver.
+ *
+ * Create a linked-list (`g_reverse_rec`) of previous CSV records.
  */
-static void net_reverse_init (void)
+static bool net_reverse_init (void)
 {
   CSV_context csv_ctx;
 
@@ -2489,6 +2577,15 @@ static void net_reverse_init (void)
   csv_ctx.callback   = net_reverse_callback;
   csv_ctx.num_fields = 4;
   CSV_open_and_parse_file (&csv_ctx);
+
+#if USE_MG_DNS
+  modeS_net_services [MODES_NET_SERVICE_DNS].is_udp = true;
+  modeS_net_services [MODES_NET_SERVICE_DNS].is_ip6 = false;
+  strcpy (modeS_net_services [MODES_NET_SERVICE_DNS].host, "8.8.8.8");
+  return connection_setup_active (MODES_NET_SERVICE_DNS, &Modes.dns_in);
+#else
+  return (true);
+#endif
 }
 
 #undef  TRACE
@@ -2500,7 +2597,7 @@ static void net_reverse_init (void)
                         } while (0)
 
 /**
- * Reverse resolve an IPv4 address to a host-name using `DnsApi.dll`.
+ * Reverse resolve an IPv4/IPv6 address to a host-name using `DnsApi.dll`.
  * \li First look in the local cache (`g_reverse_rec`).
  * \li Unless not found or is too old, do a `DNS_TYPE_PTR` lookup using `DnsQuery_A()`.
  *
@@ -2508,7 +2605,7 @@ static void net_reverse_init (void)
  */
 static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
 {
-  DNS_RECORD  *data_rec = NULL;
+  DNS_RECORD  *dr = NULL;
   DNS_STATUS   rc;
   DWORD        options = (DNS_QUERY_NO_HOSTS_FILE | DNS_QUERY_NO_NETBT);
   reverse_rec *rr;
@@ -2520,6 +2617,9 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
   bool         do_debug = (test_mode || (Modes.debug & DEBUG_NET2));
   time_t       now;
   int          i, max;
+
+  if (!Modes.reverse_resolve)
+     return (NULL);
 
   if (ip_str)
   {
@@ -2539,13 +2639,14 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
 
   /* Check the cache for a match that has not timed-out.
    */
-  max = g_reverse_rec ? smartlist_len (g_reverse_rec) : 0;
+  max = smartlist_len (g_reverse_rec);
   for (i = 0; i < max; i++)
   {
     rr = smartlist_get (g_reverse_rec, i);
     if (!strcmp(ip_str, rr->ip_str) && rr->timestamp > (now - REVERSE_MAX_AGE))
     {
-      TRACE ("'%s' found in cache: '%s'\n", ip_str, rr->ptr_name[0] ? rr->ptr_name : NONE_STR);
+      TRACE ("'%s' found in cache: '%s', status: %ld\n",
+             ip_str, rr->ptr_name[0] ? rr->ptr_name : NONE_STR, rr->status);
       if (!rr->ptr_name[0])
          return (NULL);
       return (rr);
@@ -2577,21 +2678,39 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
 
   response[0] = '\0';
 
-  /* Do the PTR lookup
+#if USE_MG_DNS
+  if (!a->is_ip6)
+  {
+    /*
+     * Do the PTR lookup asynchronously
+     */
+    rr = net_reverse_add (ip_str, "", now, DNS_INFO_NO_RECORDS, true);
+    if (rr)
+    {
+      rr->addr = *a;
+      if (!dns_send_PTR(Modes.dns_in, rr))
+         rr->pending = false;
+    }
+    return (NULL);
+  }
+#endif
+
+  /*
+   * Do the PTR lookup synchronously
    */
-  rc = DnsQuery_A (request, DNS_TYPE_PTR, options, NULL, &data_rec, NULL);
-  if (rc == NO_ERROR && data_rec && data_rec->Data.PTR.pNameHost)
-     strcpy_s (response, sizeof(response), data_rec->Data.PTR.pNameHost);
+  rc = DnsQuery_A (request, DNS_TYPE_PTR, options, NULL, &dr, NULL);
 
-  if (data_rec)
-     DnsFree (data_rec, DnsFreeRecordList);
+  if (rc == ERROR_SUCCESS && dr && dr->Data.PTR.pNameHost)
+     strcpy_s (response, sizeof(response), dr->Data.PTR.pNameHost);
 
-  TRACE ("DnsQuery_A (\"%s\") -> %s\n", request, rc == NO_ERROR ? response : win_strerror(rc));
+  if (dr)
+     DnsFree (dr, DnsFreeRecordList);
 
   now = time (NULL);
-  rr = net_reverse_add (ip_str, response[0] ? response : "", now, rc);
 
-  return (rr);
+  TRACE ("DnsQuery_A (\"%s\") -> %s\n", request, rc == ERROR_SUCCESS ? response : win_strerror(rc));
+
+  return net_reverse_add (ip_str, response[0] ? response : "", now, rc, false);
 }
 
 /**
@@ -2714,10 +2833,16 @@ bool net_init (void)
 {
   mg_file_path web_dll;
 
-  if (!g_deny_list) /* if not already created via `add_deny()` */
+  if (!g_deny_list)    /* if not already created via `add_deny()` */
      g_deny_list = smartlist_new();
   g_unique_ips  = smartlist_new();
   g_reverse_rec = smartlist_new();
+
+  if (!g_deny_list || !g_unique_ips || !g_reverse_rec)
+  {
+    LOG_STDERR ("Out of memory allocating smartlists.\n");
+    return (false);
+  }
 
   test_mode = test_contains (Modes.tests, "net");
 
@@ -2917,11 +3042,10 @@ bool net_exit (void)
   net_timer_del_all();
   mg_mgr_free (&Modes.mgr); /* This calls free() on all timers */
 
+  net_reverse_write();
+
   if (g_reverse_rec)
-  {
-    net_reverse_write();
-    smartlist_wipe (g_reverse_rec, free);
-  }
+     smartlist_wipe (g_reverse_rec, free);
 
   if (g_unique_ips)
      smartlist_wipe (g_unique_ips, free);
@@ -2931,14 +3055,9 @@ bool net_exit (void)
 
   g_deny_list = g_unique_ips = g_reverse_rec = NULL;
 
-  if (Modes.dns4)
-     free (Modes.dns4);
-
-  if (Modes.dns6)
-     free (Modes.dns6);
-
-  if (Modes.rtltcp.info)
-     free (Modes.rtltcp.info);
+  free (Modes.dns4);
+  free (Modes.dns6);
+  free (Modes.rtltcp.info);
 
   Modes.mgr.conns = NULL;
   Modes.dns4 = Modes.dns6 = NULL;
@@ -2990,7 +3109,7 @@ void net_poll (void)
  */
 static const char *get_tuner_type (int type)
 {
-  type = ntohl (type);
+  type = mg_ntohl (type);
 
   return (type == RTLSDR_TUNER_UNKNOWN ? "Unknown" :
           type == RTLSDR_TUNER_E4000   ? "E4000"   :
@@ -3019,8 +3138,8 @@ static bool get_gain_values (const RTL_TCP_info *info, int **gains, int *gain_co
                                   297, 328, 338, 364, 372, 386, 402, 421,
                                   434, 439, 445, 480, 496
                                 };
-  uint32_t gcount = ntohl (info->tuner_gain_count);
-  uint32_t tuner  = ntohl (info->tuner_type);
+  uint32_t gcount = mg_ntohl (info->tuner_gain_count);
+  uint32_t tuner  = mg_ntohl (info->tuner_type);
 
   switch (tuner)
   {
@@ -3073,7 +3192,7 @@ static bool set_nearest_gain (RTL_TCP_info *info, uint16_t *target_gain)
   int     *gains, gain_count;
   char     gbuf [200], *p = gbuf;
   size_t   left = sizeof(gbuf);
-  uint32_t gcount = ntohl (info->tuner_gain_count);
+  uint32_t gcount = mg_ntohl (info->tuner_gain_count);
 
   if (gcount <= 0 || !get_gain_values(info, &gains, &gain_count))
      return (false);
@@ -3107,25 +3226,30 @@ static bool set_nearest_gain (RTL_TCP_info *info, uint16_t *target_gain)
  */
 static void rtl_tcp_recv_info (mg_iobuf *msg)
 {
-  if (msg->len >= sizeof(Modes.rtltcp.info) &&
-      !memcmp(msg->buf, RTL_TCP_MAGIC, sizeof(RTL_TCP_MAGIC)-1))
+  RTL_TCP_info *info;
+
+  if (msg->len < sizeof(*info))
+     return;
+
+  info = memdup (msg->buf, sizeof(*info));
+  if (!info || memcmp(info->magic, RTL_TCP_MAGIC, sizeof(info->magic)))
+     goto quit;
+
+  Modes.rtltcp.info = info;   /* a copy */
+
+  DEBUG (DEBUG_NET, "tuner_type: \"%s\", gain_count: %u.\n",
+         get_tuner_type(info->tuner_type), mg_ntohl(info->tuner_gain_count));
+
+  net_timer_del (MODES_NET_SERVICE_RTL_TCP);
+
+  if (set_nearest_gain(info, Modes.gain_auto ? NULL : &Modes.gain))
   {
-    RTL_TCP_info *info = memdup (msg->buf, sizeof(*info));
-
-    Modes.rtltcp.info = info;  /* a copy */
-
-    DEBUG (DEBUG_NET, "tuner_type: \"%s\", gain_count: %lu.\n",
-           get_tuner_type(info->tuner_type), ntohl(info->tuner_gain_count));
-
-    net_timer_del (MODES_NET_SERVICE_RTL_TCP);
-    mg_iobuf_del (msg, 0, sizeof(*info));
-
-    if (set_nearest_gain(info, Modes.gain_auto ? NULL : &Modes.gain))
-    {
-      rtl_tcp_set_gain_mode (Modes.rtl_tcp_in, Modes.gain_auto);
-      rtl_tcp_set_gain (Modes.rtl_tcp_in, Modes.gain);
-    }
+    rtl_tcp_set_gain_mode (Modes.rtl_tcp_in, Modes.gain_auto);
+    rtl_tcp_set_gain (Modes.rtl_tcp_in, Modes.gain);
   }
+
+quit:
+  mg_iobuf_del (msg, 0, sizeof(*info));
 }
 
 /**
@@ -3163,7 +3287,7 @@ static bool rtl_tcp_command (mg_connection *c, uint8_t command, uint32_t param)
   RTL_TCP_cmd cmd;
 
   cmd.cmd   = command;
-  cmd.param = htonl (param);
+  cmd.param = mg_htonl (param);
   return mg_send (c, &cmd, sizeof(cmd));
 }
 
@@ -3216,3 +3340,102 @@ static void rtl_tcp_no_stats (intptr_t service)
   if (service == MODES_NET_SERVICE_RTL_TCP && Modes.stat.samples_recv_rtltcp == 0)
      Modes.no_stats = true;
 }
+
+#if (USE_MG_DNS == 1)
+/**
+ * Use WinDNS to parse the raw response.
+ */
+static bool windns_parse_ptr (const uint8_t *buf, size_t len)
+{
+  DNS_STATUS          rc;
+  DNS_MESSAGE_BUFFER *dm;
+  DNS_RECORDA        *dr  = NULL;
+  reverse_rec        *rr1 = NULL;
+  reverse_rec        *rr2;
+  int                 i, max = smartlist_len (g_reverse_rec);
+
+  dm = alloca (len);
+  memcpy (dm, buf, len);
+  DNS_BYTE_FLIP_HEADER_COUNTS (&dm->MessageHead);
+
+  /**
+   * Find the `rr` for the `rr->txnid` we sent.
+   * I.e. with "Transaction ID" `dm->MessageHead.Xid == rr->txnid`
+   */
+  for (i = 0; i < max; i++)
+  {
+    rr2 = smartlist_get (g_reverse_rec, i);
+
+    if (dm->MessageHead.Xid == rr2->txnid)
+    {
+      DEBUG (DEBUG_NET2, "Found dm.MessageHead.Xid: %u\n", dm->MessageHead.Xid);
+      rr2->pending   = false;
+      rr2->status    = DNS_INFO_NO_RECORDS;  /* but still uncertain result */
+      rr2->timestamp = time (NULL);
+      rr1 = rr2;
+      break;
+    }
+  }
+
+  rc = DnsExtractRecordsFromMessage_UTF8 (dm, len, &dr);
+  if (dr && rc == ERROR_SUCCESS)
+  {
+    DEBUG (DEBUG_NET2, "rr->ip_str: '%s', dr->pName: '%s', dr->wType: %u\n",
+           rr1 ? rr1->ip_str : "N/A", dr->pName, dr->wType);
+
+    if (rr1 && dr->wType == DNS_TYPE_PTR)
+    {
+      DNS_PTR_DATAA *ptr = &dr->Data.PTR;
+
+      rr1->status  = ERROR_SUCCESS;
+      strncpy (rr1->ptr_name, ptr->pNameHost, sizeof(rr1->ptr_name));
+    }
+  }
+  if (dr)
+     DnsFree (dr, DnsFreeRecordList);
+  return (rr1 != NULL);
+}
+
+static bool dns_parse_message (mg_iobuf *msg, int loop_cnt)
+{
+  struct mg_dns_message dm;
+  bool   rc = false;
+
+  if (msg->len == 0)    /* all was consumed */
+     return (false);
+
+  if (mg_dns_parse(msg->buf, msg->len, &dm))
+     rc = windns_parse_ptr (msg->buf, msg->len);
+
+  mg_iobuf_del (msg, 0, msg->len);
+  (void) loop_cnt;
+  return (rc);
+}
+
+static bool dns_send_PTR (mg_connection *c, const reverse_rec *rr)
+{
+  char  packet [1500];
+  char  request [30];
+  DWORD size = sizeof(packet);
+  BOOL  rc;
+
+  DNS_MESSAGE_BUFFER *dm = (DNS_MESSAGE_BUFFER*) &packet;
+
+  assert (rr->addr.is_ip6 == false);
+
+  snprintf (request, sizeof(request), "%d.%d.%d.%d.in-addr.arpa",
+            rr->addr.ip[3], rr->addr.ip[2], rr->addr.ip[1], rr->addr.ip[0]);
+
+  rc = DnsWriteQuestionToBuffer_UTF8 (dm, &size, request, DNS_TYPE_PTR, rr->txnid, TRUE);
+
+  DEBUG (DEBUG_NET, "%s(): rc: %d, reverse-resolving: %s (%s), size: %lu\n",
+         __FUNCTION__, rc, request, rr->ip_str, size);
+
+  if (!rc)
+  {
+    LOG_STDERR ("DnsWriteQuestionToBuffer_UTF8() failed: %s\n", win_strerror(GetLastError()));
+    return (false);
+  }
+  return mg_send (c, packet, size);
+}
+#endif /* USE_MG_DNS == 1 */
