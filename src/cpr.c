@@ -54,11 +54,12 @@ static const char *CPR_strerror (void)
 
 static int CPR_set_error (int result, aircraft *a, uint64_t now)
 {
-  if (result < 0)
-       LOG_FILEONLY2 ("%s %06X, %s.\n",
-                      a->is_helicopter ? "helicopter" : "plane",
-                      a->addr, CPR_strerror());
-  else a->seen_pos_EST = now;
+  if (result >= 0)
+     a->seen_pos_EST = now;
+  else if (Modes.cpr_trace)
+     LOG_FILEONLY2 ("%s %06X, %s.\n",
+                    a->is_helicopter ? "helicopter" : "plane",
+                    a->addr, CPR_strerror());
   return (result);
 }
 
