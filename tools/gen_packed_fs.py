@@ -162,7 +162,7 @@ def walktree (top, callback):
 def add_file (file, st):
   file = file.replace ("\\", "/")
   for i in opt.ignore:
-    if fnmatch.fnmatch (file, i):
+    if fnmatch.fnmatch (os.path.basename(file), i):
        trace (2, "Ignoring file '%s'" % file)
        return
 
