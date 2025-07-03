@@ -461,7 +461,7 @@ a_sort_t aircraft_sort (int s)
   int  num = smartlist_len (Modes.aircrafts);
   bool reverse = (s < 0);
 
-  if (num <= 1 || s == INTERACTIVE_SORT_NONE)   /* no point */
+  if (num <= 1 || abs(s) == INTERACTIVE_SORT_NONE)   /* no point */
      return (Modes.a_sort);
 
   switch (abs(s))
@@ -513,7 +513,6 @@ a_sort_t aircraft_sort (int s)
  */
 bool aircraft_set_sort (const char *arg)
 {
-#if 0
   DWORD value = search_list_value (arg, sort_values, DIM(sort_values));
 
   if (value == (DWORD)-1)
@@ -524,39 +523,6 @@ bool aircraft_set_sort (const char *arg)
   }
   Modes.a_sort = (enum a_sort_t) value;
   return (true);
-
-#else
-  enum a_sort_t sort;
-
-  if (!stricmp(arg, "addr") || !stricmp(arg, "icao"))
-     sort = INTERACTIVE_SORT_ICAO;
-  else if (!stricmp(arg, "alt") || !stricmp(arg, "altitude"))
-     sort = INTERACTIVE_SORT_ALTITUDE;
-  else if (!stricmp(arg, "callsign") || !stricmp(arg, "call-sign"))
-      sort = INTERACTIVE_SORT_CALLSIGN;
-  else if (!stricmp(arg, "country"))
-     sort = INTERACTIVE_SORT_COUNTRY;
-  else if (!stricmp(arg, "dep-dest") || !stricmp(arg, "route"))
-     sort = INTERACTIVE_SORT_DEP_DEST;
-  else if (!stricmp(arg, "dist") || !stricmp(arg, "distance"))
-     sort = INTERACTIVE_SORT_DISTANCE;
-  else if (!stricmp(arg, "regnum"))
-     sort = INTERACTIVE_SORT_REGNUM;
-  else if (!stricmp(arg, "msg") || !stricmp(arg, "messages"))
-     sort = INTERACTIVE_SORT_MESSAGES;
-  else if (!stricmp(arg, "seen") || !stricmp(arg, "age"))
-     sort = INTERACTIVE_SORT_SEEN;
-  else if (!stricmp(arg, "speed"))
-     sort = INTERACTIVE_SORT_SPEED;
-  else
-  {
-    LOG_STDERR ("Illegal 'sort' method '%s'. Use: 'call-sign', 'country', 'icao', "
-                "'altitude', 'dep-dest', 'distance', 'messages', 'seen', 'speed' or 'regnum'\n", arg);
-    return (false);
-  }
-  Modes.a_sort = sort;
-  return (true);
-#endif
 }
 
 /**
