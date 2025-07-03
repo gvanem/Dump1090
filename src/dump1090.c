@@ -101,6 +101,7 @@ static void  __declspec(noreturn) modeS_exit (int rc);
 static void  modeS_send_raw_output (const modeS_message *mm);
 static void  modeS_send_SBS_output (const modeS_message *mm);
 static void  add_unrecognized_ME (int type, int subtype, bool test);
+static void  test_print_unrecognized_ME (void);
 
 static bool  set_bandwidth (const char *arg);
 static bool  set_bias_tee (const char *arg);
@@ -133,17 +134,16 @@ static const cfg_table config[] = {
     { "bias-t",           ARG_FUNC,    (void*) set_bias_tee },
     { "cpr-trace",        ARG_ATOB,    (void*) &Modes.cpr_trace },
     { "DC-filter",        ARG_ATOB,    (void*) &Modes.DC_filter },
-    { "usb-bulk",         ARG_ATOB,    (void*) &Modes.sdrplay.USB_bulk_mode },
     { "airspy-dll",       ARG_FUNC,    (void*) airspy_set_dll_name },
     { "sdrplay-dll",      ARG_FUNC,    (void*) sdrplay_set_dll_name },
     { "sdrplay-minver",   ARG_FUNC,    (void*) sdrplay_set_minver },
-    { "calibrate",        ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
+    { "sdrplay-if-mode",  ARG_FUNC,    (void*) set_if_mode },
+    { "sdrplay-usb-bulk", ARG_ATOB,    (void*) &Modes.sdrplay.USB_bulk_mode },
     { "deny4",            ARG_FUNC,    (void*) net_deny4 },
     { "deny6",            ARG_FUNC,    (void*) net_deny6 },
     { "gain",             ARG_FUNC,    (void*) set_gain },
     { "homepos",          ARG_FUNC,    (void*) set_home_pos },
     { "location",         ARG_FUNC,    (void*) set_home_pos_from_location_API },
-    { "if-mode",          ARG_FUNC,    (void*) set_if_mode },
     { "metric",           ARG_ATOB,    (void*) &Modes.metric },
     { "web-page",         ARG_FUNC,    (void*) set_web_page },
     { "web-touch",        ARG_ATOB,    (void*) &Modes.web_root_touch },
@@ -174,7 +174,9 @@ static const cfg_table config[] = {
     { "net-sbs-port",     ARG_FUNC,    (void*) set_port_sbs },
     { "prefer-adsb-lol",  ARG_FUNC,    (void*) set_prefer_adsb_lol },
     { "reverse-resolve",  ARG_ATOB,    (void*) &Modes.reverse_resolve },
+    { "rtlsdr-calibrate", ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
     { "rtlsdr-reset",     ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
+    { "rtlsdr-ppm",       ARG_FUNC,    (void*) set_ppm },
     { "samplerate",       ARG_FUNC,    (void*) set_sample_rate },
     { "sample-rate",      ARG_FUNC,    (void*) set_sample_rate },
     { "show-hostname",    ARG_ATOB,    (void*) &Modes.show_host_name },
@@ -184,7 +186,6 @@ static const cfg_table config[] = {
     { "https-enable",     ARG_ATOB,    (void*) &Modes.https_enable },
     { "silent",           ARG_ATOB,    (void*) &Modes.silent },
     { "phase-enhance",    ARG_ATOB,    (void*) &Modes.phase_enhance },
-    { "ppm",              ARG_FUNC,    (void*) set_ppm },
     { "host-raw-in",      ARG_FUNC,    (void*) set_host_port_raw_in },
     { "host-raw-out",     ARG_FUNC,    (void*) set_host_port_raw_out },
     { "host-sbs-in",      ARG_FUNC,    (void*) set_host_port_sbs_in },
@@ -336,8 +337,9 @@ static void verbose_bias_tee (rtlsdr_dev_t *dev, int bias_t)
 /**
  * \todo power down and up again before calling RTLSDR API
  */
-static bool rtlsdr_power_cycle (void)
+static bool rtlsdr_power_cycle (rtlsdr_dev_t *dev)
 {
+  MODES_NOTUSED (dev);
   return (false);
 }
 
@@ -816,6 +818,9 @@ static bool modeS_init (void)
   if (test_contains (Modes.tests, "console"))
      Modes.interactive = true;    /* Will force `interactive_init()` and it's tests to be called */
 
+  if (test_contains (Modes.tests, "me"))
+     test_print_unrecognized_ME();
+
   if (!rc)
      return (false);
 
@@ -879,9 +884,6 @@ static bool modeS_init_RTLSDR (void)
                 selected ? " (currently selected)" : "");
   }
 
-  if (Modes.rtlsdr.power_cycle)
-     rtlsdr_power_cycle();
-
   if (Modes.rtlsdr.calibrate)
      rtlsdr_cal_imr (1);
 
@@ -895,6 +897,9 @@ static bool modeS_init_RTLSDR (void)
     else LOG_STDERR ("Error opening the RTLSDR device `%d`: %s\n", Modes.rtlsdr.index, err);
     return (false);
   }
+
+  if (Modes.rtlsdr.power_cycle)
+     rtlsdr_power_cycle (Modes.rtlsdr.device);
 
   /* Set gain, AGC, frequency correction, Bias-T, frequency, sample rate, and reset the buffers.
    */
@@ -2510,7 +2515,8 @@ static void add_unrecognized_ME (int type, int subtype, bool test)
 {
   unrecognized_ME *me;
 
-  if (type >= 0 && type < MAX_ME_TYPE && subtype >= 0 && subtype < MAX_ME_SUBTYPE)
+  if (type >= 0 && type < DIM(Modes.stat.unrecognized_ME) &&
+      subtype >= 0 && subtype < DIM(Modes.stat.unrecognized_ME[0].sub_type))
   {
     me = &Modes.stat.unrecognized_ME [type];
     me->sub_type [subtype]++;
@@ -2538,10 +2544,9 @@ static uint64_t sum_unrecognized_ME (int type)
  */
 static void print_unrecognized_ME (void)
 {
-  int      t, num_totals = 0;
+  int      t;
   uint64_t totals = 0;
   uint64_t totals_ME [MAX_ME_TYPE];
-  bool     indented = false;
 
   for (t = 0; t < MAX_ME_TYPE; t++)
   {
@@ -2549,21 +2554,22 @@ static void print_unrecognized_ME (void)
     totals += totals_ME [t];
   }
 
-  LOG_STDOUT (" %8llu unrecognized ME types:", totals);
+  LOG_STDOUT (" %8llu unrecognized ME types:\n", totals);
   if (totals == 0ULL)
   {
-    LOG_STDOUT ("! \n");
+    LOG_STDOUT ("! ");
     return;
   }
 
   for (t = 0; t < MAX_ME_TYPE; t++)
   {
-    char   sub_types [200];
-    char  *p = sub_types;
-    char  *end = p + sizeof(sub_types);
-    size_t j;
+    char     sub_types [200];
+    char    *p = sub_types;
+    char    *end = p + sizeof(sub_types);
+    uint64_t sum = totals_ME [t];
+    size_t   j;
 
-    if (totals_ME[t] == 0ULL)
+    if (sum == 0ULL)
        continue;
 
     *p = '\0';
@@ -2579,20 +2585,14 @@ static void print_unrecognized_ME (void)
          p[-1] = '\0';
     else *p = '\0';
 
-    /* indent next line to print like:
-     *   45 unrecognized ME types: 29: 20 (2)
-     *                             31: 25 (3)
+    /* print like:
+     *   45 unrecognized ME types:
+     *      29: 20 (1,2)
+     *      31: 25 (2,3)
      */
-    if (num_totals++ >= 1)
-    {
-      if (indented)
-           LOG_STDOUT ("! \n                                ");
-      else LOG_STDOUT ("!  ");
-    }
     if (sub_types[0])
-         LOG_STDOUT ("! %3llu: %2d (%s)", totals, t, sub_types);
-    else LOG_STDOUT ("! %3llu: %2d", totals, t);
-    indented = true;
+         LOG_STDOUT ("!          %2d: %llu (%s)\n", t, sum, sub_types);
+    else LOG_STDOUT ("!          %2d: %llu\n", t, sum);
   }
   LOG_STDOUT ("! \n");
 }
@@ -2614,7 +2614,7 @@ static void test_print_unrecognized_ME (void)
   add_unrecognized_ME (1, 2, true);
   add_unrecognized_ME (1, 2, true);
 
-  puts ("                              ME: sub (num, ..)");
+  puts ("");
   print_unrecognized_ME();
   modeS_exit (0);
 }
@@ -4174,7 +4174,7 @@ static bool set_if_mode (const char *arg)
        Modes.sdrplay.if_mode = false;
   else if (!stricmp(arg, "lif"))
        Modes.sdrplay.if_mode = true;
-  else printf ("%s(%u): Ignoring illegal '--if-mode': '%s'.\n",  cfg_current_file(), cfg_current_line(), arg);
+  else printf ("%s(%u): Ignoring illegal '--if-mode': '%s'.\n", cfg_current_file(), cfg_current_line(), arg);
   return (true);
 }
 
