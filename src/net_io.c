@@ -73,7 +73,7 @@ typedef struct reverse_rec {
         uint16_t     txnid;
       } reverse_rec;
 
-static smartlist_t *g_reverse_rec = NULL;
+static smartlist_t *g_reverse_rec  = NULL;
 static mg_file_path g_reverse_file = { '\0' };
 static time_t       g_reverse_maxage;
 
@@ -1771,9 +1771,7 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
       net_str_addr_port (addr, addr_buf, sizeof(addr_buf));
 
       if (Modes.debug & DEBUG_NET)
-      {
-        Beep (deny ? 1200 : 800, 20);
-      }
+         Beep (deny ? 1200 : 800, 20);
 
       if (unique && unique->rr && unique->rr->ptr_name[0])
          snprintf (ptr_buf, sizeof(ptr_buf), "%s, ", unique->rr->ptr_name);
@@ -1825,14 +1823,44 @@ static char *net_str_addr (const mg_addr *a, char *buf, size_t len)
 }
 
 /**
+ * Find the PTR name for address `a`.
+ */
+static const char *net_reverse_find (const mg_addr *a)
+{
+  ip_address   ip_buf;
+  const char  *ip_str;
+  time_t       now;
+  int          i, max;
+
+  if (!Modes.reverse_resolve)
+     return (NULL);
+
+  ip_str = net_str_addr (a, ip_buf, sizeof(ip_buf));
+  now = time (NULL);
+
+  /* Check the cache for a match that has not timed-out.
+   */
+  max = smartlist_len (g_reverse_rec);
+  for (i = 0; i < max; i++)
+  {
+    const reverse_rec *rr = smartlist_get (g_reverse_rec, i);
+
+    if (!strcmp(ip_str, rr->ip_str) && rr->timestamp > (now - REVERSE_MAX_AGE))
+    {
+      if (rr->ptr_name[0])
+         return (rr->ptr_name);
+      break;
+    }
+  }
+  return (NULL);
+}
+
+/**
  * Since 'mg_straddr()' was removed in latest version.
  * Optionally print the hostname if found in `/etc/hosts` or
  * DNS cache.
  *
- * Printing the host-name only works for an IPv4 address due
- * to `gethostbyaddr()`.
- *
- * \todo Use `getnameinfo()`.
+ * Printing the host-name only works for an IPv4 address.
  */
 static char *net_str_addr_port (const mg_addr *a, char *buf, size_t len)
 {
@@ -1840,12 +1868,18 @@ static char *net_str_addr_port (const mg_addr *a, char *buf, size_t len)
   size_t      h_len = len - 7;  /* make room for ":port" */
   char       *p = buf;
 
-  if (Modes.show_host_name)
+  if (Modes.show_host_name && !a->is_ip6)
   {
-    /**
-     * \todo Look in `*g_reverse_rec` first.
-     */
-    const struct hostent *h = gethostbyaddr ((char*)&a->ip, sizeof(a->ip), AF_INET);
+    const struct hostent *h = NULL;
+    char  ip_str [20];
+
+    h_name = net_reverse_find (a);
+    if (!h_name)
+    {
+       mg_snprintf (ip_str, sizeof(ip_str), "%M", mg_print_ip, a);
+       h = gethostbyaddr ((char*)&a->ip, sizeof(a->ip), AF_INET);
+       net_reverse_add (ip_str, (h && h->h_name) ? h->h_name : "", time(NULL), 0, false);
+    }
     h_name = h ? h->h_name : NULL;
   }
 
@@ -2275,7 +2309,8 @@ void net_show_stats (void)
       LOG_STDOUT ("    %8llu client connections unknown.\n", Modes.stat.cli_unknown [s]);
       LOG_STDOUT ("    %8u client(s) now.\n", modeS_net_services [s].num_connections);
     }
-    unique_ips_print (s);
+    if (s != MODES_NET_SERVICE_DNS)
+       unique_ips_print (s);
   }
 
   EnterCriticalSection (&Modes.print_mutex);
