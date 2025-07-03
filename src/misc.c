@@ -107,6 +107,12 @@ char *modeS_err_get (void)
   return (_err_buf);
 }
 
+static void modeS_no_logc (char c, void *param)
+{
+  MODES_NOTUSED (c);
+  MODES_NOTUSED (param);
+}
+
 /**
  * Print a character `c` to `Modes.log` or `stdout`.
  *
@@ -186,6 +192,10 @@ void modeS_log_set (void)
   {
     mg_log_set_fn (modeS_logc, NULL);
     mg_log_set (MG_LL_VERBOSE);
+  }
+  else
+  {
+    mg_log_set_fn (modeS_no_logc, NULL);
   }
 
   static bool done = false;
