@@ -204,6 +204,7 @@ static int rtlsdr_set_spectrum_inversion (rtlsdr_dev_t *dev, int sideband);
 static void softagc_init (rtlsdr_dev_t *dev);
 static void softagc_close (rtlsdr_dev_t *dev);
 static void softagc (rtlsdr_dev_t *dev, uint8_t *buf, int len);
+static const char *hex_dump (const BYTE *data, DWORD len);
 
 static const char *async_status_name (enum rtlsdr_async_status status)
 {
@@ -877,6 +878,23 @@ static BOOL Open_Device (rtlsdr_dev_t *dev, const char *DevicePath, int *err)
   }
 
   RTL_TRACE (1, "dev->deviceHandle: 0x%p, dev->usbHandle: 0x%p\n", dev->deviceHandle, dev->usbHandle);
+
+  if (trace_level() >= 1 && dev->deviceHandle != INVALID_HANDLE_VALUE)
+  {
+    BYTE  val_1;
+    ULONG val_2, len;
+    BOOL  rc2;
+
+    val_1 = 0;
+    len = sizeof(val_1);
+    rc2 = WinUsb_GetPowerPolicy (dev->usbHandle, AUTO_SUSPEND, &len, &val_1);
+    RTL_TRACE (1, "WinUsb_GetPowerPolicy (AUTO_SUSPEND):  rc2: %d, val_1: %lu\n", rc2, val_1);
+
+    val_2 = 0;
+    len = sizeof(val_2);
+    rc2 = WinUsb_GetPowerPolicy (dev->usbHandle, SUSPEND_DELAY, &len, &val_2);
+    RTL_TRACE (1, "WinUsb_GetPowerPolicy (SUSPEND_DELAY): rc2: %d, val_2: %lu\n", rc2, val_2);
+  }
   return (rc);
 }
 
@@ -916,11 +934,11 @@ static int usb_control_transfer (rtlsdr_dev_t *dev,      /* the active device */
   setupPacket.Index       = wIndex;
   setupPacket.Length      = wLength;
 
-  RTL_TRACE (2, "%u: type: %s data: 0x%p, wLength: %u\n",
+  RTL_TRACE (2, "%u: type: %s, wLength: %u: %s\n",
              line,
-             type == CTRL_IN  ? "CTRL_IN, " :
-             type == CTRL_OUT ? "CTRL_OUT," : "?,",
-             data, wLength);
+             type == CTRL_IN  ? "CTRL_IN " :
+             type == CTRL_OUT ? "CTRL_OUT" : "?",
+             wLength, hex_dump(data, wLength));
 
   written = 0;
   rc = WinUsb_ControlTransfer (dev->usbHandle, setupPacket, data, wLength, &written, NULL);
@@ -3342,4 +3360,30 @@ static void softagc (rtlsdr_dev_t *dev, uint8_t *buf, int len)
       agc->command_changeGain = 1;
     }
   }
+}
+
+static const char *hex_dump (const BYTE *data, DWORD len)
+{
+  static char buf [100];
+  static char digits[] = "0123456789ABCDEF";
+  char       *p = buf;
+  char       *end = p + sizeof(buf);
+  DWORD       i;
+
+  for (i = 0; i < len && p < end - 4; i++)
+  {
+    *p++ = digits [data[i] >> 4];
+    *p++ = digits [data[i] & 0x0F];
+    *p++ = ' ';
+  }
+
+  if (p > buf)
+     p--;
+  if (i < len)
+  {
+    strcpy (p, "..");
+    p += 2;
+  }
+  *p = '\0';
+  return (buf);
 }
