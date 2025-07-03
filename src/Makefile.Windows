@@ -1,7 +1,7 @@
 #
 # GNU Makefile for dump1090 (x86/x64, MSVC or clang-cl).
 #
-# By G. Vanem <gvanem@yahoo.no> 2021 - 2024.
+# By G. Vanem <gvanem@yahoo.no> 2021 - 2025.
 #
 # Ref: https://github.com/gvanem/Dump1090.git
 #
@@ -18,22 +18,16 @@ MAKEFLAGS += --warn-undefined-variables
 USE_CRT_DEBUG ?= 0
 
 #
-# Use '../tools/gen_routes_data.py' to generate '$(OBJ_DIR)/routes.c' from '../routes.csv'?
-#
-USE_GEN_ROUTES ?= 1
-
-#
-# TODO:
-# use '../tools/gen_data.py' and 'git pull' to generate these:
+# Use '../tools/gen_data.py' to generate these:
 #   $(TEMP)/dump1090/standing-data/results/aircrafts.bin
 #   $(TEMP)/dump1090/standing-data/results/airports.bin
 #   $(TEMP)/dump1090/standing-data/results/routes.bin
+#   $(TEMP)/dump1090/standing-data/results/code-blocks.bin
 #
-USE_BIN_FILES ?= 1
+USE_BIN_FILES ?= 0
 
 #
 # Option for polling of network events in 'externals/mongoose.c':
-#   USE_NET_POLLER=EPOLL:   use a Windows version of 'epoll()' from https://github.com/piscisaureus/wepoll
 #   USE_NET_POLLER=WSAPOLL: use 'WSAPoll()'
 #   USE_NET_POLLER=SELECT:  use 'select()'
 #
@@ -46,18 +40,6 @@ USE_NET_POLLER ?= WSAPOLL
 USE_PACKED_DLL ?= 0
 
 #
-# Pack '../web-pages.dll' using UPX.EXE? Needs an up-to-date version
-# found under https://github.com/upx/upx/releases
-#
-USE_UPX ?= 0
-
-#
-# Enable the 2.4 MS/s decoder from 'readsb'?
-# Not possible at the moment.
-#
-USE_READSB_DEMOD ?= 0
-
-#
 # Enable "Address Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
@@ -67,21 +49,9 @@ USE_READSB_DEMOD ?= 0
 USE_ASAN ?= 0
 
 #
-# Use "Undefined Behavior Sanitizer (UBSan)"?
-# Currently only 'clang-cl' supports this.
-#
-USE_UBSAN ?= 0
-
-#
-# Enable the alternative malloc() library "mimalloc"
-# in 'externals/mimalloc/*.c'?
-#
-USE_MIMALLOC ?= 1
-
-#
 # Compile using 'cl -MP ...'. For MSVC only.
 #
-USE_MP_COMPILE ?= 1
+USE_MP_COMPILE ?= 0
 
 #
 # For my private build; use the tracing Winsock library?
@@ -105,7 +75,7 @@ PYTHON ?= py -3
 
 #
 # Change the 'CLANG_[32|64]' directory to suite:
-# Only important if 'USE_ASAN = 1' and/or 'USE_UBSAN = 1' with 'CC = clang-cl'.
+# Only important if 'USE_ASAN = 1' with 'CC = clang-cl'.
 #
 CLANG_32        ?= c:/ProgramFiles/LLVM-15-32bit
 CLANG_64        ?= c:/ProgramFiles/LLVM-15-64bit
@@ -148,26 +118,24 @@ endif
 GENERATED = $(OBJ_DIR)/cflags_$(CC).h \
             $(OBJ_DIR)/ldflags_$(CC).h
 
-#
-# For the 'link_EXE' macro
-#
-GENERATED += $(OBJ_DIR)/check-for-unused-libs.py
-
-vpath %.c externals        \
-          externals/Curses \
-          externals/rtl-sdr
-
-vpath %.rc $(OBJ_DIR)
-
 CFLAGS = -nologo -c -Zi -W4        \
          -FI./dump1090_config.h    \
-         -fp:strict                \
+         -Fd./$(OBJ_DIR)/vc14x.pdb \
          -I.                       \
          -I./externals             \
          -I./externals/Curses      \
-         -I./externals/rtl-sdr     \
-         -I./externals/SDRplay-API \
          -I./$(OBJ_DIR)
+
+#
+# Showing airport names correctly in `--interactive' mode needs
+# Wide-string and UTF8 in Curses.
+#
+CFLAGS += -DPDC_WIDE -DPDC_FORCE_UTF8
+
+#
+# To enable the Ncurses mouse API.
+#
+CFLAGS += -DPDC_NCMOUSE
 
 #
 # Handling of 'volatile' variables:
@@ -175,8 +143,12 @@ CFLAGS = -nologo -c -Zi -W4        \
 #
 CFLAGS += -volatile:iso
 
-LDFLAGS = -nologo -map -debug -verbose -incremental:no \
-          -nodefaultlib:oldnames.lib -machine:$(CPU)
+LDFLAGS = -nologo -map -debug -verbose    \
+          -incremental:no -machine:$(CPU) \
+          -nodefaultlib:oldnames.lib      \
+          -nodefaultlib:libcmt.lib        \
+          -nodefaultlib:sapi.lib          \
+          -nodefaultlib:uuid.lib
 
 RCFLAGS = -nologo
 
@@ -188,32 +160,34 @@ else
 endif
 
 ifeq ($(CC),clang-cl)
-  CFLAGS  += -fms-compatibility -ferror-limit=5
+  CFLAGS += -fms-compatibility \
+            -ferror-limit=5    \
+            -Wno-unused-command-line-argument
   RCFLAGS += -D__clang__
+  gen_data_arg = -c
 else
   RCFLAGS += -D_MSC_VER
+  gen_data_arg =
 endif
 
 #
 # If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
 #
 ifeq ($(CPU),x64)
-  BITS = 64
+  BITS   := 64
+  SUFFIX := x86_64
+
 else ifeq ($(CPU),x86)
-  BITS = 32
+  BITS   := 32
+  SUFFIX := i386
+
 else
   $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
 endif
 
-OS_LIBS   = advapi32.lib iphlpapi.lib ole32.lib setupapi.lib user32.lib winusb.lib
+OS_LIBS   = advapi32.lib dnsapi.lib iphlpapi.lib ole32.lib setupapi.lib shlwapi.lib uuid.lib user32.lib winusb.lib
 ASAN_LIBS =
 COPY_DLLs =
-
-ifneq ($(CC),clang-cl)
-  ifeq ($(USE_UBSAN),1)
-    $(error 'USE_UBSAN' is for 'clang-cl' only)
-  endif
-endif
 
 #
 # ASAN build settings:
@@ -228,71 +202,29 @@ endif
 #   https://github.com/google/sanitizers/wiki/AddressSanitizer
 #   https://github.com/google/sanitizers/wiki/AddressSanitizerFlags
 #
-# A 'USE_ASAN = 1' can be used with 'USE_UBSAN = 1' too.
-#
 ifeq ($(USE_ASAN),1)
   CFLAGS  += -DUSE_ASAN -fsanitize=address
   RCFLAGS += -DUSE_ASAN
 
   ifeq ($(CC),clang-cl)
-    CFLAGS += -fsanitize-stats                          \
-              -fsanitize-address-globals-dead-stripping \
-              -fsanitize-address-use-after-scope
-
-    ifeq ($(CPU),x86)
-      ASAN_LIBS = clang_rt.asan_dynamic-i386.lib \
-                  clang_rt.asan_dynamic_runtime_thunk-i386.lib
-    else
-      ASAN_LIBS = clang_rt.asan_dynamic-x86_64.lib \
-                  clang_rt.asan_dynamic_runtime_thunk-x86_64.lib
-    endif
-
-    ASAN_LIBS += kernel32.lib
+    ASAN_LIBS = clang_rt.asan_dynamic-$(SUFFIX).lib \
+                clang_rt.asan_dynamic_runtime_thunk-$(SUFFIX).lib \
+                kernel32.lib
   endif
-endif
-
-#
-# UBSAN build settings:
-#
-# Add a 'set UBSAN_OPTIONS=print_stacktrace=1:log_path=c:/temp/dump1090/UBSAN.log'
-# to your environment to make sense of the UBSAN check output.
-#
-# The list of UBSAN checks for Clang:
-#   https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html#ubsan-checks
-#
-ifeq ($(USE_UBSAN),1)
-  RCFLAGS += -DUSE_UBSAN
-  CFLAGS  += -DUSE_UBSAN -fsanitize=undefined
 
   #
-  # Turn some checks off?
+  # ASAN with clang-cl is a bit tricky with regard to linking;
+  # Use an explicit '-libpath:' for it. Since a Visual-Studio .DLL
+  # for ASAN could have missing imports needed by 'USE_ASAN=1'.
   #
-  # CFLAGS += -fno-sanitize=alignment
-  # CFLAGS += -fno-sanitize=object-size
-  # CFLAGS += -fno-sanitize=function
-
+  # Hence copy the needed .DLL over to current directory (and remove it on a 'make clean').
   #
-  # This causes Undefined Behavior to cause an Illegal Instruction.
-  # Turn on/off at own will.
-  #
-  # CFLAGS += -fsanitize-trap=undefined
-endif
-
-#
-# ASAN / UBSAN with clang-cl is a bit tricky with regard to linking;
-# Use an explicit '-libpath:' for it.
-#
-# Besides a Visual-Studio .DLL for ASAN could have missing imports needed
-# by 'USE_UBSAN=1'. Hence copy the needed .DLL over to current directory.
-# (and remove it on a 'make clean').
-#
-ifeq ($(CC),clang-cl)
-  ifneq ($(USE_ASAN)$(USE_UBSAN),00)
+  ifeq ($(CC),clang-cl)
     ifeq ($(CLANG_MAJOR_VER),)
       $(error 'CLANG_MAJOR_VER' must be set in your environment.)
     endif
 
-    $(info Detected 'CLANG_ROOT=$(realpath $(CLANG_$(BITS)))' for 'USE_ASAN=$(USE_ASAN)' and 'USE_UBSAN=$(USE_UBSAN)'.)
+    $(info Detected 'CLANG_ROOT=$(realpath $(CLANG_$(BITS)))' for 'USE_ASAN=$(USE_ASAN)'.)
 
     #
     # The default for 'x86 / Release' is 'clang_rt.asan_dynamic_runtime_thunk-i386.lib'
@@ -300,11 +232,10 @@ ifeq ($(CC),clang-cl)
     #
     LDFLAGS += -libpath:$(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows
 
-    ifeq ($(CPU),x86)
-      COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-i386.dll
-    else
-      COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-x86_64.dll
-    endif
+    COPY_DLLs = $(realpath $(CLANG_$(BITS)))/lib/clang/$(CLANG_MAJOR_VER)/lib/windows/clang_rt.asan_dynamic-$(SUFFIX).dll
+
+  else
+    COPY_DLLs = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/clang_rt.asan_dynamic-$(SUFFIX).dll
   endif
 endif
 
@@ -322,21 +253,43 @@ endif
 #
 TARGETS = ../dump1090.exe
 
-SOURCES = aircraft.c           \
-          airports.c           \
-          cfg_file.c           \
-          csv.c                \
-          dump1090.c           \
-          interactive.c        \
-          misc.c               \
-          net_io.c             \
-          location.c           \
-          pconsole.c           \
-          sdrplay.c            \
-          externals/mongoose.c \
-          externals/sqlite3.c  \
-          externals/zip.c      \
-          externals/Curses/amalgamation.c
+SOURCES = aircraft.c    \
+          airports.c    \
+          cfg_file.c    \
+          color.c       \
+          convert.c     \
+          cpr.c         \
+          crc.c         \
+          csv.c         \
+          demod-2000.c  \
+          demod-2400.c  \
+          demod-8000.c  \
+          dump1090.c    \
+          fifo.c        \
+          geo.c         \
+          infile.c      \
+          interactive.c \
+          location.c    \
+          misc.c        \
+          net_io.c      \
+          pconsole.c    \
+          smartlist.c   \
+          speech.c
+
+vpath %.c externals        \
+          externals/AirSpy \
+          externals/Curses \
+          externals/SDRplay
+
+SOURCES += $(addprefix externals/, \
+             mongoose.c            \
+             sqlite3.c             \
+             zip.c                 \
+             AirSpy/airspy.c       \
+             Curses/amalgamation.c \
+             SDRplay/sdrplay.c)
+
+vpath %.c externals/rtl-sdr
 
 SOURCES += $(addprefix externals/rtl-sdr/, \
              librtlsdr.c                   \
@@ -346,32 +299,13 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_fc2580.c                \
              tuner_r82xx.c)
 
-ifeq ($(USE_GEN_ROUTES),1)
-  SOURCES += $(OBJ_DIR)/routes.c
-  CFLAGS  += -DUSE_GEN_ROUTES
-endif
+#
+# For '$(OBJ_DIR)/web-pages.rc:'
+#
+vpath %.rc $(OBJ_DIR)
 
-ifeq ($(USE_MIMALLOC),1)
-  vpath %.c  externals/mimalloc
-  SOURCES += externals/mimalloc/mimalloc-amalgamation.c
-
-  CFLAGS += -DUSE_MIMALLOC=1      \
-            -DMI_STAT=2           \
-            -DMI_TRACK_VALGRIND=0 \
-            -I./externals/mimalloc
-
-  #
-  # Enable "Tracking for ASAN"
-  #
-  CFLAGS += -DMI_TRACK_ASAN=$(USE_ASAN)
-
-  ifeq ($(USE_CRT_DEBUG),1)
-    #
-    # Set debug-level 4 and enable "Event Tracing for Windows" in '_DEBUG' mode
-    #
-    CFLAGS += -DMI_TRACK_ETW=1 \
-              -DMI_DEBUG=4
-  endif
+ifeq ($(USE_BIN_FILES),1)
+  CFLAGS += -DUSE_BIN_FILES
 endif
 
 #
@@ -388,11 +322,7 @@ ifeq ($(USE_PACKED_DLL),1)
   GENERATED += $(WEB_SRC)
 endif
 
-ifeq ($(USE_NET_POLLER),EPOLL)
-  CFLAGS  += -DMG_ENABLE_EPOLL=1
-  SOURCES += externals/wepoll.c
-
-else ifeq ($(USE_NET_POLLER),WSAPOLL)
+ifeq ($(USE_NET_POLLER),WSAPOLL)
   CFLAGS += -DMG_ENABLE_POLL=1
 
 else ifeq ($(USE_NET_POLLER),SELECT)
@@ -400,20 +330,26 @@ else ifeq ($(USE_NET_POLLER),SELECT)
   # No code checks for this, but for '../dump1090.exe -VV' only
   #
   CFLAGS += -DMG_ENABLE_SELECT=1
+
 else
   $(error Illegal 'USE_NET_POLLER=$(USE_NET_POLLER)' value)
-endif
-
-ifeq ($(USE_READSB_DEMOD),1)
-  CFLAGS  += -DUSE_READSB_DEMOD
-  SOURCES += externals/demod_2400.c
 endif
 
 OBJECTS = $(call c_to_obj, $(SOURCES))
 WEB_OBJ = $(call c_to_obj, $(WEB_SRC))
 
+vpath %.c ../tools
+
+PACKED_TEST_SRC = ../tools/packed_webfs_main.c \
+                  $(OBJ_DIR)/packed_webfs_1.c  \
+                  $(OBJ_DIR)/packed_webfs_2.c  \
+                  misc.c                       \
+                  smartlist.c
+
+PACKED_TEST_OBJ = $(call c_to_obj, $(PACKED_TEST_SRC))
+
 #
-# Select currect MSVC / clang-cl compiler without the 'vcvarsall.bat' non-sense.
+# Select correct compiler and libpaths without the 'vcvarsall.bat' non-sense.
 #
 # E.g.:
 #  'VCToolkitInstallDir=c:\dev\VC_2019\VC\Tools\MSVC\14.38.32919' -- the root of the MSVC tools.
@@ -422,32 +358,51 @@ WEB_OBJ = $(call c_to_obj, $(WEB_SRC))
 #
 TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
 
-ifeq ($(CC),clang-cl)
-  _CC = $(realpath $(CLANG_$(BITS)))/bin/clang-cl.exe
+#
+# If building on AppVeyor
+#
+APPVEYOR_PROJECT_NAME ?=
+
+ifneq ($(APPVEYOR_PROJECT_NAME),)
+  _CC = $(CC)
+
+  ifeq ($(CC),cl)
+    CFLAGS += -wd4054 -wd4055 -wd4204 -wd4221
+  else
+    CFLAGS += -Wno-unknown-warning-option
+  endif
+
+  WindowsSdkDir =
+  WindowsSdkVer =
+
 else
-  _CC = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/cl.exe
+  ifeq ($(CC),clang-cl)
+    _CC = $(realpath $(CLANG_$(BITS)))/bin/clang-cl.exe
+  else
+    _CC = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/cl.exe
+  endif
+
+  #
+  # The path for the CRT libraries.
+  #
+  LDFLAGS += -libpath:$(TOOLS_ROOT)/lib/$(CPU)
+
+  #
+  # The path for the "Windows Kit" libraries.
+  #
+  # E.g. the User-Mode libraries for 'x86' are in:
+  #   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/x86/
+  #
+  LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/um/$(CPU)
+
+  #
+  # The path for the "Universal CRT" (UCRT) libraries.
+  #
+  # E.g. the UCRT libraries for 'x86' are in:
+  #   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/x86/
+  #
+  LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/ucrt/$(CPU)
 endif
-
-#
-# The path for the CRT libraries.
-#
-LDFLAGS += -libpath:$(TOOLS_ROOT)/lib/$(CPU)
-
-#
-# The path for the "Windows Kit" libraries.
-#
-# E.g. the User-Mode libraries for 'x86' are in:
-#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/um/x86/
-#
-LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/um/$(CPU)
-
-#
-# The path for the "Universal CRT" (UCRT) libraries.
-#
-# E.g. the UCRT libraries for 'x86' are in:
-#   $(WindowsSdkDir)/Lib/$(WindowsSdkVer)/ucrt/x86/
-#
-LDFLAGS += -libpath:$(realpath $(WindowsSdkDir))/Lib/$(WindowsSdkVer)/ucrt/$(CPU)
 
 all: $(GENERATED) $(TARGETS) DLL_copy
 	$(call green_msg, Welcome to Dump1090.)
@@ -458,14 +413,43 @@ $(OBJ_DIR) doxy-docs:
 ../dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
 	$(call link_EXE, $@, $^ $(OS_LIBS) $(ASAN_LIBS))
 
-../sqlite3.exe: $(OBJ_DIR)/sqlite3-shell.obj $(OBJ_DIR)/sqlite3.obj
-	$(call link_EXE, $@, $^ -nodefaultlib:uuid.lib oldnames.lib)
+../color_test.exe: $(OBJ_DIR)/color_test.obj
+	$(call link_EXE, $@, $^ $(ASAN_LIBS))
 
-$(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args
+../utf8_test.exe: $(OBJ_DIR)/utf8_test.obj
+	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
+
+ifeq ($(USE_BIN_FILES),1)
+  #
+  # In case 'make.exe' is a MSys make, the value of '$(realpath $(TEMP))'
+  # becomes something like '/c/temp' which if not understood by '$(CC)'.
+  # Hence use an 'c:/temp/dump1090/standing-data/results' explicitly.
+  # Change to suite.
+  #
+  BIN_DIR = $(realpath $(TEMP))/dump1090/standing-data/results
+
+  ../blocks_test.exe: $(OBJ_DIR)/gen-code-blocks.obj
+	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
+
+  $(OBJ_DIR)/gen-code-blocks.obj: $(OBJ_DIR)/gen-code-blocks.c | $(CC).args
+	$(call C_compile, $@, -DTEST_CODE_BLOCKS $<)
+
+  $(OBJ_DIR)/gen-code-blocks.c \
+  $(BIN_DIR)/gen_data.h        \
+  $(BIN_DIR)/code-blocks.bin: ../tools/gen_data.py | $(OBJ_DIR)
+	$(call green_msg, Generating $(BRIGHT_WHITE)$@)
+	$(PYTHON) $< $(gen_data_arg) --gen-c $(OBJ_DIR)/gen-code-blocks.c
+	cp --update $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
+endif
+
+../sqlite3.exe: $(OBJ_DIR)/sqlite3.obj $(OBJ_DIR)/sqlite3-shell.obj
+	$(call link_EXE, $@, $^ $(ASAN_LIBS))
+
+$(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, -DCOMPILING_SQLITE3_SHELL $<)
 
 ../web-pages.dll: $(WEB_OBJ) $(OBJ_DIR)/web-pages.res
-	$(call link_web_DLL, $@, $^ $(ASAN_LIBS), $(WEB_SUFFIXES))
+	$(call link_web_DLL, $@, $^ oldnames.lib $(ASAN_LIBS), $(WEB_SUFFIXES))
 
 $(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
 	$(call generate, $@, //)
@@ -475,20 +459,22 @@ $(OBJ_DIR)/%.res: %.rc
 	$(call create_res_file, $@, $<)
 
 ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
-  $(OBJECTS): $(SOURCES) | $(CC).args
+  $(OBJECTS): $(SOURCES) | $(CC).args $(OBJ_DIR)
 	$(call green_msg, Compiling $(words $(SOURCES)) .c-files in one go...)
 	$(call C_compile, $(OBJ_DIR)\\, -MP $(SOURCES))
 
 else
-  $(OBJ_DIR)/routes.obj: $(OBJ_DIR)/routes.c | $(CC).args
+  $(OBJ_DIR)/sqlite3.obj: externals/sqlite3.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile_long_time, $@, $<)
-
-  $(OBJ_DIR)/sqlite3.obj: externals/sqlite3.c | $(CC).args
-	$(call C_compile_long_time, $@, $<)
-
-  $(OBJ_DIR)/%.obj: %.c | $(CC).args
-	$(call C_compile, $@, $<)
 endif
+
+$(OBJ_DIR)/%_test.obj: %.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, -DTEST $<)
+
+$(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, $<)
+
+OpenLayers3_ARGS = --ignore "../web_root-OpenLayers3/3d/*" --ignore "../web_root-OpenLayers3/sql/*"
 
 $(OBJ_DIR)/web-page-1.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root, 1,)
@@ -497,7 +483,7 @@ $(OBJ_DIR)/web-page-2.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root-FlightAware, 2,)
 
 $(OBJ_DIR)/web-page-3.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3, 3, --ignore "../web_root-OpenLayers3/3d/*" --ignore "../web_root-OpenLayers3/sql/*")
+	$(call generate_web_page, $@, ../web_root-OpenLayers3, 3, $(OpenLayers3_ARGS))
 
 $(OBJ_DIR)/web-page-4.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root-OpenLayers3/3d, 4,)
@@ -509,10 +495,10 @@ $(OBJ_DIR)/web-page-%.obj: $(OBJ_DIR)/web-page-%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
 $(OBJ_DIR)/packed_webfs_1.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3, 1, --ignore "../web_root-OpenLayers3/3d/*" --ignore "../web_root-OpenLayers3/sql/*")
+	$(call generate_web_page, $@, ../web_root-OpenLayers3, 1, $(OpenLayers3_ARGS))
 
 $(OBJ_DIR)/packed_webfs_2.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3, 2, --ignore "../web_root-OpenLayers3/3d/*" --ignore "../web_root-OpenLayers3/sql/*" --minify)
+	$(call generate_web_page, $@, ../web_root-OpenLayers3, 2, $(OpenLayers3_ARGS) --minify)
 
 #
 # Test the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
@@ -520,36 +506,19 @@ $(OBJ_DIR)/packed_webfs_2.c: ../tools/gen_packed_fs.py
 $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
-packed_test_OBJ = $(addprefix $(OBJ_DIR)/, \
-                    packed_webfs_main.obj  \
-                    packed_webfs_1.obj     \
-                    packed_webfs_2.obj     \
-                    misc.obj)
+../packed_test.exe: $(PACKED_TEST_OBJ)
+	$(call link_EXE, $@, $^ $(ASAN_LIBS) advapi32.lib shlwapi.lib)
 
-ifeq ($(USE_MIMALLOC),1)
-  packed_test_OBJ += $(OBJ_DIR)/mimalloc-amalgamation.obj
-endif
-
-../packed_test.exe: $(packed_test_OBJ)
-	$(call link_EXE, $@, -nodefaultlib:uuid.lib advapi32.lib $^)
-
-$(OBJ_DIR)/packed_webfs_main.obj: ../tools/packed_webfs_main.c | $(CC).args
-	$(call C_compile, $@, $<)
-
-#
-# When 'USE_GEN_ROUTES = 1'
-#
-$(OBJ_DIR)/routes.c: ../tools/gen_routes_data.py ../routes.csv
-	$(call green_msg, Generating $@)
-	$(PYTHON) $< ../routes.csv > $@
-	@echo
+../speech_test.exe: $(OBJ_DIR)/speech_test.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj $(OBJ_DIR)/smartlist.obj
+	$(call link_EXE, $@, $^ $(ASAN_LIBS) ole32.lib shlwapi.lib)
 
 $(CC).args: $(THIS_FILE)
-	$(call green_msg, All common CFLAGS are in $@)
+	$(call green_msg, All common CFLAGS are in $(BRIGHT_WHITE)$@)
 	$(call create_resp_file, $@, $(CFLAGS))
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.
+# Cannot assume everybody has the 'xxd' program.
 #
 gen_favicons: favicon.png favicon.ico
 	$(call generate, favicon.c, //)
@@ -582,7 +551,10 @@ docs_clean:
 
 doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call generate, $@, #)
-	$(file >> $@,$(dump1090_Doxyfile))
+	$(file >> $@,$(DUMP1090_DOXYFILE))
+
+speech_test.i: speech.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+	$(call C_preprocess, $@, -DTEST $<)
 
 %.i: %.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, $<)
@@ -590,13 +562,12 @@ doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 FORCE:
 
 $(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate_py,$@,$(cpp_filter_py))
-
-$(OBJ_DIR)/check-for-unused-libs.py: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate_py,$@,$(check_for_unused_libs_py))
+	$(call generate, $@, #)
+	$(file >> $@,if 1:)
+	$(file >> $@,$(CPP_FILTER_PY))
 
 #
-# Copy the needed .DLL for 'USE_UBSAN=1'
+# Copy the needed .DLL:
 #
 ifeq ($(COPY_DLLs),)
   DLL_copy:
@@ -623,19 +594,23 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map)     \
                       $(TARGETS:.exe=.pdb)     \
                       $(TARGETS:.exe=.exp)     \
                       $(TARGETS:.exe=.lib)     \
+                      ../blocks_test.{map,pdb} \
+                      ../color_test.{map,pdb}  \
                       ../packed_test.{map,pdb} \
+                      ../speech_test.{map,pdb} \
+                      ../utf8_test.{map,pdb}   \
                       ../sqlite3.{map,pdb}     \
                       ../web-pages.{map,pdb})
 
-OTHER_JUNK = vc1*.pdb link.tmp link.args cl.args clang-cl.args
+OTHER_JUNK = link.tmp link.args cl.args clang-cl.args
 
 clean: docs_clean DLL_clean VS_clean
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
 	rm -f $(OBJ_DIR)/*.obj $(OBJ_DIR)/*.res
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
-vclean realclean: clean
-	rm -f $(TARGETS) ../packed_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
+realclean vclean: clean
+	rm -f $(TARGETS) ../blocks_test.exe ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
 #
@@ -655,7 +630,7 @@ define C_compile
 endef
 
 define C_compile_long_time
-  $(call green_msg, Compiling $(1) will take some time...)
+  $(call green_msg, Compiling $(BRIGHT_WHITE)$(strip $(1)) $(BRIGHT_GREEN)will take some time...)
   $(_CC) @$(CC).args -Fo./$(strip $(1) $(2))
   @echo
 endef
@@ -671,7 +646,9 @@ define create_resp_file
 endef
 
 define link_EXE
-  $(call green_msg, Linking $(1))
+  $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
+  $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(CHECK_FOR_UNUSED_LIBS_PY))
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
   $(call create_resp_file, link.args, $(LDFLAGS) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.exe=.map)
@@ -682,27 +659,14 @@ endef
 define func_exports
   $(foreach e, $(1), -export:mg_unpack_$(e))
   $(foreach e, $(1), -export:mg_unlist_$(e))
-  $(foreach e, $(1), -export:mg_spec_$(e))
 endef
 
-#
-# This will typically shrink '../web-pages.dll' from 125 MBytes to 25 MBytes.
-# 5 times smaller!
-#
-ifeq ($(USE_UPX),1)
-  upx_pack = $(call green_msg, Compressing $(1) will take some time...) && \
-             upx -v $(1)
-else
-  upx_pack = @echo
-endif
-
 define link_web_DLL
-  $(call green_msg, Linking $(1))
-  $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2) oldnames.lib)
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
+  $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
   @cat link.tmp >> $(1:.dll=.map)
   @rm -f $(1:.dll=.exp) $(1:.dll=.lib)
-  $(call upx_pack, $(1))
 endef
 
 define Warning
@@ -714,14 +678,8 @@ define Warning
 endef
 
 define generate
-  $(call green_msg, Generating $(1))
+  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
   $(file > $(1),$(call Warning,$(strip $(2))))
-endef
-
-define generate_py
-  $(call generate, $(1), #)
-  $(file >> $@,if 1:)
-  $(file >> $@,$(2))
 endef
 
 define generate_cflags_h
@@ -734,15 +692,20 @@ define generate_ldflags_h
   $(file >> $(1),const char *ldflags = "$(strip $(2))";)
 endef
 
+#
+# Ignore any temp-file 't'
+#
 define generate_web_page
-  $(call green_msg, Generating $(1))
-  $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --verbose --recursive --suffix=_$(strip $(3)) $(4) --strip $(2)/ $(2)/)
+  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
+  $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --verbose --recursive \
+            --suffix=_$(strip $(3)) --ignore t $(4) --strip $(2)/ $(2)/)
+  @echo
 endef
 
 #
 # clang-cl: /d1PP  Retain macro definitions in /E mode
 #
-ifeq ($(CC),clang-cl)
+ifeq ($(CC),clang-clX)
   d1PP = -d1PP
 else
   d1PP =
@@ -755,7 +718,7 @@ else
 endif
 
 define C_preprocess
-  $(call green_msg, Preprocessing $(2))
+  $(call green_msg, Preprocessing $(BRIGHT_WHITE)$(strip $(2)))
   $(file  > $(1),/* The result of preprocessing '$(strip $(2))' (USE_ASTYLE=$(USE_ASTYLE)):)
   $(file >> $(1), *  $(CC) -E)
   $(foreach f, $(CFLAGS) $(d1PP), $(file >> $(1), *  $(f)))
@@ -768,45 +731,48 @@ endef
 #
 # No doxygen tags in these:
 #
-doxy_SOURCES = $(filter-out $(OBJ_DIR)/routes.c              \
-                            externals/sqlite3.c              \
+DOXY_SOURCES = $(filter-out externals/sqlite3.c              \
                             externals/Curses/amalgamation.c, \
                             $(SOURCES))
 
-doxy_SOURCES := $(addprefix ../, $(doxy_SOURCES))
+DOXY_SOURCES := $(addprefix ../, $(DOXY_SOURCES))
 
-doxy_HEADERS = ../aircraft.h                  \
+DOXY_HEADERS = ../aircraft.h                  \
                ../airports.h                  \
                ../cfg_file.h                  \
+               ../convert.h                   \
+               ../cpr.h                       \
                ../csv.h                       \
+               ../crc.h                       \
+               ../demod.h                     \
                ../dump1090_config.h           \
+               ../fifo.h                      \
+               ../geo.h                       \
                ../interactive.h               \
                ../location.h                  \
                ../misc.h                      \
                ../net_io.h                    \
+               ../routes.h                    \
                ../sdrplay.h                   \
+               ../smartlist.h                 \
+               ../speech.h                    \
                ../externals/rtl-sdr/rtl-sdr.h \
                ../externals/rtl-sdr/rtl-tcp.h \
-               ../externals/miniz.h           \
                ../externals/zip.h
 
-define dump1090_Doxyfile
+define DUMP1090_DOXYFILE
   PROJECT_NAME          = "Dump1090"
   PROJECT_LOGO          = ../dump1090.ico
   STRIP_FROM_PATH       = $(CURDIR)/
   OPTIMIZE_OUTPUT_FOR_C = yes
   FORCE_LOCAL_INCLUDES  = yes
   QUIET                 = yes
-  PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1
-  INPUT                 = $(doxy_SOURCES) \
-                          $(doxy_HEADERS)
-  #
-  # Do not document the huge '$(OBJ_DIR)/routes.c' file
-  #
-  # EXCLUDE               = routes.c
+  PREDEFINED            = __DOXYGEN__:=1 _WIN32:=1 _Printf_format_string_:=1
+  INPUT                 = $(DOXY_SOURCES) \
+                          $(DOXY_HEADERS)
 
   EXAMPLE_PATH          = ..
-  IMAGE_PATH            = .. ../..
+  IMAGE_PATH            = .. ../.. ../../docs ../../img
   INLINE_SIMPLE_STRUCTS = yes
   SOURCE_BROWSER        = yes
   CALL_GRAPH            = yes
@@ -817,8 +783,10 @@ define dump1090_Doxyfile
   HTML_OUTPUT           = .
   HTML_DYNAMIC_MENUS    = no
   HTML_COLORSTYLE       = light
+  HTML_COPY_CLIPBOARD   = no
   GENERATE_HTMLHELP     = yes
   GENERATE_LATEX        = no
+  GENERATE_TREEVIEW     = no
   SEARCHENGINE          = no
   WARNINGS              = yes
   WARN_LOGFILE          = $(CURDIR)/doxy-docs/doxygen.log
@@ -832,7 +800,7 @@ define web_pages_RC
   VS_VERSION_INFO VERSIONINFO
     FILEVERSION     RC_VERSION
     PRODUCTVERSION  RC_VERSION
-    FILEFLAGSMASK   0x3fL
+    FILEFLAGSMASK   0x3FL
     FILEOS          VOS__WINDOWS32
     FILETYPE        VFT_DLL
     FILESUBTYPE     0x0L
@@ -861,7 +829,7 @@ define web_pages_RC
   END
 endef
 
-define cpp_filter_py
+define CPP_FILTER_PY
   import sys, os
 
   empty_lines = 0
@@ -892,7 +860,7 @@ define cpp_filter_py
   print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
 endef
 
-define check_for_unused_libs_py
+define CHECK_FOR_UNUSED_LIBS_PY
   #
   # Check for unused libraries in a MSVC link .map file.
   # Prints with some colours using 'colorama'.
@@ -922,9 +890,8 @@ define check_for_unused_libs_py
 
   def report (unused):
     num = len(unused)
-    plural = [ "library", "libraries" ]
     if num > 0:
-       cprint (Color.RED, "%d unused %s in %s:" % (num, plural[num > 1], map_file))
+       cprint (Color.RED, "%d unused librar%s in %s:" % (num, [ "y", "ies" ][num > 1], map_file))
        for u in unused:
            print ("  " + u)
     cprint (Color.WHITE, "Done.\n")
@@ -955,6 +922,10 @@ DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.obj: @'
 # Fixed dependencies:
 #
 $(OBJ_DIR)/misc.obj: dump1090_config.h $(OBJ_DIR)/cflags_$(CC).h $(OBJ_DIR)/ldflags_$(CC).h
+
+ifeq ($(USE_BIN_FILES),1)
+  $(OBJ_DIR)/aircraft.obj: $(OBJ_DIR)/gen-code-blocks.c $(BIN_DIR)/gen_data.h
+endif
 
 CURSES_SRC = $(addprefix externals/Curses/, \
                addch.c                      \
@@ -989,29 +960,8 @@ CURSES_SRC = $(addprefix externals/Curses/, \
                util.c                       \
                window.c)
 
-MIMALLOC_SRC = $(addprefix externals/mimalloc/, \
-                 alloc-aligned.c                \
-                 alloc-override.c               \
-                 alloc-posix.c                  \
-                 alloc.c                        \
-                 arena.c                        \
-                 bitmap.c                       \
-                 heap.c                         \
-                 init.c                         \
-                 mimalloc-amalgamation.c        \
-                 options.c                      \
-                 os.c                           \
-                 page-queue.c                   \
-                 page.c                         \
-                 prim.c                         \
-                 random.c                       \
-                 segment-map.c                  \
-                 segment.c                      \
-                 stats.c                        \
-                 windows-prim.c)
-
-$(OBJ_DIR)/amalgamation.obj:          $(CURSES_SRC)
-$(OBJ_DIR)/mimalloc-amalgamation.obj: $(MIMALLOC_SRC)
+$(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
+$(OBJ_DIR)/net_io.obj:       client-cert-key.h server-cert-key.h
 
 depend:
 	$(call generate, .depend.Windows, #)

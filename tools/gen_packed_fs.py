@@ -15,7 +15,6 @@ except ImportError:
 opt        = None
 files_dict = dict()
 my_name    = os.path.basename (__file__)
-PY2        = (sys.version_info.major == 2)
 
 total_in_bytes  = 0
 total_out_bytes = 0
@@ -56,11 +55,6 @@ const char *mg_unpack%s (const char *name, size_t *size, time_t *mtime)
     return (const char*) p->data;
   }
   return (NULL);
-}
-
-const char *mg_spec%s (void)
-{
-  return ("%s");
 }
 """
 
@@ -130,10 +124,7 @@ def generate_array (in_file, out_file, num):
        for n in range(0, len_in):
            if n % 16 == 0:
               out_file.write ("\n  ")
-           if PY2:
-              out.write ("0x%02X," % ord(data_out[n]))
-           else:
-              out_file.write ("0x%02X," % data_out[n])
+           out_file.write ("0x%02X," % data_out[n])
        out_file.write ("0x00\n};\n\n")
   return len_in, len_out
 
@@ -171,7 +162,7 @@ def walktree (top, callback):
 def add_file (file, st):
   file = file.replace ("\\", "/")
   for i in opt.ignore:
-    if fnmatch.fnmatch (file, i):
+    if fnmatch.fnmatch (os.path.basename(file), i):
        trace (2, "Ignoring file '%s'" % file)
        return
 
@@ -196,7 +187,7 @@ def show_help (error=None):
   -i, --ignore X:     Ignore patterns matching 'X'.
   -m, --minify:       Compress the .js/.css/.html files first (not for Python2).
   -o, --outfile:      File to generate.
-  -r, --recursive:    Walk the sub-directies recursively.
+  -r, --recursive:    Walk the sub-directories recursively.
   -s, --strip Y:      Strip 'Y' from paths.
   -S, --suffix Z:     Suffix 'Z' to public functions.
   -v, --verbose:      Increate verbose-mode. I.e. '-vv' sets level=2.
@@ -205,14 +196,14 @@ def show_help (error=None):
 
 def parse_cmdline():
   parser = argparse.ArgumentParser (add_help = False)
-  parser.add_argument ("-h", "--help",        dest = "help", action = "store_true")
-  parser.add_argument ("-i", "--ignore",      action = "append", default = [])
-  parser.add_argument ("-m", "--minify",      dest = "minify", action = "store_true")
-  parser.add_argument ("-o", "--outfile",     dest = "outfile", type = str)
-  parser.add_argument ("-r", "--recursive",   dest = "recursive", action = "store_true")
-  parser.add_argument ("-s", "--strip",       dest = "strip", default = "")
-  parser.add_argument ("-S", "--suffix",      dest = "suffix", default = "")
-  parser.add_argument ("-v", "--verbose",     dest = "verbose", action = "count", default = 0)
+  parser.add_argument ("-h", "--help",      dest = "help", action = "store_true")
+  parser.add_argument ("-i", "--ignore",    action = "append", default = [])
+  parser.add_argument ("-m", "--minify",    dest = "minify", action = "store_true")
+  parser.add_argument ("-o", "--outfile",   dest = "outfile", type = str)
+  parser.add_argument ("-r", "--recursive", dest = "recursive", action = "store_true")
+  parser.add_argument ("-s", "--strip",     dest = "strip", default = "")
+  parser.add_argument ("-S", "--suffix",    dest = "suffix", default = "")
+  parser.add_argument ("-v", "--verbose",   dest = "verbose", action = "count", default = 0)
   parser.add_argument ("spec", nargs = argparse.REMAINDER)
   return parser.parse_args()
 
@@ -226,9 +217,6 @@ if not opt.outfile:
 
 if not opt.spec:
    show_help ("Missing 'spec'")
-
-if PY2:
-   have_minify = False
 
 if opt.minify and not have_minify:
    show_help ("Option '--minify' not available")
@@ -285,7 +273,7 @@ for n, f in enumerate (files_dict):
 out.write (C_ARRAY)
 write_packed_files_array (out)
 
-out.write (C_BOTTOM % (opt.suffix, opt.suffix, opt.suffix, opt.spec))
+out.write (C_BOTTOM % (opt.suffix, opt.suffix))
 out.close()
 
 if opt.minify:

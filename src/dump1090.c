@@ -1,7 +1,7 @@
 /**
  * \file    dump1090.c
  * \ingroup Main
- * \brief   Dump1090, a Mode-S messages decoder for RTLSDR devices.
+ * \brief   Dump1090, a Mode-S messages decoder for RTLSDR / SDRPlay devices.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,17 +22,30 @@
 #include "misc.h"
 #include "net_io.h"
 #include "cfg_file.h"
-#include "sdrplay.h"
+#include "cpr.h"
+#include "crc.h"
+#include "demod.h"
+#include "geo.h"
+#include "convert.h"
+#include "externals/AirSpy/airspy.h"
+#include "externals/SDRplay/sdrplay.h"
+#include "speech.h"
 #include "location.h"
 #include "airports.h"
+#include "aircraft.h"
 #include "interactive.h"
+#include "infile.h"
 
 global_data Modes;
 
+static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
+               "'MODES_MAG_BUFFERS' should be smaller than 'MODES_ASYNC_BUF_NUMBERS' for flowcontrol to work");
+
 /**
- * \addtogroup Main      Main functions
- * \addtogroup Misc      Support functions
- * \addtogroup Samplers  SDR input functions
+ * \addtogroup Main         Main functions
+ * \addtogroup Misc         Support functions
+ * \addtogroup Samplers     SDR input functions
+ * \addtogroup Demodulators Magnitude demodulators
  *
  * \mainpage Dump1090
  *
@@ -48,10 +61,10 @@ global_data Modes;
  * This *Mode S* decoder is based on the Dump1090 by *Salvatore Sanfilippo*.
  *
  * ### Basic block-diagram:
- * \image html dump1090-blocks.png
+ * \image html img/dump1090-blocks.png
  *
  * ### Example Web-client page:
- * \image html dump1090-web.png
+ * \image html img/dump1090-24MSs.png
  *
  * ### More here later ...
  *
@@ -83,55 +96,54 @@ global_data Modes;
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * ```
  */
-static void      modeS_send_raw_output (const modeS_message *mm);
-static void      modeS_send_SBS_output (const modeS_message *mm, const aircraft *a);
-static void      modeS_user_message (const modeS_message *mm);
+static void  modeS_cleanup (void);
+static void  __declspec(noreturn) modeS_exit (int rc);
+static void  modeS_send_raw_output (const modeS_message *mm);
+static void  modeS_send_SBS_output (const modeS_message *mm);
+static void  add_unrecognized_ME (int type, int subtype, bool test);
+static void  test_print_unrecognized_ME (void);
 
-static bool      set_bandwidth (const char *arg);
-static bool      set_bias_tee (const char *arg);
-static bool      set_frequency (const char *arg);
-static bool      set_gain (const char *arg);
-static bool      set_if_mode (const char *arg);
-static bool      set_infile (const char *arg);
-static bool      set_interactive_ttl (const char *arg);
-static bool      set_home_pos (const char *arg);
-static bool      set_home_pos_from_location_API (const char *arg);
-static bool      set_host_port_raw_in (const char *arg);
-static bool      set_host_port_raw_out (const char *arg);
-static bool      set_host_port_sbs_in (const char *arg);
-static bool      set_logfile (const char *arg);
-static bool      set_loops (const char *arg);
-static bool      set_port_http (const char *arg);
-static bool      set_port_raw_in (const char *arg);
-static bool      set_port_raw_out (const char *arg);
-static bool      set_port_sbs (const char *arg);
-static bool      set_prefer_adsb_lol (const char *arg);
-static bool      set_ppm (const char *arg);
-static bool      set_sample_rate (const char *arg);
-static bool      set_tui (const char *arg);
-static bool      set_web_page (const char *arg);
+static bool  set_bandwidth (const char *arg);
+static bool  set_bias_tee (const char *arg);
+static bool  set_frequency (const char *arg);
+static bool  set_gain (const char *arg);
+static bool  set_if_mode (const char *arg);
+static bool  set_interactive_ttl (const char *arg);
+static bool  set_home_pos (const char *arg);
+static bool  set_home_pos_from_location_API (const char *arg);
+static bool  set_host_port_raw_in (const char *arg);
+static bool  set_host_port_raw_out (const char *arg);
+static bool  set_host_port_sbs_in (const char *arg);
+static bool  set_logfile (const char *arg);
+static bool  set_loops (const char *arg);
+static bool  set_port_http (const char *arg);
+static bool  set_port_raw_in (const char *arg);
+static bool  set_port_raw_out (const char *arg);
+static bool  set_port_sbs (const char *arg);
+static bool  set_prefer_adsb_lol (const char *arg);
+static bool  set_ppm (const char *arg);
+static bool  set_sample_rate (const char *arg);
+static bool  set_tui (const char *arg);
+static bool  set_web_page (const char *arg);
 
-static int       fix_single_bit_errors (uint8_t *msg, int bits);
-static int       fix_two_bits_errors (uint8_t *msg, int bits);
-static uint32_t  detect_modeS (uint16_t *m, uint32_t mlen);
-static int       modeS_message_len_by_type (int type);
-static uint16_t *compute_magnitude_vector (const uint8_t *data);
-static void      background_tasks (void);
-static void      modeS_exit (void);
+static uint32_t sample_rate;
+static uint64_t max_messages;
 
-static const struct cfg_table config[] = {
+static const cfg_table config[] = {
     { "adsb-mode",        ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
     { "bias-t",           ARG_FUNC,    (void*) set_bias_tee },
-    { "usb-bulk",         ARG_ATOB,    (void*) &Modes.sdrplay.USB_bulk_mode },
+    { "cpr-trace",        ARG_ATOB,    (void*) &Modes.cpr_trace },
+    { "DC-filter",        ARG_ATOB,    (void*) &Modes.DC_filter },
+    { "airspy-dll",       ARG_FUNC,    (void*) airspy_set_dll_name },
     { "sdrplay-dll",      ARG_FUNC,    (void*) sdrplay_set_dll_name },
     { "sdrplay-minver",   ARG_FUNC,    (void*) sdrplay_set_minver },
-    { "calibrate",        ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
+    { "sdrplay-if-mode",  ARG_FUNC,    (void*) set_if_mode },
+    { "sdrplay-usb-bulk", ARG_ATOB,    (void*) &Modes.sdrplay.USB_bulk_mode },
     { "deny4",            ARG_FUNC,    (void*) net_deny4 },
     { "deny6",            ARG_FUNC,    (void*) net_deny6 },
     { "gain",             ARG_FUNC,    (void*) set_gain },
     { "homepos",          ARG_FUNC,    (void*) set_home_pos },
     { "location",         ARG_FUNC,    (void*) set_home_pos_from_location_API },
-    { "if-mode",          ARG_FUNC,    (void*) set_if_mode },
     { "metric",           ARG_ATOB,    (void*) &Modes.metric },
     { "web-page",         ARG_FUNC,    (void*) set_web_page },
     { "web-touch",        ARG_ATOB,    (void*) &Modes.web_root_touch },
@@ -140,30 +152,46 @@ static const struct cfg_table config[] = {
     { "aircrafts",        ARG_STRCPY,  (void*) &Modes.aircraft_db },
     { "aircrafts-url",    ARG_STRDUP,  (void*) &Modes.aircraft_db_url },
     { "bandwidth",        ARG_FUNC,    (void*) set_bandwidth },
+    { "fifo-bufs",        ARG_ATO_U32, (void*) &Modes.FIFO_init_bufs },
+    { "fifo-acquire",     ARG_ATO_U32, (void*) &Modes.FIFO_acquire_ms },
     { "freq",             ARG_FUNC,    (void*) set_frequency },
     { "agc",              ARG_ATOB,    (void*) &Modes.dig_agc },
     { "interactive-ttl",  ARG_FUNC,    (void*) set_interactive_ttl },
     { "keep-alive",       ARG_ATOB,    (void*) &Modes.keep_alive },
+    { "http-ipv6",        ARG_ATOB,    (void*) &Modes.http_ipv6 },
+    { "http-ipv6-only",   ARG_ATOB,    (void*) &Modes.http_ipv6_only },
+    { "http2",            ARG_ATOB,    (void*) &Modes.wininet_HTTP2 },
     { "logfile",          ARG_FUNC,    (void*) set_logfile },
     { "logfile-daily",    ARG_ATOB,    (void*) &Modes.logfile_daily },
     { "logfile-ignore",   ARG_FUNC,    (void*) modeS_log_add_ignore },
     { "loops",            ARG_FUNC,    (void*) set_loops },
     { "max-messages",     ARG_ATO_U64, (void*) &Modes.max_messages },
     { "max-frames",       ARG_ATO_U64, (void*) &Modes.max_frames },
+    { "measure-noise",    ARG_ATOB,    (void*) &Modes.measure_noise },
     { "net-http-port",    ARG_FUNC,    (void*) set_port_http },
     { "net-ri-port",      ARG_FUNC,    (void*) set_port_raw_in },
     { "net-ro-port",      ARG_FUNC,    (void*) set_port_raw_out },
     { "net-sbs-port",     ARG_FUNC,    (void*) set_port_sbs },
     { "prefer-adsb-lol",  ARG_FUNC,    (void*) set_prefer_adsb_lol },
-    { "rtl-reset",        ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
+    { "reverse-resolve",  ARG_ATOB,    (void*) &Modes.reverse_resolve },
+    { "rtlsdr-calibrate", ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
+    { "rtlsdr-reset",     ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
+    { "rtlsdr-ppm",       ARG_FUNC,    (void*) set_ppm },
     { "samplerate",       ARG_FUNC,    (void*) set_sample_rate },
+    { "sample-rate",      ARG_FUNC,    (void*) set_sample_rate },
+    { "show-hostname",    ARG_ATOB,    (void*) &Modes.show_host_name },
+    { "sort",             ARG_FUNC,    (void*) aircraft_set_sort },
+    { "speech-enable",    ARG_ATOB,    (void*) &Modes.speech_enable },
+    { "speech-volume",    ARG_ATOI,    (void*) &Modes.speech_volume },
+    { "https-enable",     ARG_ATOB,    (void*) &Modes.https_enable },
     { "silent",           ARG_ATOB,    (void*) &Modes.silent },
-    { "ppm",              ARG_FUNC,    (void*) set_ppm },
+    { "phase-enhance",    ARG_ATOB,    (void*) &Modes.phase_enhance },
     { "host-raw-in",      ARG_FUNC,    (void*) set_host_port_raw_in },
     { "host-raw-out",     ARG_FUNC,    (void*) set_host_port_raw_out },
     { "host-sbs-in",      ARG_FUNC,    (void*) set_host_port_sbs_in },
     { "error-correct1",   ARG_ATOB,    (void*) &Modes.error_correct_1 },
     { "error-correct2",   ARG_ATOB,    (void*) &Modes.error_correct_2 },
+    { "web-send-rssi",    ARG_ATOB,    (void*) &Modes.web_send_rssi },
     { NULL,               0,           NULL }
   };
 
@@ -243,7 +271,7 @@ static bool nearest_gain (rtlsdr_dev_t *dev, uint16_t *target_gain)
   return (true);
 }
 
-#ifdef NOT_USED_YET
+#if defined(NOT_USED_YET)
 /**
  * Enable RTLSDR direct sampling mode.
  */
@@ -309,8 +337,9 @@ static void verbose_bias_tee (rtlsdr_dev_t *dev, int bias_t)
 /**
  * \todo power down and up again before calling RTLSDR API
  */
-static bool rtlsdr_power_cycle (void)
+static bool rtlsdr_power_cycle (rtlsdr_dev_t *dev)
 {
+  MODES_NOTUSED (dev);
   return (false);
 }
 
@@ -322,18 +351,17 @@ static bool rtlsdr_power_cycle (void)
  * We scale to 0-255 range multiplying by 1.4 in order to ensure that
  * every different I/Q pair will result in a different magnitude value,
  * not losing any resolution.
+ *
+ * Used in convert.c.
  */
 static uint16_t *gen_magnitude_lut (void)
 {
-  int       I, Q;
   uint16_t *lut = malloc (sizeof(*lut) * 129 * 129);
+  int       I, Q;
 
   if (!lut)
-  {
-    LOG_STDERR ("Out of memory in 'gen_magnitude_lut()'.\n");
-    modeS_exit();
-    exit (1);
-  }
+     return (NULL);
+
   for (I = 0; I < 129; I++)
   {
     for (Q = 0; Q < 129; Q++)
@@ -343,7 +371,29 @@ static uint16_t *gen_magnitude_lut (void)
 }
 
 /**
- * Initialize our temporary directory: == `%TEMP%\\dump1090`.
+ * For same reason as above, allocate and populate a
+ * log10(x) lookup-table.
+ *
+ * Used by demod-2000.c only to calculate the SNR.
+ */
+static uint16_t *gen_log10_lut (void)
+{
+  uint16_t *lut = calloc (sizeof(uint16_t), 65536);
+  int       i;
+
+  if (!lut)
+     return (NULL);
+
+  /* Prepare the log10 lookup table: 100*log10 (x)
+   */
+  for (i = 1; i < 65536; i++)
+      lut [i] = (uint16_t) round (100.0 * log10(i));
+  return (lut);
+}
+
+/**
+ * Initialize our temporary directory == `%TEMP%\\dump1090` and
+ * `results_dir == `%TEMP%\\dump1090\\standing-data\\results`.
  */
 static void modeS_init_temp (void)
 {
@@ -363,6 +413,40 @@ static void modeS_init_temp (void)
 
   if (!CreateDirectory(Modes.tmp_dir, 0) && GetLastError() != ERROR_ALREADY_EXISTS)
      LOG_STDERR ("'CreateDirectory(\"%s\")' failed; %s.\n", Modes.tmp_dir, win_strerror(GetLastError()));
+
+  /* And now 'results_dir'
+   */
+  strcpy (Modes.results_dir, Modes.tmp_dir);
+  strcat_s (Modes.results_dir, sizeof(Modes.results_dir), "\\standing-data\\results");
+
+  /* Do not call `CreateDirectory (Modes.results_dir, 0)`.
+   * That should be done by `Modes.where_am_I/tools/gen_data.py`.
+   */
+}
+
+/**
+ * Trap some possible dev-errors.
+ */
+static void dummy_converter (const void    *iq_input,
+                             uint16_t      *mag_output,
+                             unsigned       nsamples,
+                             convert_state *state,
+                             double        *out_power)
+{
+  MODES_NOTUSED (iq_input);
+  MODES_NOTUSED (mag_output);
+  MODES_NOTUSED (nsamples);
+  MODES_NOTUSED (state);
+  MODES_NOTUSED (out_power);
+  LOG_STDERR ("Development error: calling 'dummy_converter()'!\n");
+  exit (1);
+}
+
+static void dummy_demod (const mag_buf *mag)
+{
+  MODES_NOTUSED (mag);
+  LOG_STDERR ("Development error: calling 'dummy_demod()'!\n");
+  exit (1);
 }
 
 /**
@@ -373,6 +457,8 @@ static void modeS_init_config (void)
   memset (&Modes, '\0', sizeof(Modes));
   GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
   snprintf (Modes.where_am_I, sizeof(Modes.where_am_I), "%s", dirname(Modes.who_am_I));
+
+  GetSystemDirectory (Modes.sys_dir, sizeof(Modes.sys_dir));
 
   modeS_init_temp();
 
@@ -386,19 +472,36 @@ static void modeS_init_config (void)
   snprintf (Modes.airport_freq_db, sizeof(Modes.airport_freq_db), "%s\\%s", Modes.where_am_I, AIRPORT_FREQ_CSV);
   snprintf (Modes.airport_cache, sizeof(Modes.airport_cache), "%s\\%s", Modes.tmp_dir, AIRPORT_DATABASE_CACHE);
 
+  /* No device selected yet
+   */
+  Modes.rtlsdr.index  = 0;    /* but the first RTLSDR device found is the default */
+  Modes.sdrplay.index = -1;
+  Modes.airspy.index  = -1;
+
   /* Defaults for SDRPlay:
    */
   strcpy (Modes.sdrplay.dll_name, "sdrplay_api.dll");  /* Assumed to be on PATH */
   Modes.sdrplay.min_version = SDRPLAY_API_VERSION;     /* = 3.14F */
 
-  Modes.infile_fd       = -1;      /* no --infile */
-  Modes.gain_auto       = true;
-  Modes.sample_rate     = MODES_DEFAULT_RATE;
-  Modes.freq            = MODES_DEFAULT_FREQ;
-  Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
-  Modes.json_interval   = 1000;
-  Modes.tui_interface   = TUI_WINCON;
+  /* Defaults for AirSpy:
+   */
+  strcpy (Modes.airspy.dll_name, "airspy.dll");        /* Assumed to be on PATH */
 
+  Modes.infile_fd        = -1;      /* no --infile */
+  Modes.gain_auto        = true;
+  Modes.bytes_per_sample = 2;       /* I + Q == 2 bytes */
+  Modes.converter_func   = dummy_converter;
+  Modes.demod_func       = dummy_demod;
+  Modes.sample_rate      = MODES_DEFAULT_RATE;
+  Modes.freq             = MODES_DEFAULT_FREQ;
+  Modes.interactive_ttl  = MODES_INTERACTIVE_TTL;
+  Modes.a_sort           = INTERACTIVE_SORT_NONE;
+  Modes.json_interval    = 1000;
+  Modes.tui_interface    = TUI_WINCON;
+  Modes.min_dist         = 0.0;                /* 0 Km default min distance */
+  Modes.max_dist         = 500000.0;           /* 500 Km default max distance */
+  Modes.FIFO_acquire_ms  = 100;                /* timeout for `fifo_acquire()` */
+  Modes.FIFO_init_bufs   = MODES_MAG_BUFFERS;  /* # of buffers for `fifo_init()` */
   Modes.error_correct_1 = true;
   Modes.error_correct_2 = false;
 
@@ -416,9 +519,16 @@ static void modeS_init_log (void)
   char  *ptr = args;
   size_t line_len, left = sizeof(args);
   int    i, n;
+  bool   write_BOM = false;
+  static const BYTE BOM[] = { 0xEF, 0xBB, 0xBF };
 
   if (!modeS_log_init())
      return;
+
+  /* Write an UTF-8 BOM at the start of the .log file?
+   */
+  if (_filelength(fileno(Modes.log)) == 0)
+     write_BOM = true;
 
   /* Print this a bit nicer. Split into multiple lines (< 120 character per line).
    */
@@ -443,9 +553,160 @@ static void modeS_init_log (void)
     ptr  += n;
     left -= n;
   }
-  fputs ("\n---------------------------------------------------------------------------------\n", Modes.log);
+
+  if (write_BOM)
+       fwrite (&BOM, sizeof(BOM), 1, Modes.log);
+  else fputc ('\n', Modes.log);
+
+  fputs ("---------------------------------------------------------------------------------\n", Modes.log);
   modeS_log (args);
   fputs ("\n\n", Modes.log);
+}
+
+/**
+ * Initialize hardware stuff **after** to initialising RTLSDR/SDRPlay.
+ *
+ * Also needed for a remote `rtl_tcp / rtl_tcp2 /rtl_udp` program. <br>
+ * A remote connection to `rtl_tcp` will be done in `net_init()` later in main.
+ *
+ * This function is not called for `--net-only` (i.e. `Modes.net_only == true`)
+ * and services like RAW_IN or SBS_IN.
+ */
+static bool modeS_init_hardware (void)
+{
+  uint32_t    samplerate = Modes.sample_rate;
+  bool        use_rtltcp;
+  const char *p;
+
+  if (Modes.net_only || Modes.tests)  /* no need for this */
+     return (true);
+
+  /* If `--device tcp://host:port' specified
+   */
+  p = net_handler_host (MODES_NET_SERVICE_RTL_TCP);
+  use_rtltcp = (p && *p);
+
+  switch (samplerate)
+  {
+    case 2000000:
+         Modes.sample_rate = 2000000;
+         Modes.demod_func  = demod_2000;
+         break;
+
+    case 2400000:
+         Modes.sample_rate = 2400000;
+         Modes.demod_func  = demod_2400;
+         break;
+
+    case 8000000:
+         if (Modes.rtlsdr.index >= 0)
+         {
+           LOG_STDERR ("RTLSDR cannot use 8 MS/s sample-rate.\n");
+           return (false);
+         }
+         if (!demod_8000_alloc())
+         {
+           LOG_STDERR ("Out of memory allocating `demod_8000()` buffers.\n");
+           return (false);
+         }
+         Modes.sample_rate = 8000000;
+         Modes.demod_func  = demod_8000;
+         break;
+
+    default:
+         LOG_STDERR ("Illegal samplerate %.1lf MS/s selected\n", (double)samplerate / 1E6);
+         return (false);
+  }
+
+  Modes.trailing_samples = (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * 1E-6 * Modes.sample_rate;
+
+  if (Modes.infile[0])
+  {
+    /* Unless not set, use whatever '--informat' was set to 'Modes.input_format'
+     */
+    if (Modes.input_format == INPUT_ILLEGAL)
+       Modes.input_format = INPUT_UC8;
+  }
+  else if (Modes.rtlsdr.index >= 0 ||                    /* --device N */
+           Modes.rtlsdr.name       ||                    /* --device name */
+           use_rtltcp)
+  {
+    /* A local or remote RTLSDR device
+     */
+    Modes.input_format = INPUT_UC8;   /* Unsigned, Complex, 8 bit per sample. Always */
+    Modes.bytes_per_sample = 2;
+  }
+  else if (Modes.sdrplay.name || Modes.sdrplay.index >= 0)
+  {
+    /* A local SDRPlay device
+     */
+    Modes.input_format = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always */
+    Modes.bytes_per_sample = 4;
+  }
+  else if (Modes.airspy.index >= 0)
+  {
+    /* A local AirSpy device
+     */
+    Modes.input_format = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always? */
+    Modes.bytes_per_sample = 4;
+  }
+
+  if (!fifo_init(Modes.FIFO_init_bufs, MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
+  {
+    LOG_STDERR ("Out of memory allocating FIFO\n");
+    return (false);
+  }
+
+  Modes.FIFO_active = true;
+
+  Modes.converter_func = convert_init (Modes.input_format,
+                                       Modes.sample_rate,
+                                       Modes.DC_filter,
+                                       Modes.measure_noise,   /* total power is interesting if we want noise */
+                                       &Modes.converter_state);
+  if (!Modes.converter_func)
+  {
+    LOG_STDERR ("Can't initialize sample converter for %s\n", Modes.selected_dev);
+    return (false);
+  }
+
+  if (use_rtltcp)
+     Modes.rtltcp.remote = mg_mprintf ("%s://%s:%u",
+                                       net_handler_protocol(MODES_NET_SERVICE_RTL_TCP),
+                                       net_handler_host(MODES_NET_SERVICE_RTL_TCP),
+                                       net_handler_port(MODES_NET_SERVICE_RTL_TCP));
+
+  LOG_FILEONLY ("Modes.rtlsdr.index:     %2d (name: '%s')\n"
+                "              Modes.sdrplay.index:    %2d (name: '%s')\n"
+                "              Modes.sample_rate:      %.1lf MS/s\n"
+                "              Modes.rtltcp.remote:    %s\n"
+                "              Modes.selected_dev:     %s\n"
+                "              Modes.bytes_per_sample: %d\n"
+                "              Modes.trailing_samples: %u\n"
+                "              Modes.input_format:     %d / %s\n"
+                "              Modes.DC_filter:        %d\n"
+                "              Modes.measure_noise:    %d\n"
+                "              Modes.phase_enhance:    %d\n"
+                "              Modes.demod_func:       demod_%u()\n"
+                "              Modes.FIFO_init_bufs:   %u\n"
+                "              Modes.FIFO_acquire_ms:  %u\n"
+                "              Using converter:        %s(), '%s'\n\n",
+                Modes.rtlsdr.index, Modes.rtlsdr.name ? Modes.rtlsdr.name : "<none>",
+                Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : "<none>",
+                (double)Modes.sample_rate / 1E6,
+                Modes.rtltcp.remote ? Modes.rtltcp.remote : "<n/a>",
+                Modes.selected_dev,
+                Modes.bytes_per_sample,
+                Modes.trailing_samples,
+                Modes.input_format, convert_format_name(Modes.input_format),
+                Modes.DC_filter,
+                Modes.measure_noise,
+                Modes.phase_enhance,
+                Modes.sample_rate / 1000,
+                Modes.FIFO_init_bufs,
+                Modes.FIFO_acquire_ms,
+                Modes.converter_state->func_name, Modes.converter_state->description);
+  return (true);
 }
 
 /**
@@ -455,35 +716,72 @@ static void modeS_init_log (void)
  *  \li Open and append to the `--logfile` if specified.
  *  \li Set the Mongoose log-level based on `--debug m|M`.
  *  \li Check if we have the Aircrafts SQL file.
- *  \li Set our home position from the env-var `%DUMP1090_HOMEPOS%`.
  *  \li Initialize (and update) the aircrafts structures / files.
  *  \li Initialize (and update) the airports structures / files.
- *  \li Setup a SIGINT/SIGBREAK handler for a clean exit.
  *  \li Allocate and initialize the needed buffers.
+ *  \li Unless `Modes.net_only` is set:
+ *  \li   Check and set the sample-rate and correct demodulator function.
+ *  \li   Initialize the converter function.
+ *  \li   Create the FIFO for enqueueing IQ-data by the `data_thread_fn()`.
+ *  \li Setup a SIGINT/SIGBREAK handler for a clean exit.
  */
 static bool modeS_init (void)
 {
   bool rc = true;
 
-  init_timings();
+  if (!init_misc())
+     return (false);
 
   if (strcmp(Modes.cfg_file, "NUL") && !cfg_open_and_parse(Modes.cfg_file, config))
      return (false);
 
-  if (Modes.logfile_initial[0])
+  if (Modes.http_ipv6_only)
+     Modes.http_ipv6 = true;
+
+  if (Modes.logfile_initial[0] && stricmp(Modes.logfile_initial, "NUL"))
      modeS_init_log();
 
-  modeS_log_set();
-  aircraft_SQL_set_name();
-
-  if (strcmp(Modes.aircraft_db, "NUL") && (Modes.aircraft_db_url || Modes.update))
+  if (Modes.speech_enable && !speak_init(0, Modes.speech_volume))
   {
-    aircraft_CSV_update (Modes.aircraft_db, Modes.aircraft_db_url);
-    if (!aircraft_CSV_load() || Modes.update)
-       return (false);
+    LOG_FILEONLY ("speak_init(): failed.\n");
+    Modes.speech_enable = false;
   }
 
-  airports_init();
+  /* Command-line options `--samplerate X` and `--max-messages Y`
+   * overrides the config-file setting
+   */
+  if (sample_rate > 0)
+     Modes.sample_rate = sample_rate;
+
+  if (max_messages > 0)
+     Modes.max_messages = max_messages;
+
+  if (Modes.max_frames > 0)
+     Modes.max_messages = Modes.max_frames;
+
+  modeS_log_set();
+
+  crc_init ((int)Modes.error_correct_1 + (int)Modes.error_correct_2);
+
+  if (!aircraft_init())
+     return (false);
+
+  if (!airports_init())
+     return (false);
+
+  /**
+   * Allocate the ICAO address cache. We use two uint32_t for every
+   * entry because it's a addr / timestamp pair for every entry.
+   */
+  Modes.ICAO_cache = calloc (2 * sizeof(uint32_t) * MODES_ICAO_CACHE_LEN, 1);
+  Modes.mag_lut    = gen_magnitude_lut();
+  Modes.log10_lut  = gen_log10_lut();
+
+  if (!Modes.mag_lut || !Modes.log10_lut || !Modes.ICAO_cache)
+  {
+    LOG_STDERR ("Out of memory allocating buffers.\n");
+    return (false);
+  }
 
 #if 0
   /**
@@ -505,39 +803,23 @@ static bool modeS_init (void)
 
   signal (SIGINT, modeS_signal_handler);
   signal (SIGBREAK, modeS_signal_handler);
-  signal (SIGABRT, modeS_signal_handler);
 
-  /* We add a full message minus a final bit to the length, so that we
-   * can carry the remaining part of the buffer that we can't process
-   * in the message detection loop, back at the start of the next data
-   * to process. This way we are able to also detect messages crossing
-   * two reads.
-   */
-  Modes.data_len = MODES_ASYNC_BUF_SIZE + 4*(MODES_FULL_LEN-1);
-  Modes.data_ready = false;
-
-  /**
-   * Allocate the ICAO address cache. We use two uint32_t for every
-   * entry because it's a addr / timestamp pair for every entry.
-   */
-  Modes.ICAO_cache = calloc (2 * sizeof(uint32_t) * MODES_ICAO_CACHE_LEN, 1);
-  Modes.data       = malloc (Modes.data_len);
-  Modes.magnitude  = malloc (2 * Modes.data_len);
-
-  if (!Modes.ICAO_cache || !Modes.data || !Modes.magnitude)
-  {
-    LOG_STDERR ("Out of memory allocating data buffer.\n");
-    return (false);
-  }
-
-  memset (Modes.data, 127, Modes.data_len);
-  Modes.magnitude_lut = gen_magnitude_lut();
-
-  if (Modes.max_frames > 0)
-     Modes.max_messages = Modes.max_frames;
+#if !defined(_DEBUG)
+  if (!Modes.tests)
+     signal (SIGABRT, modeS_signal_handler);
+#endif
 
   if (test_contains(Modes.tests, "net"))
      Modes.net = true;    /* Will force `net_init()` and it's tests to be called */
+
+  if (test_contains(Modes.tests, "cpr"))
+     cpr_do_tests();
+
+  if (test_contains (Modes.tests, "console"))
+     Modes.interactive = true;    /* Will force `interactive_init()` and it's tests to be called */
+
+  if (test_contains (Modes.tests, "me"))
+     test_print_unrecognized_ME();
 
   if (!rc)
      return (false);
@@ -561,7 +843,7 @@ static bool modeS_init (void)
  *   product: RTL2838-Blue,   serial: 00000001
  *  ```
  *
- * \note Not called for a remote RTL_TCP device.
+ * \note Not called for a remote RTL_TCP / RTL_UDP device.
  */
 static bool modeS_init_RTLSDR (void)
 {
@@ -572,7 +854,7 @@ static bool modeS_init_RTLSDR (void)
   device_count = rtlsdr_get_device_count();
   if (device_count <= 0)
   {
-    LOG_STDERR ("No supported RTLSDR devices found. Error: %s\n", get_rtlsdr_error());
+    LOG_STDERR ("No supported RTLSDR devices found. Error: %s\n", get_rtlsdr_error(0));
     return (false);
   }
 
@@ -602,22 +884,22 @@ static bool modeS_init_RTLSDR (void)
                 selected ? " (currently selected)" : "");
   }
 
-  if (Modes.rtlsdr.power_cycle)
-     rtlsdr_power_cycle();
-
   if (Modes.rtlsdr.calibrate)
      rtlsdr_cal_imr (1);
 
   rc = rtlsdr_open (&Modes.rtlsdr.device, Modes.rtlsdr.index);
   if (rc)
   {
-    const char *err = get_rtlsdr_error();
+    const char *err = get_rtlsdr_error (rc);
 
     if (Modes.rtlsdr.name)
-         LOG_STDERR ("Error opening the RTLSDR device %s: %s\n", Modes.rtlsdr.name, err);
-    else LOG_STDERR ("Error opening the RTLSDR device %d: %s\n", Modes.rtlsdr.index, err);
+         LOG_STDERR ("Error opening the RTLSDR device `%s`: %s\n", Modes.rtlsdr.name, err);
+    else LOG_STDERR ("Error opening the RTLSDR device `%d`: %s\n", Modes.rtlsdr.index, err);
     return (false);
   }
+
+  if (Modes.rtlsdr.power_cycle)
+     rtlsdr_power_cycle (Modes.rtlsdr.device);
 
   /* Set gain, AGC, frequency correction, Bias-T, frequency, sample rate, and reset the buffers.
    */
@@ -646,7 +928,7 @@ static bool modeS_init_RTLSDR (void)
   }
 
   rc = rtlsdr_set_sample_rate (Modes.rtlsdr.device, Modes.sample_rate);
-  if (rc)
+  if (rc != 0)
   {
     LOG_STDERR ("Error setting sample-rate: %d.\n", rc);
     return (false);
@@ -683,127 +965,121 @@ static bool modeS_init_RTLSDR (void)
 }
 
 /**
+ * Acquire a FIFO buffer and return the head of list.
+ */
+static mag_buf *rx_callback_to_fifo (uint32_t in_len, unsigned *to_convert)
+{
+  static uint32_t dropped = 0;
+  uint32_t        samples_read = in_len / Modes.bytes_per_sample;
+  uint64_t        block_duration;
+  mag_buf        *out_buf;
+
+  out_buf = fifo_acquire (Modes.FIFO_acquire_ms);
+  if (!out_buf)
+  {
+    /* FIFO is full. Drop this block.
+     */
+    dropped += samples_read;
+    return (NULL);
+  }
+
+  out_buf->flags = MAGBUF_ZERO;
+
+  /* We previously dropped some samples due to no buffers being available
+   */
+  if (dropped)
+  {
+    out_buf->flags   = MAGBUF_DISCONTINUOUS;
+    out_buf->dropped = dropped;
+  }
+
+  dropped = 0;
+
+  /* Compute the sample timestamp and system timestamp for the start of the block
+   */
+  out_buf->sample_timestamp = Modes.sample_counter * 12E6 / Modes.sample_rate;
+  Modes.sample_counter += samples_read;
+
+  /* Get the approx system time for the start of this block
+   */
+  block_duration = (1E3 * samples_read) / Modes.sample_rate;
+  out_buf->sys_timestamp = MSEC_TIME() - block_duration;
+
+  /* Convert the new data
+   */
+  *to_convert = samples_read;
+  if (*to_convert + out_buf->overlap > out_buf->total_length) /* how did that happen? */
+  {
+    *to_convert = out_buf->total_length - out_buf->overlap;
+    dropped = samples_read - *to_convert;
+  }
+
+  out_buf->valid_length = out_buf->overlap + *to_convert;
+  return (out_buf);
+}
+
+/**
  * This RX-data callback gets data from the local RTLSDR, a remote RTLSDR
- * device or a local SDRplay device asynchronously.
- * We then populate the data buffer for "Pulse Position Modulation" decoding in
- * `detect_modeS()`.
+ * device or a local SDRplay / AirSpy device asynchronously.
+ *
+ * We then allocate a FIFO-buffer, call the "IQ to magnitude" converter function and
+ * depending on sample-rate call the correct `Modes.demod_func` function.
+ * ADS-B is all about pulse-power; hence "Pulse Position Modulation" decoding
+ * depends highly on sample-rate.
  *
  * \note A Mutex is used to avoid race-condition with the decoding thread.
- * \node "Mode S" is "Mode Select Beacon System" (\ref "docs/The-1090MHz-riddle.pdf" chapter 1.4.)
  */
-void rx_callback (uint8_t *buf, uint32_t len, void *ctx)
+void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
 {
   volatile bool exit = *(volatile bool*) ctx;
+  mag_buf      *out_buf;
+  unsigned      to_convert = 0;    /* samples to convert */
+  uint32_t      samples_read = in_len / Modes.bytes_per_sample;
 
   if (exit)
+  {
+    if (Modes.rtlsdr.device)
+       rtlsdr_cancel_async (Modes.rtlsdr.device);    /* ask our caller to exit */
+    SleepEx (100, TRUE);
+    return;
+  }
+
+  if (samples_read == 0)
      return;
 
-  EnterCriticalSection (&Modes.data_mutex);
-  if (len > MODES_ASYNC_BUF_SIZE)
-     len = MODES_ASYNC_BUF_SIZE;
-
-  /* Move the last part of the previous buffer, that was not processed,
-   * to the start of the new buffer.
-   */
-  memcpy (Modes.data, Modes.data + MODES_ASYNC_BUF_SIZE, 4*(MODES_FULL_LEN-1));
-
-  /* Read the new data.
-   */
-  memcpy (Modes.data + 4*(MODES_FULL_LEN-1), buf, len);
-  Modes.data_ready = true;
-  LeaveCriticalSection (&Modes.data_mutex);
-}
-
-/**
- * Close the `--infile file` handle.
- */
-static void infile_exit (void)
-{
-  if (Modes.infile_fd == STDIN_FILENO)
-        SETMODE (STDIN_FILENO, O_TEXT);
-  else _close (Modes.infile_fd);
-
-  Modes.infile_fd = -1;
-}
-
-/**
- * This is used when `--infile` is specified in order to read data from file
- * instead of using a RTLSDR / SDRplay device.
- */
-static int infile_read (void)
-{
-  uint32_t rc = 0;
-
-  if (Modes.loops > 0 && Modes.infile_fd == STDIN_FILENO)
+  out_buf = rx_callback_to_fifo (in_len, &to_convert);
+  if (out_buf)
   {
-    LOG_STDERR ("Option `--loops <N>' not supported for `stdin'.\n");
-    Modes.loops = 0;
+    /**
+     * Convert the raw I/Q `in_buf` data to a "magnitude-squared"
+     * buffer into `out_buf->data [ofs]`. The main-thread will pick up
+     * this buffer by `fifo_dequeue()` and use it to feed the selected
+     * `Modes.demod_func()` function. \ref demod.h
+     */
+    fifo_enqueue (out_buf);
+
+    /**
+     * Since `sizeof(*out_buf->overlap) == Modes.bytes_per_sample`,
+     * this is valid pointer arithmetics. But what about SDRPlay?
+     */
+    out_buf->valid_length = out_buf->overlap + to_convert;
+
+    (*Modes.converter_func) (in_buf, &out_buf->data [out_buf->overlap], to_convert,
+                             Modes.converter_state, &out_buf->mean_power);
   }
-
-  do
-  {
-     int      nread, toread;
-     uint8_t *data;
-
-     if (Modes.interactive)
-     {
-       /* When --infile and --interactive are used together, slow down
-        * mimicking the real RTLSDR / SDRplay rate.
-        */
-       Sleep (1000);
-     }
-
-     /* Move the last part of the previous buffer, that was not processed,
-      * on the start of the new buffer.
-      */
-     memcpy (Modes.data, Modes.data + MODES_ASYNC_BUF_SIZE, 4*(MODES_FULL_LEN-1));
-     toread = MODES_ASYNC_BUF_SIZE;
-     data   = Modes.data + 4*(MODES_FULL_LEN-1);
-
-     while (toread)
-     {
-       nread = _read (Modes.infile_fd, data, toread);
-       if (nread <= 0)
-          break;
-       data   += nread;
-       toread -= nread;
-     }
-
-     if (toread)
-     {
-       /* Not enough data on file to fill the buffer? Pad with
-        * no signal.
-        */
-       memset (data, 127, toread);
-     }
-
-     compute_magnitude_vector (Modes.data);
-     rc += detect_modeS (Modes.magnitude, Modes.data_len/2);
-     background_tasks();
-
-     if (Modes.exit || Modes.infile_fd == STDIN_FILENO)
-        break;
-
-     /* seek the file again from the start
-      * and re-play it if --loops was given.
-      */
-     if (Modes.loops > 0)
-        Modes.loops--;
-     if (Modes.loops == 0 || _lseek(Modes.infile_fd, 0, SEEK_SET) == -1)
-        break;
-  }
-  while (1);
-  return (rc);
 }
 
 /**
- * We read RTLSDR or SDRplay data using a separate thread, so the main
- * thread only handles decoding without caring about data acquisition.
+ * We read RTLSDR, SDRplay or remote RTL_TCP data using a separate thread,
+ * so the main thread only handles decoding without caring about data acquisition.
+ *
  * \ref `main_data_loop()` below.
  */
-static unsigned int __stdcall data_thread_fn (void *arg)
+static DWORD WINAPI data_thread_fn (void *arg)
 {
   int rc;
+
+//SetThreadPriority (GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
 #if 0  /** \todo see below */
   if (Modes.infile[0])
@@ -824,14 +1100,35 @@ static unsigned int __stdcall data_thread_fn (void *arg)
     LOG_STDERR ("sdrplay_read_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
     modeS_signal_handler (0);   /* break out of main_data_loop() */
   }
+  else if (Modes.airspy.device)
+  {
+    rc = airspy_read_async (Modes.airspy.device, rx_callback, (void*)&Modes.exit,
+                            MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
+
+    LOG_STDERR ("airspy_read_async(): rc: %d / %s.\n", rc, airspy_strerror(rc));
+    modeS_signal_handler (0);   /* break out of main_data_loop() */
+  }
   else if (Modes.rtlsdr.device)
   {
     rc = rtlsdr_read_async (Modes.rtlsdr.device, rx_callback, (void*)&Modes.exit,
                             MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
 
-    LOG_STDERR ("rtlsdr_read_async(): rc: %d/%s\n", rc, get_rtlsdr_error());
+    LOG_STDERR ("rtlsdr_read_async(): rc: %d/%s\n", rc, get_rtlsdr_error(rc));
     modeS_signal_handler (0);    /* break out of main_data_loop() */
   }
+  else if (Modes.rtl_tcp_in || Modes.raw_in)
+  {
+    while (!Modes.exit)
+    {
+     /* Not much to do here. For RTL_TCP, enqueueing to the FIFO is
+      * done in `rx_callback()` via `rtl_tcp_recv_data()` in net_io.c.
+      * For RAW_IN, everything runs out of `background_tasks()`.
+      */
+      Sleep (100);
+    }
+  }
+
+  Modes.exit = true;   /* just in case */
   MODES_NOTUSED (arg);
   return (0);
 }
@@ -847,370 +1144,54 @@ static void main_data_loop (void)
   {
     background_tasks();
 
-    if (!Modes.data_ready)
-       continue;
-
-    compute_magnitude_vector (Modes.data);
-
-    /* Signal to the other thread that we processed the available data
-     * and we want more.
-     */
-    Modes.data_ready = false;
-
-    /* Process data after releasing the lock, so that the capturing
-     * thread can read data while we perform computationally expensive
-     * stuff at the same time. (This should only be useful with very
-     * slow processors).
-     */
-    EnterCriticalSection (&Modes.data_mutex);
-
-#if 0     /**\todo */
-    if (Modes.sdrplay_device && Modes.sdrplay.over_sample)
+    if (!Modes.FIFO_active)
     {
-      struct mag_buf *buf = &Modes.mag_buffers [Modes.first_filled_buffer];
-
-      demodulate_8000 (buf);
+      Sleep (100);
     }
     else
-#endif
-      detect_modeS (Modes.magnitude, Modes.data_len/2);
-
-    LeaveCriticalSection (&Modes.data_mutex);
-
-    if (Modes.max_messages > 0 && --Modes.max_messages == 0)
     {
-      LOG_STDOUT ("'Modes.max_messages' reached 0.\n");
+     /* Wait max. 100 msec for a magnitude buffer
+      */
+      mag_buf *buf = fifo_dequeue (100);
+
+      if (!buf)
+         continue;
+
+      (*Modes.demod_func) (buf);   /* call `demod_2000()` etc. */
+
+      Modes.stat.samples_processed += (buf->valid_length - buf->overlap) / Modes.bytes_per_sample;
+      Modes.stat.samples_dropped   += buf->dropped / Modes.bytes_per_sample;
+
+      fifo_release (buf);
+    }
+
+    /* Have we shown enough messages?
+     */
+    if (Modes.max_messages > 0 &&
+        Modes.stat.messages_shown >= Modes.max_messages)
+    {
+      LOG_STDOUT ("Reached 'Modes.max_messages'.\n");
       Modes.exit = true;
     }
   }
-}
 
-/**
- * Helper function for `dump_magnitude_vector()`.
- * It prints a single bar used to display raw signals.
- *
- * Since every magnitude sample is between 0 - 255, the function uses
- * up to 63 characters for every bar. Every character represents
- * a length of 4, 3, 2, 1, specifically:
- *
- * \li "O" is 4
- * \li "o" is 3
- * \li "-" is 2
- * \li "." is 1
- */
-static void dump_magnitude_bar (uint16_t magnitude, int index)
-{
-  const char *set = " .-o";
-  char        buf [256];
-  uint16_t    div = (magnitude / 256) / 4;
-  uint16_t    rem = (magnitude / 256) % 4;
-  int         markchar = ']';
+  if (Modes.FIFO_active)
+     fifo_halt();
 
-  memset (buf, 'O', div);
-  buf [div] = set[rem];
-  buf [div+1] = '\0';
-
-  if (index >= 0)
-  {
-    /* preamble peaks are marked with ">"
-     */
-    if (index == 0 || index == 2 || index == 7 || index == 9)
-       markchar = '>';
-
-    /* Data peaks are marked to distinguish pairs of bits.
-     */
-    if (index >= 16)
-       markchar = ((index - 16)/2 & 1) ? '|' : ')';
-    printf ("[%3d%c |%-66s %u\n", index, markchar, buf, magnitude);
-  }
-  else
-    printf ("[%3d] |%-66s %u\n", index, buf, magnitude);
-}
-
-/**
- * Display an *ASCII-art* alike graphical representation of the undecoded
- * message as a magnitude signal.
- *
- * The message starts at the specified offset in the `m` buffer.
- * The function will display enough data to cover a short 56 bit
- * (`MODES_SHORT_MSG_BITS`) message.
- *
- * If possible a few samples before the start of the messsage are included
- * for context.
- */
-static void dump_magnitude_vector (const uint16_t *m, uint32_t offset)
-{
-  uint32_t padding = 5;  /* Show a few samples before the actual start. */
-  uint32_t start = (offset < padding) ? 0 : offset - padding;
-  uint32_t end = offset + (2*MODES_PREAMBLE_US) + (2*MODES_SHORT_MSG_BITS) - 1;
-  uint32_t i;
-
-  for (i = start; i <= end; i++)
-      dump_magnitude_bar (m[i], i - offset);
-}
-
-/**
- * Produce a raw representation of the message as a Javascript file
- * loadable by `debug.html`.
- */
-static void dump_raw_message_JS (const char *descr, uint8_t *msg, const uint16_t *m, uint32_t offset,
-                                 int fixable, uint32_t frame)
-{
-  int   padding = 5;     /* Show a few samples before the actual start. */
-  int   start = offset - padding;
-  int   end = offset + (MODES_PREAMBLE_US*2)+(MODES_LONG_MSG_BITS*2) - 1;
-  int   j, fix1 = -1, fix2 = -1;
-  FILE *fp;
-
-  if (fixable != -1)
-  {
-    fix1 = fixable & 0xFF;
-    if (fixable > 255)
-       fix2 = fixable >> 8;
-  }
-  fp = fopen_excl ("frames.js", "a");
-  if (!fp)
-  {
-    LOG_STDERR ("Error opening frames.js: %s.\n", strerror(errno));
-    Modes.exit = 1;
-    return;
-  }
-
-  fprintf (fp, "frames.push({\"descr\": \"%s\", \"mag\": [", descr);
-  for (j = start; j <= end; j++)
-  {
-    fprintf (fp, "%d", j < 0 ? 0 : m[j]);
-    if (j != end)
-       fprintf (fp, ",");
-  }
-  fprintf (fp, "], \"fix1\": %d, \"fix2\": %d, \"bits\": %d, \"hex\": \"",
-           fix1, fix2, modeS_message_len_by_type(msg[0] >> 3));
-
-  for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
-      fprintf (fp, "\\x%02x", msg[j]);
-  fprintf (fp, "\"});\n");
-  fclose (fp);
-  (void) frame;
-}
-
-/**
- * This is a wrapper for `dump_magnitude_vector()` that also show the message
- * in hex format with an additional description.
- *
- * \param in  descr  the additional message to show to describe the dump.
- * \param out msg    the decoded message
- * \param in  m      the original magnitude vector
- * \param in  offset the offset where the message starts
- *
- * The function also produces the Javascript file used by `debug.html` to
- * display packets in a graphical format if the Javascript output was
- * enabled.
- */
-static void dump_raw_message (const char *descr, uint8_t *msg, const uint16_t *m,
-                              uint32_t offset, uint32_t frame)
-{
-  int j;
-  int msg_type = msg[0] >> 3;
-  int fixable = -1;
-
-  if (msg_type == 11 || msg_type == 17)
-  {
-    int msg_bits = (msg_type == 11) ? MODES_SHORT_MSG_BITS :
-                                      MODES_LONG_MSG_BITS;
-    fixable = fix_single_bit_errors (msg, msg_bits);
-    if (fixable == -1)
-       fixable = fix_two_bits_errors (msg, msg_bits);
-  }
-
-  if (Modes.debug & DEBUG_JS)
-  {
-    dump_raw_message_JS (descr, msg, m, offset, fixable, frame);
-    return;
-  }
-
-  EnterCriticalSection (&Modes.print_mutex);
-
-  printf ("\n--- %s:\n    ", descr);
-  for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
-  {
-    printf ("%02X", msg[j]);
-    if (j == MODES_SHORT_MSG_BYTES - 1)
-       printf (" ... ");
-  }
-  printf (" (DF %d, Fixable: %d, frame: %u)\n", msg_type, fixable, frame);
-  dump_magnitude_vector (m, offset);
-  puts ("---");
-
-  LeaveCriticalSection (&Modes.print_mutex);
-}
-
-/*
- * Return the CRC in a message.
- * CRC is always the last three bytes.
- */
-static __inline uint32_t CRC_get (const uint8_t *msg, int bits)
-{
-  uint32_t CRC = ((uint32_t) msg [(bits / 8) - 3] << 16) |
-                 ((uint32_t) msg [(bits / 8) - 2] << 8) |
-                  (uint32_t) msg [(bits / 8) - 1];
-  return (CRC);
-}
-
-/**
- * Parity table for MODE S Messages.
- *
- * The table contains 112 (`MODES_LONG_MSG_BITS`) elements, every element
- * corresponds to a bit set in the message, starting from the first bit of
- * actual data after the preamble.
- *
- * For messages of 112 bit, the whole table is used.
- * For messages of 56 bits only the last 56 elements are used.
- *
- * The algorithm is as simple as XOR-ing all the elements in this table
- * for which the corresponding bit on the message is set to 1.
- *
- * The last 24 elements in this table are set to 0 as the checksum at the
- * end of the message should not affect the computation.
- *
- * \note
- * This function can be used with DF11 and DF17. Other modes have
- * the CRC *XOR-ed* with the sender address as they are replies to interrogations,
- * but a casual listener can't split the address from the checksum.
- */
-static const uint32_t checksum_table [MODES_LONG_MSG_BITS] = {
-             0x3935EA, 0x1C9AF5, 0xF1B77E, 0x78DBBF, 0xC397DB, 0x9E31E9, 0xB0E2F0, 0x587178,
-             0x2C38BC, 0x161C5E, 0x0B0E2F, 0xFA7D13, 0x82C48D, 0xBE9842, 0x5F4C21, 0xD05C14,
-             0x682E0A, 0x341705, 0xE5F186, 0x72F8C3, 0xC68665, 0x9CB936, 0x4E5C9B, 0xD8D449,
-             0x939020, 0x49C810, 0x24E408, 0x127204, 0x093902, 0x049C81, 0xFDB444, 0x7EDA22,
-             0x3F6D11, 0xE04C8C, 0x702646, 0x381323, 0xE3F395, 0x8E03CE, 0x4701E7, 0xDC7AF7,
-             0x91C77F, 0xB719BB, 0xA476D9, 0xADC168, 0x56E0B4, 0x2B705A, 0x15B82D, 0xF52612,
-             0x7A9309, 0xC2B380, 0x6159C0, 0x30ACE0, 0x185670, 0x0C2B38, 0x06159C, 0x030ACE,
-             0x018567, 0xFF38B7, 0x80665F, 0xBFC92B, 0xA01E91, 0xAFF54C, 0x57FAA6, 0x2BFD53,
-             0xEA04AD, 0x8AF852, 0x457C29, 0xDD4410, 0x6EA208, 0x375104, 0x1BA882, 0x0DD441,
-             0xF91024, 0x7C8812, 0x3E4409, 0xE0D800, 0x706C00, 0x383600, 0x1C1B00, 0x0E0D80,
-             0x0706C0, 0x038360, 0x01C1B0, 0x00E0D8, 0x00706C, 0x003836, 0x001C1B, 0xFFF409,
-             0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
-             0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
-             0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
-           };
-
-static uint32_t CRC_check (const uint8_t *msg, int bits)
-{
-  uint32_t crc = 0;
-  int      offset = 0;
-  int      j;
-
-  if (bits != MODES_LONG_MSG_BITS)
-     offset = MODES_LONG_MSG_BITS - MODES_SHORT_MSG_BITS;
-
-  for (j = 0; j < bits; j++)
-  {
-    int byte = j / 8;
-    int bit  = j % 8;
-    int mask = 1 << (7 - bit);
-
-    /* If bit is set, XOR with corresponding table entry.
-     */
-    if (msg[byte] & mask)
-       crc ^= checksum_table [j + offset];
-  }
-  return (crc); /* 24 bit checksum. */
+  /* Wait on reader thread exit
+   */
+  WaitForSingleObject (Modes.reader_thread, INFINITE);
 }
 
 /**
  * Given the Downlink Format (DF) of the message, return the
  * message length in bits.
  */
-static int modeS_message_len_by_type (int type)
+int modeS_message_len_by_type (int type)
 {
   if (type == 16 || type == 17 || type == 19 || type == 20 || type == 21)
      return (MODES_LONG_MSG_BITS);
   return (MODES_SHORT_MSG_BITS);
-}
-
-/**
- * Try to fix single bit errors using the checksum. On success modifies
- * the original buffer with the fixed version, and returns the position
- * of the error bit. Otherwise if fixing failed, -1 is returned.
- */
-static int fix_single_bit_errors (uint8_t *msg, int bits)
-{
-  int     i;
-  uint8_t aux [MODES_LONG_MSG_BITS / 8];
-
-  for (i = 0; i < bits; i++)
-  {
-    int      byte = i / 8;
-    int      mask = 1 << (7-(i % 8));
-    uint32_t crc1, crc2;
-
-    memcpy (aux, msg, bits/8);
-    aux [byte] ^= mask;   /* Flip j-th bit. */
-
-    crc1 = CRC_get (aux, bits);
-    crc2 = CRC_check (aux, bits);
-
-    if (crc1 == crc2)
-    {
-      /* The error is fixed. Overwrite the original buffer with
-       * the corrected sequence, and returns the error bit
-       * position.
-       */
-      memcpy (msg, aux, bits/8);
-      return (i);
-    }
-  }
-  return (-1);
-}
-
-/**
- * Similar to `fix_single_bit_errors()` but try every possible two bit combination.
- *
- * This is very slow and should be tried only against DF17 messages that
- * don't pass the checksum, and only with `Modes.error_correct_2` setting.
- */
-static int fix_two_bits_errors (uint8_t *msg, int bits)
-{
-  int     j, i;
-  uint8_t aux [MODES_LONG_MSG_BITS / 8];
-
-  for (j = 0; j < bits; j++)
-  {
-    int byte1 = j / 8;
-    int mask1 = 1 << (7-(j % 8));
-
-    /* Don't check the same pairs multiple times, so i starts from j+1 */
-    for (i = j+1; i < bits; i++)
-    {
-      int      byte2 = i / 8;
-      int      mask2 = 1 << (7 - (i % 8));
-      uint32_t crc1, crc2;
-
-      memcpy (aux, msg, bits/8);
-
-      aux [byte1] ^= mask1;  /* Flip j-th bit. */
-      aux [byte2] ^= mask2;  /* Flip i-th bit. */
-
-      crc1 = CRC_get (aux, bits);
-      crc2 = CRC_check (aux, bits);
-
-      if (crc1 == crc2)
-      {
-        /* The error is fixed. Overwrite the original buffer with
-         * the corrected sequence, and returns the error bit
-         * position.
-         */
-        memcpy (msg, aux, bits/8);
-
-        /* We return the two bits as a 16 bit integer by shifting
-         * 'i' on the left. This is possible since 'i' will always
-         * be non-zero because i starts from j+1.
-         */
-        return (j | (i << 8));
-      }
-    }
-  }
-  return (-1);
 }
 
 /**
@@ -1236,102 +1217,78 @@ static uint32_t ICAO_cache_hash_address (uint32_t a)
  */
 static void ICAO_cache_add_address (uint32_t addr)
 {
-  uint32_t h = ICAO_cache_hash_address (addr);
+  uint32_t h_idx = ICAO_cache_hash_address (addr);
 
-  Modes.ICAO_cache [h*2]   = addr;
-  Modes.ICAO_cache [h*2+1] = (uint32_t) time (NULL);
+  Modes.ICAO_cache [2*h_idx]     = addr;
+  Modes.ICAO_cache [2*h_idx + 1] = (uint32_t) time (NULL);
 }
 
 /**
- * Returns true if the specified ICAO address was seen in a DF format with
+ * Returns true if the specified ICAO address was seen in a DFx format with
  * proper checksum (not XORed with address) no more than
  * `MODES_ICAO_CACHE_TTL` seconds ago.
  * Otherwise returns false.
  */
-static bool ICAO_address_recently_seen (uint32_t addr)
+static bool ICAO_address_recently_seen (uint32_t a)
 {
-  uint32_t h_idx = ICAO_cache_hash_address (addr);
-  uint32_t _addr = Modes.ICAO_cache [2*h_idx];
+  uint32_t h_idx = ICAO_cache_hash_address (a);
+  uint32_t addr  = Modes.ICAO_cache [2*h_idx];
   uint32_t seen  = Modes.ICAO_cache [2*h_idx + 1];
 
-  return (_addr && _addr == addr && (time(NULL) - seen) <= MODES_ICAO_CACHE_TTL);
+  return (addr && addr == a && (time(NULL) - seen) <= MODES_ICAO_CACHE_TTL);
 }
 
+#define icao_filter_test(addr) ICAO_address_recently_seen (addr)
+#define icao_filter_add(addr)  ICAO_cache_add_address (addr)
+
 /**
- * If the message type has the checksum XORed with the ICAO address, try to
- * brute force it using a list of recently seen ICAO addresses.
+ * In the squawk (identity) field bits are interleaved as follows in
+ * (message bit 20 to bit 32):
  *
- * Do this in a brute-force fashion by XORing the predicted CRC with
- * the address XOR checksum field in the message. This will recover the
- * address: if we found it in our cache, we can assume the message is okay.
+ * C1-A1-C2-A2-C4-A4-ZERO-B1-D1-B2-D2-B4-D4
  *
- * This function expects `mm->msg_type` and `mm->msg_bits` to be correctly
- * populated by the caller.
+ * So every group of three bits A, B, C, D represent an integer from 0 to 7.
  *
- * On success the correct ICAO address is stored in the `modeS_message`
- * structure in the `AA [0..2]` fields.
+ * The actual meaning is just 4 octal numbers, but we convert it into a hex
+ * number that happens to represent the four octal numbers.
  *
- * \retval true   successfully recovered a message with a correct checksum.
- * \retval false  failed to recover a message with a correct checksum.
+ * For more info: http://en.wikipedia.org/wiki/Gillham_code
  */
-static bool brute_force_AP (const uint8_t *msg, modeS_message *mm)
+static int decode_ID13_field (int ID13_field)
 {
-  uint8_t aux [MODES_LONG_MSG_BYTES];
-  int     msg_type = mm->msg_type;
-  int     msg_bits = mm->msg_bits;
+  int hex_gillham = 0;
 
-  if (msg_type == 0 ||         /* Short air surveillance */
-      msg_type == 4 ||         /* Surveillance, altitude reply */
-      msg_type == 5 ||         /* Surveillance, identity reply */
-      msg_type == 16 ||        /* Long Air-Air Surveillance */
-      msg_type == 20 ||        /* Comm-A, altitude request */
-      msg_type == 21 ||        /* Comm-A, identity request */
-      msg_type == 24)          /* Comm-C ELM */
-  {
-    uint32_t addr;
-    uint32_t CRC;
-    int      last_byte = (msg_bits / 8) - 1;
+  if (ID13_field & 0x1000) hex_gillham |= 0x0010;     /* Bit 12 = C1 */
+  if (ID13_field & 0x0800) hex_gillham |= 0x1000;     /* Bit 11 = A1 */
+  if (ID13_field & 0x0400) hex_gillham |= 0x0020;     /* Bit 10 = C2 */
+  if (ID13_field & 0x0200) hex_gillham |= 0x2000;     /* Bit  9 = A2 */
+  if (ID13_field & 0x0100) hex_gillham |= 0x0040;     /* Bit  8 = C4 */
+  if (ID13_field & 0x0080) hex_gillham |= 0x4000;     /* Bit  7 = A4 */
+/*if (ID13_field & 0x0040) hex_gillham |= 0x0800; */  /* Bit  6 = X  or M */
+  if (ID13_field & 0x0020) hex_gillham |= 0x0100;     /* Bit  5 = B1 */
+  if (ID13_field & 0x0010) hex_gillham |= 0x0001;     /* Bit  4 = D1 or Q */
+  if (ID13_field & 0x0008) hex_gillham |= 0x0200;     /* Bit  3 = B2 */
+  if (ID13_field & 0x0004) hex_gillham |= 0x0002;     /* Bit  2 = D2 */
+  if (ID13_field & 0x0002) hex_gillham |= 0x0400;     /* Bit  1 = B4 */
+  if (ID13_field & 0x0001) hex_gillham |= 0x0004;     /* Bit  0 = D4 */
 
-    /* Work on a copy. */
-    memcpy (aux, msg, msg_bits/8);
-
-    /* Compute the CRC of the message and XOR it with the AP field
-     * so that we recover the address, because:
-     *
-     * (ADDR xor CRC) xor CRC = ADDR.
-     */
-    CRC = CRC_check (aux, msg_bits);
-    aux [last_byte]   ^= CRC & 0xFF;
-    aux [last_byte-1] ^= (CRC >> 8) & 0xFF;
-    aux [last_byte-2] ^= (CRC >> 16) & 0xFF;
-
-    /* If the obtained address exists in our cache we consider
-     * the message valid.
-     */
-    addr = aircraft_get_addr (aux[last_byte-2], aux[last_byte-1], aux[last_byte]);
-    if (ICAO_address_recently_seen(addr))
-    {
-      mm->AA [0] = aux [last_byte-2];
-      mm->AA [1] = aux [last_byte-1];
-      mm->AA [2] = aux [last_byte];
-      return (true);
-    }
-  }
-  return (false);
+  return (hex_gillham);
 }
 
+#define INVALID_ALTITUDE (-9999)
+
 /**
- * Decode the 13 bit AC altitude field (in DF 20 and others).
+ * Decode the 13 bit AC altitude field (in DF20 and others).
  *
  * \param in  msg   the raw message to work with.
  * \param out unit  set to either `MODES_UNIT_METERS` or `MODES_UNIT_FEETS`.
  * \retval the altitude.
  */
-static int decode_AC13_field (const uint8_t *msg, metric_unit_t *unit)
+static int decode_AC13_field (int AC13_field, metric_unit_t *unit)
 {
-  int m_bit = msg[3] & (1 << 6);
-  int q_bit = msg[3] & (1 << 4);
-  int ret;
+  int m_bit = AC13_field & 0x0040;  /* set = meters, clear = feet */
+  int q_bit = AC13_field & 0x0010;  /* set = 25 ft encoding, clear = Gillham Mode C encoding */
+  int n;
 
   if (!m_bit)
   {
@@ -1340,64 +1297,715 @@ static int decode_AC13_field (const uint8_t *msg, metric_unit_t *unit)
     {
       /* N is the 11 bit integer resulting from the removal of bit Q and M
        */
-      int n = ((msg[2] & 31) << 6)   |
-              ((msg[3] & 0x80) >> 2) |
-              ((msg[3] & 0x20) >> 1) |
-               (msg[3] & 15);
+      n = ((AC13_field & 0x1F80) >> 2) |
+          ((AC13_field & 0x0020) >> 1) |
+          (AC13_field & 0x000F);
 
-      /**
-       * The final altitude is due to the resulting number multiplied by 25, minus 1000.
+      /* The final altitude is resulting number multiplied by 25, minus 1000.
        */
-      ret = 25 * n - 1000;
-      if (ret < 0)
-         ret = 0;
-      return (ret);
+      return ((n * 25) - 1000);
     }
-    else
-    {
-      /** \todo Implement altitude where Q=0 and M=0 */
-    }
-  }
-  else
-  {
-    *unit = MODES_UNIT_METERS;
 
-    /** \todo Implement altitude when meter unit is selected.
+    /* N is an 11 bit Gillham coded altitude
      */
+    n = mode_A_to_mode_C (decode_ID13_field(AC13_field));
+    if (n < -12)
+       return (INVALID_ALTITUDE);
+    return (100 * n);
   }
-  return (0);
+
+  *unit = MODES_UNIT_METERS;
+
+  /**< \todo Implement altitude when meter unit is selected
+   */
+  return (INVALID_ALTITUDE);
 }
 
 /**
- * Decode the 12 bit AC altitude field (in DF 17 and others).
+ * Decode the 12 bit AC altitude field (in DF17 and others).
  * Returns the altitude or 0 if it can't be decoded.
  */
-static int decode_AC12_field (uint8_t *msg, metric_unit_t *unit)
+static int decode_AC12_field (int AC12_field, metric_unit_t *unit)
 {
-  int ret, n, q_bit = msg[5] & 1;
+  int ret, n;
+  int q_bit = AC12_field & 0x10;
 
+  *unit = MODES_UNIT_FEET;
   if (q_bit)
   {
-    /* N is the 11 bit integer resulting from the removal of bit Q
+    /* N is the 11 bit integer resulting from the removal of bit Q at bit 4
      */
-    *unit = MODES_UNIT_FEET;
-    n = ((msg[5] >> 1) << 4) | ((msg[6] & 0xF0) >> 4);
+    n = ((AC12_field & 0x0FE0) >> 1) | (AC12_field & 0x000F);
 
-    /* The final altitude is due to the resulting number multiplied
-     * by 25, minus 1000.
+    /* The final altitude is the resulting number multiplied by 25, minus 1000.
      */
-    ret = 25 * n - 1000;
-    if (ret < 0)
-       ret = 0;
+    ret = (n * 25) - 1000;
     return (ret);
   }
-  return (0);
+
+  /* Make N a 13 bit Gillham coded altitude by inserting M=0 at bit 6
+   */
+  n = ((AC12_field & 0x0FC0) << 1) | (AC12_field & 0x003F);
+  n = mode_A_to_mode_C (decode_ID13_field(n));
+  if (n < -12)
+     return (INVALID_ALTITUDE);
+
+  ret = 100 * n;
+  return (ret);
+}
+
+/**
+ * Decode the 7 bit ground movement field PWL exponential style scale
+ */
+static int decode_movement_field (int movement)
+{
+  int gspeed;
+
+  if (movement > 123)
+     gspeed = 199;  /* > 175kt */
+
+  else if (movement > 108)
+     gspeed = ((movement - 108) * 5) + 100;
+
+  else if (movement > 93)
+     gspeed = ((movement - 93) * 2) + 70;
+
+  else if (movement > 38)
+     gspeed = ((movement - 38)) + 15;
+
+  else if (movement > 12)
+     gspeed = ((movement - 11) >> 1) + 2;
+
+  else if (movement > 8)
+     gspeed = ((movement - 6) >> 2) + 1;
+
+  else
+     gspeed = 0;
+
+  return (gspeed);
+}
+
+#if 0 /**\ todo Add this? */
+/**
+ * Extract one bit from a message.
+ */
+static __inline unsigned get_bit (const uint8_t *data, unsigned bitnum)
+{
+  unsigned bi = bitnum - 1;
+  unsigned by = bi >> 3;
+  unsigned mask = 1 << (7 - (bi & 7));
+
+  return (data[by] & mask) != 0;
+}
+
+/**
+ * Extract some bits  (first_bit .. last_bit inclusive) from a message.
+ */
+static __inline unsigned get_bits (const uint8_t *data, unsigned first_bit, unsigned last_bit)
+{
+  unsigned num_bits   = (last_bit - first_bit + 1);
+  unsigned first_bi   = first_bit - 1;
+  unsigned last_bi    = last_bit - 1;
+  unsigned first_byte = first_bi >> 3;
+  unsigned last_byte  = last_bi >> 3;
+  unsigned num_bytes  = (last_byte - first_byte) + 1;
+  unsigned shift      = 7 - (last_bi & 7);
+  unsigned top_mask   = 0xFF >> (first_bi & 7);
+
+  assert (first_bi <= last_bi);
+  assert (num_bits <= 32);
+  assert (num_bytes <= 5);
+
+  if (num_bytes == 5)
+     return ((data[first_byte] & top_mask) << (32 - shift)) |
+            (data[first_byte + 1] << (24 - shift)) |
+            (data[first_byte + 2] << (16 - shift)) |
+            (data[first_byte + 3] << (8 - shift)) |
+            (data[first_byte + 4] >> shift);
+
+  if (num_bytes == 4)
+     return ((data[first_byte] & top_mask) << (24 - shift)) |
+            (data[first_byte + 1] << (16 - shift)) |
+            (data[first_byte + 2] << (8 - shift)) |
+            (data[first_byte + 3] >> shift);
+
+  if (num_bytes == 3)
+     return ((data[first_byte] & top_mask) << (16 - shift)) |
+            (data[first_byte + 1] << (8 - shift)) |
+            (data[first_byte + 2] >> shift);
+
+  if (num_bytes == 2)
+     return ((data[first_byte] & top_mask) << (8 - shift)) | (data[first_byte + 1] >> shift);
+
+  if (num_bytes == 1)
+     return (data[first_byte] & top_mask) >> shift;
+
+  return 0;
+}
+
+/**
+ * Handle setting a non-ICAO address
+ */
+static void set_IMF (struct modeS_message *mm)
+{
+  mm->addr |= MODES_NON_ICAO_ADDRESS;
+  switch (mm->addrtype)
+  {
+    case ADDR_ADSB_ICAO:
+    case ADDR_ADSB_ICAO_NT:
+         mm->addrtype = ADDR_ADSB_OTHER;
+         break;
+
+    case ADDR_TISB_ICAO:
+         mm->addrtype = ADDR_TISB_TRACKFILE;
+         break;
+
+    case ADDR_ADSR_ICAO:
+         mm->addrtype = ADDR_ADSR_OTHER;
+         break;
+
+    default:
+        break;
+  }
+}
+
+static void decode_ES_airborne_velocity (modeS_message *mm, bool check_imf)
+{
+  uint8_t *me = mm->ME;
+  uint16_t ew_raw, ns_raw, airspeed;
+
+  /* 1-5: ME type */
+  /* 6-8: ME subtype */
+  mm->ME_subtype = get_bits (me, 6, 8);
+
+  if (mm->ME_subtype < 1 || mm->ME_subtype > 4)
+     return;
+
+  /* 9: IMF or Intent Change */
+  if (check_imf && get_bit(me, 9))
+     set_IMF (mm);
+
+  /* 10: reserved */
+  /* 11-13: NACv (NUCr in v0, maps directly to NACv in v2) */
+  mm->accuracy.nac_v_valid = 1;
+  mm->accuracy.nac_v = get_bits (me, 11, 13);
+
+  /* 14-35: speed/velocity depending on subtype
+   */
+  switch (mm->ME_subtype)
+  {
+    case 1:
+    case 2:
+         /* 14:    E/W direction */
+         /* 15-24: E/W speed */
+         /* 25:    N/S direction */
+         /* 26-35: N/S speed */
+         ew_raw = get_bits (me, 15, 24);
+         ns_raw = get_bits (me, 26, 35);
+
+         if (ew_raw && ns_raw)
+         {
+           int ew_vel = (ew_raw - 1) * (get_bit(me, 14) ? -1 : 1) * ((mm->ME_subtype == 2) ? 4 : 1);
+           int ns_vel = (ns_raw - 1) * (get_bit(me, 25) ? -1 : 1) * ((mm->ME_subtype == 2) ? 4 : 1);
+
+           /* Compute velocity and angle from the two speed components
+            */
+           mm->gs.v0 = mm->gs.v2 = mm->gs.selected = sqrtf ((ns_vel * ns_vel) + (ew_vel * ew_vel) + 0.5);
+           mm->gs_valid = 1;
+
+           if (mm->gs.selected > 0)
+           {
+             double ground_track = (atan2 (ew_vel, ns_vel) * 180.0) / M_PI;
+
+             /* We don't want negative values but a 0-360 scale
+              */
+             if (ground_track < 0.0)
+                ground_track += 360.0;
+             mm->heading       = ground_track;
+             mm->heading_type  = HEADING_GROUND_TRACK;
+             mm->heading_valid = 1;
+           }
+         }
+         break;
+
+    case 3:
+    case 4:
+         /* 14:    heading status */
+         /* 15-24: heading */
+         if (get_bit(me, 14))
+         {
+           mm->heading_valid = 1;
+           mm->heading = get_bits (me, 15, 24) * 360.0 / 1024.0;
+           mm->heading_type = HEADING_MAGNETIC_OR_TRUE;
+         }
+
+         /* 25: airspeed type */
+         /* 26-35: airspeed */
+         airspeed = get_bits (me, 26, 35);
+         if (airspeed)
+         {
+             unsigned speed = (airspeed - 1) * (mm->ME_subtype == 4 ? 4 : 1);
+
+             if (get_bit(me, 25))
+             {
+               mm->tas_valid = 1;
+               mm->tas = speed;
+             }
+             else
+             {
+               mm->ias_valid = 1;
+               mm->ias = speed;
+             }
+         }
+         break;
+  }
+
+  /* 36: vert rate source */
+  /* 37: vert rate sign */
+  /* 38-46: vert rate magnitude */
+  unsigned vert_rate         = get_bits (me, 38, 46);
+  unsigned vert_rate_is_baro = get_bit (me, 36);
+
+  if (vert_rate)
+  {
+    int rate = (vert_rate - 1) * (get_bit(me, 37) ? -64 : 64);
+
+    if (vert_rate_is_baro)
+    {
+      mm->baro_rate = rate;
+      mm->baro_rate_valid = 1;
+    }
+    else
+    {
+      mm->geom_rate = rate;
+      mm->geom_rate_valid = 1;
+    }
+  }
+
+  /* 47-48: reserved */
+
+  /* 49: baro/geom delta sign */
+  /* 50-56: baro/geom delta magnitude */
+  unsigned raw_delta = get_bits (me, 50, 56);
+
+  if (raw_delta)
+  {
+    mm->geom_delta_valid = 1;
+    mm->geom_delta = (raw_delta - 1) * (get_bit(me, 49) ? -25 : 25);
+  }
+}
+
+/**
+ * Decode DF16 message?
+ * \sa https://github.com/e5150/msdec/blob/master/df16.c
+ */
+static void decode_DF16 (modeS_message *mm)
+{
+}
+#endif // 0
+
+static bool set_callsign (modeS_message *mm, uint32_t chars1, uint32_t chars2)
+{
+  static const char *AIS_charset = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?";
+  static const char *AIS_junk    = "[\\]^_!\"#$%&'()*+,-./:;<=>?";
+
+  char flight [sizeof(mm->flight)];
+  bool valid;
+
+  /* A common failure mode seems to be to intermittently send
+   * all zeros. Catch that here.
+   */
+  if (chars1 == 0 && chars2 == 0)
+     return (false);
+
+  flight [3] = AIS_charset [chars1 & 0x3F]; chars1 = chars1 >> 6;
+  flight [2] = AIS_charset [chars1 & 0x3F]; chars1 = chars1 >> 6;
+  flight [1] = AIS_charset [chars1 & 0x3F]; chars1 = chars1 >> 6;
+  flight [0] = AIS_charset [chars1 & 0x3F];
+
+  flight [7] = AIS_charset [chars2 & 0x3F]; chars2 = chars2 >> 6;
+  flight [6] = AIS_charset [chars2 & 0x3F]; chars2 = chars2 >> 6;
+  flight [5] = AIS_charset [chars2 & 0x3F]; chars2 = chars2 >> 6;
+  flight [4] = AIS_charset [chars2 & 0x3F];
+  flight [8] = '\0';
+
+  valid = (strpbrk(flight, AIS_junk) == NULL);
+  if (valid)
+  {
+    mm->AC_flags |= MODES_ACFLAGS_CALLSIGN_VALID;
+    strcpy (mm->flight, str_trim(flight));
+  }
+  return (valid);
+}
+
+/**
+ * Decode BDS2,0 carried in Comm-B or ES
+ */
+static void decode_BDS20 (modeS_message *mm)
+{
+  uint8_t *msg = mm->msg;
+  uint32_t chars1 = (msg[5] << 16) | (msg[6] << 8) | (msg[7]);
+  uint32_t chars2 = (msg[8] << 16) | (msg[9] << 8) | (msg[10]);
+
+  set_callsign (mm, chars1, chars2);
+}
+
+static void decode_comm_B (modeS_message *mm)
+{
+  uint8_t *msg = mm->msg;
+
+  /* This is a bit hairy as we don't know what the requested register was
+   */
+  if (msg[4] == 0x20)  /* BDS 2,0 Aircraft Identification */
+     decode_BDS20 (mm);
+}
+
+static void decode_extended_squitter (modeS_message *mm)
+{
+  uint8_t *msg = mm->msg;
+  int      ME_type, ME_subtype;
+  bool     check_imf = false;
+
+  memcpy (mm->ME, &msg[4], sizeof(mm->ME));
+
+  /* Extended squitter message type
+   */
+  ME_type = mm->ME_type = (msg[4] >> 3);
+
+  /* Extended squitter message subtype
+   */
+  ME_subtype = mm->ME_subtype = (ME_type == 29 ? ((msg[4] & 6) >> 1) : (msg[4] & 7));
+
+  /* Check CF on DF18 to work out the format of the ES and whether we need to look for an IMF bit
+   */
+  if (mm->msg_type == 18)
+  {
+    switch (mm->cf)
+    {
+      case 0:      /* ADS-B ES/NT devices that report the ICAO 24-bit address in the AA field */
+           mm->addrtype = ADDR_ADSB_ICAO_NT;
+           break;
+
+      case 1:      /* Reserved for ADS-B for ES/NT devices that use other addressing techniques in the AA field */
+           mm->addr |= MODES_NON_ICAO_ADDRESS;
+           mm->addrtype = ADDR_ADSB_OTHER;
+           break;
+
+      case 2:      /* Fine TIS-B message (formats are close enough to DF17 for our purposes) */
+           mm->AC_flags |= MODES_ACFLAGS_FROM_TISB;
+           mm->addrtype = ADDR_TISB_ICAO;
+           check_imf = true;
+           break;
+
+      case 3:      /* Coarse TIS-B airborne position and velocity. */
+           /* \todo decode me.
+            * For now we only look at the IMF bit.
+            */
+           mm->AC_flags |= MODES_ACFLAGS_FROM_TISB;
+           mm->addrtype = ADDR_TISB_ICAO;
+           if (msg[4] & 0x80)
+              mm->addr |= MODES_NON_ICAO_ADDRESS;
+           return;
+
+      case 5:      /* TIS-B messages that relay ADS-B Messages using anonymous 24-bit addresses (format not explicitly defined, but it seems to follow DF17) */
+           mm->AC_flags |= MODES_ACFLAGS_FROM_TISB;
+           mm->addr |= MODES_NON_ICAO_ADDRESS;
+           mm->addrtype = ADDR_TISB_OTHER;
+           break;
+
+      case 6:      /* ADS-B rebroadcast using the same type codes and message formats as defined for DF = 17 ADS-B messages */
+           mm->addrtype = ADDR_ADSR_ICAO;
+           check_imf = true;
+           break;
+
+      default:     /* All others, we don't know the format */
+           mm->addr |= MODES_NON_ICAO_ADDRESS;    /* assume non-ICAO */
+           mm->addrtype = ADDR_UNKNOWN;
+           return;
+    }
+  }
+
+  uint32_t chars1, chars2;
+  int      vert_rate, airspeed;
+  int      movement, AC12_field, ID13_field;
+  int      ew_raw, ew_vel, ns_raw, ns_vel;
+
+  switch (ME_type)
+  {
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+         /* Aircraft Identification and Category
+          */
+         chars1 = (msg[5] << 16) | (msg[6] << 8) | (msg[7]);
+         chars2 = (msg[8] << 16) | (msg[9] << 8) | (msg[10]);
+
+         set_callsign (mm, chars1, chars2);
+         mm->category = ((0x0E - ME_type) << 4) | ME_subtype;
+         mm->AC_flags |= MODES_ACFLAGS_CATEGORY_VALID;
+         break;
+
+    case 19:   /* Airborne Velocity Message */
+#if 0
+         decode_ES_airborne_velocity (mm, check_imf);    /** \todo */
+#else
+         if (check_imf && (msg[5] & 0x80))
+            mm->addr |= MODES_NON_ICAO_ADDRESS;
+
+         /* Presumably airborne if we get an Airborne Velocity Message */
+         mm->AC_flags |= MODES_ACFLAGS_AOG_VALID;
+
+         if (ME_subtype >= 1 && ME_subtype <= 4)
+         {
+           vert_rate = ((msg[8] & 0x07) << 6) | (msg[9] >> 2);
+           if (vert_rate)
+           {
+             vert_rate--;
+             if (msg[8] & 0x08)
+                vert_rate = 0 - vert_rate;
+             mm->vert_rate =  vert_rate * 64;
+             mm->AC_flags |= MODES_ACFLAGS_VERTRATE_VALID;
+           }
+         }
+
+         if (ME_subtype == 1 || ME_subtype == 2)
+         {
+           ew_raw = ((msg[5] & 0x03) << 8) | msg[6];
+           ew_vel = ew_raw - 1;
+           ns_raw = ((msg[7] & 0x7F) << 3) | (msg[8] >> 5);
+           ns_vel = ns_raw - 1;
+
+           if (ME_subtype == 2)   /* If (supersonic) unit is 4 kts */
+           {
+             ns_vel = ns_vel << 2;
+             ew_vel = ew_vel << 2;
+           }
+           if (ew_raw)            /* Do East/West */
+           {
+             mm->AC_flags |= MODES_ACFLAGS_EWSPEED_VALID;
+             if (msg[5] & 0x04)
+                ew_vel = 0 - ew_vel;    /* Flying west */
+             mm->EW_velocity = ew_vel;
+             mm->EW_dir      = (msg[5] & 4) >> 2;
+           }
+           if (ns_raw)            /* Do North/South */
+           {
+             mm->AC_flags |= MODES_ACFLAGS_NSSPEED_VALID;
+             if (msg[7] & 0x80)   /* Flying south */
+                ns_vel = 0 - ns_vel;
+             mm->NS_velocity = ns_vel;
+             mm->NS_dir      = (msg[7] & 0x80) >> 7;
+           }
+
+           if (ew_raw && ns_raw)
+           {
+             /* Compute velocity and angle from the two speed components
+              */
+             mm->AC_flags |= (MODES_ACFLAGS_SPEED_VALID | MODES_ACFLAGS_HEADING_VALID | MODES_ACFLAGS_NSEWSPD_VALID);
+             mm->velocity = sqrt ((ns_vel * ns_vel) + (ew_vel * ew_vel) + 0.5);
+             if (mm->velocity > SMALL_VAL)
+             {
+               mm->heading = atan2 (ew_vel, ns_vel) * 180.0 / M_PI;
+
+               /* We don't want negative values but a 0 - 360 scale
+                */
+               if (mm->heading < 0.0)
+                  mm->heading += 360.0;
+             }
+           }
+         }
+         else if (ME_subtype == 3 || ME_subtype == 4)
+         {
+           airspeed = ((msg[7] & 0x7f) << 3) | (msg[8] >> 5);
+           if (airspeed)
+           {
+             mm->AC_flags |= MODES_ACFLAGS_SPEED_VALID;
+             airspeed--;
+             if (ME_subtype == 4)  /* If (supersonic) unit is 4 kts */
+                airspeed = airspeed << 2;
+             mm->velocity =  airspeed;
+           }
+           if (msg[5] & 0x04)
+           {
+             mm->AC_flags |= MODES_ACFLAGS_HEADING_VALID;
+             mm->heading = ((((msg[5] & 0x03) << 8) | msg[6]) * 45) >> 7;
+           }
+         }
+         if (msg[10] != 0)
+         {
+           mm->AC_flags |= MODES_ACFLAGS_HAE_DELTA_VALID;
+           mm->HAE_delta = ((msg[10] & 0x80) ? -25 : 25) * ((msg[10] & 0x7f) - 1);
+         }
+#endif
+         break;
+
+    case 5:
+    case 6:
+    case 7:
+    case 8:
+         /* Ground position */
+#if 0
+         decode_ES_surface_position (mm, check_imf);    /** \todo */
+#else
+         if (check_imf && (msg[6] & 0x08))
+            mm->addr |= MODES_NON_ICAO_ADDRESS;
+
+         mm->AC_flags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
+         mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
+         mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
+         mm->AC_flags |= (mm->msg[6] & 0x04) ? MODES_ACFLAGS_LLODD_VALID : MODES_ACFLAGS_LLEVEN_VALID;
+
+         movement = ((msg[4] << 4) | (msg[5] >> 4)) & 0x007F;
+         if (movement && movement < 125)
+         {
+           mm->AC_flags |= MODES_ACFLAGS_SPEED_VALID;
+           mm->velocity = decode_movement_field (movement);
+         }
+         if (msg[5] & 0x08)
+         {
+           mm->AC_flags |= MODES_ACFLAGS_HEADING_VALID;
+           mm->heading = ((((msg[5] << 4) | (msg[6] >> 4)) & 0x007F) * 45) >> 4;
+         }
+         mm->nuc_p = (14 - ME_type);
+#endif
+         break;
+
+    case 0:                                        /* Airborne position, baro altitude only  */
+    case 9:  case 10: case 11: case 12: case 13:   /* Airborne position, baro */
+    case 14: case 15: case 16: case 17: case 18:
+    case 20: case 21: case 22:                     /* Airborne position, geometric altitude (HAE or MSL) */
+#if 0
+         decode_ES_airborne_position (mm, check_imf);    /** \todo */
+#else
+
+         AC12_field = ((msg[5] << 4) | (msg[6] >> 4)) & 0x0FFF;
+
+         if (check_imf && (msg[4] & 0x01))
+            mm->addr |= MODES_NON_ICAO_ADDRESS;
+
+         mm->AC_flags |= MODES_ACFLAGS_AOG_VALID;
+
+         if (ME_type != 0)
+         {
+           /* Catch some common failure modes and don't mark them as valid
+            * (so they won't be used for positioning)
+            */
+           mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
+           mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
+
+           if (AC12_field == 0 && mm->raw_longitude == 0 && (mm->raw_latitude & 0x0FFF) == 0 && mm->ME_type == 15)
+           {
+             /* Seen from at least:
+              *   400F3F (Eurocopter ECC155 B1) - Bristow Helicopters
+              *   4008F3 (BAE ATP) - Atlantic Airlines
+              *   400648 (BAE ATP) - Atlantic Airlines
+              * altitude == 0, longitude == 0, type == 15 and zeros in latitude LSB.
+              * Can alternate with valid reports having type == 14
+              */
+             Modes.stat.cpr_filtered++;
+           }
+           else
+           {
+             /* Otherwise, assume it's valid
+              */
+             mm->AC_flags |= (mm->msg[6] & 0x04) ? MODES_ACFLAGS_LLODD_VALID : MODES_ACFLAGS_LLEVEN_VALID;
+           }
+         }
+
+         if (AC12_field) /* Only attempt to decode if a valid (non zero) altitude is present */
+         {
+           if (ME_type == 20 || ME_type == 21 || ME_type == 22)
+           {
+             /* Position reported as HAE
+              */
+             mm->altitude_HAE = decode_AC12_field (AC12_field, &mm->unit);
+             if (mm->altitude_HAE != INVALID_ALTITUDE)
+                mm->AC_flags |= MODES_ACFLAGS_ALTITUDE_HAE_VALID;
+
+           }
+           else
+           {
+             mm->altitude = decode_AC12_field (AC12_field, &mm->unit);
+             if (mm->altitude != INVALID_ALTITUDE)
+                mm->AC_flags |= MODES_ACFLAGS_ALTITUDE_VALID;
+           }
+         }
+
+         if (ME_type == 0 || ME_type == 18 || ME_type == 22)
+              mm->nuc_p = 0;
+         else if (ME_type < 18)
+              mm->nuc_p = (18 - ME_type);
+         else mm->nuc_p = (29 - ME_type);
+#endif
+         break;
+
+    case 23:   /* Test message */
+#if 0
+         decode_ES_test_message (mm);        /** \todo */
+#else
+         if (ME_subtype == 7)                /* (see 1090-WP-15-20) */
+         {
+           ID13_field = (((msg[5] << 8) | msg[6]) & 0xFFF1) >> 3;
+           if (ID13_field)
+           {
+             mm->AC_flags |= MODES_ACFLAGS_SQUAWK_VALID;
+             mm->identity = decode_ID13_field (ID13_field);
+           }
+         }
+#endif
+         break;
+
+    case 24:   /* Reserved for Surface System Status */
+         break;
+
+    case 28:   /* Extended Squitter Aircraft Status */
+#if 0
+         decode_ES_aircraft_status (mm, check_imf);   /** \todo */
+#else
+         if (ME_subtype == 1)       /* Emergency status squawk field */
+         {
+           ID13_field = (((msg[5] << 8) | msg[6]) & 0x1FFF);
+           if (ID13_field)
+           {
+             mm->AC_flags |= MODES_ACFLAGS_SQUAWK_VALID;
+             mm->identity = decode_ID13_field (ID13_field);
+           }
+           if (check_imf && (msg[10] & 0x01))
+              mm->addr |= MODES_NON_ICAO_ADDRESS;
+         }
+#endif
+         break;
+
+    case 29:   /* Aircraft Trajectory Intent */
+#if 0
+         decode_ES_target_status (mm, check_imf);   /** \todo */
+#endif
+         break;
+
+    case 30:   /* Aircraft Operational Coordination */
+         break;
+
+    case 31:   /* Aircraft Operational Status */
+#if 0
+         decode_ES_operational_status (mm, check_imf);  /** \todo */
+#else
+         if (check_imf && (msg[10] & 0x01))
+            mm->addr |= MODES_NON_ICAO_ADDRESS;
+#endif
+         break;
+
+    default:
+        mm->reliable = false;
+        add_unrecognized_ME (ME_type, ME_subtype, false);
+        break;
+  }
 }
 
 /**
  * Capability table.
  */
-static const char *capability_str[8] = {
+static const char *capability_str [8] = {
     /* 0 */ "Level 1 (Surveillance Only)",
     /* 1 */ "Level 2 (DF0,4,5,11)",
     /* 2 */ "Level 3 (DF0,4,5,11,20,21)",
@@ -1406,12 +2014,12 @@ static const char *capability_str[8] = {
     /* 5 */ "Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is airborne)",
     /* 6 */ "Level 2+3+4 (DF0,4,5,11,20,21,24,code7)",
     /* 7 */ "Level 7 ???"
-};
+          };
 
 /**
  * Flight status table.
  */
-static const char *flight_status_str[8] = {
+static const char *flight_status_str [8] = {
     /* 0 */ "Normal, Airborne",
     /* 1 */ "Normal, On the ground",
     /* 2 */ "ALERT,  Airborne",
@@ -1420,7 +2028,7 @@ static const char *flight_status_str[8] = {
     /* 5 */ "Special Position Identification. Airborne or Ground",
     /* 6 */ "Value 6 is not assigned",
     /* 7 */ "Value 7 is not assigned"
-};
+          };
 
 /**
  * Emergency state table from: <br>
@@ -1428,7 +2036,7 @@ static const char *flight_status_str[8] = {
  *
  * and 1090-DO-260B_FRAC
  */
-static const char *emerg_state_str[8] = {
+static const char *emerg_state_str [8] = {
     /* 0 */ "No emergency",
     /* 1 */ "General emergency (Squawk 7700)",
     /* 2 */ "Lifeguard/Medical",
@@ -1437,7 +2045,7 @@ static const char *emerg_state_str[8] = {
     /* 5 */ "Unlawful interference (Squawk 7500)",
     /* 6 */ "Reserved",
     /* 7 */ "Reserved"
-};
+          };
 
 static const char *get_ME_description (const modeS_message *mm)
 {
@@ -1476,304 +2084,444 @@ static const char *get_ME_description (const modeS_message *mm)
   if (mm->ME_type == 29 && (mm->ME_subtype == 0 || mm->ME_subtype == 1))
      return ("Target State and Status Message");
 
-  if (mm->ME_type == 31 && (mm->ME_subtype == 0 || mm->ME_subtype == 1))
-     return ("Aircraft Operational Status Message");
+  if (mm->ME_type == 30)
+     return ("Aircraft Operational Coordination");
+
+  if (mm->ME_type == 31 && mm->ME_subtype == 0)
+     return ("Aircraft Operational Status (airborne)");
+
+  if (mm->ME_type == 31 && mm->ME_subtype == 1)
+     return ("Aircraft Operational Status (surface)");
 
   snprintf (buf, sizeof(buf), "Unknown: %d/%d", mm->ME_type, mm->ME_subtype);
   return (buf);
 }
 
-/*
- * From readasb's mode_s.c
- */
-static void decode_ES_surface_position (struct modeS_message *mm, bool check_imf)
-{
-#if 0
-  // Surface position and movement
-  uint8_t *me = mm->ME;
-
-  mm->airground = AG_GROUND; // definitely.
-  mm->cpr_valid = 1;
-  mm->cpr_type  = CPR_SURFACE;
-
-  // 6-12: Movement
-  unsigned movement = getbits (me, 6, 12);
-  if (movement > 0 && movement < 125)
-  {
-    mm->gs_valid    = 1;
-    mm->gs.selected = mm->gs.v0 = decode_movement_field_V0 (movement); // assumed v0 until told otherwise
-    mm->gs.v2       = decode_movement_field_V2 (movement);
-  }
-
-  // 13: Heading/track status
-  // 14-20: Heading/track
-  if (getbit(me, 13))
-  {
-    mm->heading_valid = 1;
-    mm->heading       = getbits (me, 14, 20) * 360.0 / 128.0;
-    mm->heading_type  = HEADING_TRACK_OR_HEADING;
-  }
-
-  // 21: IMF or T flag
-  if (check_imf && getbit (me, 21))
-     setIMF (mm);
-
-  // 22: F flag (odd/even)
-  mm->cpr_odd = getbit (me, 22);
-
-  // 23-39: CPR encoded latitude
-  mm->cpr_lat = getbits (me, 23, 39);
-
-  // 40-56: CPR encoded longitude
-  mm->cpr_lon = getbits (me, 40, 56);
-#else
-  (void) mm;
-  (void) check_imf;
-#endif
-}
-
 /**
- * Decode a raw Mode S message demodulated as a stream of bytes by `detect_modeS()`.
+ * Decode a raw Mode S message demodulated as a stream of bytes by
+ * `demod_2000()`, `demod_2400()`, `demod_8000()`, .CSV-infile or a remote
+ * RAW-IN network service via `decode_RAW_message()`.
  *
- * And split it into fields populating a `modeS_message` structure.
+ * Split it into fields populating a `modeS_message` structure.
+ *
+ * \retval 0   on success
+ * \retval < 0 on failure
  */
-static int decode_modeS_message (modeS_message *mm, const uint8_t *_msg)
+static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
 {
-  uint32_t    CRC;   /* Computed CRC, used to verify the message CRC. */
-  const char *AIS_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
-  uint8_t    *msg;
-  bool        check_imf = false;
+  uint8_t   *msg;
+  errorinfo *ei;
+  uint32_t   addr, addr1, addr2;
 
+#if 0
   memset (mm, '\0', sizeof(*mm));
+#else
+  /*
+   * Do not clear the whole `mm` structure.
+   * Preserve the time-stamps.
+   */
+  #define MEMSET_MM_OFS  (sizeof(mm->timestamp_msg) + sizeof(mm->sys_timestamp_msg))
+  memset ((char*)mm + MEMSET_MM_OFS, '\0', sizeof(*mm) - MEMSET_MM_OFS);
+#endif
 
   /* Work on our local copy
    */
   memcpy (mm->msg, _msg, sizeof(mm->msg));
   msg = mm->msg;
 
+  mm->AC_flags = 0;
+
   /* Get the message type ASAP as other operations depend on this
    */
   mm->msg_type = msg[0] >> 3;    /* Downlink Format */
   mm->msg_bits = modeS_message_len_by_type (mm->msg_type);
-  mm->CRC      = CRC_get (msg, mm->msg_bits);
-  CRC = CRC_check (msg, mm->msg_bits);
+  mm->CRC      = crc_checksum (msg, mm->msg_bits);
 
   /* Check CRC and fix single bit errors using the CRC when
-   * possible (DF 11 and 17).
+   * possible (DF11 and 17).
    */
-  mm->error_bit = -1;    /* No error */
-  mm->CRC_ok = (mm->CRC == CRC);
+  mm->error_bits = 0;
+  mm->addr       = 0;
 
-  if (!mm->CRC_ok && Modes.error_correct_1 && (mm->msg_type == 11 || mm->msg_type == 17))
+  /* Do checksum work and set fields that depend on the CRC
+   */
+  switch (mm->msg_type)
   {
-    mm->error_bit = fix_single_bit_errors (msg, mm->msg_bits);
-    if (mm->error_bit != -1)
+    case 0:  /* Short air-air surveillance */
+    case 4:  /* Surveillance, altitude reply */
+    case 5:  /* Surveillance, altitude reply */
+    case 16: /* Long air-air surveillance */
+         /* These message types use Address/Parity, i.e. our CRC syndrome is the sender's ICAO address.
+          * We can't tell if the CRC is correct or not as we don't know the correct address.
+          * Accept the message if it appears to be from a previously-seen aircraft
+          */
+         if (!icao_filter_test(mm->CRC))
+            return (-1);
+
+         mm->addr = mm->CRC;
+         mm->reliable = false;
+         break;
+
+    case 11: /* All-call reply */
+         /* This message type uses Parity/Interrogator, i.e. our CRC syndrome is CL + IC from
+          * the uplink message which we can't see. So we don't know if the CRC is correct or not.
+          *
+          * However! CL + IC only occupy the lower 7 bits of the CRC. So if we ignore those bits when testing
+          * the CRC we can still try to detect/correct errors.
+          */
+         mm->IID = mm->CRC & 0x7F;
+         if (mm->CRC & 0xFFFF80)
+         {
+           ei = crc_checksum_diagnose (mm->CRC & 0xFFFF80, mm->msg_bits);
+           if (!ei)
+              return (-2);   /* couldn't fix it */
+
+           /* See crc.c comments: we do not attempt to fix more than single-bit errors,
+            * as two-bit errors are ambiguous in DF11.
+            */
+           if (ei->errors > 1)
+              return (-2);   /* can't correct errors */
+
+           mm->error_bits = ei->errors;
+           crc_checksum_fix (msg, ei);
+
+           mm->reliable = (mm->IID == 0 && mm->error_bits == 0);
+
+           /* Check whether the corrected message looks sensible
+            * we are conservative here: only accept corrected messages that
+            * match an existing aircraft.
+            */
+           addr = AIRCRAFT_GET_ADDR (msg + 1);
+           if (!icao_filter_test(addr))
+              return (-1);
+         }
+         break;
+
+    case 17:   /* Extended squitter */
+    case 18:   /* Extended squitter/non-transponder */
+         mm->reliable = (mm->error_bits == 0);
+         if (mm->CRC == 0)
+            break;  /* all good */
+
+         ei = crc_checksum_diagnose (mm->CRC, mm->msg_bits);
+         if (!ei)
+            return (-2); /* couldn't fix it */
+
+         addr1 = AIRCRAFT_GET_ADDR (msg + 1);
+         mm->error_bits = ei->errors;
+         crc_checksum_fix (msg, ei);
+         addr2 = AIRCRAFT_GET_ADDR (msg + 1);
+
+         /* We are conservative here: only accept corrected messages that
+          * match an existing aircraft.
+          */
+         if (addr1 != addr2 && !icao_filter_test(addr2))
+            return (-1);
+         break;
+
+    case 20: /* Comm-B, altitude reply */
+    case 21: /* Comm-B, identity reply */
+         /* These message types either use Address/Parity (see DF0 etc)
+          * or Data Parity where the requested BDS is also XORed into the top byte.
+          * So not only do we not know whether the CRC is right, we also don't know if
+          * the ICAO is right! Ow.
+          */
+         if (icao_filter_test(mm->CRC)) /* Try an exact match */
+         {
+           mm->addr = mm->CRC;
+           mm->BDS  = 0;  /* unknown */
+           mm->reliable = false;
+           break;
+         }
+
+#if 0
+        /* This doesn't seem useful, as we mistake a lot of CRC errors for overlay control.
+         * Try a fuzzy match
+         */
+         mm->addr = icao_filter_test_fuzzy (mm->CRC);
+         if (mm->addr != 0)
+         {
+           /* We have an address that would match, assume it's correct.
+            * Derive the BDS value based on what we think the address is
+            */
+           mm->BDS = (mm->CRC ^ mm->addr) >> 16;
+           break;
+         }
+#endif
+         return (-1); /* no good */
+
+    case 24: /* Comm-D (ELM) */
+    case 25: /* Comm-D (ELM) */
+    case 26: /* Comm-D (ELM) */
+    case 27: /* Comm-D (ELM) */
+    case 28: /* Comm-D (ELM) */
+    case 29: /* Comm-D (ELM) */
+    case 30: /* Comm-D (ELM) */
+    case 31: /* Comm-D (ELM) */
+        /* These messages use Address/Parity,
+         * and also use some of the DF bits to carry data. Remap them all to a single
+         * DF for simplicity.
+         */
+        mm->msg_type = 24;
+        mm->source   = SOURCE_MODE_S;
+        mm->addr     = mm->CRC;
+        mm->reliable = false;
+        break;
+
+    default:
+         /* All other message types, we don't know how to handle their CRCs, give up
+          */
+         return (-2);
+  }
+
+  /* Now decode the bulk of the message
+   */
+  mm->AC_flags = 0;
+
+  /* AA (Address announced)
+   */
+  if (mm->msg_type == 11 || mm->msg_type == 17 || mm->msg_type == 18)
+     mm->addr = AIRCRAFT_GET_ADDR (msg+1);
+
+  /* AC (Altitude Code)
+   */
+  if (mm->msg_type == 0 || mm->msg_type == 4 || mm->msg_type == 16 || mm->msg_type == 20)
+  {
+    int AC13_field = ((msg[2] << 8) | msg[3]) & 0x1FFF;
+
+    if (AC13_field)  /* Only attempt to decode if a valid (non zero) altitude is present */
     {
-      mm->CRC    = CRC_check (msg, mm->msg_bits);
-      mm->CRC_ok = true;
-      Modes.stat.single_bit_fix++;
-    }
-    else if (Modes.error_correct_2 && mm->msg_type == 17 && (mm->error_bit = fix_two_bits_errors(msg, mm->msg_bits)) != -1)
-    {
-      mm->CRC    = CRC_check (msg, mm->msg_bits);
-      mm->CRC_ok = true;
-      Modes.stat.two_bits_fix++;
+      mm->altitude = decode_AC13_field (AC13_field, &mm->unit);
+      if (mm->altitude != INVALID_ALTITUDE)
+          mm->AC_flags |= MODES_ACFLAGS_ALTITUDE_VALID;
     }
   }
 
-  /* Note: most of the other computation happens **after** we fix the single bit errors.
-   * Otherwise we would need to recompute the fields again.
+  /* CA (Capability), responder capabilities:
    */
-  mm->ca = msg[0] & 7;        /* Responder capabilities. */
-
-  /* ICAO address
-   */
-  mm->AA [0] = msg [1];
-  mm->AA [1] = msg [2];
-  mm->AA [2] = msg [3];
-
-  /* DF17 type (assuming this is a DF17, otherwise not used)
-   */
-  mm->ME_type    = msg[4] >> 3;      /* Extended squitter message type. */
-  mm->ME_subtype = msg[4] & 7;       /* Extended squitter message subtype. */
-
-  /* Fields for DF4,5,20,21
-   */
-  mm->flight_status = msg[0] & 7;         /* Flight status for DF4,5,20,21 */
-  mm->DR_status = msg[1] >> 3 & 31;       /* Request extraction of downlink request. */
-  mm->UM_status = ((msg[1] & 7) << 3) |   /* Request extraction of downlink request. */
-                  (msg[2] >> 5);
-
-  /*
-   * In the squawk (identity) field bits are interleaved like this:
-   * (message bit 20 to bit 32):
-   *
-   * C1-A1-C2-A2-C4-A4-ZERO-B1-D1-B2-D2-B4-D4
-   *
-   * So every group of three bits A, B, C, D represent an integer
-   * from 0 to 7.
-   *
-   * The actual meaning is just 4 octal numbers, but we convert it
-   * into a base ten number that happens to represent the four octal numbers.
-   *
-   * For more info: http://en.wikipedia.org/wiki/Gillham_code
-   */
+  if (mm->msg_type == 11 || mm->msg_type == 17)
   {
-    int a, b, c, d;
-
-    a = ((msg[3] & 0x80) >> 5) |
-        ((msg[2] & 0x02) >> 0) |
-        ((msg[2] & 0x08) >> 3);
-    b = ((msg[3] & 0x02) << 1) |
-        ((msg[3] & 0x08) >> 2) |
-        ((msg[3] & 0x20) >> 5);
-    c = ((msg[2] & 0x01) << 2) |
-        ((msg[2] & 0x04) >> 1) |
-        ((msg[2] & 0x10) >> 4);
-    d = ((msg[3] & 0x01) << 2) |
-        ((msg[3] & 0x04) >> 1) |
-        ((msg[3] & 0x10) >> 4);
-    mm->identity = a*1000 + b*100 + c*10 + d;
+    mm->capa = msg[0] & 7;
+    if (mm->capa == 4)
+        mm->AC_flags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
+    else if (mm->capa == 5)
+        mm->AC_flags |= MODES_ACFLAGS_AOG_VALID;
   }
 
-  /* DF 11 & 17: try to populate our ICAO addresses whitelist.
-   * DFs with an AP field (XORed addr and CRC), try to decode it.
-   */
-  if (mm->msg_type != 11 && mm->msg_type != 17)
+  /* CC (Cross-link capability) not decoded */
+
+  /* CF (Control field) */
+  if (mm->msg_type == 18)
+     mm->cf = msg[0] & 7;
+
+  /* DR (Downlink Request) not decoded */
+
+  /* FS (Flight Status) */
+  if (mm->msg_type == 4 || mm->msg_type == 5 || mm->msg_type == 20 || mm->msg_type == 21)
   {
-    /* Check if we can check the checksum for the Downlink Formats where
-     * the checksum is XORed with the aircraft ICAO address. We try to
-     * brute force it using a list of recently seen aircraft addresses.
+    mm->AC_flags |= MODES_ACFLAGS_FS_VALID;
+    mm->flight_status = msg[0] & 7;
+    if (mm->flight_status <= 3)
+    {
+      mm->AC_flags |= MODES_ACFLAGS_AOG_VALID;
+      if (mm->flight_status & 1)
+         mm->AC_flags |= MODES_ACFLAGS_AOG;
+    }
+  }
+
+  /* ID (Identity) */
+  if (mm->msg_type == 5 || mm->msg_type == 21)
+  {
+    /* Gillham encoded Squawk */
+    int ID13_field = ((msg[2] << 8) | msg[3]) & 0x1FFF;
+    if (ID13_field)
+    {
+      mm->AC_flags |= MODES_ACFLAGS_SQUAWK_VALID;
+      mm->identity = decode_ID13_field (ID13_field);
+    }
+  }
+
+  /* KE (Control, ELM) not decoded */
+
+  /* MB (messsage, Comm-B) */
+  if (mm->msg_type == 20 || mm->msg_type == 21)
+     decode_comm_B (mm);
+
+  /* MD (message, Comm-D) */
+  if (mm->msg_type == 24)
+     memcpy (mm->MD, &msg[1], sizeof(mm->MD));
+
+  /* ME (message, extended squitter) */
+  if (mm->msg_type == 17 ||   /* Extended squitter */
+      mm->msg_type == 18)     /* Extended squitter/non-transponder: */
+     decode_extended_squitter (mm);
+
+  /* MV (message, ACAS) not decoded */
+  /* ND (number of D-segment) not decoded */
+  /* RI (Reply information) not decoded */
+  /* SL (Sensitivity level, ACAS) not decoded */
+  /* UM (Utility Message) not decoded */
+
+  /* VS (Vertical Status) */
+  if (mm->msg_type == 0 || mm->msg_type == 16)
+  {
+    mm->AC_flags |= MODES_ACFLAGS_AOG_VALID;
+    if (msg[0] & 0x04)
+       mm->AC_flags |= MODES_ACFLAGS_AOG;
+  }
+
+  if (!mm->error_bits && (mm->msg_type == 17 || mm->msg_type == 18 || (mm->msg_type == 11 && mm->IID == 0)))
+  {
+    /* No CRC errors seen, and either it was an DF17/18 extended squitter
+     * or a DF11 acquisition squitter with II = 0. We probably have the right address.
+     *
+     * We wait until here to do this as we may have needed to decode an ES to note
+     * the type of address in DF18 messages.
+     *
+     * NB this is the only place that adds addresses!
      */
-    if (brute_force_AP(msg, mm))
-    {
-      /* We recovered the message, mark the checksum as valid.
-       */
-      mm->CRC_ok = true;
-    }
-    else
-      mm->CRC_ok = false;
+    icao_filter_add (mm->addr);
+  }
+  return (0);  /* all done */
+}
+
+/**
+ * Common entry for all decoding to keep the CRC-statistics simpler.
+ */
+int decode_mode_S_message (modeS_message *mm, const uint8_t *msg)
+{
+  int rc = _decode_mode_S_message (mm, msg);
+
+  if (rc < 0)
+  {
+    mm->CRC_ok = false;
+    Modes.stat.CRC_bad++;
+    if (rc == -1)
+       Modes.stat.demod_rejected_unknown++;
   }
   else
   {
-    /* If this is DF 11 or DF 17 and the checksum was ok, we can add this address
-     * to the list of recently seen addresses.
-     */
-    if (mm->CRC_ok && mm->error_bit == -1)
-       ICAO_cache_add_address (aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]));
+    mm->CRC_ok = true;
+    if (mm->error_bits > 0)
+    {
+      Modes.stat.CRC_fixed++;
+      if (mm->error_bits == 1)
+         Modes.stat.CRC_single_bit_fix++;
+      else if (mm->error_bits == 2)
+         Modes.stat.CRC_two_bits_fix++;
+    }
+    else
+      Modes.stat.CRC_good++;   /* good CRC, not fixed */
   }
+  return (rc);
+}
 
-  /* Decode 13 bit altitude for DF0, DF4, DF16, DF20
-   */
-  if (mm->msg_type == 0 || mm->msg_type == 4 || mm->msg_type == 16 || mm->msg_type == 20)
-     mm->altitude = decode_AC13_field (msg, &mm->unit);
+void decode_mode_A_message (modeS_message *mm, int ModeA)
+{
+ /* Valid Mode S DF's are DF-00 to DF-31.
+  * so use 32 to indicate Mode A/C
+  */
+  mm->msg_type = 32;
+  mm->addrtype = ADDR_MODE_A;
 
-  /** Decode extended squitter specific stuff.
+  mm->msg_bits = 16;   /* Fudge up a Mode S style data stream */
+  mm->msg [0] = (ModeA >> 8);
+  mm->msg [1] = (ModeA);
+
+  /* Fudge an address based on Mode A (remove the Ident bit)
    */
-  if (mm->msg_type == 17)
+  mm->addr = (ModeA & 0x0000FF7F) | MODES_NON_ICAO_ADDRESS;
+
+  /* Set the Identity field to ModeA
+   */
+  mm->identity = ModeA & 0x7777;
+  mm->AC_flags |= MODES_ACFLAGS_SQUAWK_VALID;
+
+  /* Flag ident in flight status
+   */
+  mm->flight_status = ModeA & 0x0080;
+
+#if 0
+  /* Decode an altitude if this looks like a possible mode C
+   */
+  if (!mm->spi)
   {
-    /* Decode the extended squitter message.
-     */
-    if (mm->ME_type >= 1 && mm->ME_type <= 4)
+    int mode_C = mode_A_to_mode_C (ModeA);
+    if (mode_C != INVALID_ALTITUDE)
     {
-      /* Aircraft Identification and Category
-       */
-      mm->aircraft_type = mm->ME_type - 1;
-      mm->flight [0] = AIS_charset [msg[5] >> 2];
-      mm->flight [1] = AIS_charset [((msg[5] & 3) << 4) | (msg[6] >> 4)];
-      mm->flight [2] = AIS_charset [((msg[6] & 15) <<2 ) | (msg[7] >> 6)];
-      mm->flight [3] = AIS_charset [msg[7] & 63];
-      mm->flight [4] = AIS_charset [msg[8] >> 2];
-      mm->flight [5] = AIS_charset [((msg[8] & 3) << 4) | (msg[9] >> 4)];
-      mm->flight [6] = AIS_charset [((msg[9] & 15) << 2) | (msg[10] >> 6)];
-      mm->flight [7] = AIS_charset [msg[10] & 63];
-      mm->flight [8] = '\0';
-
-      char *p = mm->flight + 7;
-      while (*p == ' ')    /* Remove trailing spaces */
-        *p-- = '\0';
-
-    }
-    else if (mm->ME_type >= 9 && mm->ME_type <= 18)
-    {
-      /* Airborne position Message
-       */
-      mm->odd_flag = msg[6] & (1 << 2);
-      mm->UTC_flag = msg[6] & (1 << 3);
-      mm->altitude = decode_AC12_field (msg, &mm->unit);
-      mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1); /* Bits 23 - 39 */
-      mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | msg[10];       /* Bits 40 - 56 */
-    }
-    else if (mm->ME_type == 19 && mm->ME_subtype >= 1 && mm->ME_subtype <= 4)
-    {
-      /* Airborne Velocity Message
-       */
-      if (mm->ME_subtype == 1 || mm->ME_subtype == 2)
-      {
-        mm->EW_dir           = (msg[5] & 4) >> 2;
-        mm->EW_velocity      = ((msg[5] & 3) << 8) | msg[6];
-        mm->NS_dir           = (msg[7] & 0x80) >> 7;
-        mm->NS_velocity      = ((msg[7] & 0x7F) << 3) | ((msg[8] & 0xE0) >> 5);
-        mm->vert_rate_source = (msg[8] & 0x10) >> 4;
-        mm->vert_rate_sign   = (msg[8] & 0x08) >> 3;
-        mm->vert_rate        = ((msg[8] & 7) << 6) | ((msg[9] & 0xFC) >> 2);
-
-        /* Compute velocity and angle from the two speed components.
-         * hypot(x,y) == sqrt(x*x+y*y)
-         */
-        mm->velocity = (int) hypot ((double)mm->NS_velocity, (double)mm->EW_velocity);
-
-        if (mm->velocity)
-        {
-          int    ewV = mm->EW_velocity;
-          int    nsV = mm->NS_velocity;
-          double heading;
-
-          if (mm->EW_dir)
-             ewV *= -1;
-          if (mm->NS_dir)
-             nsV *= -1;
-          heading = atan2 (ewV, nsV);
-
-          /* Convert to degrees.
-           */
-          mm->heading = (int) (heading * 360 / TWO_PI);
-          mm->heading_is_valid = true;
-
-          /* We don't want negative values but a [0 .. 360> scale.
-           */
-          if (mm->heading < 0)
-             mm->heading += 360;
-        }
-        else
-          mm->heading = 0;
-      }
-      else if (mm->ME_subtype == 3 || mm->ME_subtype == 4)
-      {
-        mm->heading_is_valid = msg[5] & (1 << 2);
-        mm->heading = (int) (360.0/128) * (((msg[5] & 3) << 5) | (msg[6] >> 3));
-      }
-    }
-    else if (mm->ME_type == 19 && mm->ME_subtype >= 5 && mm->ME_subtype <= 8)
-    {
-      decode_ES_surface_position (mm, check_imf);
+      mm->altitude_baro = modeC * 100;
+      mm->altitude_baro_unit = UNIT_FEET;
+      mm->altitude_baro_valid = 1;
     }
   }
-  mm->phase_corrected = false;  /* Set to 'true' by the caller if needed. */
-  return (mm->CRC_ok);
+#endif
+
+  /* Not much else we can tell from a Mode A/C reply.
+   * Just fudge up a few bits to keep other code happy
+   */
+  mm->error_bits = 0;
+}
+
+/**
+ * Input format is: 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
+ */
+int mode_A_to_mode_C (u_int ModeA)
+{
+  u_int five_hundreds = 0;
+  u_int one_hundreds  = 0;
+
+  if ((ModeA & 0xFFFF8889) ||      /* check zero bits are zero, D1 set is illegal */
+      (ModeA & 0x000000F0) == 0)   /* C1,,C4 cannot be Zero */
+    return (-9999);
+
+  if (ModeA & 0x0010) one_hundreds ^= 0x007; /* C1 */
+  if (ModeA & 0x0020) one_hundreds ^= 0x003; /* C2 */
+  if (ModeA & 0x0040) one_hundreds ^= 0x001; /* C4 */
+
+  /* Remove 7s from one_hundreds (Make 7->5, snd 5->7)
+   */
+  if ((one_hundreds & 5) == 5)
+     one_hundreds ^= 2;
+
+  /* Check for invalid codes, only 1 to 5 are valid
+   */
+  if (one_hundreds > 5)
+     return (-9999);
+
+/*if (ModeA & 0x0001) five_hundreds ^= 0x1FF; */  /* D1 - never used for altitude */
+  if (ModeA & 0x0002) five_hundreds ^= 0x0FF;     /* D2 */
+  if (ModeA & 0x0004) five_hundreds ^= 0x07F;     /* D4 */
+
+  if (ModeA & 0x1000) five_hundreds ^= 0x03F;     /* A1 */
+  if (ModeA & 0x2000) five_hundreds ^= 0x01F;     /* A2 */
+  if (ModeA & 0x4000) five_hundreds ^= 0x00F;     /* A4 */
+
+  if (ModeA & 0x0100) five_hundreds ^= 0x007;     /* B1 */
+  if (ModeA & 0x0200) five_hundreds ^= 0x003;     /* B2 */
+  if (ModeA & 0x0400) five_hundreds ^= 0x001;     /* B4 */
+
+  /* Correct order of one_hundreds
+   */
+  if (five_hundreds & 1)
+     one_hundreds = 6 - one_hundreds;
+
+  return ((five_hundreds * 5) + one_hundreds - 13);
 }
 
 /**
  * Accumulate statistics of unrecognized ME types and sub-types.
  */
-static void add_unrecognized_ME (int type, int subtype)
+static void add_unrecognized_ME (int type, int subtype, bool test)
 {
   unrecognized_ME *me;
 
-  if (type >= 0 && type < MAX_ME_TYPE && subtype >= 0 && subtype < MAX_ME_SUBTYPE)
+  if (type >= 0 && type < DIM(Modes.stat.unrecognized_ME) &&
+      subtype >= 0 && subtype < DIM(Modes.stat.unrecognized_ME[0].sub_type))
   {
     me = &Modes.stat.unrecognized_ME [type];
     me->sub_type [subtype]++;
+    if (test)
+       printf ("(%2d, %2d) -> sub_type [%d]=%llu\n", type, subtype, subtype, me->sub_type[subtype]);
   }
 }
 
@@ -1796,9 +2544,9 @@ static uint64_t sum_unrecognized_ME (int type)
  */
 static void print_unrecognized_ME (void)
 {
-  int       t, num_totals = 0;
-  uint64_t  totals = 0;
-  uint64_t  totals_ME [MAX_ME_TYPE];
+  int      t;
+  uint64_t totals = 0;
+  uint64_t totals_ME [MAX_ME_TYPE];
 
   for (t = 0; t < MAX_ME_TYPE; t++)
   {
@@ -1806,21 +2554,22 @@ static void print_unrecognized_ME (void)
     totals += totals_ME [t];
   }
 
-  LOG_STDOUT (" %8llu unrecognized ME types:", totals);
+  LOG_STDOUT (" %8llu unrecognized ME types:\n", totals);
   if (totals == 0ULL)
   {
-    LOG_STDOUT ("! \n");
+    LOG_STDOUT ("! ");
     return;
   }
 
   for (t = 0; t < MAX_ME_TYPE; t++)
   {
-    char   sub_types [200];
-    char  *p = sub_types;
-    size_t j, left = sizeof(sub_types);
-    int    n;
+    char     sub_types [200];
+    char    *p = sub_types;
+    char    *end = p + sizeof(sub_types);
+    uint64_t sum = totals_ME [t];
+    size_t   j;
 
-    if (totals_ME[t] == 0ULL)
+    if (sum == 0ULL)
        continue;
 
     *p = '\0';
@@ -1829,49 +2578,193 @@ static void print_unrecognized_ME (void)
       const unrecognized_ME *me = &Modes.stat.unrecognized_ME [t];
 
       if (me->sub_type[j] > 0ULL)
-      {
-        n = snprintf (p, left, "%zd,", j);
-        left -= n;
-        p    += n;
-      }
+         p += snprintf (p, end - p, "%zd,", j);
     }
 
     if (p > sub_types) /* remove the comma */
          p[-1] = '\0';
     else *p = '\0';
 
-    /* indent next line to print like:
-     *   45 unrecognized ME types: 29: 20 (2)
-     *                             31: 25 (3)
+    /* print like:
+     *   45 unrecognized ME types:
+     *      29: 20 (1,2)
+     *      31: 25 (2,3)
      */
-    if (num_totals++ >= 1)
-       LOG_STDOUT ("! \n                                ");
-
     if (sub_types[0])
-         LOG_STDOUT ("! %3llu: %2d (%s)", totals, t, sub_types);
-    else LOG_STDOUT ("! %3llu: %2d", totals, t);
+         LOG_STDOUT ("!          %2d: %llu (%s)\n", t, sum, sub_types);
+    else LOG_STDOUT ("!          %2d: %llu\n", t, sum);
   }
   LOG_STDOUT ("! \n");
+}
+
+/*
+ * Test the above functions
+ */
+static void test_print_unrecognized_ME (void)
+{
+  int i, type, subtype;
+
+  for (i = 0; i < 50; i++)
+  {
+    type    = random_range2 (0, MAX_ME_TYPE - 1);
+    subtype = random_range2 (0, MAX_ME_SUBTYPE - 1);
+    add_unrecognized_ME (type, subtype, true);
+  }
+  add_unrecognized_ME (1, 2, true);
+  add_unrecognized_ME (1, 2, true);
+  add_unrecognized_ME (1, 2, true);
+
+  puts ("");
+  print_unrecognized_ME();
+  modeS_exit (0);
+}
+
+static bool display_brief_message (modeS_message *mm)
+{
+  const char     *dist = "-";
+  char            buf [200];
+  const aircraft *a = aircraft_find (mm->addr);
+
+  if (!a)
+     return (false);
+
+  if (a->distance_ok &&
+      (Modes.min_dist == 0 || a->distance < Modes.min_dist))
+  {
+    snprintf (buf, sizeof(buf), "%7.3lf km", a->distance / 1000.0);
+    dist = buf;
+  }
+  printf ("%06X dist: %s\n", a->addr, dist);
+  return (true);
+}
+
+static const char *ac_type_str[] = {
+                  "Aircraft Type D",
+                  "Aircraft Type C",
+                  "Aircraft Type B",
+                  "Aircraft Type A"
+                 };
+
+static bool display_extended_squitter (const modeS_message *mm)
+{
+  /* Decode the extended squitter message. */
+  if (mm->ME_type >= 1 && mm->ME_type <= 4)
+  {
+    /* Aircraft identification
+     */
+    LOG_STDOUT ("    Aircraft Type  : %s\n", ac_type_str[mm->aircraft_type]);
+    LOG_STDOUT ("    Identification : %s\n", mm->flight);
+    return (true);
+  }
+
+  if (mm->ME_type >= 9 && mm->ME_type <= 18)
+  {
+    LOG_STDOUT ("    F flag   : %s\n", mm->odd_flag ? "odd" : "even");
+    LOG_STDOUT ("    T flag   : %s\n", mm->UTC_flag ? "UTC" : "non-UTC");
+    LOG_STDOUT ("    Altitude : %d feet\n", mm->altitude);
+    LOG_STDOUT ("    Latitude : %d (not decoded)\n", mm->raw_latitude);
+    LOG_STDOUT ("    Longitude: %d (not decoded)\n", mm->raw_longitude);
+    return (true);
+  }
+
+  if (mm->ME_type == 19 && mm->ME_subtype >= 1 && mm->ME_subtype <= 4)
+  {
+    if (mm->ME_subtype == 1 || mm->ME_subtype == 2)
+    {
+      /* Velocity */
+      LOG_STDOUT ("    EW direction      : %d\n", mm->EW_dir);
+      LOG_STDOUT ("    EW velocity       : %d\n", mm->EW_velocity);
+      LOG_STDOUT ("    NS direction      : %d\n", mm->NS_dir);
+      LOG_STDOUT ("    NS velocity       : %d\n", mm->NS_velocity);
+      LOG_STDOUT ("    Vertical rate src : %d\n", mm->vert_rate_source);
+      LOG_STDOUT ("    Vertical rate sign: %d\n", mm->vert_rate_sign);
+      LOG_STDOUT ("    Vertical rate     : %d\n", mm->vert_rate);
+    }
+    else if (mm->ME_subtype == 3 || mm->ME_subtype == 4)
+    {
+      LOG_STDOUT ("    Heading status: %d\n", (mm->AC_flags & MODES_ACFLAGS_HEADING_VALID) ? 1 : 0);
+      LOG_STDOUT ("    Heading: %d\n", (int)mm->heading);
+    }
+    return (true);
+  }
+
+  if (mm->ME_type == 23)  /* Test Message */
+  {
+    if (mm->ME_subtype == 7)
+         LOG_STDOUT ("    Squawk: %04x\n", mm->identity);
+    else LOG_STDOUT ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
+    return (true);
+  }
+
+  if (mm->ME_type == 28)  /* Extended Squitter Aircraft Status */
+  {
+    if (mm->ME_subtype == 1)
+    {
+      LOG_STDOUT ("    Emergency State: %s\n", emerg_state_str[(mm->msg[5] & 0xE0) >> 5]);
+      LOG_STDOUT ("    Squawk: %04x\n", mm->identity);
+    }
+    else
+      LOG_STDOUT ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
+    return (true);
+  }
+
+#if 1
+  if (mm->ME_type == 29)
+  {
+    /**\todo
+     * Target State + Status Message
+     *
+     * \ref
+     *   the `if tc == 29:` part in `pyModeS/decoder/__init__.py`
+     */
+    add_unrecognized_ME (29, mm->ME_subtype, false);
+    return (false);
+  }
+
+  if (mm->ME_type == 31)  /* Aircraft operation status */
+  {
+    /**\todo Ref: chapter 8 in `The-1090MHz-riddle.pdf`
+     */
+    add_unrecognized_ME (31, mm->ME_subtype, false);
+    return (false);
+  }
+#endif
+
+  LOG_STDOUT ("    Unrecognized ME type: %d, subtype: %d\n", mm->ME_type, mm->ME_subtype);
+  add_unrecognized_ME (mm->ME_type, mm->ME_subtype, false);
+  return (false);
+}
+
+static void display_addr (const modeS_message *mm, int extra_space)
+{
+  if (mm->addr & MODES_NON_ICAO_ADDRESS)
+       LOG_STDOUT ("  Other Address%*s: %06X (%s)\n", extra_space, "", mm->addr & MODES_ICAO_ADDRESS_MASK, aircraft_get_details(mm));
+  else LOG_STDOUT ("  ICAO Address%*s: %06X (%s)\n", extra_space, "", mm->addr, aircraft_get_details(mm));
 }
 
 /**
  * This function gets a decoded Mode S Message and prints it on the screen
  * in a human readable format.
  */
-static void display_modeS_message (const modeS_message *mm)
+static bool modeS_message_display (modeS_message *mm)
 {
   char   buf [200];
   char  *p = buf;
   size_t left = sizeof(buf);
   int    i;
 
+  /* Did we specify a filter?
+   */
+  if (!aircraft_match(mm->addr))
+  {
+    TRACE ("aircraft_match() did not match %06X\n", mm->addr);
+    return (false);
+  }
+
   /* Handle only addresses mode first.
    */
   if (Modes.only_addr)
-  {
-    puts (aircraft_get_details(&mm->AA[0]));
-    return;
-  }
+     return display_brief_message (mm);
 
   /* Show the raw message.
    */
@@ -1889,30 +2782,35 @@ static void display_modeS_message (const modeS_message *mm)
   LOG_STDOUT ("%s", buf);
 
   if (Modes.raw)
-     return;         /* Enough for --raw mode */
+     return (true);       /* Enough for --raw mode */
 
   LOG_STDOUT ("CRC: %06X (%s)\n", (int)mm->CRC, mm->CRC_ok ? "ok" : "wrong");
-  if (mm->error_bit != -1)
-     LOG_STDOUT ("Single bit error fixed, bit %d\n", mm->error_bit);
+  if (mm->error_bits > 0)
+     LOG_STDOUT ("No. of bit errors fixed: %d\n", mm->error_bits);
 
   if (mm->sig_level > 0)
      LOG_STDOUT ("RSSI: %.1lf dBFS\n", 10 * log10(mm->sig_level));
 
+  const char *ground = "";
+
+  if ((mm->AC_flags & MODES_ACFLAGS_AOG_VALID) && (mm->AC_flags & MODES_ACFLAGS_AOG))
+     ground = ", Ground";
+
   if (mm->msg_type == 0)
   {
-    /* DF 0 */
+    /* DF0 */
     LOG_STDOUT ("DF 0: Short Air-Air Surveillance.\n");
-    LOG_STDOUT ("  Altitude       : %d %s\n", mm->altitude, UNIT_NAME(mm->unit));
-    LOG_STDOUT ("  ICAO Address   : %s\n", aircraft_get_details(&mm->AA[0]));
+    LOG_STDOUT ("  Altitude    : %d %s%s\n", mm->altitude, UNIT_NAME(mm->unit), ground);
+    display_addr (mm, 0);
   }
   else if (mm->msg_type == 4 || mm->msg_type == 20)
   {
     LOG_STDOUT ("DF %d: %s, Altitude Reply.\n", mm->msg_type, mm->msg_type == 4 ? "Surveillance" : "Comm-B");
-    LOG_STDOUT ("  Flight Status  : %s\n", flight_status_str [mm->flight_status]);
-    LOG_STDOUT ("  DR             : %d\n", mm->DR_status);
-    LOG_STDOUT ("  UM             : %d\n", mm->UM_status);
-    LOG_STDOUT ("  Altitude       : %d %s\n", mm->altitude, UNIT_NAME(mm->unit));
-    LOG_STDOUT ("  ICAO Address   : %s\n", aircraft_get_details(&mm->AA[0]));
+    LOG_STDOUT ("  Flight Status: %s\n", flight_status_str [mm->flight_status]);
+    LOG_STDOUT ("  DR           : %d\n", mm->DR_status);
+    LOG_STDOUT ("  UM           : %d\n", mm->UM_status);
+    LOG_STDOUT ("  Altitude     : %d %s\n", mm->altitude, UNIT_NAME(mm->unit));
+    display_addr (mm, 1);
 
     if (mm->msg_type == 20)
     {
@@ -1922,11 +2820,11 @@ static void display_modeS_message (const modeS_message *mm)
   else if (mm->msg_type == 5 || mm->msg_type == 21)
   {
     LOG_STDOUT ("DF %d: %s, Identity Reply.\n", mm->msg_type, mm->msg_type == 5 ? "Surveillance" : "Comm-B");
-    LOG_STDOUT ("  Flight Status  : %s\n", flight_status_str [mm->flight_status]);
-    LOG_STDOUT ("  DR             : %d\n", mm->DR_status);
-    LOG_STDOUT ("  UM             : %d\n", mm->UM_status);
-    LOG_STDOUT ("  Squawk         : %d\n", mm->identity);
-    LOG_STDOUT ("  ICAO Address   : %s\n", aircraft_get_details(&mm->AA[0]));
+    LOG_STDOUT ("  Flight Status: %s\n", flight_status_str [mm->flight_status]);
+    LOG_STDOUT ("  DR           : %d\n", mm->DR_status);
+    LOG_STDOUT ("  UM           : %d\n", mm->UM_status);
+    LOG_STDOUT ("  Squawk       : %d\n", mm->identity);
+    display_addr (mm, 1);
 
     if (mm->msg_type == 21)
     {
@@ -1935,544 +2833,177 @@ static void display_modeS_message (const modeS_message *mm)
   }
   else if (mm->msg_type == 11)
   {
-    /* DF 11 */
+    /* DF11 */
     LOG_STDOUT ("DF 11: All Call Reply.\n");
-    LOG_STDOUT ("  Capability  : %s\n", capability_str[mm->ca]);
-    LOG_STDOUT ("  ICAO Address: %s\n", aircraft_get_details(&mm->AA[0]));
+    LOG_STDOUT ("  Capability  : %d (%s)\n", mm->capa, capability_str[mm->capa]);
+    display_addr (mm, 0);
   }
   else if (mm->msg_type == 17)
   {
-    /* DF 17 */
+    /* DF17 */
     LOG_STDOUT ("DF 17: ADS-B message.\n");
-    LOG_STDOUT ("  Capability     : %d (%s)\n", mm->ca, capability_str[mm->ca]);
-    LOG_STDOUT ("  ICAO Address   : %s\n", aircraft_get_details(&mm->AA[0]));
+    LOG_STDOUT ("  Capability  : %d (%s)\n", mm->capa, capability_str[mm->capa]);
+    display_addr (mm, 0);
     LOG_STDOUT ("  Extended Squitter Type: %d\n", mm->ME_type);
     LOG_STDOUT ("  Extended Squitter Sub : %d\n", mm->ME_subtype);
     LOG_STDOUT ("  Extended Squitter Name: %s\n", get_ME_description(mm));
 
-    /* Decode the extended squitter message. */
-    if (mm->ME_type >= 1 && mm->ME_type <= 4)
-    {
-      /* Aircraft identification. */
-      const char *ac_type_str[4] = {
-                 "Aircraft Type D",
-                 "Aircraft Type C",
-                 "Aircraft Type B",
-                 "Aircraft Type A"
-             };
-      LOG_STDOUT ("    Aircraft Type  : %s\n", ac_type_str[mm->aircraft_type]);
-      LOG_STDOUT ("    Identification : %s\n", mm->flight);
-    }
-    else if (mm->ME_type >= 9 && mm->ME_type <= 18)
-    {
-      LOG_STDOUT ("    F flag   : %s\n", mm->odd_flag ? "odd" : "even");
-      LOG_STDOUT ("    T flag   : %s\n", mm->UTC_flag ? "UTC" : "non-UTC");
-      LOG_STDOUT ("    Altitude : %d feet\n", mm->altitude);
-      LOG_STDOUT ("    Latitude : %d (not decoded)\n", mm->raw_latitude);
-      LOG_STDOUT ("    Longitude: %d (not decoded)\n", mm->raw_longitude);
-    }
-    else if (mm->ME_type == 19 && mm->ME_subtype >= 1 && mm->ME_subtype <= 4)
-    {
-      if (mm->ME_subtype == 1 || mm->ME_subtype == 2)
-      {
-        /* Velocity */
-        LOG_STDOUT ("    EW direction      : %d\n", mm->EW_dir);
-        LOG_STDOUT ("    EW velocity       : %d\n", mm->EW_velocity);
-        LOG_STDOUT ("    NS direction      : %d\n", mm->NS_dir);
-        LOG_STDOUT ("    NS velocity       : %d\n", mm->NS_velocity);
-        LOG_STDOUT ("    Vertical rate src : %d\n", mm->vert_rate_source);
-        LOG_STDOUT ("    Vertical rate sign: %d\n", mm->vert_rate_sign);
-        LOG_STDOUT ("    Vertical rate     : %d\n", mm->vert_rate);
-      }
-      else if (mm->ME_subtype == 3 || mm->ME_subtype == 4)
-      {
-        LOG_STDOUT ("    Heading status: %d\n", mm->heading_is_valid);
-        LOG_STDOUT ("    Heading: %d\n", mm->heading);
-      }
-    }
-    else if (mm->ME_type == 23)  /* Test Message */
-    {
-      if (mm->ME_subtype == 7)
-           LOG_STDOUT ("    Squawk: %04x\n", mm->identity);
-      else LOG_STDOUT ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
-    }
-    else if (mm->ME_type == 28)  /* Extended Squitter Aircraft Status */
-    {
-      if (mm->ME_subtype == 1)
-      {
-        LOG_STDOUT ("    Emergency State: %s\n", emerg_state_str[(mm->msg[5] & 0xE0) >> 5]);
-        LOG_STDOUT ("    Squawk: %04x\n", mm->identity);
-      }
-      else
-        LOG_STDOUT ("    Unrecognized ME subtype: %d\n", mm->ME_subtype);
-    }
-#if 1
-    else if (mm->ME_type == 29)
-    {
-      /**\todo
-       * Target State + Status Message
-       */
-      add_unrecognized_ME (29, mm->ME_subtype);
-    }
-    else if (mm->ME_type == 31)  /* Aircraft operation status */
-    {
-      /**\todo Ref: chapter 8 in `The-1090MHz-riddle.pdf`
-       */
-      add_unrecognized_ME (31, mm->ME_subtype);
-    }
-#endif
-    else
-    {
-      LOG_STDOUT ("    Unrecognized ME type: %d, subtype: %d\n", mm->ME_type, mm->ME_subtype);
-      add_unrecognized_ME (mm->ME_type, mm->ME_subtype);
-    }
+    display_extended_squitter (mm);
   }
   else
   {
-    LOG_STDOUT ("DF %d with good CRC received (decoding still not implemented).\n", mm->msg_type);
+    LOG_STDOUT ("DF %d with good CRC received (decoding not implemented).\n", mm->msg_type);
   }
+  return (true);
 }
 
 /**
- * Turn I/Q samples pointed by `Modes.data` into the magnitude vector
- * pointed by `Modes.magnitude`.
+ * Based on errorinfo` from crc.c, correct a decoded native-endian
+ * Address Announced (AA) field (from bits 8-31).
+ * if it is affected by the given error syndrome.
+ * Updates *addr and returns >0 if changed, 0 if it was unaffected.
  */
-static uint16_t *compute_magnitude_vector (const uint8_t *data)
+static int correct_aa_field (uint32_t *addr, const errorinfo *ei)
 {
-  uint16_t *m = Modes.magnitude;
-  uint32_t  i;
+  int i, addr_errors = 0;
 
-  /* Compute the magnitude vector. It's just `sqrt(I^2 + Q^2)`, but
-   * we rescale to the 0-255 range to exploit the full resolution.
-   */
-  for (i = 0; i < Modes.data_len; i += 2)
+  if (!ei)
+     return (0);
+
+  for (i = 0; i < ei->errors; i++)
   {
-    int I = data [i] - 127;
-    int Q = data [i+1] - 127;
-
-    if (I < 0)
-        I = -I;
-    if (Q < 0)
-        Q = -Q;
-    m [i / 2] = Modes.magnitude_lut [129*I + Q];
-  }
-  return (m);
-}
-
-/**
- * Return -1 if the message is out of phase left-side
- * Return  1 if the message is out of phase right-size
- * Return  0 if the message is not particularly out of phase.
- *
- * Note: this function will access m[-1], so the caller should make sure to
- * call it only if we are not at the start of the current buffer.
- */
-static int detect_out_of_phase (const uint16_t *m)
-{
-  if (m[3] > m[2]/3)
-     return (1);
-  if (m[10] > m[9]/3)
-     return (1);
-  if (m[6] > m[7]/3)
-     return (-1);
-  if (m[-1] > m[1]/3)
-     return (-1);
-  return (0);
-}
-
-/**
- * This function does not really correct the phase of the message, it just
- * applies a transformation to the first sample representing a given bit:
- *
- * If the previous bit was one, we amplify it a bit.
- * If the previous bit was zero, we decrease it a bit.
- *
- * This simple transformation makes the message a bit more likely to be
- * correctly decoded for out of phase messages:
- *
- * When messages are out of phase there is more uncertainty in
- * sequences of the same bit multiple times, since `11111` will be
- * transmitted as continuously altering magnitude (high, low, high, low...)
- *
- * However because the message is out of phase some part of the high
- * is mixed in the low part, so that it is hard to distinguish if it is
- * a zero or a one.
- *
- * However when the message is out of phase passing from `0` to `1` or from
- * `1` to `0` happens in a very recognizable way, for instance in the `0 -> 1`
- * transition, magnitude goes low, high, high, low, and one of of the
- * two middle samples the high will be *very* high as part of the previous
- * or next high signal will be mixed there.
- *
- * Applying our simple transformation we make more likely if the current
- * bit is a zero, to detect another zero. Symmetrically if it is a one
- * it will be more likely to detect a one because of the transformation.
- * In this way similar levels will be interpreted more likely in the
- * correct way.
- */
-static void apply_phase_correction (uint16_t *m)
-{
-  int j;
-
-  m += 16; /* Skip preamble. */
-  for (j = 0; j < 2*(MODES_LONG_MSG_BITS-1); j += 2)
-  {
-    if (m[j] > m[j+1])
+    if (ei->bit[i] >= 8 && ei->bit[i] <= 31)
     {
-      /* One */
-      m[j+2] = (m[j+2] * 5) / 4;
-    }
-    else
-    {
-      /* Zero */
-      m[j+2] = (m[j+2] * 4) / 5;
+      *addr ^= 1 << (31 - ei->bit[i]);
+      ++addr_errors;
     }
   }
+  return (addr_errors);
 }
 
-#if defined(USE_READSB_DEMOD)
 /**
- * Use a rewrite of the 'demodulate2400()' function from
- * https://github.com/wiedehopf/readsb.git
+ * Score how plausible this ModeS message looks.
+ * The more positive, the more reliable the message is.
+ *
+ * 1000: DF 0/4/5/16/24 with a CRC-derived address matching a known aircraft
+ *
+ * 1800: DF17/18 with good CRC and an address matching a known aircraft
+ * 1400: DF17/18 with good CRC and an address not matching a known aircraft
+ *  900: DF17/18 with 1-bit error and an address matching a known aircraft
+ *  700: DF17/18 with 1-bit error and an address not matching a known aircraft
+ *  450: DF17/18 with 2-bit error and an address matching a known aircraft
+ *  350: DF17/18 with 2-bit error and an address not matching a known aircraft
+ *
+ * 1600: DF11 with IID==0, good CRC and an address matching a known aircraft
+ *  800: DF11 with IID==0, 1-bit error and an address matching a known aircraft
+ *  750: DF11 with IID==0, good CRC and an address not matching a known aircraft
+ *  375: DF11 with IID==0, 1-bit error and an address not matching a known aircraft
+ *
+ * 1000: DF11 with IID!=0, good CRC and an address matching a known aircraft
+ *  500: DF11 with IID!=0, 1-bit error and an address matching a known aircraft
+ *
+ * 1000: DF20/21 with a CRC-derived address matching a known aircraft
+ *  500: DF20/21 with a CRC-derived address matching a known aircraft (bottom 16 bits only - overlay control in use)
+ *
+ *   -1: message might be valid, but we couldn't validate the CRC against a known ICAO
+ *   -2: bad message or unrepairable CRC error
+ *
+ * Called from a `demod*.c` function.
  */
-static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
-{
-  struct mag_buf mag;
-
-  memset (&mag, '\0', sizeof(mag));
-  mag.data   = m;
-  mag.length = mlen;
-  mag.sysTimestamp = MSEC_TIME();
-  demodulate2400 (&mag);
-}
-
-#else
-/**
- * Detect a Mode S messages inside the magnitude buffer pointed by `m`
- * and of size `mlen` bytes. Every detected Mode S message is converted
- * into a stream of bits and passed to the function to display it.
- *
- * In the outer loop to find the preamble and a data-frame:
- *   `mlen == 131310` bits, but `j == [0 .. mlen - (2*120)]`.
- *   Hence `j == [0 .. 131070]`.
- *
- * In the inner loop to extract the bits in a frame:
- *   index `i == [0 .. 2*112]`.
- *
- * \todo Use the pulse_slicer_ppm() function from the RTL-433 project.
- * \ref https://github.com/merbanan/rtl_433/blob/master/src/pulse_slicer.c#L259
- */
-static uint32_t detect_modeS (uint16_t *m, uint32_t mlen)
-{
-  uint8_t  bits [MODES_LONG_MSG_BITS];
-  uint8_t  msg [MODES_LONG_MSG_BITS / 2];
-  uint16_t aux [MODES_LONG_MSG_BITS * 2];
-  uint32_t j;
-  uint32_t frame = 0;
-  bool     use_correction = false;
-  uint32_t rc = 0;  /**\todo fix this */
-
-  /**
-   * The Mode S preamble is made of pulses of 0.5 microseconds
-   * at the following time offsets:
-   *
-   * 0   - 0.5 usec: first pulse.
-   * 1.0 - 1.5 usec: second pulse.
-   * 3.5 - 4   usec: third pulse.
-   * 4.5 - 5   usec: last pulse.
-   *
-   * Like this  (\ref ../docs/The-1090MHz-riddle.pdf, "1.4.2 Mode S replies"):
-   *  ```
-   *    < ----------- 8 usec / 16 bits ---------> < ---- data -- ... >
-   *    __  __         __  __
-   *    | | | |        | | | |
-   *    | |_| |________| |_| |__________________  ....
-   *
-   *    ----|----|----|----|----|----|----|----|
-   *    10   10   00   01   01   00   00   00
-   * j: 0 1 2 3 4 5 6 7 8 9 10 ...
-   * ```
-   *
-   * If we are sampling at 2 MHz, every sample in our magnitude vector
-   * is 0.5 usec. So the preamble will look like this, assuming there is
-   * an pulse at offset 0 in the array:
-   *
-   * ```
-   *   0   -----------------
-   *   1   -
-   *   2   ------------------
-   *   3   --
-   *   4   -
-   *   5   --
-   *   6   -
-   *   7   ------------------
-   *   8   --
-   *   9   -------------------
-   * ```
-   */
-  for (j = 0; j < mlen - 2*MODES_FULL_LEN; j++)
-  {
-    int  low, high, delta, i, errors;
-    bool good_message = false;
-
-    if (Modes.exit)
-       break;
-
-    if (use_correction)
-       goto good_preamble;    /* We already checked it. */
-
-    /* First check of relations between the first 10 samples
-     * representing a valid preamble. We don't even investigate further
-     * if this simple test is not passed.
-     */
-    if (!(m[j]   > m[j+1] &&
-          m[j+1] < m[j+2] &&
-          m[j+2] > m[j+3] &&
-          m[j+3] < m[j]   &&
-          m[j+4] < m[j]   &&
-          m[j+5] < m[j]   &&
-          m[j+6] < m[j]   &&
-          m[j+7] > m[j+8] &&
-          m[j+8] < m[j+9] &&
-          m[j+9] > m[j+6]))
-    {
-      if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
-         dump_raw_message ("Unexpected ratio among first 10 samples", msg, m, j, frame);
-
-      if (Modes.max_frames > 0 && ++frame > Modes.max_frames)
-         return (rc);
-      continue;
-    }
-
-    /* The samples between the two spikes must be lower than the average
-     * of the high spikes level. We don't test bits too near to
-     * the high levels as signals can be out of phase so part of the
-     * energy can be in the near samples.
-     */
-    high = (m[j] + m[j+2] + m[j+7] + m[j+9]) / 6;
-    if (m[j+4] >= high || m[j+5] >= high)
-    {
-      if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
-         dump_raw_message ("Too high level in samples between 3 and 6", msg, m, j, frame);
-
-      if (Modes.max_frames > 0 && ++frame > Modes.max_frames)
-         return (rc);
-      continue;
-    }
-
-    /* Similarly samples in the range 11-14 must be low, as it is the
-     * space between the preamble and real data. Again we don't test
-     * bits too near to high levels, see above.
-     */
-    if (m[j+11] >= high || m[j+12] >= high || m[j+13] >= high || m[j+14] >= high)
-    {
-      if ((Modes.debug & DEBUG_NOPREAMBLE) && m[j] > DEBUG_NOPREAMBLE_LEVEL)
-         dump_raw_message ("Too high level in samples between 10 and 15", msg, m, j, frame);
-
-      if (Modes.max_frames > 0 && ++frame > Modes.max_frames)
-         return (rc);
-      continue;
-    }
-
-    Modes.stat.valid_preamble++;
-
-good_preamble:
-
-    /* If the previous attempt with this message failed, retry using
-     * magnitude correction.
-      */
-    if (use_correction)
-    {
-      memcpy (aux, m + j + MODES_PREAMBLE_US * 2, sizeof(aux));
-      if (j && detect_out_of_phase(m + j))
-      {
-        apply_phase_correction (m + j);
-        Modes.stat.out_of_phase++;
-      }
-      /** \todo Apply other kind of corrections. */
-    }
-
-    /* Decode all the next 112 bits, regardless of the actual message
-     * size. We'll check the actual message type later.
-     */
-    errors = 0;
-    for (i = 0; i < 2 * MODES_LONG_MSG_BITS; i += 2)
-    {
-      low   = m [j + i + 2*MODES_PREAMBLE_US];
-      high  = m [j + i + 2*MODES_PREAMBLE_US + 1];
-      delta = low - high;
-      if (delta < 0)
-         delta = -delta;
-
-      if (i > 0 && delta < 256)
-         bits [i/2] = bits [i/2-1];
-
-      else if (low == high)
-      {
-        /* Checking if two adjacent samples have the same magnitude
-         * is an effective way to detect if it's just random noise
-         * that was detected as a valid preamble.
-         */
-        bits [i/2] = 2;    /* error */
-        if (i < 2*MODES_SHORT_MSG_BITS)
-           errors++;
-      }
-      else if (low > high)
-      {
-        bits [i/2] = 1;
-      }
-      else
-      {
-        /* (low < high) for exclusion
-         */
-        bits [i/2] = 0;
-      }
-    }
-
-    /* Restore the original message if we used magnitude correction.
-     */
-    if (use_correction)
-       memcpy (m + j + 2*MODES_PREAMBLE_US, aux, sizeof(aux));
-
-    /* Pack bits into bytes
-     */
-    for (i = 0; i < MODES_LONG_MSG_BITS; i += 8)
-    {
-      msg [i/8] = bits [i]   << 7 |
-                  bits [i+1] << 6 |
-                  bits [i+2] << 5 |
-                  bits [i+3] << 4 |
-                  bits [i+4] << 3 |
-                  bits [i+5] << 2 |
-                  bits [i+6] << 1 |
-                  bits [i+7];
-    }
-
-    int msg_type = msg[0] >> 3;
-    int msg_len  = modeS_message_len_by_type (msg_type) / 8;
-
-    /* Last check, high and low bits are different enough in magnitude
-     * to mark this as real message and not just noise?
-     */
-    delta = 0;
-    for (i = 0; i < 8 * 2 * msg_len; i += 2)
-    {
-      delta += abs (m[j + i + 2 * MODES_PREAMBLE_US] -
-                    m[j + i + 2 * MODES_PREAMBLE_US + 1]);
-    }
-    delta /= 4 * msg_len;
-
-    /* Filter for an average delta of three is small enough to let almost
-     * every kind of message to pass, but high enough to filter some
-     * random noise.
-     */
-    if (delta < 10*255)
-    {
-      use_correction = false;
-      continue;
-    }
-
-    /* If we reached this point, and error is zero, we are very likely
-     * with a Mode S message in our hands, but it may still be broken
-     * and CRC may not be correct. This is handled by the next layer.
-     */
-    if (errors == 0 || (Modes.error_correct_2 && errors <= 2))
-    {
-      modeS_message mm;
-      double        signal_power = 0.0;
-      int           signal_len   = mlen;
-      uint32_t      k, mag;
-
-      /* Decode the received message and update statistics
+#if 0 /**<\todo Add a `score_rank` enum
        */
-      rc += decode_modeS_message (&mm, msg);
-
-      /* measure signal power
-       */
-      for (k = j; k < j + MODES_FULL_LEN; k++)
-      {
-        mag = m [k];
-        signal_power += mag * mag;
-      }
-      mm.sig_level = signal_power / (65536.0 * signal_len);
-
-      /* Update statistics.
-       */
-      if (mm.CRC_ok || use_correction)
-      {
-        if (errors == 0)
-           Modes.stat.demodulated++;
-        if (mm.error_bit == -1)
-        {
-          if (mm.CRC_ok)
-               Modes.stat.good_CRC++;
-          else Modes.stat.bad_CRC++;
-        }
-        else
-        {
-          Modes.stat.bad_CRC++;
-          Modes.stat.fixed++;
-#if 0
-          if (mm.error_bit < MODES_LONG_MSG_BITS)
-               Modes.stat.single_bit_fix++;
-          else Modes.stat.two_bits_fix++;
+  typedef enum score_rank {
+         // ...
+        } score_rank;
 #endif
-        }
-      }
 
-      /* Output debug mode info if needed.
-       */
-      if (!use_correction)
-      {
-        if (Modes.debug & DEBUG_DEMOD)
-           dump_raw_message ("Demodulated with 0 errors", msg, m, j, frame);
+int modeS_message_score (const uint8_t *msg, int valid_bits)
+{
+  static uint8_t all_zeros[14] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+  int        msg_type, msg_bits, CRC, IID;
+  uint32_t   addr;
+  errorinfo *ei;
 
-        else if ((Modes.debug & DEBUG_BADCRC) && mm.msg_type == 17 && (!mm.CRC_ok || mm.error_bit != -1))
-           dump_raw_message ("Decoded with bad CRC", msg, m, j, frame);
+  if (valid_bits < 56)
+     return (-2);
 
-        else if ((Modes.debug & DEBUG_GOODCRC) && mm.CRC_ok && mm.error_bit == -1)
-           dump_raw_message ("Decoded with good CRC", msg, m, j, frame);
-      }
+  msg_type = msg [0] >> 3; /* Downlink Format */
+  msg_bits = modeS_message_len_by_type (msg_type);
 
-      /* Skip this message if we are sure it's fine.
-       */
-      if (mm.CRC_ok)
-      {
-        j += 2 * (MODES_PREAMBLE_US + (8 * msg_len));
-        good_message = true;
-        if (use_correction)
-           mm.phase_corrected = true;
-      }
+  if (valid_bits < msg_bits)
+     return (-2);
 
-      /* Pass data to the next layer
-       */
-      if (mm.CRC_ok)
-         modeS_user_message (&mm);
-    }
-    else
-    {
-      if ((Modes.debug & DEBUG_DEMODERR) && use_correction)
-      {
-        LOG_STDOUT ("The following message has %d demod errors:", errors);
-        dump_raw_message ("Demodulated with errors", msg, m, j, frame);
-      }
-    }
+  if (!memcmp(all_zeros, msg, msg_bits/8))
+     return (-2);
 
-    /* Retry with phase correction if possible.
-     */
-    if (!good_message && !use_correction)
-    {
-      j--;
-      use_correction = true;
-    }
-    else
-    {
-      use_correction = false;
-    }
+  CRC = crc_checksum (msg, msg_bits);
+
+  switch (msg_type)
+  {
+    case 0:   /* short air-air surveillance */
+    case 4:   /* surveillance, altitude reply */
+    case 5:   /* surveillance, altitude reply */
+    case 16:  /* long air-air surveillance */
+    case 24:  /* Comm-D (ELM) */
+         return icao_filter_test (CRC) ? 1000 : -1;
+
+    case 11:  /* All-call reply */
+         IID = CRC & 0x7F;
+         CRC = CRC & 0xFFFF80;
+         addr = AIRCRAFT_GET_ADDR (msg + 1);
+
+         ei = crc_checksum_diagnose (CRC, msg_bits);
+         if (!ei)
+            return (-2);  /* can't correct errors */
+
+         /* See crc.c comments: we do not attempt to fix
+          * more than single-bit errors, as two-bit
+          * errors are ambiguous in DF11
+          */
+         if (ei->errors > 1)
+            return (-2);  /* can't correct errors */
+
+         /* fix any errors in the address field
+          */
+         correct_aa_field (&addr, ei);
+
+         /* validate address */
+         if (IID == 0)
+         {
+           if (icao_filter_test(addr))
+              return (1600 / (ei->errors + 1));
+           return (750 / (ei->errors + 1));
+         }
+         if (icao_filter_test(addr))
+            return (1000 / (ei->errors + 1));
+         return (-1);
+
+    case 17:   /* Extended squitter */
+    case 18:   /* Extended squitter/non-transponder */
+         ei = crc_checksum_diagnose (CRC, msg_bits);
+         if (!ei)
+             return (-2);   /* can't correct errors */
+
+         /* fix any errors in the address field
+          */
+         addr = AIRCRAFT_GET_ADDR (msg + 1);
+         correct_aa_field (&addr, ei);
+
+         if (icao_filter_test(addr))
+            return (1800 / (ei->errors + 1));
+         return (1400 / (ei->errors + 1));
+
+    case 20:   /* Comm-B, altitude reply */
+    case 21:   /* Comm-B, identity reply */
+         if (icao_filter_test(CRC))
+            return (1000);  /* Address/Parity */
+         return (-2);
+
+    default:
+        /* unknown message type */
+        return (-2);
   }
-  return (rc);
 }
-#endif  /* USE_READSB_DEMOD */
 
 /**
  * When a new message is available, because it was decoded from the
@@ -2483,25 +3014,24 @@ good_preamble:
  * Basically this function passes a raw message to the upper layers for
  * further processing and visualization.
  */
-static void modeS_user_message (const modeS_message *mm)
+void modeS_user_message (modeS_message *mm)
 {
-  uint64_t  now = MSEC_TIME();
-  aircraft *a;
+  aircraft *a = aircraft_update_from_message (mm);
 
   Modes.stat.messages_total++;
-  a = interactive_receive_data (mm, now);
 
   if (a &&
-      Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS_OUT] > 0 && /* If we have accepted >=1 client */
-      net_handler_sending(MODES_NET_SERVICE_SBS_OUT))            /* and we're still sending */
-     modeS_send_SBS_output (mm, a);                              /* Feed SBS output clients. */
+      Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS_OUT] > 0 &&  /* If we have accepted >=1 client */
+      net_handler_sending(MODES_NET_SERVICE_SBS_OUT))             /* and we're still sending */
+     modeS_send_SBS_output (mm);                                  /* Feed SBS output clients. */
 
   /* In non-interactive mode, display messages on standard output.
    * In silent-mode, do nothing just to consentrate on network traces.
    */
   if (!Modes.interactive && !Modes.silent)
   {
-    display_modeS_message (mm);
+    if (modeS_message_display (mm))
+       Modes.stat.messages_shown++;
     if (!Modes.raw && !Modes.only_addr)
     {
       puts ("");
@@ -2518,8 +3048,7 @@ static void modeS_user_message (const modeS_message *mm)
 
 /**
  * Read raw IQ samples from `stdin` and filter everything that is lower than the
- * specified level for more than 256 samples in order to reduce
- * example file size.
+ * specified level for more than 256 samples in order to reduce example file size.
  *
  * Will print to `stdout` in BINARY-mode.
  */
@@ -2528,8 +3057,8 @@ static bool strip_mode (int level)
   uint64_t c = 0;
   int      I, Q;
 
-  SETMODE (_fileno(stdin), O_BINARY);
-  SETMODE (_fileno(stdout), O_BINARY);
+  _setmode (_fileno(stdin), O_BINARY);
+  _setmode (_fileno(stdout), O_BINARY);
 
   while ((I = getchar()) != EOF && (Q = getchar()) != EOF)
   {
@@ -2545,8 +3074,8 @@ static bool strip_mode (int level)
     putchar (I);
     putchar (Q);
   }
-  SETMODE (_fileno(stdin), O_TEXT);
-  SETMODE (_fileno(stdout), O_TEXT);
+  _setmode (_fileno(stdin), O_TEXT);
+  _setmode (_fileno(stdout), O_TEXT);
   return (true);
 }
 
@@ -2566,7 +3095,7 @@ static void modeS_send_raw_output (const modeS_message *mm)
   p = strchr (p, '\0');
   *p++ = ';';
   *p++ = '\n';
-  net_connection_send (MODES_NET_SERVICE_RAW_OUT, msg, p - msg);
+  net_handler_send (MODES_NET_SERVICE_RAW_OUT, msg, p - msg);
 }
 
 /**
@@ -2577,7 +3106,6 @@ static const char *get_SBS_timestamp (void)
   int         ts_len;
   char        ts_buf [30];
   static char timestamp [2*sizeof(ts_buf)];
-
   FILETIME    ft;
   SYSTEMTIME  st;
 
@@ -2600,7 +3128,7 @@ static const char *get_SBS_timestamp (void)
 /**
  * Write SBS output to TCP clients (Base Station format).
  */
-static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
+static void modeS_send_SBS_output (const modeS_message *mm)
 {
   char  msg [MODES_MAX_SBS_SIZE], *p = msg;
   int   emergency = 0, ground = 0, alert = 0, spi = 0;
@@ -2633,61 +3161,53 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
   if (mm->msg_type == 0)
   {
     p += sprintf (p, "MSG,5,1,1,%06X,1,%s,,%d,,,,,,,,,,",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  date_str, mm->altitude);
+                  mm->addr, date_str, mm->altitude);
   }
   else if (mm->msg_type == 4)
   {
     p += sprintf (p, "MSG,5,1,1,%06X,1,%s,,%d,,,,,,,%d,%d,%d,%d",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  date_str, mm->altitude, alert, emergency, spi, ground);
+                  mm->addr, date_str, mm->altitude, alert, emergency, spi, ground);
   }
   else if (mm->msg_type == 5)
   {
     p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%d,%d,%d,%d,%d",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  date_str, mm->identity, alert, emergency, spi, ground);
+                  mm->addr, date_str, mm->identity, alert, emergency, spi, ground);
   }
   else if (mm->msg_type == 11)
   {
     p += sprintf (p, "MSG,8,1,1,%06X,1,%s,,,,,,,,,,,,",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]), date_str);
+                  mm->addr, date_str);
   }
   else if (mm->msg_type == 17 && mm->ME_type == 4)
   {
     p += sprintf (p, "MSG,1,1,1,%06X,1,%s,%s,,,,,,,,0,0,0,0",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  date_str, mm->flight);
+                  mm->addr, date_str, mm->flight);
   }
   else if (mm->msg_type == 17 && mm->ME_type >= 9 && mm->ME_type <= 18)
   {
-    if (!VALID_POS(a->position))
-         p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,,,,,0,0,0,0",
-                       aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                       date_str, mm->altitude);
-    else p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
-                       aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                       date_str, mm->altitude, a->position.lat, a->position.lon);
+    if (mm->AC_flags & MODES_ACFLAGS_LATLON_VALID)
+         p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
+                       mm->addr, date_str, mm->altitude, mm->position.lat, mm->position.lon);
+    else p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,,,,,0,0,0,0",
+                       mm->addr, date_str, mm->altitude);
   }
   else if (mm->msg_type == 17 && mm->ME_type == 19 && mm->ME_subtype == 1)
   {
     int vr = (mm->vert_rate_sign == 0 ? 1 : -1) * 64 * (mm->vert_rate - 1);
 
     p += sprintf (p, "MSG,4,1,1,%06X,1,%s,,,%d,%d,,,%i,,0,0,0,0",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  date_str, a->speed, a->heading, vr);
+                  mm->addr, date_str, (int)round(mm->velocity), (int)round(mm->heading), vr);
   }
   else if (mm->msg_type == 21)
   {
     p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%d,%d,%d,%d,%d",
-                  aircraft_get_addr(mm->AA[0], mm->AA[1], mm->AA[2]),
-                  date_str, mm->identity, alert, emergency, spi, ground);
+                  mm->addr, date_str, mm->identity, alert, emergency, spi, ground);
   }
   else
     return;
 
   *p++ = '\n';
-  net_connection_send (MODES_NET_SERVICE_SBS_OUT, msg, p - msg);
+  net_handler_send (MODES_NET_SERVICE_SBS_OUT, msg, p - msg);
 }
 
 /**
@@ -2695,14 +3215,14 @@ static void modeS_send_SBS_output (const modeS_message *mm, const aircraft *a)
  *      if `--debug g` is active, log a good RAW message.
  */
 #define LOG_GOOD_RAW(fmt, ...)  TRACE ("RAW(%d): " fmt, \
-                                       loop_cnt, __VA_ARGS__)
+                                       loop_cnt, ## __VA_ARGS__)
 
 /**
  * \def LOG_BOGUS_RAW()
  *      if `--debug g` is active, log a bad / bogus RAW message.
  */
-#define LOG_BOGUS_RAW(_msg, fmt, ...)  TRACE ("RAW(%d), Bogus msg %d: " fmt, \
-                                              loop_cnt, _msg, __VA_ARGS__);  \
+#define LOG_BOGUS_RAW(_msg, fmt, ...)  TRACE ("RAW(%d), Bogus msg %d: " fmt,   \
+                                              loop_cnt, _msg, ## __VA_ARGS__); \
                                        Modes.stat.RAW_unrecognized++
 
 /**
@@ -2753,7 +3273,7 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
    */
   if (!strcmp((const char*)hex, MODES_RAW_HEART_BEAT))
   {
-    LOG_GOOD_RAW ("Got heart-beat signal");
+    LOG_GOOD_RAW ("Got heart-beat signal\n");
     Modes.stat.RAW_good++;
     mg_iobuf_del (msg, 0, msg->len);
     return (true);
@@ -2775,14 +3295,14 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
   if (len < 2)
   {
     Modes.stat.RAW_empty++;
-    LOG_BOGUS_RAW (1, "'%.*s'", (int)msg->len, msg->buf);
+    LOG_BOGUS_RAW (1, "'%.*s'\n", (int)msg->len, msg->buf);
     mg_iobuf_del (msg, 0, end - msg->buf);
     return (false);
   }
 
   if (hex[0] != '*' || !memchr(msg->buf, ';', len))
   {
-    LOG_BOGUS_RAW (2, "hex[0]: '%c', '%.*s'", hex[0], (int)msg->len, msg->buf);
+    LOG_BOGUS_RAW (2, "hex[0]: '%c', '%.*s'\n", hex[0], (int)msg->len, msg->buf);
     mg_iobuf_del (msg, 0, end - msg->buf);
     return (false);
   }
@@ -2794,7 +3314,7 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
 
   if (len > 2 * MODES_LONG_MSG_BYTES)   /* Too long message (> 28 bytes)... broken. */
   {
-    LOG_BOGUS_RAW (3, "len=%d, '%.*s'", len, len, hex);
+    LOG_BOGUS_RAW (3, "len=%d, '%.*s'\n", len, len, hex);
     mg_iobuf_del (msg, 0, end - msg->buf);
     return (false);
   }
@@ -2806,23 +3326,21 @@ bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
 
     if (high == -1 || low == -1)
     {
-      LOG_BOGUS_RAW (4, "high='%c', low='%c'", hex[j], hex[j+1]);
+      LOG_BOGUS_RAW (4, "high='%c', low='%c'\n", hex[j], hex[j+1]);
       mg_iobuf_del (msg, 0, end - msg->buf);
       return (false);
     }
-    bin_msg[j/2] = (high << 4) | low;
+    bin_msg [j/2] = (high << 4) | low;
   }
 
   mg_iobuf_del (msg, 0, end - msg->buf);
   Modes.stat.RAW_good++;
 
-  decode_modeS_message (&mm, bin_msg);
+  decode_mode_S_message (&mm, bin_msg);
   if (mm.CRC_ok)
      modeS_user_message (&mm);
   return (true);
 }
-
-#define USE_str_sep 1
 
 /**
  * The decoder for SBS input of `MSG,x` messages.
@@ -2839,34 +3357,27 @@ static void modeS_recv_SBS_input (char *msg, modeS_message *mm)
   /* E.g.:
    *   MSG,5,111,11111,45D068,111111,2024/03/16,18:53:45.000,2024/03/16,18:53:45.000,,7125,,,,,,,,,,0
    */
-#if (USE_str_sep == 0)
-  strtok (p, ", ");
-#endif
-
   for (i = 1; i < DIM(fields); i++)
   {
-#if USE_str_sep
     fields [i] = str_sep (&p, ",");
     if (!p && i < DIM(fields) - 1)
-#else
-    fields [i] = strtok (NULL, ",");
-    if (!fields[i] && i < DIM(fields) - 1)
-#endif
     {
-      TRACE ("Missing field %zd: ", i);
+      TRACE ("Missing field %zd\n", i);
       goto SBS_invalid;
     }
   }
 
-//TRACE ("field-2: '%s', field-5: '%s' ", fields[2], fields[5]);
+/*TRACE ("field-2: '%s', field-5: '%s'\n", fields[2], fields[5]); */
+
   memset (mm, '\0', sizeof(*mm));
   mm->CRC_ok = true;
   Modes.stat.SBS_good++;
 
-#if 0
-  /**\todo
-   * Decode 'msg' and fill 'mm'. Use `decodeSbsLine()` from readsb.
+  /**
+   *\todo
+   * Decode `msg` and fill `mm` using `decodeSbsLine()` from readsb.
    */
+#if 0
   modeS_user_message (&mm);
 #else
   MODES_NOTUSED (msg);
@@ -2937,7 +3448,7 @@ static bool modeS_SBS_valid_msg (const mg_iobuf *io, bool *ignore)
  * MSG,5,1,1,4CC52B,1,2021/09/20,23:30:43.897,2021/09/20,23:30:43.901,,38000,,,,,,,0,,0,
  * ```
  *
- * It accepts both '\n' and '\r\n' terminated records.
+ * It accepts both `\n` and `\r\n` terminated records.
  * It checks for all 6 valid Message Types, but it handles only `"MSG"` records.
  *
  * \todo Move the handling of SBS-IN data to the `data_thread_fn()`.
@@ -2973,7 +3484,7 @@ bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
      return (true);   /* The end-of-line could come in next message */
 
   *end++ = '\0';
-  if (end [-2] == '\r')
+  if ((end - 2 > msg->buf) && end [-2] == '\r')
      end [-2] = '\0';
 
   if (modeS_SBS_valid_msg(msg, &ignore))
@@ -2995,7 +3506,7 @@ bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
 /**
  * Show the program usage
  */
-static void NO_RETURN show_help (const char *fmt, ...)
+static void show_help (const char *fmt, ...)
 {
   if (fmt)
   {
@@ -3008,7 +3519,7 @@ static void NO_RETURN show_help (const char *fmt, ...)
   else
   {
     printf ("A 1090 MHz receiver, decoder and web-server for ADS-B (Automatic Dependent Surveillance - Broadcast).\n"
-            "Usage: %s [options]:\n"
+            "Usage: %s [options] <filter-spec>:\n"
             "  --config <file>       Select config-file (default: `%s')\n"
             "  --debug <flags>       A = Log the the ADSB-LOL details to log-file.\n"
             "                        c = Log frames with bad CRC.\n"
@@ -3024,6 +3535,7 @@ static void NO_RETURN show_help (const char *fmt, ...)
             "                        n = Log network debugging information.\n"
             "                        N = A bit more network information than flag `n'.\n"
             "                        p = Log frames with bad preamble.\n"
+            "                        P = Log a single plane at a time with details (ref `LOG_FOLLOW()`).\n"
             "  --device <N / name>   Select RTLSDR/SDRPlay device (default: 0; first found).\n"
             "                        e.g. `--device 0'               - select first RTLSDR device found.\n"
             "                             `--device RTL2838-silver'  - select on RTLSDR name.\n"
@@ -3033,23 +3545,27 @@ static void NO_RETURN show_help (const char *fmt, ...)
             "                             `--device sdrplay1'        - select on SDRPlay index.\n"
             "                             `--device sdrplayRSP1A'    - select on SDRPlay name.\n"
             "  --infile <filename>   Read data from file (use `-' for stdin).\n"
+            "  --informat <format>   Format for `--infile`; `UC8`, `SC16` or `SC16Q11` (default: `UC8`)\n"
             "  --interactive         Enable interactive mode.\n"
+            "  --max-messages        Maximum number of messages to process.\n"
             "  --net                 Enable network listening services.\n"
             "  --net-active          Enable network active services.\n"
             "  --net-only            Enable only networking, no physical device or file.\n"
             "  --only-addr           Show only ICAO addresses.\n"
             "  --raw                 Output raw hexadecimal messages only.\n"
+            "  --samplerate/-s <S/s> Sample-rate (2M, 2.4M, 8M). Overrides setting in config-file.\n"
             "  --strip <level>       Output missing the I/Q parts that are below the specified level.\n"
-            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `config', `locale', `net' or `*')\n"
+            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `console', `cpr', `locale', `misc`, `net' or `*')\n"
             "  --update              Update missing or old \"*.csv\" files and exit.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
             Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP);
 
-    printf ("  Refer the `%s` file for other settings.\n", Modes.cfg_file);
+    printf ("  Shows only matching ICAO-addresses;     `dump1090.exe --only-addr 4A*`.\n"
+            "  Shows only non-matching ICAO-addresses; `dump1090.exe --only-addr !48*`.\n\n"
+            "  Refer the `%s` file for other settings.\n", Modes.cfg_file);
   }
-  modeS_exit();
-  exit (0);
+  modeS_exit (0);
 }
 
 /**
@@ -3061,7 +3577,7 @@ static void NO_RETURN show_help (const char *fmt, ...)
  *  \li Refreshes interactive data every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`).
  *  \li Refreshes the console-title with some statistics (also 4 times per second).
  */
-static void background_tasks (void)
+void background_tasks (void)
 {
   bool     refresh;
   pos_t    pos;
@@ -3091,13 +3607,28 @@ static void background_tasks (void)
     location_exit();
     Modes.home_pos = pos;
 
-    spherical_to_cartesian (&Modes.home_pos, &Modes.home_pos_cart);
+    geo_spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
     if (Modes.home_pos_ok)
        LOG_FILEONLY ("Ignoring the 'homepos' config value since we use the 'Windows Location API':"
                      " Latitude: %.8f, Longitude: %.8f.\n",
                      Modes.home_pos.lat, Modes.home_pos.lon);
     Modes.home_pos_ok = true;
   }
+
+  static bool shown_home_pos = false;
+
+  if (Modes.home_pos_ok && !shown_home_pos)
+  {
+    LOG_FILEONLY ("Modes.home_pos: %.07lf %s, %.07lf %s\n",
+                  fabs(Modes.home_pos.lon), Modes.home_pos.lon > 0.0 ? "E" : "W",
+                  fabs(Modes.home_pos.lat), Modes.home_pos.lat > 0.0 ? "N" : "S");
+    shown_home_pos = true;
+  }
+
+  static uint32_t fifo_stat = 0;
+
+  if ((++fifo_stat % 240) == 0)     /* every 240th time; approx 1 min */
+     fifo_stats();
 
   aircraft_remove_stale (now);
   airports_background (now);
@@ -3107,30 +3638,31 @@ static void background_tasks (void)
   if (Modes.interactive)
      interactive_show_data (now);
 
-  if (Modes.rtlsdr.device || Modes.rtl_tcp_in || Modes.sdrplay.device)
+  if (Modes.rtlsdr.device || Modes.rtl_tcp_in || Modes.sdrplay.device || Modes.airspy.device || Modes.raw_in)
   {
     interactive_title_stats();
     interactive_update_gain();
     interactive_other_stats();  /* Only effective if 'tui = curses' was used */
   }
-#if 0
   else
     interactive_raw_SBS_stats();
-#endif
 }
 
 /**
- * The handler called in for `SIGINT` or `SIGBREAK`. <br>
+ * The handler called for `SIGINT` or `SIGBREAK`. <br>
  * I.e. user presses `^C`.
+ *
+ * It also handles `SIGABRT`.
+ * I.e. `abort()` (or `assert()` triggered false) was called.
  */
 void modeS_signal_handler (int sig)
 {
   int rc;
 
-  if (sig > 0)
-     signal (sig, SIG_DFL);   /* reset signal handler - bit extra safety */
+  if (sig > 0)               /* Reset signal handler */
+     signal (sig, SIG_DFL);
 
-  Modes.exit = true;          /* Signal to threads that we are done */
+  Modes.exit = true;         /* Signal to threads that we are done */
 
   /* When PDCurses exists, it restores the startup console-screen.
    * Hence make it clear what is printed on exit by separating the
@@ -3150,7 +3682,8 @@ void modeS_signal_handler (int sig)
   }
   else if (sig == 0)
   {
-    DEBUG (DEBUG_GENERAL, "Breaking 'main_data_loop()', shutting down ...\n");
+    DEBUG (DEBUG_GENERAL, "Breaking 'main_data_loop()'%s, shutting down ...\n",
+           Modes.internal_error ? " due to internal error" : "");
   }
 
   if (Modes.rtlsdr.device)
@@ -3168,42 +3701,104 @@ void modeS_signal_handler (int sig)
   {
     rc = sdrplay_cancel_async (Modes.sdrplay.device);
     DEBUG (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
+
+ /* SetEvent (Modes.reader_event); */
+  }
+  else if (Modes.airspy.device)
+  {
+    rc = airspy_cancel_async (Modes.airspy.device);
+    DEBUG (DEBUG_GENERAL, "airspy_cancel_async(): rc: %d / %s.\n", rc, airspy_strerror(rc));
   }
 }
 
+static const char *format_value (double val)
+{
+  static char buf [20];
+
+  if (val >= 1E9)
+       snprintf (buf, sizeof(buf), "%6.1lf M", val / 1E9);
+  else if (val >= 1E6)
+       snprintf (buf, sizeof(buf), "%6.1lf M", val / 1E6);
+  else snprintf (buf, sizeof(buf), "%8llu", (uint64_t) val);
+  return (buf);
+}
+
 /*
- * Show decoder statistics for a RTLSDR / SDRPlay device.
+ * Show decoder statistics for a RTLSDR / RTLTCP / SDRPlay device.
  */
 static void show_decoder_stats (void)
 {
   LOG_STDOUT ("Decoder statistics:\n");
   interactive_clreol();  /* to clear the lines from startup messages */
 
-  LOG_STDOUT (" %8llu valid preambles.\n", Modes.stat.valid_preamble);
+  if (Modes.stat.FIFO_enqueue + Modes.stat.FIFO_dequeue + Modes.stat.FIFO_full > 0ULL)
+  {
+    double   percent, delta_s;
+    FILETIME now;
+
+    get_FILETIME_now (&now);
+
+    /* Program runtime; in 100 nsec units to seconds as a double
+     */
+    delta_s = (double) (*(ULONGLONG*)&now - *(ULONGLONG*)&Modes.start_FILETIME) / 1E7;
+    if (delta_s < 1.0)
+       delta_s = 1.0;    /* fat chance, but avoid a divide by zero */
+
+    LOG_STDOUT (" %8llu FIFO enqueue events (%.1lf/sec).\n", Modes.stat.FIFO_enqueue, (double)Modes.stat.FIFO_enqueue / delta_s);
+    interactive_clreol();
+
+    LOG_STDOUT (" %8llu FIFO dequeue events (%.1lf/sec).\n", Modes.stat.FIFO_dequeue, (double)Modes.stat.FIFO_dequeue / delta_s);
+    interactive_clreol();
+
+    if (Modes.stat.FIFO_enqueue > 0)
+         percent = 100.0 * ((double)Modes.stat.FIFO_full / (double)Modes.stat.FIFO_enqueue);
+    else percent = 0.0;
+    LOG_STDOUT (" %8llu FIFO full events (%.2lf%%).\n", Modes.stat.FIFO_full, percent);
+    interactive_clreol();
+  }
+
+  if (Modes.rtl_tcp_in)
+  {
+    LOG_STDOUT (" %8llu RTLTCP samples, processed %llu.\n",
+                Modes.stat.samples_recv_rtltcp, Modes.stat.samples_processed);
+    interactive_clreol();
+  }
+
+  LOG_STDOUT (" %s valid preambles.\n", format_value((double)Modes.stat.valid_preamble));
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu demodulated after phase correction.\n", Modes.stat.out_of_phase);
+  LOG_STDOUT (" %s demodulated after phase correction.\n", format_value((double)Modes.stat.out_of_phase));
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu demodulated with 0 errors.\n", Modes.stat.demodulated);
+  LOG_STDOUT (" %s demodulated with 0 errors.\n", format_value((double)Modes.stat.demodulated));
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu with CRC okay.\n", Modes.stat.good_CRC);
+  LOG_STDOUT (" %s with CRC okay.\n", format_value((double)Modes.stat.CRC_good));
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu with CRC failure.\n", Modes.stat.bad_CRC);
+  LOG_STDOUT (" %s with CRC failure.\n", format_value((double)Modes.stat.CRC_bad));
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu errors corrected.\n", Modes.stat.fixed);
+  LOG_STDOUT (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.CRC_single_bit_fix);
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu messages with 1 bit errors fixed.\n", Modes.stat.single_bit_fix);
+  LOG_STDOUT (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.CRC_two_bits_fix);
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu messages with 2 bit errors fixed.\n", Modes.stat.two_bits_fix);
+  LOG_STDOUT (" %8llu errors corrected (%llu + %llu).\n", Modes.stat.CRC_fixed, Modes.stat.CRC_single_bit_fix, Modes.stat.CRC_two_bits_fix);
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.good_CRC + Modes.stat.fixed, Modes.stat.good_CRC, Modes.stat.fixed);
+  LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.CRC_good + Modes.stat.CRC_fixed, Modes.stat.CRC_good, Modes.stat.CRC_fixed);
+
+  if (Modes.icao_spec)
+     LOG_STDOUT (" %8llu ICAO-addresses filtered.\n", Modes.stat.addr_filtered);
+
+  if (Modes.stat.cart_errors)
+     LOG_STDOUT (" %8llu Cartesian errors.\n", Modes.stat.cart_errors);
+
+  if (Modes.stat.cpr_errors)
+     LOG_STDOUT (" %8llu CPR errors.\n", Modes.stat.cpr_errors);
+
   interactive_clreol();
 
   /**\todo Move to `aircraft_show_stats()`
@@ -3220,12 +3815,13 @@ static void show_decoder_stats (void)
  */
 static void show_statistics (void)
 {
-  bool any_device = (Modes.rtlsdr.device || Modes.sdrplay.device || Modes.infile_fd > -1);
+  bool any_device = (Modes.rtlsdr.device || Modes.sdrplay.device ||
+                     Modes.airspy.device || Modes.infile_fd > -1);
 
-  if (Modes.rtl_tcp_in && !modeS_net_services[MODES_NET_SERVICE_RTL_TCP].last_err)
+  if (Modes.rtl_tcp_in)
      any_device = true;  /* connect() OK */
 
-  if (any_device)  /* assume we got some data */
+  if (any_device)        /* assume we got some data */
      show_decoder_stats();
 
   if (Modes.net)
@@ -3233,20 +3829,27 @@ static void show_statistics (void)
 
   if (Modes.airports_priv)
      airports_show_stats();
-
-#ifdef USE_MIMALLOC
-  mimalloc_stats();
-#endif
 }
 
 /**
- * Our exit function. Free all resources here.
+ * Our exit function. Free all resources and `exit()`
+ * with specific error-level (0 or 1).
  */
-static void modeS_exit (void)
+static void __declspec(noreturn) modeS_exit (int rc)
+{
+  modeS_cleanup();
+  exit (rc);
+}
+
+/**
+ * Free all resources.
+ */
+static void modeS_cleanup (void)
 {
   int rc;
 
-  net_exit();
+  if (!Modes.internal_error)
+     net_exit();
 
   if (Modes.rtlsdr.device)
   {
@@ -3271,9 +3874,16 @@ static void modeS_exit (void)
     Modes.sdrplay.device = NULL;
     DEBUG (DEBUG_GENERAL2, "sdrplay_exit(), rc: %d.\n", rc);
   }
+  else if (Modes.airspy.device)
+  {
+    rc = airspy_exit (Modes.airspy.device);
+    free (Modes.airspy.gains);
+    Modes.airspy.device = NULL;
+    DEBUG (DEBUG_GENERAL2, "airspy_exit(), rc: %d.\n", rc);
+  }
 
   if (Modes.reader_thread)
-     CloseHandle ((HANDLE)Modes.reader_thread);
+     CloseHandle (Modes.reader_thread);
 
   if (Modes.infile_fd > -1)
      infile_exit();
@@ -3283,24 +3893,34 @@ static void modeS_exit (void)
 
   aircraft_exit (true);
   airports_exit (true);
+  crc_exit();
 
-  free (Modes.magnitude_lut);
-  free (Modes.magnitude);
-  free (Modes.data);
+  free (Modes.mag_lut);
+  free (Modes.log10_lut);
   free (Modes.ICAO_cache);
   free (Modes.selected_dev);
   free (Modes.rtlsdr.name);
+  free (Modes.rtltcp.remote);
   free (Modes.sdrplay.name);
+  free (Modes.airspy.name);
   free (Modes.aircraft_db_url);
   free (Modes.tests);
+  free (Modes.icao_spec);
+
+  demod_8000_free();
+
+  if (Modes.FIFO_active)
+     fifo_exit();
+  Modes.FIFO_active = false;
+
+  convert_cleanup (&Modes.converter_state);
 
   DeleteCriticalSection (&Modes.data_mutex);
   DeleteCriticalSection (&Modes.print_mutex);
 
-  Modes.reader_thread = 0;
-  Modes.data          = NULL;
-  Modes.magnitude     = NULL;
-  Modes.magnitude_lut = NULL;
+  Modes.reader_thread = NULL;
+  Modes.mag_lut       = NULL;
+  Modes.log10_lut     = NULL;
   Modes.ICAO_cache    = NULL;
   Modes.selected_dev  = NULL;
   Modes.tests         = NULL;
@@ -3308,12 +3928,11 @@ static void modeS_exit (void)
   if (Modes.win_location)
      location_exit();
 
+  speak_exit();
+
   modeS_log_exit();
 
-#if defined(USE_MIMALLOC)
-  mimalloc_exit();
-
-#elif defined(_DEBUG)
+#if defined(_DEBUG)
   crtdbug_exit();
 #endif
 }
@@ -3335,6 +3954,12 @@ static void set_device (const char *arg)
     Modes.selected_dev = mg_mprintf ("%s", modeS_net_services [MODES_NET_SERVICE_RTL_TCP].descr);
     Modes.rtlsdr.index = -1;      /* select on host+port only */
     Modes.net = true;
+
+    if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].is_ip6)
+    {
+      LOG_STDERR ("IPv6 is not yet supported for RTL_TCP.\n");
+      modeS_exit (1);
+    }
   }
   else
   {
@@ -3353,6 +3978,18 @@ static void set_device (const char *arg)
     else
       Modes.sdrplay.index = -1;
   }
+  else if (!strnicmp(arg, "airspy", 6))
+  {
+    Modes.airspy.name = strdup (arg);
+    if (isdigit(arg[6]))
+    {
+      Modes.airspy.index   = atoi (arg + 6);
+      Modes.airspy.name[6] = '\0';
+    }
+    else
+      Modes.airspy.index = -1;
+  }
+
   dev_selection_done = true;
 }
 
@@ -3379,15 +4016,12 @@ static bool set_gain (const char *arg)
 static bool set_sample_rate (const char *arg)
 {
   Modes.sample_rate = ato_hertz (arg);
-  if (Modes.sample_rate == 0)
-     show_help ("Illegal sample_rate: %s.\n", arg);
 
-  if (Modes.sample_rate != MODES_DEFAULT_RATE)
-  {
-    if (Modes.sample_rate == 2400000)
-         show_help ("2.4 MB/s sample_rate is not yet supported.\n");
-    else show_help ("Illegal sample_rate: %s. Use '%uM' or leave empty.\n", arg, MODES_DEFAULT_RATE/1000000);
-  }
+  if (Modes.sample_rate != MODES_DEFAULT_RATE &&
+      Modes.sample_rate != 2400000            &&
+      Modes.sample_rate != 8000000)
+     show_help ("Illegal sample_rate: %s. Use '2M, 2.4M or 8M (for SDRPlay)'.\n", arg);
+
   return (true);
 }
 
@@ -3410,10 +4044,13 @@ static bool set_tui (const char *arg)
 
 static void set_debug_bits (const char *flags)
 {
+  char buf [200], *p, *end;
+
   while (*flags)
   {
     switch (*flags)
     {
+      case 'a':
       case 'A':
            Modes.debug |= DEBUG_ADSB_LOL;
            break;
@@ -3455,11 +4092,18 @@ static void set_debug_bits (const char *flags)
            Modes.debug |= (DEBUG_NET2 | DEBUG_NET);  /* A bit more network details */
            break;
       case 'p':
-      case 'P':
            Modes.debug |= DEBUG_NOPREAMBLE;
            break;
+      case 'P':
+           Modes.debug |= DEBUG_PLANE;
+           break;
       default:
-           show_help ("Unknown debugging flag: %c\n", *flags);
+           p = buf;
+           end = p + sizeof(buf);
+           p += snprintf (p, end - p, "Unknown debugging flag: `%c`", *flags);
+           if (*flags == '-' && flags[1])
+              p += snprintf (p, end - p, ". Did you mean `--debug %s`", flags+1);
+           show_help ("%s\n", buf);
            /* not reached */
            break;
     }
@@ -3480,7 +4124,7 @@ static bool set_home_pos (const char *arg)
     }
     Modes.home_pos    = pos;
     Modes.home_pos_ok = true;
-    spherical_to_cartesian (&Modes.home_pos, &Modes.home_pos_cart);
+    geo_spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
   }
   return (true);
 }
@@ -3530,19 +4174,13 @@ static bool set_if_mode (const char *arg)
        Modes.sdrplay.if_mode = false;
   else if (!stricmp(arg, "lif"))
        Modes.sdrplay.if_mode = true;
-  else printf ("%s(%u): Ignoring illegal '--if-mode': '%s'.\n",  cfg_current_file(), cfg_current_line(), arg);
+  else printf ("%s(%u): Ignoring illegal '--if-mode': '%s'.\n", cfg_current_file(), cfg_current_line(), arg);
   return (true);
 }
 
 static bool set_interactive_ttl (const char *arg)
 {
   Modes.interactive_ttl = 1000 * atoi (arg);
-  return (true);
-}
-
-static bool set_infile (const char *arg)
-{
-  strcpy_s (Modes.infile, sizeof(Modes.infile), arg);
   return (true);
 }
 
@@ -3560,7 +4198,10 @@ static bool set_loops (const char *arg)
 
 static bool set_port_http (const char *arg)
 {
-  modeS_net_services [MODES_NET_SERVICE_HTTP].port = (uint16_t) atoi (arg);
+  uint16_t port = atoi (arg);
+
+  modeS_net_services [MODES_NET_SERVICE_HTTP4].port = port;
+  modeS_net_services [MODES_NET_SERVICE_HTTP6].port = port;
   return (true);
 }
 
@@ -3614,7 +4255,7 @@ static bool set_prefer_adsb_lol (const char *arg)
 {
   Modes.prefer_adsb_lol = cfg_true (arg);
 
-#if !defined(USE_GEN_ROUTES)
+#if !defined(USE_BIN_FILES)
   DEBUG (DEBUG_GENERAL,
          "Config value 'prefer-adsb-lol=%d' has no meaning.\n"
          "Will always use ADSB-LOL API to lookup routes in 'airports.c'.\n",
@@ -3628,36 +4269,42 @@ static bool set_web_page (const char *arg)
 {
   strcpy_s (Modes.web_root, sizeof(Modes.web_root), dirname(arg));
   strcpy_s (Modes.web_page, sizeof(Modes.web_page), basename(arg));
-  DEBUG (DEBUG_GENERAL, "Full-name of web_page: '%s/%s'\n", Modes.web_root, Modes.web_page);
+  snprintf (Modes.web_page_full, sizeof(Modes.web_page_full), "%s/%s", Modes.web_root, Modes.web_page);
+  true_path (Modes.web_page_full);
+
+  DEBUG (DEBUG_GENERAL, "Full-name of web_page: '%s'\n", Modes.web_page_full);
   return (true);
 }
 
 static struct option long_options[] = {
-  { "config",      required_argument,  NULL,               'c' },
-  { "debug",       required_argument,  NULL,               'd' },
-  { "device",      required_argument,  NULL,               'D' },
-  { "help",        no_argument,        NULL,               'h' },
-  { "infile",      required_argument,  NULL,               'i' },
-  { "interactive", no_argument,        &Modes.interactive,  1  },
-  { "net",         no_argument,        &Modes.net,          1  },
-  { "net-active",  no_argument,        &Modes.net_active,  'N' },
-  { "net-only",    no_argument,        &Modes.net_only,    'n' },
-  { "only-addr",   no_argument,        &Modes.only_addr,    1  },
-  { "raw",         no_argument,        &Modes.raw,          1  },
-  { "strip",       required_argument,  NULL,               'S' },
-  { "test",        required_argument,  NULL,               'T' },
-  { "update",      no_argument,        NULL,               'u' },
-  { "version",     no_argument,        NULL,               'V' },
-  { NULL,          no_argument,        NULL,                0  }
+  { "config",       required_argument,  NULL,               'c' },
+  { "debug",        required_argument,  NULL,               'd' },
+  { "device",       required_argument,  NULL,               'D' },
+  { "help",         no_argument,        NULL,               'h' },
+  { "infile",       required_argument,  NULL,               'i' },
+  { "informat",     required_argument,  NULL,               'I' },
+  { "interactive",  no_argument,        &Modes.interactive,  1  },
+  { "max-messages", required_argument,  NULL,               'm' },
+  { "net",          no_argument,        &Modes.net,          1  },
+  { "net-active",   no_argument,        &Modes.net_active,  'N' },
+  { "net-only",     no_argument,        &Modes.net_only,    'n' },
+  { "only-addr",    no_argument,        &Modes.only_addr,    1  },
+  { "raw",          no_argument,        &Modes.raw,          1  },
+  { "samplerate",   required_argument,  NULL,               's' },
+  { "strip",        required_argument,  NULL,               'S' },
+  { "test",         required_argument,  NULL,               'T' },
+  { "update",       no_argument,        NULL,               'u' },
+  { "version",      no_argument,        NULL,               'V' },
+  { NULL,           no_argument,        NULL,                0  }
 };
 
 static bool parse_cmd_line (int argc, char **argv)
 {
   int   c, show_ver = 0, idx = 0;
+  char *end;
   bool  rc = true;
-  char *non_options;
 
-  while ((c = getopt_long (argc, argv, "+h?V", long_options, &idx)) != EOF)
+  while ((c = getopt_long (argc, argv, "+hs:?V", long_options, &idx)) != EOF)
   {
     switch (c)
     {
@@ -3680,7 +4327,18 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 'i':
-           set_infile (optarg);
+           infile_set (optarg);
+           break;
+
+      case 'I':
+           if (!informat_set(optarg))
+              show_help ("Illegal `--informat %s`. Use `UC8`, `SC16` or `SC16Q11`.\n", optarg);
+           break;
+
+      case 'm':
+           max_messages = strtoull (optarg, &end, 10);
+           if (end == optarg)
+              show_help ("Illegal value for `--max-messages %s'.\n", optarg);
            break;
 
       case 'N':
@@ -3691,10 +4349,14 @@ static bool parse_cmd_line (int argc, char **argv)
            Modes.net_only = Modes.net = true;
            break;
 
+      case 's':
+           set_sample_rate (optarg);
+           break;
+
       case 'S':
            Modes.strip_level = atoi (optarg);
            if (Modes.strip_level == 0)
-              show_help ("Illegal level for `--strip %d'.\n", Modes.strip_level);
+              show_help ("Illegal level for `--strip %s'.\n", optarg);
            break;
 
       case 'T':
@@ -3722,13 +4384,8 @@ static bool parse_cmd_line (int argc, char **argv)
   }
 
   argv += optind;
-  if (*argv)
-  {
-    non_options = str_join (argv, " ");
-    fprintf (stderr, "Argments ('%s') after options was unexpected!\n", non_options);
-    free (non_options);
-    rc = false;
-  }
+  if (*argv && !aircraft_match_init (*argv))
+     rc = false;
   return (rc);
 }
 
@@ -3740,10 +4397,7 @@ int main (int argc, char **argv)
   bool init_error = true;   /* assume some 'x_init()' failure */
   int  rc;
 
-#if defined(USE_MIMALLOC)
-  mimalloc_init();
-
-#elif defined(_DEBUG)
+#if defined(_DEBUG)
   crtdbug_init();
 #endif
 
@@ -3752,7 +4406,7 @@ int main (int argc, char **argv)
   if (!parse_cmd_line(argc, argv))
      goto quit;
 
-  rc = modeS_init();    /* Initialization based on cmd-line options */
+  rc = modeS_init();    /* Initialization based on cmd-line and config-file options */
   if (!rc)
      goto quit;
 
@@ -3760,9 +4414,10 @@ int main (int argc, char **argv)
   {
     char notice [100] = "";
 
-    if ((Modes.rtlsdr.name  || Modes.rtlsdr.index > -1 ||
-         Modes.sdrplay.name || Modes.sdrplay.index > -1) &&
-        !Modes.rtl_tcp_in)
+    if ((Modes.rtlsdr.name  || Modes.rtlsdr.index  > -1 ||
+         Modes.sdrplay.name || Modes.sdrplay.index > -1 ||
+         Modes.airspy.name  || Modes.airspy.index  > -1) &&
+        !net_handler_host(MODES_NET_SERVICE_RTL_TCP))
     {
       strcpy (notice, " The `--device x' option has no effect now.");
     }
@@ -3774,17 +4429,9 @@ int main (int argc, char **argv)
   }
   else if (Modes.infile[0])
   {
-    rc = 1;
-    if (Modes.infile[0] == '-' && Modes.infile[1] == '\0')
-    {
-      Modes.infile_fd = STDIN_FILENO;
-      SETMODE (Modes.infile_fd, O_BINARY);
-    }
-    else if ((Modes.infile_fd = _open(Modes.infile, O_RDONLY | O_BINARY)) == -1)
-    {
-      LOG_STDERR ("Error opening `%s`: %s\n", Modes.infile, strerror(errno));
-      goto quit;
-    }
+    rc = infile_init();
+    if (!rc)
+         goto quit;
   }
   else if (!Modes.tests)     /* for testing, do not initialize RTLSDR/SDRPlay */
   {
@@ -3795,7 +4442,14 @@ int main (int argc, char **argv)
       if (rc)
          goto quit;
     }
-    else if (!modeS_net_services[MODES_NET_SERVICE_RTL_TCP].host[0])
+    else if (Modes.airspy.name)
+    {
+      rc = airspy_init (Modes.airspy.name, Modes.airspy.index, &Modes.airspy.device);
+      DEBUG (DEBUG_GENERAL, "airspy_init(): rc: %d / %s.\n", rc, airspy_strerror(rc));
+      if (rc)
+         goto quit;
+    }
+    else if (!net_handler_host(MODES_NET_SERVICE_RTL_TCP))
     {
       rc = modeS_init_RTLSDR();  /* not using a remote RTL_TCP input device */
       DEBUG (DEBUG_GENERAL, "modeS_init_RTLSDR(): rc: %d.\n", rc);
@@ -3804,14 +4458,20 @@ int main (int argc, char **argv)
     }
   }
 
+  if (!modeS_init_hardware())
+     goto quit;
+
   if (Modes.net)
   {
     /* This will also setup a service for the remote RTL_TCP input device.
      */
     rc = net_init();
-    DEBUG (DEBUG_GENERAL, "net_init(): rc: %d.\n", rc);
     if (!rc)
-       goto quit;
+    {
+      LOG_STDERR ("net_init() failed.\n");
+      if (!Modes.tests)      /* not fatal for test-modes */
+         goto quit;
+    }
   }
 
   init_error = false;
@@ -3820,7 +4480,8 @@ int main (int argc, char **argv)
      goto quit;
 
   /**
-   * \todo Move processing of `Modes.infile` to the same thread
+   * \todo
+   * Move processing of `Modes.infile` to the same thread
    * for consistent handling of all sample-sources.
    */
   if (Modes.infile[0])
@@ -3828,23 +4489,30 @@ int main (int argc, char **argv)
     if (infile_read() == 0)
        LOG_STDERR ("No good messages found in '%s'.\n", Modes.infile);
   }
-  else if (Modes.strip_level == 0 || !Modes.rtl_tcp_in)
+  else if (Modes.strip_level == 0)
   {
-    /* Create the thread that will read the data from a physical RTLSDR or SDRplay device.
-     * No need for a data-thread with RTL_TCP.
+    /* Create the thread that will read the data from a RTLSDR device,
+     * SDRplay device or a remote RTL_TCP service.
      */
-    Modes.reader_thread = _beginthreadex (NULL, 0, data_thread_fn, NULL, 0, NULL);
+    Modes.reader_thread = CreateThread (NULL, 0, data_thread_fn, NULL, 0, NULL);
     if (!Modes.reader_thread)
     {
-      LOG_STDERR ("_beginthreadex() failed: %s.\n", strerror(errno));
+      LOG_STDERR ("CreateThread() failed; err=%lu", GetLastError());
       goto quit;
     }
+    Modes.reader_event = CreateEvent (NULL, FALSE, FALSE, NULL);
+    if (!Modes.reader_event)
+    {
+      LOG_STDERR ("CreateEvent() failed; err=%lu", GetLastError());
+      goto quit;
+    }
+
     main_data_loop();
   }
 
 quit:
-  if (!init_error)
+  if (!init_error && !Modes.no_stats)
      show_statistics();
-  modeS_exit();
+  modeS_cleanup();
   return (0);
 }

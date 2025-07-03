@@ -12,35 +12,42 @@
 echo "----------------------"
 echo "|    Get new csv     |"
 echo "----------------------"
-rm data1.csv
+rm dataold.csv
+cp data1.csv dataold.csv
 mv /var/lib/mysql-files/data1.csv ./
 
 echo "----------------------"
 echo "|  Add Header to csv |"
 echo "----------------------"
+
 sed -i '1s/^/\"icao24\",\"r\",\"t\",\"Type\",\"Country\",\"Int\",\"Image\",\"Short\",\"Force\",\"Trail\",\"Op\",\"Owner\"\n/' data1.csv
 
 echo " "
 echo "----------------------"
 echo "|  Remove old files  |"
 echo "----------------------"
-rm /root/dump1090/db/*
+
+rm /usr/share/dump1090-fa/html/sql/tools/create-new-database/db/*.json
 
 echo " "
 echo "----------------------"
 echo "|  Build new files   |"
 echo "----------------------"
-python /root/dump1090/csv-to-json.py data1.csv /root/dump1090/db
+#python /root/dump1090/csv-to-json.py data1.csv /root/dump1090/db
+
+python /usr/share/dump1090-fa/html/sql/tools/create-new-database/csv-to-json.py data1.csv /usr/share/dump1090-fa/html/sql/tools/create-new-database/db
 
 echo " "
 echo "----------------------"
 echo "| Remove live files  |"
 echo "----------------------"
-rm /usr/share/dump1090-fa/html/db/*
+
+rm /usr/share/dump1090-fa/html/db/*.json
 
 echo " "
 echo "----------------------"
 echo "| Install new files   |"
 echo "----------------------"
-cp /root/dump1090/db/* /usr/share/dump1090-fa/html/db
-cp /root/dump1090/db/* /usr/share/dump1090-mutability/html/db
+#cp /root/dump1090/db/* /usr/share/dump1090-mutability/html/db
+
+cp //usr/share/dump1090-fa/html/sql/tools/create-new-database/db/* /usr/share/dump1090-fa/html/db

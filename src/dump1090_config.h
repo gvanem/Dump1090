@@ -7,7 +7,7 @@
 
 #define VER_MAJOR 0
 #define VER_MINOR 4
-#define VER_MICRO 3
+#define VER_MICRO 8
 
 /* Warning control:
  */
@@ -18,11 +18,17 @@
 #define _CRT_NONSTDC_NO_WARNINGS        1
 
 #if defined(__clang__)
+  #pragma clang diagnostic ignored "-Wignored-attributes"
   #pragma clang diagnostic ignored "-Wunused-value"
   #pragma clang diagnostic ignored "-Wunused-variable"
   #pragma clang diagnostic ignored "-Wunused-function"
+  #pragma clang diagnostic ignored "-Wunused-label"
+  #pragma clang diagnostic ignored "-Wunused-parameter"
   #pragma clang diagnostic ignored "-Wpragma-pack"
+  #pragma clang diagnostic ignored "-Wsign-compare"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
+  #pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
+  #pragma clang diagnostic ignored "-Wmicrosoft-enum-forward-reference"
 
   /*
    * Cause a compile-error for these warnings:
@@ -30,13 +36,18 @@
   #pragma clang diagnostic error "-Wformat"
   #pragma clang diagnostic error "-Wformat-insufficient-args"
 
-  #ifdef COMPILING_SQLITE3_SHELL
-    #pragma clang diagnostic ignored "-Wunused-parameter"
-    #pragma clang diagnostic ignored "-Wsign-compare"
+  #if defined(COMPILING_SQLITE3_SHELL)
     #pragma clang diagnostic ignored "-Wformat-security"
+    #pragma clang diagnostic ignored "-Wnull-pointer-subtraction"
   #endif
 
 #elif defined(_MSC_VER)
+ /*
+  * airports.c(1502): warning C4102:
+  *   'done': unreferenced label
+  */
+  #pragma warning (disable: 4102)
+
   /*
    * misc.c(524): warning C4152: nonstandard extension,
    *   function/data pointer conversion in expression
@@ -44,7 +55,13 @@
   #pragma warning (disable: 4152)
 
   /*
-   * csv.c(60): warning C4244: '=':
+   * windnsdef.h(1072,6): warning C4201:
+   *   nonstandard extension used: nameless struct/union
+   */
+  #pragma warning (disable: 4201)
+
+  /*
+   * csv.c(60): warning C4244:
    *   conversion from 'int' to 'char', possible loss of data
    */
   #pragma warning (disable: 4244)
@@ -62,11 +79,17 @@
   #pragma warning (disable: 4127 4706)
 
   /*
+   * externals/mongoose.c(16208): warning C4310: cast truncates constant value
+   * externals/mongoose.c(17251): warning C4310: cast truncates constant value
+   */
+  #pragma warning (disable: 4310)
+
+  /*
    * warning C4702: unreachable code
    */
   #pragma warning (disable: 4702)
 
-  #ifdef _WIN64
+  #if defined(_WIN64)
     /*
      * 'type cast': conversion from 'int' to 'void *' of greater size
      */
@@ -121,11 +144,15 @@
 /** Support various features in `externals/mongoose.c`:
  */
 #define MG_ENABLE_ASSERT        1  /* Enable `assert()` calls */
-#define MG_ENABLE_IPV6          0  /* No IPv6 code */
+#define MG_ENABLE_IPV6          1  /* Enable IPv6 */
 #define MG_ENABLE_MD5           0  /* No need for MD5 code */
 #define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
 #define MG_ENABLE_DIRLIST       0  /* No need for directory listings in HTTP */
 #define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
+#define MG_TLS                  3  /* Enable MG_TLS_BUILTIN code */
+#define MG_TLS_SSLKEYLOGFILE    1  /* Enable logging to `$(SSLKEYLOGFILE)` */
+
+#define _CRT_RAND_S             1  /* To pull in 'rand_s()' */
 
 /** Drop some stuff not needed in `externals/zip.c`:
  */
@@ -158,13 +185,6 @@
 #define fileno(stream)       _fileno (stream)
 
 /**
- * Check for illegal settings.
- */
-#if defined(_DEBUG) && defined(USE_MIMALLOC)
-  #error "Setting 'USE_CRT_DEBUG=1' and 'USE_MIMALLOC=1' is not supported"
-#endif
-
-/**
  * Options for `_DEBUG` / `-MDd` mode:
  */
 #if defined(_DEBUG)
@@ -173,24 +193,6 @@
   #undef  _malloca          /* Avoid MSVC-9 <malloc.h>/<crtdbg.h> name-clash */
   #define _CRTDBG_MAP_ALLOC
   #include <crtdbg.h>
-
-#elif defined(USE_MIMALLOC)
-  /**
-   * Options for `externals/mimalloc/` code. Can not be used with `_DEBUG`.
-   * 'mimalloc-override.h' will redefine most of these functions to 'mi_xx()'.
-   */
-  #include <mimalloc/mimalloc-override.h>
-
-  /*
-   * Since 'realpath()' gets defined in 'externals/mongoose.h' too.
-   * Safer to use 'mi_realpath()'
-   */
-  #undef  realpath
-  #include <externals/mongoose.h>
-
-  #undef  realpath
-  #define realpath(file, real_name)  mi_realpath (file, real_name)
-
 #else
   /**
    * Drop the dependency on 'oldnames.lib'
@@ -199,26 +201,12 @@
 #endif
 
 /**
- * Enable "Windows epoll()"?
+ * Not defined in `Dump1090.vcxproj'
  */
-#if defined(MG_ENABLE_EPOLL)
-  #undef  _WIN32_WINNT
-  #define _WIN32_WINNT 0x0602
-
-  #include <wepoll.h>
-
-  #define close(fd)      epoll_close (fd)
-  #define EPOLL_CLOEXEC  0  /* For 'epoll_create1(flags)' */
-
-  #if defined(__clang__)
-    #pragma clang diagnostic ignored "-Wint-to-void-pointer-cast"
-    #pragma clang diagnostic ignored "-Wvoid-pointer-to-int-cast"
-  #else
-    /*
-     * warning C4311: 'type cast': pointer truncation from 'HANDLE' to 'int'
-     */
-    #pragma warning (disable: 4311)
-  #endif
+#if defined(DOING_MSBUILD)
+  #define PDC_WIDE       1
+  #define PDC_FORCE_UTF8 1
+  #define PDC_NCMOUSE    1
 #endif
 
 /**
@@ -251,33 +239,21 @@
   #endif
 
   #if defined(_DEBUG)
-    #define RC_DBG_REL    " debug"
+    #define RC_DBG_REL    "debug"
     #define RC_FILEFLAGS  1
   #else
-    #define RC_DBG_REL    " release"
+    #define RC_DBG_REL    "release"
     #define RC_FILEFLAGS  0
   #endif
 
-  #if defined(USE_ASAN) || defined(USE_UBSAN)
-    #define RC_FILEFLAGS2     VS_FF_SPECIALBUILD
-
-    #if defined(USE_ASAN) && defined(USE_UBSAN)
-      #define RC_BUILD_FEATURES  "ASAN, UBSAN"
-    #elif defined(USE_ASAN)
-      #define RC_BUILD_FEATURES  "ASAN"
-    #else
-      #define RC_BUILD_FEATURES  "UBSAN"
-    #endif
-
-  #else
-    #define RC_FILEFLAGS2     0
-    #define RC_BUILD_FEATURES ""
+  #if defined(USE_ASAN)
+  #define RC_BUILD_FEATURES  "ASAN"
   #endif
 
   /**
    * 'RC_BITS' is defined Makefile.Windows to '32' or '64'.
    */
-  #define RC_VER_STRING  PROG_VERSION  " (" RC_BUILDER ", " _STR(RC_BITS) "-bits," RC_DBG_REL ")"
+  #define RC_VER_STRING  PROG_VERSION  " (" RC_BUILDER ", " _STR(RC_BITS) "-bits, " RC_DBG_REL ")"
   #define RC_VERSION     VER_MAJOR, VER_MINOR, VER_MICRO, 0
 #endif
 

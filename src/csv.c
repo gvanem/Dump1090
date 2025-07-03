@@ -1,7 +1,6 @@
 /**\file    csv.c
  * \ingroup Misc
- *
- * \brief Implements a generic parser for CSV files.
+ * \brief   Reading of "Comma-separated values" (CSV) files
  *
  * The parsing is loosely adapting the rules in: https://tools.ietf.org/html/rfc4180
  */

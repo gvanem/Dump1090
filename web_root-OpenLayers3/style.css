@@ -1,9 +1,15 @@
-html, body {
-    margin: 0; padding: 0; background-color: #ffffff; font-family: Tahoma, Sans-Serif;
-    font-size: 10pt; overflow: auto; height: 100%;
+html,
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #ffffff;
+    font-family: Tahoma, Sans-Serif;
+    font-size: 10pt;
+    overflow: auto;
+    height: 100%;
 }
 
-#layout_container { 
+#layout_container {
     display: flex;
     height: 100%;
 }
@@ -94,8 +100,10 @@ html, body {
 
 #sidebar_container {
     display: flex;
-    width: 500px;  /* AKISSACK  ------------ Ref: AK9F */
+    width: auto;
+    /* AKISSACK  ------------ Ref: AK9F */
     left: 0 !important;
+    color: black;
 }
 
 #splitter {
@@ -105,31 +113,86 @@ html, body {
     left: 0 !important;
 }
 
-#sidebar_canvas { 
-    flex: 1 1 auto; 
+#sidebar_canvas {
+    flex: 1 1 auto;
     padding: 10px;
     overflow: scroll;
 }
+#planes_table {
+    color: black;
+}
 
-div#SpecialSquawkWarning { position: absolute; bottom: 25px; left: 100px; border: 2px solid red;
-    background-color: #FFFFA3; opacity: 0.75; filter:alpha(opacity=75); padding: 5px;
-    text-align: center; }
+div#SpecialSquawkWarning {
+    position: absolute;
+    bottom: 25px;
+    left: 100px;
+    border: 2px solid red;
+    background-color: #FFFFA3;
+    opacity: 0.75;
+    filter: alpha(opacity=75);
+    padding: 5px;
+    text-align: center;
+}
 
-div#update_error { position: absolute; bottom: 25px; left: 25px; border: 2px solid red;
-    background-color: #FFFFA3; opacity: 0.75; filter:alpha(opacity=75); padding: 5px;
-    text-align: center; }
+div#update_error {
+    position: absolute;
+    bottom: 25px;
+    left: 25px;
+    border: 2px solid red;
+    background-color: #FFFFA3;
+    opacity: 0.75;
+    filter: alpha(opacity=75);
+    padding: 5px;
+    text-align: center;
+}
 
-div#loader { z-index: 99; position: absolute; left: 0; top: 0; bottom: 0; right: 0; background: #000; opacity: 0.8; filter: alpha(opacity=80); }
-#spinny { width: 128px; height: 128px; position: absolute; top: 50%; left: 50%; margin: -64px 0 0 -64px; }
-#loader_progress { width: 250px; height: 20px; position: absolute; top: 50%; left: 50%; margin: 128px 0 0 -125px; }
+div#loader {
+    z-index: 99;
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    background: #000;
+    opacity: 0.8;
+    filter: alpha(opacity=80);
+}
 
-#tableinfo { font-size: 10pt;  font-family: monospace;} /* AKISSACK  ------------ Ref: AK9F */
-/* #tableinfo { font-size: small; } */
+#spinny {
+    width: 128px;
+    height: 128px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    margin: -64px 0 0 -64px;
+}
+
+#loader_progress {
+    width: 250px;
+    height: 20px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    margin: 128px 0 0 -125px;
+}
+
+#tableinfo {
+    font-size: 10pt;
+    font-family: Menlo-Regular, monospace;
+}
+
+/* AKISSACK  ------------ Ref: AK9F  */
 
 #sudo_buttons {
     display: flex;
-    padding: 15px 20px 15px 20px;
+    padding: 1px 1px 1px 1px;
     justify-content: space-between;
+}
+
+#show_range_admin_buttons {
+    display: inline;
+    padding: 1px 1px 1px 1px;
+    justify-content: center;
 }
 
 #units_container,
@@ -138,11 +201,12 @@ div#loader { z-index: 99; position: absolute; left: 0; top: 0; bottom: 0; right:
     margin: 10px 0 10px 0;
 }
 
-.aircraft_table_header { 
+.aircraft_table_header {
     background-color: #409EDF;
     color: #FFFFFF;
     cursor: pointer;
 }
+
 .aircraft_table_header td {
     font-size: smaller;
     padding: 5px;
@@ -150,54 +214,119 @@ div#loader { z-index: 99; position: absolute; left: 0; top: 0; bottom: 0; right:
 }
 
 .verticalRateTriangle {
-    font-family: "Courier New",monospace;
+    font-family: Menlo-Regular, monospace;
 }
 
 .icaoCodeColumn {
-    font-family: monospace;
+    font-family: Menlo-Regular, monospace;
     text-transform: uppercase;
 }
 
+.vPosition {
+    background-color: #C3FFDF;  //green
+}
 
+.mlat {
+    background-color: #C7EAFC;  //blue
+}
+.acdefault {
+    background-color: #dddddd;
+}
+.acdefaultnopos {
+    background-color: #eeeeee;
+}
 
-.vPosition  { background-color: #C3FFDF; }
-.mlat       { background-color: #C7EAFC; }
-.squawk7500 { font-weight: bold; background-color: #ff5555; }
-.squawk7600 { font-weight: bold; background-color: #00ffff; }
-.squawk7700 { font-weight: bold; background-color: #ffff00; }
-.selected   { background-color: #dddddd; }
-.plane_table_row { cursor: pointer; }
-.hidden { display: none; }
+.squawk7500 {
+    font-weight: bold;
+    background-color: #ff5555;
+}
 
-.infoblock_heading    { font-size: larger; }
-.infoblock_heading a  { text-decoration: none; color: blue; font-size: x-small;}
-.infoblock_body       { font-size: small; }
+.squawk7600 {
+    font-weight: bold;
+    background-color: #00ffff;
+}
 
-#selected_icao { font-size: x-small; }
-#selected_registration { font-size: x-small; }
-#selected_icaotype { font-size: x-small; }
+.squawk7700 {
+    font-weight: bold;
+    background-color: #ffff00;
+}
 
-.dim    { opacity: 0.3; filter:alpha(opacity=30); /* For IE8 and earlier */ }
+.selected {
+    background-color: #dddd66;
+}
 
-.pointer { cursor: pointer; }
+.plane_table_row {
+    cursor: pointer;
+}
+
+.hidden {
+    display: none;
+}
+
+.infoblock_heading {
+    font-size: larger;
+}
+
+.infoblock_heading a {
+    text-decoration: none;
+    color: blue;
+    font-size: x-small;
+}
+
+.infoblock_body {
+    font-size: small;
+}
+
+#selected_icao {
+    font-size: x-small;
+}
+
+#selected_registration {
+    font-size: x-small;
+}
+
+#selected_icaotype {
+    font-size: x-small;
+}
+
+.dim {
+    opacity: 0.3;
+    filter: alpha(opacity=30);
+    /* For IE8 and earlier */
+}
+
+.pointer {
+    cursor: pointer;
+}
 
 .sidebarButton {
-     background-color: #409EDF;
-     padding: 4px 15px 4px 15px;
-     color: #FFFFFF;
-     font-weight: normal;
-     font-size: small;
+    background-color: #409EDF;
+    padding: 4px 15px 4px 15px;
+    color: #FFFFFF;
+    font-weight: normal;
+    font-size: small;
+}
+
+.sidebarButtonRed {
+    background-color: #cc0000;
+    padding: 4px 15px 4px 15px;
+    color: #FFFFFF;
+    font-weight: normal;
+    font-size: small;
 }
 
 .sidebarButton:hover {
-     background-color: #3c6ea3;
+    background-color: #3c6ea3;
 }
 
 .altitudeFilterInput {
+    background-color: #aaaaaa;
     width: 50px;
 }
 
-select.error, textarea.error, input.error {
+select.error,
+textarea.error,
+input.error {
     color: #FF0000;
 }
 
@@ -205,25 +334,40 @@ select.error, textarea.error, input.error {
     top: 86px !important;
     right: 10px !important;
 }
-
+   
 /* AKISSACK - ref: AK1B Starts ---------------------------------------------------------------------------- */
-div#mouseposition  { position: absolute; top: 0px; left: 20px; opacity: 1; text-align: left; color: blue;  }
-div.mp { width: 210px; }
+div#mouseposition {
+    position: absolute;
+    top: 0px;
+    left: 20px;
+    opacity: 1;
+    text-align: left;
+    color: blue;
+}
+
+div.mp {
+    width: 210px;
+}
+
 /* ----------------------------------------------------------------------------------------- ref: AK1B Ends */
 
 /* AKISSACK -  HOVER OVER LABELS (also in script.js/PlaneObject.js/index.html) ----------- ref: AK6C starts */
-.ofInterest { color: red; }
-#popinfo {
-  max-width: 200px;
-  background-color: white;
-  color: black;
-  opacity: 0.850;
-  font-size: 8pt;
-  font-family: sans-serif;
-  margin: 5px;
-  border: 1px solid black;
-  border-radius: 10px 10px 10px 0;
-  padding: 2px 5px 2px 5px;
-  white-space:pre-wrap;
+.ofInterest {
+    color: red;
 }
+
+#popinfo {
+    max-width: 200px;
+    background-color: white;
+    color: black;
+    opacity: 0.850;
+    font-size: 8pt;
+    font-family: sans-serif;
+    margin: 5px;
+    border: 1px solid black;
+    border-radius: 10px 10px 10px 0;
+    padding: 2px 5px 2px 5px;
+    white-space: pre-wrap;
+}
+
 /* AKISSACK -  HOVER OVER LABELS (also in script.js/PlaneObject.js/index.html) ------------ ref: AK6C ends */

@@ -9,7 +9,7 @@
  *
  * Rewritten from: https://github.com/arakiken/mlterm/blob/master/vtemu/vt_pty_win32.c
  *
- * \ref
+ * \sa
  *  https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session/
  *  https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/
  *  https://github.com/microsoft/terminal/discussions/15814/
@@ -52,22 +52,14 @@ typedef struct pconsole_t {
 #define ADD_VALUE(func)  { false, NULL, "kernel32.dll", #func, (void**) &p_##func }
                         /* ^ no functions are optional */
 
-/**
- * \def DEF_FUNC
- * Handy macro to both define and declare the function-pointers
- * for `WinInet.dll`
- */
-#define DEF_FUNC(ret, f, args)  typedef ret (WINAPI *func_##f) args; \
-                                static func_##f p_##f = NULL
+DEF_WIN_FUNC (HRESULT, CreatePseudoConsole, (COORD  size,
+                                             HANDLE input,
+                                             HANDLE output,
+                                             DWORD  flags,
+                                             HPCON *hnd));
 
-DEF_FUNC (HRESULT, CreatePseudoConsole, (COORD  size,
-                                         HANDLE input,
-                                         HANDLE output,
-                                         DWORD  flags,
-                                         HPCON *hnd));
-
-DEF_FUNC (HRESULT, ClosePseudoConsole,  (HPCON *hnd));
-DEF_FUNC (HRESULT, ResizePseudoConsole, (HPCON *hnd, COORD size));
+DEF_WIN_FUNC (HRESULT, ClosePseudoConsole,  (HPCON *hnd));
+DEF_WIN_FUNC (HRESULT, ResizePseudoConsole, (HPCON *hnd, COORD size));
 
 static struct dyn_struct kernel32_funcs[] = {
                          ADD_VALUE (CreatePseudoConsole),

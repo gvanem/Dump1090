@@ -28,7 +28,7 @@ extern const char *mg_spec_2 (void);
 
 static file_packed *lookup_table = NULL;
 static size_t       lookup_table_sz = 0;
-static int          rc = 0;
+static int          g_rc = 0;
 
 static void check_specs (spec_func spec_1, spec_func spec_2)
 {
@@ -36,7 +36,7 @@ static void check_specs (spec_func spec_1, spec_func spec_2)
   {
     fprintf (stderr, "'spec_1()' -> '%s'\n", (*spec_1)());
     fprintf (stderr, "'spec_2()' -> '%s'\n", (*spec_2)());
-    rc++;
+    g_rc++;
   }
 }
 
@@ -56,7 +56,7 @@ static void check_numbers (unlist_func unlist_1, unlist_func unlist_2)
   }
   else
   {
-    rc++;
+    g_rc++;
     fprintf (stderr, "'unlist_1()' gave %zu files. But 'unlist_2()' gave %zu files.\n", num_1, num_2);
     lookup_table_sz = min (num_1, num_2);
   }
@@ -91,7 +91,7 @@ static void check_sizes (unlist_func unlist_1, unlist_func unlist_2,
   if (ftotal_2 >= ftotal_1)
   {
     fprintf (stderr, "'unpack_2()' showed no '--minify' benefit.\n");
-    rc++;
+    g_rc++;
   }
   else
   {
@@ -107,7 +107,7 @@ static void check_listing (unlist_func unlist_1, unlist_func unlist_2,
                            unpack_func unpack_1, unpack_func unpack_2)
 {
   size_t num;
-  int    _rc = rc;
+  int    _rc = g_rc;
 
   for (num = 0;; num++)
   {
@@ -124,7 +124,8 @@ static void check_listing (unlist_func unlist_1, unlist_func unlist_2,
     if (strcmp(fname_1, fname_2) || mtime_1 != mtime_2)
        _rc++;
   }
-  fprintf (stderr, "'unpack_1()' and 'unpack_2()' returned %s files.\n", _rc == rc ? "the same" : "different");
+  fprintf (stderr, "'unpack_1()' and 'unpack_2()' returned %s files.\n",
+           _rc == g_rc ? "the same" : "different");
 }
 
 static int compare_on_name (const void *_a, const void *_b)
@@ -259,11 +260,6 @@ static void check_DLL (const char *dll_basename)
 
 static void init (void)
 {
-#ifdef USE_MIMALLOC
-  Modes.debug |= DEBUG_GENERAL;
-  mimalloc_init();
-#endif
-
   memset (&Modes, '\0', sizeof(Modes));
   GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
   snprintf (Modes.where_am_I, sizeof(Modes.where_am_I), "%s", dirname(Modes.who_am_I));
@@ -272,17 +268,13 @@ static void init (void)
 int main (void)
 {
   init();
-  check_specs   (mg_spec_1, mg_spec_2);
+//check_specs   (mg_spec_1, mg_spec_2);
   check_numbers (mg_unlist_1, mg_unlist_2);
   check_listing (mg_unlist_1, mg_unlist_2, mg_unpack_1, mg_unpack_2);
   check_sizes   (mg_unlist_1, mg_unlist_2, mg_unpack_1, mg_unpack_2);
   check_speed   (mg_unlist_1, mg_unlist_2, mg_unpack_1, mg_unpack_2, 1000);
   check_DLL ("web-pages.dll");
-
-#ifdef USE_MIMALLOC
-  puts ("\nStatistics from 'mimalloc':");
-#endif
-  return (rc);
+  return (g_rc);
 }
 
 /*

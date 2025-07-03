@@ -21,21 +21,13 @@
 // provided by dump1090 itself. All positions are in decimal
 // degrees.
 
-// Default center of the map.
-//DefaultCenterLat = 45.0;
-//DefaultCenterLon = 9.0;
 // The google maps zoom level, 0 - 16, lower is further out
 //DefaultZoomLvl   = 7;
 
 // specify lat lon that the 'auto-select plane' feature will choose the closest plane to
 // autoselectCoords = [42, 21];
 
-// Center marker. If dump1090 provides a receiver location,
-// that location is used and these settings are ignored.
-
 //SiteShow    = false;           // true to show a center marker
-//SiteLat     = 45.0;            // position of the marker
-//SiteLon     = 9.0;
 //SiteName    = "My Radar Site"; // tooltip of the marker
 
 // Update GPS location (keep map centered on GPS location)
@@ -46,12 +38,14 @@
 //range_outline_alpha = 1.0;
 //range_outline_width = 1.7;
 //range_outline_colored_by_altitude = false;
+// NOTE: dashed lines cause slowdown when zooming in, not recommended
 //range_outline_dash = [5, 5]; // null - solid line, [5, 5] - dashed line with 5 pixel lines and spaces in between
 //
 //
 // Style controls for the actal range outline:
 // actual_range_outline_color = '#00596b';
 // actual_range_outline_width = 1.7;
+// NOTE: dashed lines cause slowdown when zooming in, not recommended
 // actual_range_outline_dash = null; // null - solid line, [5, 5] - dashed line with 5 pixel lines and spaces in between
 
 // Enable / disable showing the actual range outline when first visiting the page
@@ -92,8 +86,26 @@
 // mapDimPercentage = 0.45;
 // mapContrastPercentage = 0;
 
+// opacities for various overlays
+// nexradOpacity = 0.35
+// dwdRadolanOpacity = 0.30;
+// rainViewerRadarOpacity = 0.30;
+// rainViewerCloudsOpacity = 0.30;
+// noaaInfraredOpacity = 0.35;
+// noaaRadarOpacity = 0.35;
+// openAIPOpacity = 0.70;
+// tfrOpacity = 0.70;
 
 // -- Marker settings -------------------------------------
+// (marker == aircraft icon)
+
+// aircraft icon opacity (normal and while the user is moving the map)
+// webglIconOpacity = 1.0;
+// webglIconMapMoveOpacity = 1.0;
+
+// if more than by default 2000 aircraft are on the screen, reduce icon opacity when moving the screen:
+// webglIconMapMoveOpacityCrowded = 0.25;
+// webglIconMapMoveOpacityCrowdedThreshold = 2000;
 
 // different marker size depending on zoom lvl
 // markerZoomDivide = 8.5;
@@ -128,7 +140,7 @@
 
 ColorByAlt = {
 	// HSL for planes with unknown altitude:
-	unknown : { h: 0,   s: 0,   l: 30 },
+	unknown : { h: 0,   s: 0,   l: 75 },
 
 	// HSL for planes that are on the ground:
 	ground  : { h: 0, s: 0, l: 45 },
@@ -205,6 +217,15 @@ ColorByAlt = {
 //
 BingMapsAPIKey = null;
 
+// Provide a Mapbox API key here to enable the Mapbox vector layers.
+// You can obtain a free key (with usage limits) at
+// https://www.mapbox.com/
+//
+// Be sure to quote your key:
+//   MapboxAPIKey = "your key here";
+//
+MapboxAPIKey = null;
+
 // This determines what is up, default is north (0 degrees)
 //mapOrientation = 0;
 
@@ -235,6 +256,9 @@ BingMapsAPIKey = null;
 // imageConfigText = "";
 
 //flightawareLinks = false;
+//shareBaseUrl = 'https://adsb.lol/';
+//shareBaseUrl = 'https://globe.adsb.fi/';
+//shareBaseUrl = 'https://globe.airplanes.live/';
 //shareBaseUrl = 'https://globe.adsbexchange.com/';
 // planespottersLinks = false;
 
@@ -268,16 +292,16 @@ BingMapsAPIKey = null;
 /* // remove this line to mofify columns (and the one at the end)
 HideCols = [
 	"#icao",
-//	"#flag",
+//	"#country",
 //	"#flight",
 //	"#route",
 	"#registration",
-//	"#aircraft_type",
+//	"#type",
 //	"#squawk",
 //	"#altitude",
 //	"#speed",
 	"#vert_rate",
-//	"#distance",
+//	"#sitedist",
 	"#track",
 	"#msgs",
 	"#seen",
@@ -285,6 +309,9 @@ HideCols = [
 	"#lat",
 	"#lon",
 	"#data_source",
+	"#military",
+    "#wd",
+    "#ws",
 ]
 */ // remove this line to modify columns (and the one at the start)
 
@@ -295,10 +322,12 @@ HideCols = [
 // get pictures from planespotting.be
 // planespottingAPI = true;
 
-// get flight route from routeApi service
+// get flight route from routeApi service default setting (toggle via settings checkbox)
    useRouteAPI = true;
 // which routeApi service to use
-   routeApiUrl = "https://api.adsb.lol/api/0/routeset";
+   routeApiUrl = "https://adsb.im/api/0/routeset";
+// routeApiUrl = "https://api.adsb.lol/api/0/routeset";
+// routeApiUrl = ""; // to disable route API so it can't be enabled by a website visitor
 
 // show a link to jetphotos, only works if planespottersAPI is disabled
 // jetphotoLinks = false;
@@ -313,6 +342,7 @@ HideCols = [
 
 // labelsGeom = false; // labels: uses geometric altitude (WGS84 ellipsoid unless geomUseEGM is enabled
 // geomUseEGM = false; // use EGM96 for displaying geometric altitudes (extra load time!)
+// baroUseQNH = false;
 
 // windLabelsSlim = false;
 // showLabelUnits = true;
@@ -341,6 +371,19 @@ HideCols = [
 //seenTimeoutMlat = 58; // in seconds
 
 //tableInView = false; // only show aircraft in current view (V button)
+
+//audio_url = ["", "", "", "", "", ""]; // show html5 audio player for these URLs
+// example with titles: audio_url = [ ["URL1", "title1" ], ["URL2", "title2"] ];
+
+// aiscatcher_server = "http://192.168.1.113:8100"; // update with your server address
+// aiscatcher_refresh = 15; // refresh interval in seconds
+// aisTimeout = 1200;
+
+// droneJson = "";
+// droneRefresh = 1;
+
+// icaoFilter = [ "123456", "888888" ]; // only show these icaos
+// icaoBlacklist = [ "123456", "888888" ]; // never show these icaos
 
 /*
 tableColors = {
@@ -375,3 +418,12 @@ tableColors = {
 //prefer978 = 0;
 //
 // dynGlobeRate = false; // enable use of globeRates.json in index.html directory to steer client refresh rate
+
+// !!! Please set the latitude / longitude in the decoder rather than
+// setting it here !!!
+// (graphs1090 will get the location from the decoder)
+//SiteLat     = 45.0;            // position of the marker
+//SiteLon     = 9.0;
+// Default center of the map if no Site location is set
+//DefaultCenterLat = 45.0;
+//DefaultCenterLon = 9.0;

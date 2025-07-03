@@ -3,8 +3,7 @@
  *
  * Network functions for Dump1090.
  */
-#ifndef _NET_IO_H
-#define _NET_IO_H
+#pragma once
 
 #include "misc.h"
 
@@ -47,26 +46,32 @@ typedef char ip_address [MAX_ADDRESS];
 #define MODES_NET_PORT_SBS      30003
 #define MODES_NET_PORT_HTTP      8080
 #define MODES_NET_PORT_RTL_TCP   1234
+#define MODES_NET_PORT_DNS_UDP     53
 
 extern net_service modeS_net_services [MODES_NET_SERVICES_NUM];
 
 /**
  * \typedef net_msg_handler
- * The function-type for handling "RAW TCP Input" and "SBS TCP Input" messages.
+ * The function-type for handling "RAW TCP Input", "SBS TCP Input"
+ * and "DNS input" messages.
  */
 typedef bool (*net_msg_handler) (mg_iobuf *msg, int loop_cnt);
 
-bool        net_init (void);
-bool        net_exit (void);
-void        net_poll (void);
-void        net_show_stats (void);
-uint16_t    net_handler_port (intptr_t service);
-const char *net_handler_protocol (intptr_t service);
-bool        net_handler_sending (intptr_t service);
-void        net_connection_send (intptr_t service, const void *msg, size_t len);
-bool        net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
-bool        net_deny4 (const char *val);
-bool        net_deny6 (const char *val);
+bool      net_init (void);
+bool      net_exit (void);
+void      net_poll (void);
+uint16_t  net_handler_port (intptr_t service);
+char     *net_handler_host (intptr_t service);
+char     *net_handler_protocol (intptr_t service);
+char     *net_handler_url (intptr_t service);
+char     *net_handler_descr (intptr_t service);
+char     *net_handler_error (intptr_t service);
+bool      net_handler_sending (intptr_t service);
+void      net_handler_send (intptr_t service, const void *msg, size_t len);
+bool      net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+void      net_show_stats (void);
+bool      net_deny4 (const char *val);
+bool      net_deny6 (const char *val);
 
 /**
  * Timeout for reception of RTL_TCP data.
@@ -75,6 +80,3 @@ bool        net_deny6 (const char *val);
 
 bool rtl_tcp_set_gain      (mg_connection *c, int16_t gain);
 bool rtl_tcp_set_gain_mode (mg_connection *c, bool autogain);
-
-#endif  /* _NET_IO_H */
-

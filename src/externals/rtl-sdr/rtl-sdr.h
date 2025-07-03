@@ -29,7 +29,7 @@
 extern "C" {
 #endif
 
-#if defined(_WIN32) && defined(inside_RTLSDR)
+#if defined(_WIN32)
 #define usleep(usec) Sleep ((usec)/1000)
 #endif
 
@@ -37,7 +37,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stddef.h>
-#include <rtl-sdr_export.h>
+#include <rtl-sdr/rtl-sdr_export.h>
 
 typedef struct rtlsdr_dev rtlsdr_dev_t;
 
@@ -83,6 +83,14 @@ RTLSDR_API int rtlsdr_open(rtlsdr_dev_t **dev, uint32_t index);
  * \return -1 if device handle was already close - or never opened
  */
 RTLSDR_API int rtlsdr_close(rtlsdr_dev_t *dev);
+
+/*!
+ * A safer rtlsdr_close()
+ *
+ * \param dev the pointer to the device handle given by rtlsdr_open()
+ * \return -1 if device handle was already close - or never opened
+ */
+RTLSDR_API int rtlsdr_close2(rtlsdr_dev_t **dev);
 
 /* configuration functions */
 

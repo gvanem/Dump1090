@@ -1,5 +1,6 @@
 /**\file    csv.h
  * \ingroup Misc
+ * \brief   Reading of "Comma-separated values" (CSV) files
  */
 #ifndef _CSV_H
 #define _CSV_H

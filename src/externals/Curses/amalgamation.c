@@ -24,6 +24,8 @@
  *   #define PDCDEBUG
  */
 
+#undef PDC_NCMOUSE
+
 #include "addch.c"
 #include "addstr.c"
 #include "attr.c"
@@ -55,3 +57,7 @@
 #include "touch.c"
 #include "util.c"
 #include "window.c"
+
+#ifdef PDCDEBUG
+#include "debug.c"
+#endif

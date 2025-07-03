@@ -13,7 +13,7 @@
 
     <!-- CSS_ANCHOR -->
     <link rel="stylesheet" href="libs/jquery-ui-1.13.2.min.css" type="text/css">
-    <link rel="stylesheet" href="libs/ol-9.0.0.css" type="text/css" />
+    <link rel="stylesheet" href="libs/ol-8.2.0.css" type="text/css" />
     <link rel="stylesheet" href="libs/ol-layerswitcher-4.1.1.css" type="text/css"/>
     <link rel="stylesheet" href="style.css" type="text/css" />
 
@@ -43,6 +43,10 @@
           <div>
             <div class="infoHeading"><span>Type code: </span></div>
             <div class="infoData"><span id="highlighted_icaotype">n/a</span></div>
+          </div>
+          <div>
+              <div id="routeRowHighlight" class="infoHeading"><span title="Reported flight origin and destination according to adsbdb.com">Route</span>:</div>
+              <div class="infoData"><span id="highlighted_route"></span></div>
           </div>
           <div class="rSpacer">
           </div>
@@ -85,7 +89,7 @@
                     <span class=credits-image></span>
                   </td>
                   <td>
-                    <span class=credits-text>adsbexchange.com</span>
+                    <span class=credits-text>aggregator.com</span>
                   </td>
                 </tr>
               </table>
@@ -297,7 +301,7 @@
               </tr>
               <tr>
                 <td>
-                  <span class="infoHeading" title="The uncorrected pressure-derived height of the aircraft above mean sea level (based on barometric pressure)">Baro. Altitude</span>:
+                  <span class="infoHeading" id="selected_altitude1_title" title="The uncorrected pressure-derived height of the aircraft above mean sea level (based on barometric pressure)">Baro. Altitude</span>:
                   <span class="infoData" id="selected_altitude1"></span>
                 </td>
               </tr>
@@ -519,7 +523,7 @@
           <div class="infoBlockSection">
             <div>
               <div class="infoHeading">
-                <span title="The uncorrected pressure-derived height of the aircraft above mean sea level (based on barometric pressure)">Barometric</span>:
+                <span id="selected_altitude2_title" title="The uncorrected pressure-derived height of the aircraft above mean sea level (based on barometric pressure)">Barometric</span>:
               </div>
               <div class="infoData">
                 <span id="selected_altitude2"></span>
@@ -726,12 +730,13 @@
         </div>
       </div> <!-- selected_infoblock -->
 
+      <div id="loader">
+          <progress id="loader_progress"></progress>
+      </div>
+
       <div id="map_container" style="background-color:#D2D2D2;">
         <!-- MAP_CONTAINER_ANCHOR -->
         <div id="map_canvas" style="background-color:#D2D2D2;">
-          <div id="loader">
-            <progress id="loader_progress"></progress>
-          </div>
         </div>
         <div id="iconTestCanvas" style="background-color:#D2D2D2;display:none;">
         </div>
@@ -771,15 +776,11 @@
             <div class="settingsOptionContainer">
               <button class="formButton" onclick="resetSettings();">Reset All Settings</button>
             </div>
-            <div class="settingsOptionContainer">
-              <div class="settingsCheckbox" id="grouptype_checkbox"></div>
-              <div class="settingsText">Group by Data Type</div>
-            </div>
           </div>
         </div>
         <div style="display: none" id="credits">
           <span class=credits-image></span>
-          <span class=credits-text>adsbexchange.com</span>
+          <span class=credits-text>aggregator.com</span>
         </div>
         <div id="header_top" class="infoHeading">
           <div class="buttonContainer">
@@ -796,7 +797,8 @@
             <div id="expand_sidebar_control">
               <button id="expand_sidebar_button" class="sidebar_button" title="Expand Sidebar" style="display: none;"></button>
             </div>
-            <div id="settingsCog" class="settingsCog"></div>
+            <div id="fullscreenButton" class="svgButton fullscreenButton"></div>
+            <div id="settingsCog" class="svgButton settingsCog"></div>
             <div id="L" title="Toggle (L)abels" class="button inActiveButton" onclick="toggleLabels();"><span class="buttonText">L</span></div>
             <div id="O" title="Toggle Label Extensi(O)ns" class="button inActiveButton" onclick="toggleExtendedLabels();"><span class="buttonText">O</span></div>
             <div id="K" title="Toggle Trac(K) Labels" class="button inActiveButton" onclick="toggleTrackLabels();"><span class="buttonText">K</span></div>
@@ -824,11 +826,12 @@
         <div id="replayBar">
           <button id="replayPlay" >Play</button>
           <p id="replayDateHint" >Date:</p>
+          <p id="replayDateHintLocal" ></p>
           <input type="text" class="datepicker" id="replayDatepicker" >
           <p id="replayTimeHint"  >Time:</p>
           <p id="hourSelect"></p>
           <p id="minuteSelect"></p>
-          <p id="replayTimeZone">UTC</p>
+          <p id="replayTimeZone">UTC Date:</p>
           <p id="replaySpeedHint">Speed:</p>
           <p id="replaySpeedSelect"></p>
           <p id="replayLoading"></p>
@@ -837,7 +840,7 @@
 
       </div> <!-- map_container-->
 
-      <div id="sidebar_container" style="display: none">
+      <div id="sidebar_container" style="display: none; height: 100%;">
         <div id="splitter" class="ui-resizable-handle ui-resizable-w" style="display: none;"></div>
         <div id="sidebar_canvas">
 
@@ -849,24 +852,19 @@
                 </td>
               </tr>
 
-              <tr id='adsbexchange_header' class="infoblock_row hidden">
+              <tr id='aggregator_header' class="infoblock_row hidden">
                 <td style="text-align: center">
                   <div>
-                    <span class="largeText">Improve Coverage:<br><a class="largeText" target="_blank" href="https://adsbexchange.com/how-to-feed/">adsbexchange.com</a></span>
+                    <span class="largeText">Improve Coverage:<br><a class="largeText" target="_blank" href="https://aggregator.com/how-to-feed/">aggregator.com</a></span>
                   </div>
+                  <div class="rSpacer"></div>
                   <div class="rSpacer"></div>
                   <div class="rSpacer"></div>
                   <div>
                     <span class="largeText">
-                      <a id="premium_text" class="largeText" href="https://store.adsbexchange.com/pages/subscription">Premium Login: no ads / Sat. Layer</a>
-                    </span>
-                  </div>
-                  <div class="rSpacer"></div>
-                  <div>
-                    <span class="largeText">
-                      <a class="largeText" target="_blank" href="https://adsbexchange.com/faq/">FAQ</a>
+                      <a class="largeText" target="_blank" href="https://aggregator.com/faq/">FAQ</a>
                       &emsp;&emsp;
-                      <a class="largeText" target="_blank" href="https://adsbexchange.com/map-help/">Map Help</a>
+                      <a class="largeText" target="_blank" href="https://aggregator.com/map-help/">Map Help</a>
                     </span>
                   </div>
                   <div class="rSpacer">
@@ -883,12 +881,15 @@
 
               <tr class="infoblock_heading">
                 <td style="text-align: right" class=link>
-                  <a href="https://github.com/wiedehopf/tar1090#tar1090" id="dump1090_version" target="_blank">tar1090 on github</a>
+                  <a href="https://github.com/wiedehopf/tar1090#tar1090" id="tar1090_version" target="_blank">tar1090 on github</a>
                 </td>
               </tr>
               <tr class="rSpacer">
                 <td></td>
               </tr>
+              <tr><td>
+              <table style="width: 100%" id="mp3player" class="hidden"></table>
+              </td></tr>
               <tr>
                 <td>
                   <table style="width: 100%">
@@ -899,6 +900,19 @@
                     <tr class="infoblock_body">
                       <td style="width: 50%"><span id="with_positions" class="infoBlockTitleText">With Position:</span> <span id="dump1090_total_ac_positions">n/a</span></td>
                       <td id="dump1090_total_history_td"><span class="infoBlockTitleText">History:</span> <span id="dump1090_total_history">n/a</span> positions</td>
+                    </tr>
+                  </table>
+                  <table style="width: 100%" id="infoblock_altimeter" class="hidden">
+                    <tr>
+                      <td>
+                        <form id="altimeter_form">
+                          <span class="infoBlockTitleText">Altimeter:</span>
+                          <span> <input id="altimeter_input" type="number" step="0.01" value="29.92" class="searchInput"></span>
+                          <span> <button class="formButton" type="submit">Set</button></span>
+                          <span> <button class="formButton" type="button" id="altimeter_set_standard">Standard</button>
+                          <span> <button class="formButton" type="button" disabled id="altimeter_set_selected">From Plane</button>
+                        </form>
+                      </td>
                     </tr>
                   </table>
                 </td>
@@ -1045,7 +1059,9 @@
     <script src="libs/jquery-ui-1.13.2.min.js"></script>
     <script src="libs/jquery.ui.touch-punch-1.0.8.js"></script>
     <script src="libs/zstddec-tar1090-0.0.5.js"></script>
-    <script src="libs/ol-custom023.js"></script>
+
+    <!-- ol-custom bundling created using https://github.com/wiedehopf/ol-rollup-->
+    <script src="libs/ol-custom-10.4.0.js"></script>
 
     <!-- JS_ANCHOR2 -->
     <script src="early.js"></script>

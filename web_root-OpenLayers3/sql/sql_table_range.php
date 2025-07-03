@@ -1,6 +1,6 @@
-<?php 
+<?php
 
-  $databaseName = "ADS-B";
-  $tableName    = "MaxRange";
+$databaseName = "AllanK";
+$tableName = "MaxRange";
 
 ?>

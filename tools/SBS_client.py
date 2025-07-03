@@ -30,12 +30,13 @@ class cfg():
 # Print to both stdout and log-file
 #
 def modes_log (s):
-  os.write (1, bytes(s, encoding="ascii"))
-  if not cfg.logf:
+  if not s:
      fname = os.path.dirname(__file__) + "\\SBS_client.log"
      cfg.logf = open (fname, "a+t")
-     cfg.logf.write ("%s: --- Starting -------\n" % time.strftime("%H:%M:%S"))
-  cfg.logf.write ("%s: %s" % (time.strftime("%H:%M:%S"), str(s)))
+     cfg.logf.write ("\n%s: --- Starting -------\n" % time.strftime("%d-%B-%Y %H:%M:%S"))
+  else:
+     os.write (1, bytes(s, encoding="ascii"))
+     cfg.logf.write ("%s: %s" % (time.strftime("%H:%M:%S"), str(s)))
 
 def show_help (error=None):
   if error:
@@ -153,6 +154,7 @@ if opt.port == 0:
   elif mode == "RAW-OUT":
      opt.port = RAW_OUT_PORT
 
+modes_log (None)
 modes_log ("Connecting to %s:%d\n" % (opt.host, opt.port))
 
 if opt.wait:

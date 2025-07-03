@@ -3,6 +3,7 @@
 
 let NBSP='\u00a0';
 let NNBSP='\u202f';
+let NUMSP='\u2007';
 let DEGREES='\u00b0'
 let ENDASH='\u2013';
 let UP_TRIANGLE='\u25b2'; // U+25B2 BLACK UP-POINTING TRIANGLE
@@ -109,10 +110,10 @@ function format_altitude_brief(alt, vr, displayUnits, withUnits) {
 	} else if (vr < -245){
 		verticalRateTriangle = DOWN_TRIANGLE;
 	} else {
-		verticalRateTriangle = NNBSP;
+		verticalRateTriangle = ''
 	}
 
-	return alt_text + verticalRateTriangle;
+	return verticalRateTriangle + alt_text.padStart(5, NUMSP);
 }
 
 // alt in feet
@@ -318,6 +319,8 @@ function format_data_source(source) {
 			return "TIS-B";
 		case 'modeS':
 			return "Mode S";
+		case 'ais':
+			return "AIS";
 		case 'mode_ac':
 			return "Mode A/C";
         case 'adsc':
@@ -403,7 +406,7 @@ function wqi(data) {
     const INT32_MAX = 2147483647;
     const buffer = data.buffer;
     //console.log(buffer);
-    let u32 = new Uint32Array(data.buffer, 0, 12);
+    let u32 = new Uint32Array(data.buffer, 0, 13);
     data.now = u32[0] / 1000 + u32[1] * 4294967.296;
     //console.log(data.now);
     let stride = u32[2];
@@ -426,6 +429,9 @@ function wqi(data) {
     const binCraftVersion = u32[10];
 
     data.messageRate = u32[11] / 10;
+
+    const flags = u32[12];
+    const useMessageRate = flags & (1 << 0);
 
     if (receiver_lat != 0 && receiver_lon != 0) {
         //console.log("receiver_lat: " + receiver_lat + " receiver_lon: " + receiver_lon);
@@ -497,7 +503,7 @@ function wqi(data) {
         ac.ias = u16[29];
         ac.rc  = u16[30];
 
-        if (globeIndex && binCraftVersion >= 20220916) {
+        if (useMessageRate) {
             ac.messageRate = u16[31] / 10;
         } else {
             ac.messages = u16[31];
@@ -547,7 +553,12 @@ function wqi(data) {
         }
         ac.receiverCount = u8[104];
 
-        ac.rssi = 10 * Math.log(u8[105]*u8[105]/65025 + 1.125e-5)/Math.log(10);
+        if (binCraftVersion >= 20250403) {
+            ac.rssi = (u8[105] * (50 / 255)) - 50;
+        } else {
+            let level = u8[105]*u8[105]/65025 + 1.125e-5;
+            ac.rssi = 10 * Math.log(level)/Math.log(10);
+        }
 
         ac.extraFlags = u8[106];
         ac.nogps = ac.extraFlags & 1;
@@ -647,7 +658,7 @@ function wqi(data) {
 
         if (binCraftVersion >= 20240218) {
             if (stride == 116) {
-                ac.rId = u32[27].toString(16).padStart(8, '0');
+                ac.rId = u32[28].toString(16).padStart(8, '0');
             }
         } else {
             if (stride == 112) {

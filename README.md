@@ -1,12 +1,13 @@
 # Dump1090
 
 [![MSBuild](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml/badge.svg?branch=main)](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml)
+[![AppVeyor](https://ci.appveyor.com/api/projects/status/github/gvanem/Dump1090?branch=main&svg=true)](https://ci.appveyor.com/project/gvanem/Dump1090)
 
-A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<br>
-It requires a RTL-SDR USB-stick (the **librtlsdr** interface is **[built-in](src/externals/rtl-sdr/)**)).
+A simple **ADS-B** (*Automatic Dependent Surveillance - Broadcast*) receiver, decoder and web-server.<nl>
+It requires a RTL-SDR USB-stick (the **librtlsdr** interface is **[built-in](src/externals/rtl-sdr/)**).
 
 This *Mode S* decoder is based on the original *Dump1090* by **Salvatore Sanfilippo**
-which is **[here](https://github.com/antirez/dump1090.git)**.<br>
+which is **[here](https://github.com/antirez/dump1090.git)**.<nl>
 Most of the text below is written by him. In this `README.md` file, I've mostly fixed the MarkDown
 and added some more references and screen-shots. But in the source-code I've done a lot of changes.
 
@@ -22,19 +23,24 @@ and added some more references and screen-shots. But in the source-code I've don
   improved range compared to other popular decoders.
 * Network support: *TCP* port 30003 stream (*MSG5* ...), Raw packets and HTTP.
 * An embedded **[Mongoose](https://www.cesanta.com/)** HTTP server that displays
-  the currently detected aircrafts on an OpenStreet Map.<br>
+  the currently detected aircrafts on an OpenStreet Map.<nl>
   Hopefully WebSocket support is coming soon (JScript and Json transfer is rather chatty).
-* Single bit errors correction using the 24 bit CRC.
+* Decoders for 2.0 MS/s, 2.4 MS/s (default) and 8 MS/s are built-in. 8 MS/s is for [**SDRPlay**](https://www.sdrplay.com/) only.
+* Single and two bit errors correction using the 24 bit CRC.
 * Ability to decode *DF11*, *DF17* messages (**Downlink Format**).
 * Ability to decode formats like *DF0*, *DF4*, *DF5*, *DF16*, *DF20* and *DF21*
   where the checksum is *XORed* with the ICAO address by brute forcing the
   checksum field using recently seen ICAO addresses.
 * Decode raw IQ samples from file (using the `--infile bin-file` command line option).
+* Decode CSV data from file (using the `--infile csv-file` command line option).
 * Interactive command-line-interface mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives. Planes that haven't been seen
   last 60 seconds are removed from the list (key/value `interactive-ttl = sec` to change).
+* In `--interactive` mode, the planes entering or leaving can be spoken out using
+  [**SAPI5**](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee125077(v=vs.85)).<nl>
+  Ref. `speech-enable = true` in the [**config-file**](dump1090.cfg).
 * *CPR* (**Compact Position Reporting**) coordinates decoding and track calculation from velocity.
-* TCP server streaming and receiving raw data to/from connected clients <br>
+* TCP server streaming and receiving raw data to/from connected clients <nl>
   (options `--net` or `--net-only`).
 * Many command-line options are now in the `dump1090.cfg` file. See below.
 
@@ -47,8 +53,8 @@ and added some more references and screen-shots. But in the source-code I've don
     * `c:\dev\Dump1090\src> make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
   * Or using Visual Studio tools:
     * `c:\dev\Dump1090\src> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
-    * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`. <br>
-      The project may have to be retargeted. *Devenv* would do this automatically and print <br>
+    * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`. <nl>
+      The project may have to be retargeted. *Devenv* would do this automatically and print <nl>
       `Configuration 'Release|x64': changing Platform Toolset to 'v143' (was 'v142')` when finished.
 
 ## Normal usage
@@ -134,23 +140,23 @@ to your browser to **http://localhost:8080**, use this command:
   ```
 
   It will present live traffic to the Web-browser:
-  **![web-page](dump1090-web.png)**
+  **![web-page](img/dump1090-web.png)**
 
   and the *Windows Legacy Console*:
-  **![console output](dump1090-win.png)**
+  **![console output](img/dump1090-win.png)**
 
   or with `tui = curses` in the `dump1090.cfg` file and started as `c:\dev\Dump1090> dump1090 --interactive` inside
-  [**Windows Terminal**](https://github.com/microsoft/terminal) and a suitable background image: **![curses WinTerm](dump1090-wt-1.png)**
+  [**Windows Terminal**](https://github.com/microsoft/terminal) and a suitable background image: **![curses WinTerm](img/dump1090-wt-1.png)**
 
 In this interactive mode there is a more compact output. Where the screen is refreshed
 up to 4 times per second displaying all the recently seen aircrafts with some additional
 information such as call-sign, registration-number, country, altitude, speed, heading and position.
-Most items are extracted from the received *Mode S* packets. <br>
+Most items are extracted from the received *Mode S* packets. <nl>
 Except for:
  * *Cntry* (2 letter ISO3166) taken from the *official* range of ICAO address/country mapping.
  * *RSSI* (logarithmic *Received Signal Strength Indicator*) is calculated from the 4 last messages.
 
-If a config-setting `homepos = longitude,latitude` setting is defined, the distance to the place gets
+If a config-setting `homepos = latitude,longitude` setting is defined, the distance to the place gets
 calculated. I.e. the `Dist` column above. E.g. a `homepos = 60.3016821,5.3208769`
 for Bergen/Norway. Find your location on [**FreeMapTools**](https://www.freemaptools.com/elevation-finder.htm).
 
@@ -163,23 +169,29 @@ Running with `web-page = %~dp0\web_root-Tar1090\index.html` in the `dump1090.cfg
   c:\dev\Dump1090> dump1090 --interactive
   ```
 
-will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/) and data from [**Tar1090-DB**](https://github.com/wiedehopf/tar1090-db/):
-**![tar1090 output](dump1090-tar1090-web.png)**
+will show a much more advanced Web-page thanks to [**Tar1090**](https://github.com/wiedehopf/tar1090/) and data from
+[**Tar1090-DB**](https://github.com/wiedehopf/tar1090-db/):
+![**tar1090 output**](img/dump1090-tar1090-web.png)**
 
-Building with a *packed Web-filesystem* is also possible. Then **all** web-pages are built into a `web-pages.dll` file. <br>
+Building with a *packed Web-filesystem* is also possible. Then **all** web-pages are built into a `web-pages.dll` file. <nl>
 Ref. `USE_PACKED_WEB = 1` in [**Makefile.Windows**](https://github.com/gvanem/Dump1090/blob/main/Makefile.Windows#L22)
 and a `web-page = web-pages.dll;N` in the [**config-file**](dump1090.cfg).
+
+The default sample-rate is now **2.4 MHz** (thanks to Oliver Jowett's excellent [**src/demod-2400.c**](https://github.com/gvanem/Dump1090/blob/main/src/demod-2400.c)).
+This increases the accuracy and sensitivety of detection. The detection range (depending on antenna etc.) should become around 300 km as shown in
+[**Tar1090**](https://github.com/wiedehopf/tar1090/) here:
+![2.4MHz sampler](img/dump1090-24MSs.png)
 
 
 ## Using RTL1090 as RAW source
 
 And when using the excellent *[RTL1090](https://rtl1090.com/) V3 Scope* program by [**JetVision**](https://jetvision.de/) as
-the collector and generator of **RAW-IN** messages, and Dump1090 starting like:
+the collector and generator of **RAW-IN** messages, and Dump1090 started like:
  ```
  dump1090.exe --net-active --interactive --config host-raw.cfg
  ```
 
- both programs in combination may look like this: ![rtl1090 output](rtl1090.jpg).
+ both programs in combination may look like this: ![rtl1090 output](img/rtl1090.png).
 
  (the 2 lower screens above are the [Beta3](https://www.jetvision.de/manuals/rtl1090.beta3.zip) version).
 
@@ -203,6 +215,10 @@ DF 17: ADS-B message.
 To decode data from file, use:
   ```
   c:\dev\Dump1090> dump1090 --infile file.bin
+  ```
+  or:
+  ```
+  c:\dev\Dump1090> dump1090 --infile testfiles\long_flight.csv
   ```
 
 The binary file should be created using `rtl_sdr` like this (or with another
@@ -244,17 +260,26 @@ Use key/value `aircrafts = NUL` to avoid loading this huge (approx. 82 MByte)
 `.CSV` file. The latest version of this file is available from:
   **https://opensky-network.org/datasets/metadata/**
 
-The option `--update` will check and download <br>
+The option `--update` will check and download <nl>
 **https://opensky-network.org/datasets/metadata/aircraftDatabase.zip** and
 extract using the internal [**zip**](https://github.com/kuba--/zip) functions.
 And also rebuild the `aircraft-database.csv.sqlite` file using the internal bundled
 [**sqlite3.c**](src/externals/sqlite3.c).
 
+## Using VirtualRadar as viewer
+
+[**VirtualRadar**](https://virtualradarserver.co.uk/) is an excellent program for Aircraft traffic. Using it as *backend* in Dump1090 needs data on the *RAW data* form. With the `--net` option, this is normally sent on port 30002. Ref. `net-ro-port = 30002` in the config-file. Hence **VirtualRadar** needs to be configured like this:
+![VirtualRadar configuration](img/dump1090-VRadar-conf.png)
+
+And starting the Web-server in **VirtualRadar** can show the locally decoded messages like this:
+![VirtualRadar-web](img/dump1090-VRadar-web.png)
+
+
 ## Additional options
 
-*Dump1090* now has limited command line options. Seldom used settings are now in the default [**config-file**](dump1090.cfg). <br>
-This can select gain, frequency, and so forth. <br>
-The option `--config <file>` can select another custom `.cfg` file. <br>
+*Dump1090* now has limited command line options. Seldom used settings are now in the default [**config-file**](dump1090.cfg). <nl>
+This can select gain, frequency, and so forth. <nl>
+The option `--config <file>` can select another custom `.cfg` file. <nl>
 Full list of options use is shown using `dump1090 --help` or `dump1090 -h`.
 
 A setting like `freq = 1090.001M` is possible for cheap RTL-SDR devices with
@@ -292,17 +317,17 @@ for clients connections on port 30002 and 30001 (you can change both ports
 `net-X-port = Y`. Look in `dump1090.cfg` for details).
 
   * **Port 30002** connected clients are served with data ASAP as they arrive from the device
-    (or from file if `--infile` is used) in the raw format similar to the following: <br>
-    `*8D451E8B99019699C00B0A81F36E;` <br>
+    (or from file if `--infile` is used) in the raw format similar to the following: <nl>
+    `*8D451E8B99019699C00B0A81F36E;` <nl>
     Every entry is separated by a simple newline (LF character, hex `0x0A`).
 
   * **Port 30001** is the raw input port, and can be used to feed `dump1090` with
     data in the same format as specified above, with hex messages starting with `*` and
-    ending with a `;` character. <br>
+    ending with a `;` character. <nl>
 
 So for instance if there is another remote *Dump1090* instance collecting data
 it is possible to sum the output to a local *Dump1090* instance with the help of
-NetCat or NCat:<br>
+NetCat or NCat:<nl>
    `nc remote-dump1090.example.net 30002 | nc localhost 30001`
 
 It is important to note that what is received via port 30001 is also
@@ -312,13 +337,13 @@ In general everything received from port 30001 is handled exactly like the
 normal traffic from RTL devices or from file when `--infile` is used.
 
 If your feed *Dump1090* with data from the internet, one can use this command to
-see on the console what's happening: <br>
+see on the console what's happening: <nl>
   ```
   c:\dev\Dump1090> dump1090 --net-only --interactive
   ```
 
   * **Port 30003** connected clients are served with messages in
-    **[SBS1 (BaseStation) format](http://woodair.net/sbs/article/barebones42_socket_data.htm)**, similar to: <br>
+    **[SBS1 (BaseStation) format](http://woodair.net/sbs/article/barebones42_socket_data.htm)**, similar to: <nl>
     ```
     MSG,4,,,738065,,,,,,,,420,179,,,0,,0,0,0,0
     MSG,3,,,738065,,,,,,,35000,,,34.81609,34.07810,,,0,0,0,0
@@ -326,7 +351,7 @@ see on the console what's happening: <br>
     This can be used to feed data to various sharing sites without the need to use another decoder.
 
     This is a screen-shot of dump1090 together with [**tools/SBS_client.py**](tools/SBS_client.py):
-    **![SBS_client](dump1090-SBS.png)** invoked by [**run-dump1090-SBS.bat**](run-dump1090-SBS.bat).
+    **![SBS_client](img/dump1090-SBS.png)** invoked by [**run-dump1090-SBS.bat**](run-dump1090-SBS.bat).
 
 
 ## Antenna
@@ -382,11 +407,11 @@ log, use `dump1090 --help` to obtain a list of available debug flags.
 Debug mode includes an optional JavaScript output (`frames.js`) that is
 used to visualize packets using a web browser, you can use
 **[tools/debug.html](tools/debug.html)** to load and analyze the generated
-`frames.js` file:  ![Example](debug-frames.png).
+`frames.js` file:  ![Example](img/debug-frames.png).
 
 ## How this program works?
 
-The code is very documented and written in order to be easy to understand. <br>
+The code is very documented and written in order to be easy to understand. <nl>
 For the diligent programmer with a *Mode S* specification at hand, it should be
 trivial to understand how it works.
 
@@ -399,19 +424,19 @@ based on how the messages look graphically.
 If you have an RTL-SDR device and you happen to be in an area where there
 are aircrafts flying over your head, just run the program and check for signals.
 
-If however you don't have an RTL-SDR device, or if in your area the presence
-of aircrafts is very limited, you may want to try it with the sample file under
-the **[testfiles](testfiles/)** directory. Run it like this: <br>
+If however you don't have an RTL-SDR device, or if the presence of aircrafts is
+very limited in your area, you may want to try it with the sample file under the
+**[testfiles](testfiles/)** directory. Run it like this: <nl>
   ```
-  c:\dev\Dump1090> dump1090 <other-options> --ifile testfiles/modes1.bin
+  c:\dev\Dump1090> dump1090 <other-options> --infile testfiles/modes1.bin
   ```
 
 ## What is `--strip` mode?
 
 A simple filter that will take raw 8-bit IQ samples on input and output a file
 missing the I/Q parts that were below the specified `--strip level`. And if
-those I/Q samples were below limit for at least 32 samples. <br>
-Can be used like: `type big.bin | dump1090 --strip 25 > small.bin`
+those I/Q samples were below limit for at least 32 samples. <nl>
+It can be used like: `type big.bin | dump1090 --strip 25 > small.bin`
 
 The `--strip` mode was used to create e.g. **[testfiles/modes1.bin](testfiles/modes1.bin)**.
 

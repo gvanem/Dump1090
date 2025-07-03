@@ -1,8 +1,10 @@
 <html>
-  <head>
-    <script language="javascript" type="text/javascript" src="../jquery/jquery-3.0.0.min.js"></script>
-  </head>
-  <body>
+
+<head>
+  <script language="javascript" type="text/javascript" src="../jquery/jquery-3.7.1.min.js"></script>
+</head>
+
+<body>
 
   <!-------------------------------------------------------------------------
   1) Create some html content that can be accessed by jquery
@@ -13,26 +15,29 @@
 
   <script id="source" language="javascript" type="text/javascript">
 
-  $(function () 
-  {
-    $.ajax({                                      
-      url: 'range_read.php',     
-      async: false ,    
-      dataType: 'json',  
-      success: function(retData)  
-      {
-        for (var i in retData)
-        {
-          var row      = retData[i];          
-          var bearing  = row[0];
-          var range    = row[1];
-          $('#output').append(i+" Bearing: "+bearing+" Range: "+range)
-                      .append("<br />");
-        } 
-      } 
+    $(function () {
+      $.ajax({
+
+        url: 'range_read.php',
+        async: false,
+        dataType: 'json',
+        success: function (returnedData) {
+          for (var i in returnedData) {
+            var oneBearing = returnedData[i];
+            for (var y in oneBearing) {
+              if (y == "bearing") {
+                var bearing = oneBearing[y];
+              } else if (y == "maxrng") {
+                var range = oneBearing[y];
+              }
+            }
+            $('#output').append(" Bearing: " + bearing + " Range: " + range).append("<br />");
+          }
+        }
+      });
     });
-  }); 
 
   </script>
-  </body>
+</body>
+
 </html>

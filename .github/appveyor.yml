@@ -1,0 +1,32 @@
+environment:
+  matrix:
+    - BUILDER: MSVC
+    - BUILDER: clang
+
+matrix:
+  #
+  # Immediately finish build if one of the above jobs fails.
+  #
+  fast_finish: true
+
+install:
+  #
+  # Prepend the PATH for 'make' + 'sh' etc.
+  # And set compiler environment for MSVC/clang-cl:
+  #
+  - cmd: set PATH=c:\msys64\usr\bin;%PATH%
+  - cmd: call "c:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x64
+
+  #
+  # Build and do some tests
+  #
+build_script:
+    - cmd: cd .github & appveyor-build.bat
+
+#
+# Try to preserve previously 'CI-temp' dir and clang compiler
+#
+cache:
+  - '%APPVEYOR_BUILD_FOLDER%\CI-temp'
+  - 'c:\Program Files\LLVM'
+

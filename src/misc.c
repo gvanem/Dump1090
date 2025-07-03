@@ -8,6 +8,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <wininet.h>
+#include <shlwapi.h>
 
 #undef MOUSE_MOVED
 #include <curses.h>
@@ -16,20 +17,23 @@
 #include <sanitizer/asan_interface.h>
 #endif
 
-#if defined(USE_UBSAN)
-#include <sanitizer/ubsan_interface.h>
-#endif
-
-#include "aircraft.h"
 #include "sqlite3.h"
-#include "trace.h"
+#include "smartlist.h"
 #include "misc.h"
+#include "rtl-sdr/trace.h"
 #include "rtl-sdr/version.h"
+
+#define __SpeechConstants_MODULE_DEFINED__
+#include <sapi.h>
 
 #define TSIZE (int)(sizeof("HH:MM:SS.MMM: ") - 1)
 
 static bool modeS_log_reinit (const SYSTEMTIME *st);
 static bool modeS_log_ignore (const char *msg);
+static void warnx (const char *fmt, ...);
+static void test_asprintf (void);
+extern void PDC_scr_close (void);
+static BOOL WINAPI console_handler (DWORD event);
 
 /**
  * Log a message to the `Modes.log` file with a timestamp.
@@ -103,9 +107,17 @@ char *modeS_err_get (void)
   return (_err_buf);
 }
 
+static void modeS_no_logc (char c, void *param)
+{
+  MODES_NOTUSED (c);
+  MODES_NOTUSED (param);
+}
+
 /**
  * Print a character `c` to `Modes.log` or `stdout`.
- * Used only if `(Modes.debug & DEBUG_MONGOOSE)` is enabled by `--debug m`.
+ *
+ * Used only if `(Modes.debug & DEBUG_MONGOOSE)` is enabled by `--debug m`. <br>
+ * Or more details with `(Modes.debug & DEBUG_MONGOOSE2); i.e. `--debug M`.
  */
 void modeS_logc (char c, void *param)
 {
@@ -129,6 +141,20 @@ void modeS_logc (char c, void *param)
 /**
  * Print to `f` and optionally to `Modes.log`.
  */
+void modeS_flog (FILE *f, const char *buf)
+{
+  if (f && f != Modes.log) /* to `stdout` or `stderr` */
+  {
+    fputs (buf, f);
+    fflush (f);
+  }
+  if (Modes.log)
+     modeS_log (buf);
+}
+
+/**
+ * The var-arg version; print to `f` and optionally to `Modes.log`.
+ */
 void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...)
 {
   char    buf [1000];
@@ -136,7 +162,7 @@ void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...)
   va_list args;
 
   va_start (args, fmt);
-  vsnprintf (buf, sizeof(buf), fmt, args);
+  vsnprintf (buf, sizeof(buf)-1, fmt, args);
   va_end (args);
 
   if (f && f != Modes.log) /* to `stdout` or `stderr` */
@@ -167,6 +193,17 @@ void modeS_log_set (void)
     mg_log_set_fn (modeS_logc, NULL);
     mg_log_set (MG_LL_VERBOSE);
   }
+  else
+  {
+    mg_log_set_fn (modeS_no_logc, NULL);
+  }
+
+  static bool done = false;
+  if (!done && Modes.log && (Modes.debug & (DEBUG_MONGOOSE | DEBUG_MONGOOSE2)))
+  {
+    warnx ("All Mongoose details goes to '%s'\n", Modes.logfile_current);
+    done = true;
+  }
 }
 
 /**
@@ -179,9 +216,9 @@ void modeS_log_set (void)
 static bool modeS_log_reinit (const SYSTEMTIME *st)
 {
   static const char *dot = NULL;
-  bool   initial = (st == NULL);
+  bool   first_time = (st == NULL);
 
-  if (initial)
+  if (first_time)
   {
     SYSTEMTIME now;
 
@@ -235,9 +272,6 @@ bool modeS_log_init (void)
  */
 void modeS_log_exit (void)
 {
-  log_ignore *i_next;
-  log_ignore *i = Modes.logfile_ignore;
-
   if (Modes.log)
   {
     if (!Modes.home_pos_ok)
@@ -245,14 +279,16 @@ void modeS_log_exit (void)
     fclose (Modes.log);
     Modes.log = NULL;
   }
-
-  for (i = Modes.logfile_ignore; i; i = i_next)
+  if (Modes.logfile_ignore)
   {
-    i_next = i->next;
-    LIST_DELETE (log_ignore, &Modes.logfile_ignore, i);
-    free (i);
+    smartlist_wipe (Modes.logfile_ignore, free);
+    Modes.logfile_ignore = NULL;
   }
 }
+
+typedef struct log_ignore {
+        char  msg [100];
+      } log_ignore;
 
 /**
  * Add a `*msg` to the `Modes.logfile_ignore` list. <br>
@@ -260,14 +296,21 @@ void modeS_log_exit (void)
  */
 bool modeS_log_add_ignore (const char *msg)
 {
-  log_ignore *ignore = *msg ? calloc (sizeof(*ignore), 1) : NULL;
-  size_t      i;
+  log_ignore *ignore;
+  int i, max;
 
+  if (!Modes.logfile_ignore)
+     Modes.logfile_ignore = smartlist_new();
+
+  if (!Modes.logfile_ignore)
+     return (false);
+
+  ignore = *msg ? calloc (sizeof(*ignore), 1) : NULL;
   if (ignore)
   {
     char *p = ignore->msg + 0;
 
-    for (i = 0; i < sizeof(ignore->msg) - 1; i++, msg++)
+    for (i = 0; i < (int)sizeof(ignore->msg) - 1; i++, msg++)
         if (*msg != '"')
            *p++ = *msg;
 
@@ -277,11 +320,16 @@ bool modeS_log_add_ignore (const char *msg)
        *p = '\0';
 
     str_trim (ignore->msg);
-    LIST_ADD_TAIL (log_ignore, &Modes.logfile_ignore, ignore);
+    if (strlen(ignore->msg) > 0)
+       smartlist_add (Modes.logfile_ignore, ignore);
   }
 
-  for (i = 0, ignore = Modes.logfile_ignore; ignore; ignore = ignore->next, i++)
-      DEBUG (DEBUG_GENERAL, "%zd: '%s'\n", i, ignore->msg);
+  max = smartlist_len (Modes.logfile_ignore);
+  for (i = 0; i < max; i++)
+  {
+    ignore = smartlist_get (Modes.logfile_ignore, i);
+    DEBUG (DEBUG_GENERAL, "%d: '%s'\n", i, ignore->msg);
+  }
   return (true);
 }
 
@@ -290,11 +338,15 @@ bool modeS_log_add_ignore (const char *msg)
  */
 static bool modeS_log_ignore (const char *msg)
 {
-  const log_ignore *ignore;
+  int i, max = Modes.logfile_ignore ? smartlist_len (Modes.logfile_ignore) : 0;
 
-  for (ignore = Modes.logfile_ignore; ignore; ignore = ignore->next)
-      if (str_startswith(msg, ignore->msg))
-         return (true);
+  for (i = 0; i < max; i++)
+  {
+    const log_ignore *ignore = smartlist_get (Modes.logfile_ignore, i);
+
+    if (str_startswith(msg, ignore->msg))
+       return (true);
+  }
   return (false);
 }
 
@@ -336,7 +388,6 @@ char *modeS_FILETIME_to_str (const FILETIME *ft, bool show_YMD)
 char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD)
 {
   static TIME_ZONE_INFORMATION tz_info;
-  static LONG  timezone = 0;   /* minutes */
   static bool  done = false;
   ULONGLONG    ul = *(ULONGLONG*) ft;
 
@@ -348,19 +399,19 @@ char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD)
 
     if (rc == TIME_ZONE_ID_UNKNOWN || rc == TIME_ZONE_ID_STANDARD || rc == TIME_ZONE_ID_DAYLIGHT)
     {
-      timezone   = tz_info.Bias + tz_info.StandardBias;
+      Modes.timezone = tz_info.Bias + tz_info.StandardBias;
       dst_adjust = tz_info.StandardBias - tz_info.DaylightBias;
     }
     done = true;
 
     get_FILETIME_now (&ft2);
-    DEBUG (DEBUG_GENERAL, "rc: %ld, timezone: %ld min, dst_adjust: %ld min, now: %s\n",
-           rc, timezone, dst_adjust, modeS_FILETIME_to_loc_str(&ft2, true));
+    DEBUG (DEBUG_GENERAL, "rc: %ld, Modes.timezone: %ld min, dst_adjust: %ld min, now: %s\n",
+           rc, Modes.timezone, dst_adjust, modeS_FILETIME_to_loc_str(&ft2, true));
   }
 
   /* From minutes to 100 nsec units
    */
-  ul -= 600000000ULL * (ULONGLONG) timezone;
+  ul -= 600000000ULL * (ULONGLONG) Modes.timezone;
   return modeS_FILETIME_to_str ((const FILETIME*)&ul, show_YMD);
 }
 
@@ -374,35 +425,40 @@ char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD)
  */
 uint32_t ato_hertz (const char *Hertz)
 {
-  char     tmp [20], *end, last_ch;
-  int      len;
-  double   multiplier = 1.0;
-  uint32_t ret;
+  char   tmp [20], *end, last_ch;
+  int    len;
+  double multiplier = 1.0;
+  double ret;
 
   strcpy_s (tmp, sizeof(tmp), Hertz);
   len = strlen (tmp);
   last_ch = tmp [len-1];
-  tmp [len-1] = '\0';
 
   switch (last_ch)
   {
     case 'g':
     case 'G':
+          tmp [len-1] = '\0';
           multiplier = 1E9;
           break;
     case 'm':
     case 'M':
+          tmp [len-1] = '\0';
           multiplier = 1E6;
           break;
     case 'k':
     case 'K':
+          tmp [len-1] = '\0';
           multiplier = 1E3;
           break;
   }
-  ret = (uint32_t) strtof (tmp, &end);
+  ret = strtof (tmp, &end);
   if (end == tmp || *end != '\0')
      return (0);
-  return (uint32_t) (multiplier * ret);
+
+  ret *= multiplier;
+//printf ("tmp: '%s', Hertz: '%s' -> %u\n", tmp, Hertz, (uint32_t)ret);
+  return (uint32_t) ret;
 }
 
 /**
@@ -417,6 +473,80 @@ int hex_digit_val (int c)
   if (c >= 'a' && c <= 'f')
      return (c - 'a' + 10);
   return (-1);
+}
+
+/**
+ * Search `*list` for `value` and return it's name.
+ */
+const char *search_list_name (DWORD value, const search_list *list, int num)
+{
+  while (num > 0)
+  {
+    if (list->value == value)
+       return (list->name);
+    num--;
+    list++;
+  }
+  return (NULL);
+}
+
+/**
+ * Search `*list` for `name` and return it's value.
+ */
+DWORD search_list_value (const char *name, const search_list *list, int num)
+{
+  while (num > 0)
+  {
+    if (!stricmp(name, list->name))
+       return (list->value);
+    num--;
+    list++;
+  }
+  return (DWORD) -1;
+}
+
+/**
+ * Search for 32-bit `flags` in `*list` and return a concatination of their names.
+ * E.g. with `flags == 0x0A` in `*list` of:
+ * ```
+ *  value = name
+ *  0x02  = "flag-A"
+ *  0x04  = "flag-B"
+ *  0x08  = "flag-C"
+ * ```
+ * Return `"flags-A|flag-C"`
+ */
+const char *flags_decode (DWORD flags, const struct search_list *list, int num)
+{
+  static char buf [2][1000];
+  static int  idx = 0;
+  char  *p, *ret;
+  char  *end = buf [idx] + sizeof(buf[0]) - 1;
+  int    i;
+
+  p = &buf[idx][0];
+
+  if (flags == 0UL)
+     return strcpy (p, "<none>");
+
+  *p = '\0';
+
+  for (i = 0; i < num; i++, list++)
+      if (flags & list->value)
+      {
+        p += snprintf (p, end - p, "%s|", list->name);
+        flags &= ~list->value;
+      }
+
+  if (flags)            /* print unknown flag-bits */
+     p += snprintf (p, end - p, "0x%08lX|", flags);
+
+  if (p > &buf[idx][0])
+     p[-1] = '\0';      /* remove last '|' */
+
+  ret = buf [idx];
+  idx = (idx + 1) & 1;  /* use 2 buffers in round-robin */
+  return (ret);
 }
 
 /*
@@ -481,10 +611,8 @@ const char *unescape_hex (const char *value)
  */
 bool str_startswith (const char *s1, const char *s2)
 {
-  size_t s1_len, s2_len;
-
-  s1_len = strlen (s1);
-  s2_len = strlen (s2);
+  size_t s1_len = strlen (s1);
+  size_t s2_len = strlen (s2);
 
   if (s2_len > s1_len)
      return (false);
@@ -549,7 +677,6 @@ char *str_rtrim (char *s)
        break;
     s [n--] = '\0';
   }
-
   return (s);
 }
 
@@ -775,7 +902,66 @@ char *slashify (char *fname)
 }
 
 /**
- * Add or initialize a test `which` to the test-list at `*spec`.
+ * Copies `in_path` to `out_path` and replaces `/` with `\\`.
+ */
+char *copy_path (char *out_path, const char *in_path)
+{
+  char *p = strncpy (out_path, in_path, sizeof(mg_file_path));
+
+  while (*p)
+  {
+    if (*p == '/')
+        *p = '\\';
+    p++;
+  }
+  return (out_path);
+}
+
+/**
+ * Turns `path` into a canonical path.
+ *
+ * \note Assumes `path` is of type `mg_file_path` or at-least that long.
+ * \note the `path` doesn't have to exist.
+ */
+char *true_path (char *path)
+{
+  static mg_file_path copy, result;
+
+  copy_path (copy, path);
+  PathCanonicalizeA (result, copy);
+  return strncpy (path, result, sizeof(mg_file_path));
+}
+
+/**
+ * Return a `wchar_t *` string for a UTF-8 string with proper left
+ * adjusted width. Do it the easy way without `wcswidth()`
+ * (which is missing in WinKit).
+ */
+const wchar_t *u8_format (const char *s, int min_width)
+{
+  static wchar_t buf [4] [U8_SIZE];
+  static int     idx = 0;
+  wchar_t        s_w [U8_SIZE];
+  wchar_t       *ret = buf [idx];
+  size_t         width;
+
+  idx++;      /* use 4 buffers in round-robin */
+  idx &= 3;
+  memset (s_w, '\0', sizeof(s_w));
+  MultiByteToWideChar (CP_UTF8, 0, s, -1, s_w, U8_SIZE);
+
+  if (min_width == 0)
+     _snwprintf (ret, U8_SIZE-1, L"%s", s_w);
+  else
+  {
+    width = min_width + (strlen(s) - wcslen(s_w)) / 2;
+    _snwprintf (ret, U8_SIZE-1, L"%-*.*s", (int)width, min_width, s_w);
+  }
+  return (ret);
+}
+
+/**
+ * Add or initialize a test-list at `*spec` from `which`.
  */
 bool test_add (char **spec, const char *which)
 {
@@ -794,7 +980,7 @@ bool test_add (char **spec, const char *which)
 }
 
 /**
- * Check if a test `which` is in the test-list at `spec`.
+ * Check if the test-list at `spec` contains the test `which`.
  */
 bool test_contains (const char *spec, const char *which)
 {
@@ -808,7 +994,7 @@ bool test_contains (const char *spec, const char *which)
   if (!strcmp(spec, "*"))
      return (true);      /* a '*' test-spec enables all */
 
-  strncpy (spec2, spec, sizeof(spec2));
+  strcpy_s (spec2, sizeof(spec2), spec);
   for (p = str_tokenize(spec2, ",", &end); p; p = str_tokenize(NULL, ",", &end))
   {
     if (!stricmp(which, p))
@@ -930,7 +1116,10 @@ int touch_dir (const char *directory, bool recurse)
  */
 #define DELTA_EPOCH_IN_USEC  11644473600000000Ui64
 
-static uint64_t FILETIME_to_unix_epoch (const FILETIME *ft)
+/**
+ * Return number of usec between the Window epoch to the Unix epoch.
+ */
+static uint64_t FILETIME_to_unix_usec (const FILETIME *ft)
 {
   uint64_t res = (uint64_t) ft->dwHighDateTime << 32;
 
@@ -940,19 +1129,33 @@ static uint64_t FILETIME_to_unix_epoch (const FILETIME *ft)
   return (res);
 }
 
+/**
+ * Return number of Windows 100 nsec units from the Unix epoch.
+ */
+uint64_t unix_epoch_to_FILETIME (time_t sec)
+{
+  uint64_t ft = 10 * (DELTA_EPOCH_IN_USEC + 1000000 * sec);
+
+  ft -= 600000000ULL * (uint64_t)Modes.timezone;
+  return (ft);
+}
+
 int _gettimeofday (struct timeval *tv, void *timezone)
 {
   FILETIME ft;
   uint64_t tim;
 
   GetSystemTimePreciseAsFileTime (&ft);
-  tim = FILETIME_to_unix_epoch (&ft);
+  tim = FILETIME_to_unix_usec (&ft);
   tv->tv_sec  = (long) (tim / 1000000L);
   tv->tv_usec = (long) (tim % 1000000L);
   (void) timezone;
   return (0);
 }
 
+/*
+ * Not used but leave it in.
+ */
 int get_timespec_UTC (struct timespec *ts)
 {
   return timespec_get (ts, TIME_UTC);
@@ -999,12 +1202,47 @@ double get_usec_now (void)
 /**
  * Initialize the above timing-values.
  */
-void init_timings (void)
+static void init_timings (void)
 {
+  FILETIME ft;
+
   get_usec_now();
   get_FILETIME_now (&Modes.start_FILETIME);
-  modeS_FILETIME_to_loc_str (&Modes.start_FILETIME, true);
+
+  ft = Modes.start_FILETIME;
+  modeS_FILETIME_to_loc_str (&ft, true);
   GetLocalTime (&Modes.start_SYSTEMTIME);
+
+//SetConsoleCtrlHandler (console_handler, TRUE);
+}
+
+/**
+ * Return name of logged-in user.
+ */
+const char *get_user_name (void)
+{
+  static char user [100] = { "?" };
+  ULONG       ulen = sizeof(user);
+
+  if (user[0] != '?')
+     return (user);
+  GetUserName (user, &ulen);
+  return (user);
+}
+
+bool init_misc (void)
+{
+  init_timings();
+  if (test_contains(Modes.tests, "misc"))
+     test_asprintf();
+
+  Modes.under_appveyor = (!stricmp(get_user_name(), "appveyor"));
+  return (true);
+}
+
+int64_t receiveclock_ms_elapsed (uint64_t t1, uint64_t t2)
+{
+  return (t2 - t1) / 12000U;
 }
 
 /**
@@ -1053,57 +1291,6 @@ void crtdbug_init (void)
   _CrtSetDbgFlag (flags | _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG));
   _CrtMemCheckpoint (&start_state);
 }
-
-#elif defined(USE_MIMALLOC)
-/**
- * Setting for the `mimalloc` code
- */
-void mimalloc_init (void)
-{
-  mi_option_enable (mi_option_show_errors);
-
-  if (Modes.debug & DEBUG_GENERAL)
-  {
-    mi_option_enable (mi_option_show_stats);
-    mi_option_enable (mi_option_destroy_on_exit);
-    mi_option_enable (mi_option_verbose);
-  }
-}
-
-void mimalloc_exit (void)
-{
-}
-
-static void mi_cdecl stats_cb (const char *msg, void *arg)
-{
-  FILE *f = arg;
-
-  modeS_flogf (f, "!%s", msg);
-}
-
-void mimalloc_stats (void)
-{
-  if (Modes.log && mi_option_is_enabled(mi_option_show_stats))
-  {
-    modeS_flogf (Modes.log, "MIMALLOC stats:\n");
-    mi_stats_print_out (stats_cb, Modes.log);
-  }
-}
-
-static const char *mimalloc_version (void)
-{
-  static char buf [30];
-  int    ver = mi_version();
-
-  snprintf (buf, sizeof(buf), "mimalloc ver: %d.%d\n", ver / 100, ver % 100);
-  return (buf);
-}
-#endif  /* _DEBUG */
-
-/* A dummy for `show_version_info()`
- */
-#if !defined(USE_MIMALLOC)
-#define mimalloc_version() ""
 #endif
 
 /**
@@ -1145,18 +1332,29 @@ const char *win_strerror (DWORD err)
  *
  * `rtlsdr_last_error()` always returns a positive value for WinUSB errors.
  *
- * While RTLSDR errors returned from all `rtlsdr_x()` functions are negative.
+ * While a RTLSDR error-code in `rc` returned from all `rtlsdr_x()` functions are negative.
  * And rather sparse:
- *   \li -1 if device handle is invalid
- *   \li -2 if EEPROM size is exceeded (depends on rtlsdr_x() function)
- *   \li -3 if no EEPROM was found     (depends on rtlsdr_x() function)
+ *   \li -1      if device handle is invalid
+ *   \li -2      if EEPROM size is exceeded (depends on rtlsdr_x() function)
+ *   \li -3      if no EEPROM was found     (depends on rtlsdr_x() function)
+ *   \li -EINVAL if sample-rate is invalid
  */
-const char *get_rtlsdr_error (void)
+const char *get_rtlsdr_error (int rc)
 {
   uint32_t err = rtlsdr_last_error();
 
+  if (rc == -EINVAL)
+     return ("Invalid parameter.");
+
   if (err == 0)
-     return ("No error.");
+  {
+    if (rc == -1)
+       return ("General error.");
+    return ("No error.");
+  }
+
+  /* From `FormatMessageA()`
+   */
   return trace_strerror (err);
 }
 
@@ -1194,7 +1392,7 @@ const char *qword_str (uint64_t val)
 {
   static char buf [8][30];
   static int  idx = 0;
-  char   tmp[30];
+  char   tmp [30];
   char  *rc = buf [idx++];
 
   if (val < 1000ULL)
@@ -1244,33 +1442,26 @@ void *memdup (const void *from, size_t size)
 static void print_sql_info (void)
 {
   const char *opt;
+  char *buf = NULL;
   int   i, sz = 0;
 
-  printf ("Sqlite3 ver:  %s. Build options: ", sqlite3_libversion());
-  for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
-  {
-    const char *opt_next = sqlite3_compileoption_get (i+1);
+  printf ("Sqlite3 ver:  %-7s from http://www.sqlite.org\n"
+          "  Build options: ", sqlite3_libversion());
 
-    sz += printf ("SQLITE_%s%s", opt, opt_next ? ", " : "\n");
-    if (opt_next)
-       sz += sizeof(", SQLITE_") + strlen (opt_next);
-    if (sz >= 140)
-    {
-      fputs ("\n              ", stdout);
-      sz = 0;
-    }
-  }
+  for (i = 0; (opt = sqlite3_compileoption_get(i)) != NULL; i++)
+      sz += modeS_asprintf (&buf, "SQLITE_%s, ", opt);
+
+  buf [sz-2] = '\0';  /* remove last ', ' */
+  puts_long_line (buf, strlen("  Build options: "));
+  free (buf);
 }
 
-static void print_packed_web_info (void)
+/**
+ * Print the SAPI (Speech API) version.
+ */
+static void print_SAPI_info (void)
 {
-#if defined(USE_PACKED_DLL)
-  /**
-   * \todo
-   * Iterate over resources in `web-page.dll` and print
-   * all `mg_packed_spec_x()` descriptions.
-   */
-#endif
+  printf ("SAPI ver:     %x.%x\n", (_SAPI_VER & 0xF0) >> 4, _SAPI_VER & 0x0F);
 }
 
 /**
@@ -1297,10 +1488,8 @@ static const char *compiler_info (void)
 
 #if defined(MG_ENABLE_SELECT)
   #define NETPOLLER  "select()"
-#elif defined(MG_ENABLE_EPOLL)
-  #define NETPOLLER  "epoll"
 #elif defined(MG_ENABLE_POLL)
-  #define NETPOLLER "WSAPoll()"
+  #define NETPOLLER  "WSAPoll()"
 #else
   #error "Cannot define 'NETPOLLER'?!"
 #endif
@@ -1322,22 +1511,13 @@ static const char *build_features (void)
   #if defined(USE_ASAN)
     "ASAN",
   #endif
-  #if defined(USE_UBSAN)
-    "UBSAN",
-  #endif
-  #if defined(USE_MIMALLOC)
-    "MIMALLOC",
-  #endif
-  #if defined(USE_GEN_ROUTES)
-    "GEN_ROUTES",
+  #if defined(USE_BIN_FILES)
+    "BIN_FILES",
   #endif
   #if defined(USE_PACKED_DLL)
     "Packed-Web",
   #endif
-  #if defined(USE_READSB_DEMOD)
-    "readsb-demod",
-  #endif
-  "NETPOLLER=" NETPOLLER ,
+    "NETPOLLER=" NETPOLLER,
     NULL
   };
   const char *f;
@@ -1351,7 +1531,7 @@ static const char *build_features (void)
     *p++ = ',';
     *p++ = ' ';
   }
-  p[-2] = '\0';
+  p [-2] = '\0';
   return (buf);
 }
 
@@ -1374,40 +1554,23 @@ const char *__asan_default_options (void)
 }
 #endif
 
-#if defined(USE_UBSAN) || defined(__DOXYGEN__)
 /**
- * Override of the default UBSAN options set by `%UBSAN_OPTIONS%`.
- */
-const char *__ubsan_default_options (void)
-{
-  static const char *ubsan_options;
-  static bool done = false;
-
-  printf ("%s() called\n", __func__);
-  if (!done)
-      ubsan_options = getenv ("UBSAN_OPTIONS");
-  done = true;
-  if (ubsan_options)
-     return (ubsan_options);
-  return ("print_stacktrace=1:log_path=UBSAN");
-}
-#endif
-
-/**
- * Print a long string to screen.
+ * Print a long string to `FILE *f` (normally `stdout`).
  * Try to wrap nicely according to the screen-width.
  * Multiple spaces ("  ") are collapsed into one space.
  */
-void puts_long_line (const char *start, size_t indent)
+void fputs_long_line (FILE *f, const char *start, size_t indent)
 {
   static size_t width = 0;
   size_t        left;
+  bool          drop = false;
   const char   *c = start;
 
   if (width == 0)
   {
     CONSOLE_SCREEN_BUFFER_INFO console_info;
     HANDLE  hnd = GetStdHandle (STD_OUTPUT_HANDLE);
+    const char *env = getenv ("COLUMNS");
 
     width = UINT_MAX;
 
@@ -1417,6 +1580,8 @@ void puts_long_line (const char *start, size_t indent)
     {
       width = console_info.srWindow.Right - console_info.srWindow.Left + 1;
     }
+    if (env && atoi(env) > 0)
+       width = atoi (env);
   }
 
   left = width - indent;
@@ -1427,29 +1592,126 @@ void puts_long_line (const char *start, size_t indent)
     {
       /* Break a long line at a space.
        */
-      const char *p = strchr (c+1, ' ');
+      const char *p = strchr (c + 1, ' ');
       int   ch;
 
       if (!p)
-         p = strchr (c+1, '\0');
+         p = strchr (c + 1, '\0');
       if (left < 2 || (left <= (size_t)(p - c)))
       {
-        printf ("\n%*c", (int)indent, ' ');
+        fprintf (f, "\n%*c", (int)indent, ' ');
         left  = width - indent;
         start = ++c;
         continue;
       }
+
       ch = (int) c[1];
-      if (isspace(ch))  /* Drop excessive blanks */
+      if (drop && isspace(ch))  /* Drop excessive blanks, but not at start */
       {
         c++;
         continue;
       }
     }
-    putchar (*c++);
+    if (!isspace((int)*c))
+       drop = true;       /* we're past the start now */
+    putc (*c++, f);
+
     left--;
   }
-  putchar ('\n');
+  putc ('\n', f);
+}
+
+void puts_long_line (const char *start, size_t indent)
+{
+  fputs_long_line (stdout, start, indent);
+}
+
+/*
+ * Test `modeS_asprintf()` with a long string (as from a .log-file):
+ *   46 unique client(s):
+ *      127.0.0.1, 154.213.184.18, 185.224.128.83, 185.224.128.67, 5.181.190.29, 61.216.35.127, 90.54.179.158,
+ *      172.169.111.144, 167.94.146.54, 194.48.251.26, ...
+ */
+static const char *tests[] = {
+                  "  unique client(s):",
+                  "127.0.0.1,",
+                  "154.213.184.18,",
+                  "185.224.128.83,",
+                  "185.224.128.67,",
+                  "5.181.190.29,",
+                  "61.216.35.127,",
+                  "90.54.179.158,",
+                  "172.169.111.144,",
+                  "167.94.146.54,",
+                  "194.48.251.26\n"
+                };
+
+static void test_asprintf (void)
+{
+  const char **ip;
+  char        *buf = NULL;
+  size_t       i;
+  int          ret;
+
+  printf ("%s():\n", __FUNCTION__);
+  ip = tests + 0;
+  for (i = 0; i < DIM(tests); i++, ip++)
+  {
+    ret = modeS_asprintf (&buf, "%s ", *ip);
+    assert (ret > 0);
+  }
+  puts_long_line (buf, strlen(tests[0]) + 1);
+  free (buf);
+}
+
+/**
+ * Formatted print and append to an alloced buffer at `*bufp`.
+ */
+int modeS_vasprintf (char **bufp, _Printf_format_string_ const char *fmt, va_list args)
+{
+  int     ret, slen;
+  size_t  len, buf_len = *bufp ? strlen (*bufp) : 0;
+  char   *str;
+  va_list _args;
+
+  /* copy `args`, as it is used twice
+   */
+  va_copy (_args, args);
+  slen = _vscprintf (fmt, _args);
+  va_end (_args);
+
+  if (slen == -1)
+     return (-1);
+
+  len = (size_t) (slen + 1);
+
+  /* If `*bufp == NULL`, this equals `malloc(len)`.
+   */
+  str = realloc (*bufp, buf_len + len);
+  if (!str)
+     return (-1);
+
+  slen = vsnprintf (str + buf_len, len, fmt, args);
+  ret = slen;
+  if (slen != (int) (len - 1))
+  {
+    free (str);
+    str = NULL;
+    ret = -1;
+  }
+  *bufp = str;
+  return (ret);
+}
+
+int modeS_asprintf (char **bufp, _Printf_format_string_ const char *fmt, ...)
+{
+  va_list args;
+  int     ret;
+
+  va_start (args, fmt);
+  ret = modeS_vasprintf (bufp, fmt, args);
+  va_end (args);
+  return (ret);
 }
 
 /**
@@ -1498,9 +1760,6 @@ static void print_LDFLAGS (void)
 
 static const char *__DATE__str (void)
 {
-#if 0
-  return (__DATE__);    /* e.g. "Mar  2 2024" */
-#else
   /*
    * Convert `__DATE__ into `DD MMM YYYY`.
    * Based on:
@@ -1529,6 +1788,46 @@ static const char *__DATE__str (void)
   snprintf (buf, sizeof(buf), "%d %.3s %04d",
             DAY(), months + 3*MONTH(), YEAR());
   return (buf);         /* e.g. "2 Mar 2024" */
+}
+
+static void print_BIN_files (void)
+{
+#if defined(USE_BIN_FILES)
+  #define DATE_TIME "YYY/MM/DD, HH:MM:SS"
+  size_t      i;
+  const char *bin_files[] = { "aircraft.bin",
+                              "airports.bin",
+                              "code-blocks.bin",
+                              "routes.bin"
+                            };
+
+  printf ("\nGenerated .BIN-files:\n");
+
+  init_timings();  /* for 'Modes.timezone' */
+
+  for (i = 0; i < DIM(bin_files); i++)
+  {
+    struct stat  st;
+    mg_file_path file;
+
+    snprintf (file, sizeof(file), "%s\\%s", Modes.results_dir, bin_files[i]);
+    if (stat(file, &st) == 0)
+    {
+      char     fsize [20];
+      char     fdate [sizeof(DATE_TIME)];
+      uint64_t ft = unix_epoch_to_FILETIME (st.st_mtime);
+
+      snprintf (fdate, sizeof(fdate), "%s", modeS_FILETIME_to_str((const FILETIME*)&ft, true));
+      snprintf (fsize, sizeof(fsize), "%5ld kB", st.st_size / 1024);
+      printf ("  %-*.*s, %-8s, %s\n",
+              (int)sizeof(DATE_TIME),   /* chop of 'st->wMilliseconds' */
+              (int)sizeof(DATE_TIME),
+              fdate, fsize, file);
+    }
+    else
+      printf ("  Not found:                      %s\n", file);
+  }
+  puts ("");
 #endif
 }
 
@@ -1537,66 +1836,64 @@ static const char *__DATE__str (void)
  */
 void show_version_info (bool verbose)
 {
-  printf ("dump1090 ver: %s (%s, %s).\nBuilt on %s.\n",
-          PROG_VERSION, compiler_info(), build_features(),
+  printf ("dump1090 ver: %s (%s, %s).\n"
+          "Built on %s.\n", PROG_VERSION, compiler_info(), build_features(),
           __DATE__str());
 
   if (verbose)
   {
-    printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s.\n",
+    printf ("User-name:    %s\n", get_user_name());
+    printf ("Miniz ver:    %-7s from https://github.com/kuba--/zip\n", mz_version());
+    printf ("Mongoose ver: %-7s from https://github.com/cesanta/mongoose\n", MG_VERSION);
+    printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s\n",
             RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, RTL_VER_ID);
-    printf ("PDCurses ver: %s\n", PDC_VERDOT);
-    printf ("Mongoose ver: %s\n", MG_VERSION);
-    printf ("Miniz ver:    %s\n", mz_version());
-    printf ("%s", mimalloc_version());
-    print_packed_web_info();
+    printf ("PDCurses ver: %-7s from https://github.com/wmcbrine/PDCurses\n", PDC_VERDOT);
+    print_SAPI_info();
     print_sql_info();
+    print_BIN_files();
     print_CFLAGS();
     print_LDFLAGS();
   }
 }
 
 /**
- * \def DEF_FUNC
- * Handy macro to both define and declare the function-pointers
- * for `WinInet.dll`
- */
-#define DEF_FUNC(ret, f, args)  typedef ret (WINAPI *func_##f) args; \
-                                static func_##f p_##f = NULL
-
-/**
  * Download a single file using the WinInet API.
  * Load `WinInet.dll` dynamically.
  */
-DEF_FUNC (HINTERNET, InternetOpenA, (const char *user_agent,
-                                     DWORD       access_type,
-                                     const char *proxy_name,
-                                     const char *proxy_bypass,
-                                     DWORD       flags));
+DEF_WIN_FUNC (HINTERNET, InternetOpenA, (const char *user_agent,
+                                         DWORD       access_type,
+                                         const char *proxy_name,
+                                         const char *proxy_bypass,
+                                         DWORD       flags));
 
-DEF_FUNC (HINTERNET, InternetOpenUrlA, (HINTERNET   hnd,
-                                        const char *url,
-                                        const char *headers,
-                                        DWORD       headers_len,
-                                        DWORD       flags,
-                                        DWORD_PTR   context));
+DEF_WIN_FUNC (HINTERNET, InternetOpenUrlA, (HINTERNET   hnd,
+                                            const char *url,
+                                            const char *headers,
+                                            DWORD       headers_len,
+                                            DWORD       flags,
+                                            DWORD_PTR   context));
 
-DEF_FUNC (BOOL, InternetReadFile, (HINTERNET hnd,
-                                   void     *buffer,
-                                   DWORD     num_bytes_to_read,
-                                   DWORD    *num_bytes_read));
+DEF_WIN_FUNC (BOOL, InternetSetOptionA, (HINTERNET hnd,
+                                         DWORD     option,
+                                         void     *buf,
+                                         DWORD     buf_len));
 
-DEF_FUNC (BOOL, InternetGetLastResponseInfoA, (DWORD *err_code,
-                                               char  *err_buff,
-                                               DWORD *err_buff_len));
+DEF_WIN_FUNC (BOOL, InternetReadFile, (HINTERNET hnd,
+                                       void     *buffer,
+                                       DWORD     num_bytes_to_read,
+                                       DWORD    *num_bytes_read));
 
-DEF_FUNC (BOOL, InternetCloseHandle, (HINTERNET handle));
+DEF_WIN_FUNC (BOOL, InternetGetLastResponseInfoA, (DWORD *err_code,
+                                                   char  *err_buff,
+                                                   DWORD *err_buff_len));
 
-DEF_FUNC (BOOL, HttpQueryInfoA, (HINTERNET handle,
-                                 DWORD     info_level,
-                                 void     *buf,
-                                 DWORD    *buf_len,
-                                 DWORD    *index));
+DEF_WIN_FUNC (BOOL, InternetCloseHandle, (HINTERNET handle));
+
+DEF_WIN_FUNC (BOOL, HttpQueryInfoA, (HINTERNET handle,
+                                     DWORD     info_level,
+                                     void     *buf,
+                                     DWORD    *buf_len,
+                                     DWORD    *index));
 
 /**
  * \def BUF_INCREMENT
@@ -1703,7 +2000,8 @@ const char *wininet_strerror (DWORD err)
  */
 static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
 {
-  DWORD url_flags;
+  DWORD url_flags, opt;
+  BOOL  rc;
 
   *h1 = (*p_InternetOpenA) ("dump1090", INTERNET_OPEN_TYPE_DIRECT,
                             NULL, NULL,
@@ -1713,6 +2011,25 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
     wininet_strerror (GetLastError());
     DEBUG (DEBUG_NET, "InternetOpenA() failed: %s.\n", Modes.wininet_last_error);
     return (false);
+  }
+
+  /* Enable gzip and deflate decoding schemes
+   */
+  opt = TRUE;
+  rc = (*p_InternetSetOptionA) (*h1, INTERNET_OPTION_HTTP_DECODING, (void*)&opt, sizeof(opt));
+  if (!rc)
+     DEBUG (DEBUG_NET, "InternetSetOptionA (INTERNET_OPTION_HTTP_DECODING) failed: %s.\n",
+            win_strerror(GetLastError()));
+
+  if (Modes.wininet_HTTP2)
+  {
+    /* Enable HTTP/2 protocol support. Needs Windows 10, version 1507 and later.
+     */
+    opt = HTTP_PROTOCOL_FLAG_HTTP2;
+    rc = (*p_InternetSetOptionA) (*h1, INTERNET_OPTION_ENABLE_HTTP_PROTOCOL, (void*)&opt, sizeof(opt));
+    if (!rc)
+       DEBUG (DEBUG_NET, "InternetSetOptionA (INTERNET_OPTION_ENABLE_HTTP_PROTOCOL) failed: %s.\n",
+              win_strerror(GetLastError()));
   }
 
   url_flags = INTERNET_FLAG_RELOAD |
@@ -1744,6 +2061,7 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
 static struct dyn_struct wininet_funcs[] = {
                          ADD_VALUE (InternetOpenA),
                          ADD_VALUE (InternetOpenUrlA),
+                         ADD_VALUE (InternetSetOptionA),
                          ADD_VALUE (InternetGetLastResponseInfoA),
                          ADD_VALUE (InternetReadFile),
                          ADD_VALUE (InternetCloseHandle),
@@ -1767,11 +2085,11 @@ typedef struct download_ctx {
         bool        got_last_chunk;
       } download_ctx;
 
-static int http_status = -1;
+static int g_http_status = -1;
 
 int download_status (void)
 {
-  return (http_status);
+  return (g_http_status);
 }
 
 static bool download_exit (download_ctx *ctx, bool rc)
@@ -1785,7 +2103,7 @@ static bool download_exit (download_ctx *ctx, bool rc)
     DWORD len = sizeof(buf);
 
     if ((*p_HttpQueryInfoA) (ctx->h2, HTTP_QUERY_STATUS_CODE, buf, &len, NULL))
-       http_status = atoi (buf);
+       g_http_status = atoi (buf);
 
     (*p_InternetCloseHandle) (ctx->h2);
   }
@@ -1813,7 +2131,9 @@ static bool download_to_file_cb (download_ctx *ctx)
      return (false);
 
   ctx->written_to_file += (uint32_t) sz;
-  printf ("Got %u kB.\r", ctx->written_to_file / 1024);
+
+  if (Modes.debug & DEBUG_NET)
+     printf ("Got %u kB.\r", ctx->written_to_file / 1024);
   assert (ctx->dl_buf_pos == 0);
   return (true);
 }
@@ -1827,7 +2147,7 @@ static bool download_to_buf_cb (download_ctx *ctx)
   {
     char *more;
 
-    DEBUG (DEBUG_NET, "Limit reached. dl_buf_sz: %zu\n", ctx->dl_buf_sz);
+    DEBUG (DEBUG_NET2, "Limit reached. dl_buf_sz: %zu\n", ctx->dl_buf_sz);
     ctx->dl_buf_sz += BUF_INCREMENT;
     more = realloc (ctx->dl_buf, ctx->dl_buf_sz);
     if (!more)
@@ -1840,7 +2160,7 @@ static bool download_to_buf_cb (download_ctx *ctx)
   assert (ctx->dl_buf_pos < ctx->dl_buf_sz);
   ctx->dl_buf [ctx->dl_buf_pos] = '\0';    /* 0 terminate */
 
-  DEBUG (DEBUG_NET, "bytes_read_total: %lu, dl_buf_pos: %zu\n",
+  DEBUG (DEBUG_NET2, "bytes_read_total: %lu, dl_buf_pos: %zu\n",
          ctx->bytes_read_total, ctx->dl_buf_pos);
   return (true);
 }
@@ -1853,7 +2173,7 @@ static bool download_common (download_ctx *ctx,
   memset (ctx, '\0', sizeof(*ctx));
   ctx->url  = url;
   ctx->file = file;
-  http_status = -1; /* unknown now */
+  g_http_status = -1; /* unknown now */
 
   if (ctx->file)
   {
@@ -1897,7 +2217,7 @@ static bool download_common (download_ctx *ctx,
 
     if (!ctx->wininet_rc || ctx->bytes_read == 0)
     {
-      DEBUG (DEBUG_NET, "got_last_chunk.\n");
+      DEBUG (DEBUG_NET2, "got_last_chunk.\n");
       ctx->got_last_chunk = true;
     }
     if (!(*callback)(ctx) || ctx->got_last_chunk)
@@ -1937,361 +2257,6 @@ char *download_to_buf (const char *url)
   if (!download_common(&ctx, url, NULL, download_to_buf_cb))
      return (NULL);
   return (ctx.dl_buf);
-}
-
-/**
- * From SDRangel's 'sdrbase/util/azel.cpp':
- *
- * Convert geodetic latitude to geocentric latitude;
- * angle from centre of Earth between the point and equator.
- *
- * \ref https://en.wikipedia.org/wiki/Latitude#Geocentric_latitude
- *
- * \param in lat  The geodetic latitude in radians.
- */
-static double geocentric_latitude (double lat)
-{
-  double e2 = 0.00669437999014;
-
-  return atan ((1.0 - e2) * tan(lat));
-}
-
-/**
- * Try to figure out some issues with cartesian position going crazy.
- * Ignore the `z` axis (just print level above earth).
- */
-static void assert_cart (const cartesian_t *cpos, double heading, unsigned line)
-{
-#ifdef _DEBUG
-  if (fabs(cpos->c_x) > EARTH_RADIUS || fabs(cpos->c_y) > EARTH_RADIUS)
-  {
-    double x = cpos->c_x / 1E3;
-    double y = cpos->c_y / 1E3;
-    double z = (EARTH_RADIUS - cpos->c_z) / 1E3;
-
-    fprintf (stderr, "assertion at 'misc.c(%u)': x=%.2f, y=%.2f, z=%.2f, heading=%.2f.\n",
-             line, x, y, z, TWO_PI * heading / 360);
-    abort();
-  }
-#else
-  MODES_NOTUSED (cpos);
-  MODES_NOTUSED (heading);
-  MODES_NOTUSED (line);
-#endif
-}
-
-/**
- * Convert spherical coordinate to cartesian.
- * Also calculates radius and a normal vector.
- *
- * \param in  pos   The position on the Geoid.
- * \param out cart  The position on Cartesian form.
- */
-void spherical_to_cartesian (const pos_t *pos, cartesian_t *cart)
-{
-  double lat, lon, geo_lat;
-  pos_t _pos = *pos;
-
-  ASSERT_POS (_pos);
-  lat  = TWO_PI * _pos.lat / 360.0;
-  lon  = TWO_PI * _pos.lon / 360.0;
-  geo_lat = geocentric_latitude (lat);
-
-  cart->c_x = EARTH_RADIUS * cos (lon) * cos (geo_lat);
-  cart->c_y = EARTH_RADIUS * sin (lon) * cos (geo_lat);
-  cart->c_z = EARTH_RADIUS * sin (geo_lat);
-  assert_cart (cart, 0.0, __LINE__);
-}
-
-/**
- * \ref https://keisan.casio.com/exec/system/1359533867
- */
-bool cartesian_to_spherical (const cartesian_t *cart, pos_t *pos_out, double heading)
-{
-  pos_t pos;
-
-  assert_cart (cart, heading, __LINE__);
-
-  /* We do not need this; close to EARTH_RADIUS.
-   *
-   * double radius = sqrt (cart->c_x * cart->c_x + cart->c_y * cart->c_y + cart->c_z * cart->c_z);
-   */
-  pos.lon = 360.0 * atan2 (cart->c_y, cart->c_x) / TWO_PI;
-  pos.lat = 360.0 * atan2 (hypot(cart->c_x, cart->c_y), cart->c_z) / TWO_PI;
-  *pos_out = pos;
-  return (VALID_POS(pos));
-}
-
-/**
- * Return the distance between 2 Cartesian points.
- */
-double cartesian_distance (const cartesian_t *a, const cartesian_t *b)
-{
-  static double old_rc = 0.0;
-  double delta_X, delta_Y, rc;
-
-  assert_cart (a, 0.0, __LINE__);
-  assert_cart (b, 0.0, __LINE__);
-
-  delta_X = b->c_x - a->c_x;
-  delta_Y = b->c_y - a->c_y;
-
-  rc = hypot (delta_X, delta_Y);   /* sqrt (delta_X*delta_X, delta_Y*delta_Y) */
-
-//assert (fabs(rc - old_rc) < 6000.0);  /* 6 km */
-  old_rc = rc;
-  (void) old_rc;
-  return (rc);
-}
-
-/**
- * Return the closest of `val1` and `val2` to `val`.
- */
-double closest_to (double val, double val1, double val2)
-{
-  double diff1 = fabs (val1 - val);
-  double diff2 = fabs (val2 - val);
-
-  return (diff2 > diff1 ? val1 : val2);
-}
-
-/**
- * Distance between 2 points on a spherical earth.
- * This has up to 0.5% error because the earth isn't actually spherical
- * (but we don't use it in situations where that matters)
- *
- * \ref https://en.wikipedia.org/wiki/Great-circle_distance
- */
-double great_circle_dist (pos_t pos1, pos_t pos2)
-{
-  double lat1 = TWO_PI * pos1.lat / 360.0;  /* convert to radians */
-  double lon1 = TWO_PI * pos1.lon / 360.0;
-  double lat2 = TWO_PI * pos2.lat / 360.0;
-  double lon2 = TWO_PI * pos2.lon / 360.0;
-  double angle;
-
-  /* Avoid a 'NaN'
-   */
-  if (fabs(lat1 - lat2) < SMALL_VAL && fabs(lon1 - lon2) < SMALL_VAL)
-     return (0.0);
-
-  angle = sin(lat1) * sin(lat2) + cos(lat1) * cos(lat2) * cos(fabs(lon1 - lon2));
-
-  /* Radius of the Earth * 'arcosine of angular distance'.
-   */
-  return (EARTH_RADIUS * acos(angle));
-}
-
-/**
- * Set this aircraft's distance to our home position.
- *
- * The reference time-tick is the latest of `a->odd_CPR_time` and `a->even_CPR_time`.
- *
- * \todo move to aircraft.c
- */
-static void set_home_distance (aircraft *a)
-{
-  double distance;
-
-  if (!(VALID_POS(Modes.home_pos) && VALID_POS(a->position)))
-     return;
-
-  distance = great_circle_dist (a->position, Modes.home_pos);
-  if (distance != 0.0)
-     a->distance = distance;
-
-  a->EST_position = a->position;
-
-  if (a->even_CPR_time > 0 && a->odd_CPR_time > 0)
-     a->EST_seen_last = (a->even_CPR_time > a->odd_CPR_time) ? a->even_CPR_time : a->odd_CPR_time;
-}
-
-/**
- * Helper function for decoding the **CPR** (*Compact Position Reporting*). <br>
- * Always positive MOD operation, used for CPR decoding.
- */
-static int CPR_mod_func (int a, int b)
-{
-  int res = a % b;
-
-  if (res < 0)
-     res += b;
-  return (res);
-}
-
-/**
- * Helper function for decoding the **CPR** (*Compact Position Reporting*).
- *
- * Calculates **NL** *(lat)*; *Number of Longitude* zone. <br>
- * Given the latitude, this function returns the number of longitude zones between 1 and 59.
- *
- * The NL function uses the precomputed table from 1090-WP-9-14. <br>
- * Refer [The-1090MHz-riddle](./The-1090MHz-riddle.pdf), page 45 for the exact equation.
- */
-static int CPR_NL_func (double lat)
-{
-  if (lat < 0)
-     lat = -lat;   /* Table is symmetric about the equator. */
-
-  if (lat > 60.0)
-     goto L60;
-
-  if (lat > 44.2)
-     goto L42;
-
-  if (lat > 30.0)
-     goto L30;
-
-  if (lat < 10.47047130) return (59);
-  if (lat < 14.82817437) return (58);
-  if (lat < 18.18626357) return (57);
-  if (lat < 21.02939493) return (56);
-  if (lat < 23.54504487) return (55);
-  if (lat < 25.82924707) return (54);
-  if (lat < 27.93898710) return (53);
-  if (lat < 29.91135686) return (52);
-
-L30:
-  if (lat < 31.77209708) return (51);
-  if (lat < 33.53993436) return (50);
-  if (lat < 35.22899598) return (49);
-  if (lat < 36.85025108) return (48);
-  if (lat < 38.41241892) return (47);
-  if (lat < 39.92256684) return (46);
-  if (lat < 41.38651832) return (45);
-  if (lat < 42.80914012) return (44);
-  if (lat < 44.19454951) return (43);
-
-L42:
-  if (lat < 45.54626723) return (42);
-  if (lat < 46.86733252) return (41);
-  if (lat < 48.16039128) return (40);
-  if (lat < 49.42776439) return (39);
-  if (lat < 50.67150166) return (38);
-  if (lat < 51.89342469) return (37);
-  if (lat < 53.09516153) return (36);
-  if (lat < 54.27817472) return (35);
-  if (lat < 55.44378444) return (34);
-  if (lat < 56.59318756) return (33);
-  if (lat < 57.72747354) return (32);
-  if (lat < 58.84763776) return (31);
-  if (lat < 59.95459277) return (30);
-
-L60:
-  if (lat < 61.04917774) return (29);
-  if (lat < 62.13216659) return (28);
-  if (lat < 63.20427479) return (27);
-  if (lat < 64.26616523) return (26);
-  if (lat < 65.31845310) return (25);
-  if (lat < 66.36171008) return (24);
-  if (lat < 67.39646774) return (23);
-  if (lat < 68.42322022) return (22);
-  if (lat < 69.44242631) return (21);
-  if (lat < 70.45451075) return (20);
-  if (lat < 71.45986473) return (19);
-  if (lat < 72.45884545) return (18);
-  if (lat < 73.45177442) return (17);
-  if (lat < 74.43893416) return (16);
-  if (lat < 75.42056257) return (15);
-  if (lat < 76.39684391) return (14);
-  if (lat < 77.36789461) return (13);
-  if (lat < 78.33374083) return (12);
-  if (lat < 79.29428225) return (11);
-  if (lat < 80.24923213) return (10);
-  if (lat < 81.19801349) return (9);
-  if (lat < 82.13956981) return (8);
-  if (lat < 83.07199445) return (7);
-  if (lat < 83.99173563) return (6);
-  if (lat < 84.89166191) return (5);
-  if (lat < 85.75541621) return (4);
-  if (lat < 86.53536998) return (3);
-  if (lat < 87.00000000) return (2);
-  return (1);
-}
-
-static int CPR_N_func (double lat, int is_odd)
-{
-  int nl = CPR_NL_func (lat) - is_odd;
-
-  if (nl < 1)
-     nl = 1;
-  return (nl);
-}
-
-static double CPR_Dlong_func (double lat, int is_odd)
-{
-  return (360.0 / CPR_N_func (lat, is_odd));
-}
-
-/**
- * Decode the **CPR** (*Compact Position Reporting*).
- *
- * This algorithm comes from: <br>
- * http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html.
- *
- * A few remarks:
- *
- * \li 131072 is 2^17 since CPR latitude and longitude are encoded in 17 bits.
- * \li We assume that we always received the odd packet as last packet for
- *     simplicity. This may provide a position that is less fresh of a few seconds.
- */
-void decode_CPR (struct aircraft *a)
-{
-  const double air_dlat0 = 360.0 / 60;
-  const double air_dlat1 = 360.0 / 59;
-  double       lat0      = a->even_CPR_lat;
-  double       lat1      = a->odd_CPR_lat;
-  double       lon0      = a->even_CPR_lon;
-  double       lon1      = a->odd_CPR_lon;
-
-  /* Compute the Latitude Index "j"
-   */
-  int    j = (int) floor (((59*lat0 - 60*lat1) / 131072) + 0.5);
-  double rlat0 = air_dlat0 * (CPR_mod_func(j, 60) + lat0 / 131072);
-  double rlat1 = air_dlat1 * (CPR_mod_func(j, 59) + lat1 / 131072);
-
-  if (rlat0 >= 270)
-     rlat0 -= 360;
-
-  if (rlat1 >= 270)
-     rlat1 -= 360;
-
-  /* Check that both are in the same latitude zone, or return.
-   */
-  if (CPR_NL_func(rlat0) != CPR_NL_func(rlat1))
-     return;
-
-  /* Compute ni and the longitude index m
-   */
-  if (a->odd_CPR_time > a->even_CPR_time)
-  {
-    /* Use odd packet */
-    int ni = CPR_N_func (rlat1, 1);
-    int m  = (int) floor ((((lon0 * (CPR_NL_func(rlat1) - 1)) -
-                          (lon1 * CPR_NL_func(rlat1))) / 131072.0) + 0.5);
-    a->position.lon = CPR_Dlong_func (rlat1, 1) * (CPR_mod_func (m, ni) + lon1 / 131072);
-    a->position.lat = rlat1;
-  }
-  else
-  {
-    /* Use even packet */
-    int ni = CPR_N_func (rlat0, 0);
-    int m = (int) floor ((((lon0 * (CPR_NL_func(rlat0) - 1)) -
-                         (lon1 * CPR_NL_func(rlat0))) / 131072) + 0.5);
-    a->position.lon = CPR_Dlong_func (rlat0, 0) * (CPR_mod_func(m, ni) + lon0 / 131072);
-    a->position.lat = rlat0;
-  }
-
-  /* Normalize to -180 .. +180
-   */
-#if 0
-  if (a->position.lon > 180)
-     a->position.lon -= 360;
-#else
-  a->position.lon -= floor ((a->position.lon + 180) / 360) * 360;
-#endif
-
-  set_home_distance (a);
 }
 
 /*
@@ -2620,9 +2585,6 @@ static int getopt_internal (int nargc, char * const *nargv,
   if (*options == '+' || *options == '-')
      options++;
 
-  /* Some GNU programs (like cvs) set optind to 0 instead of
-   * using optreset.  Work around this braindamage.
-   */
   if (optind == 0)
      optind = 1;
 
@@ -2836,4 +2798,74 @@ int getopt_long_only (int nargc, char * const *nargv, const char *options,
 {
   return getopt_internal (nargc, nargv, options, long_options, idx,
                           FLAG_PERMUTE|FLAG_LONGONLY);
+}
+
+/*
+ * Return the name for the console-events we might receive.
+ */
+static const char *ws_event_name (DWORD event)
+{
+  return (event == CTRL_C_EVENT        ? "CTRL_C_EVENT"        :
+          event == CTRL_BREAK_EVENT    ? "CTRL_BREAK_EVENT"    :
+          event == CTRL_CLOSE_EVENT    ? "CTRL_CLOSE_EVENT"    :
+          event == CTRL_LOGOFF_EVENT   ? "CTRL_LOGOFF_EVENT"   :
+          event == CTRL_SHUTDOWN_EVENT ? "CTRL_SHUTDOWN_EVENT" : "UNKNOWN EVENT");
+}
+
+static BOOL WINAPI console_handler (DWORD event)
+{
+  LOG_FILEONLY ("\nGot event: %s\n", ws_event_name(event));
+
+  if (event == CTRL_BREAK_EVENT || event == CTRL_C_EVENT)
+  {
+    PDC_scr_close();
+    return (FALSE);
+  }
+
+  if (event == CTRL_CLOSE_EVENT || event == CTRL_LOGOFF_EVENT || event == CTRL_SHUTDOWN_EVENT)
+  {
+    MessageBeep (MB_OK);
+    Sleep (500);
+    return (TRUE);
+  }
+  return (FALSE);
+}
+
+static uint8_t unhex_nimble (uint8_t c)
+{
+  return (c >= '0' && c <= '9')  ? (uint8_t) (c - '0') :
+          (c >= 'A' && c <= 'F') ? (uint8_t) (c - '7') : (uint8_t) (c - 'W');
+}
+
+uint32_t mg_unhexn (const char *str, size_t len)
+{
+  uint32_t val = 0;
+  size_t   i;
+
+  for (i = 0; i < len; i++)
+  {
+    val <<= 4;
+    val |= unhex_nimble (*str++);
+  }
+  return (val);
+}
+
+uint32_t mg_unhex (const char *str)
+{
+  return mg_unhexn (str, strlen(str));
+}
+
+char *mg_hex (const void *buf, size_t len, char *to)
+{
+  const uint8_t *p   = (const uint8_t*) buf;
+  const char    *hex = "0123456789abcdef";
+  size_t         i;
+
+  for (i = 0; len--; p++)
+  {
+    to [i++] = hex [p[0] >> 4];
+    to [i++] = hex [p[0] & 0x0f];
+  }
+  to [i] = '\0';
+  return (to);
 }

@@ -1,6 +1,7 @@
 // This was functionality of script.js, moved it to here to start the downloading of track history earlier
 "use strict";
 
+console.time("Page Load");
 
 // TAR1090 application object
 let TAR;
@@ -11,28 +12,33 @@ TAR = (function (global, jQuery, TAR) {
 // global object to store big stuff ... avoid clojur stupidity keeping the reference to big objects
 let g = {};
 
+let loadFinished = false;
 let Dump1090Version = "unknown version";
 let RefreshInterval = 1000;
 let globeSimLoad = 6;
-let adsbexchange = false;
+let aggregator = false;
 let enable_uat = false;
 let enable_pf_data = false;
 let HistoryChunks = false;
 let nHistoryItems = 0;
+let HistoryItemsLoaded;
 let HistoryItemsReturned = 0;
 let chunkNames = [];
-let PositionHistoryBuffer = [];
+let PositionHistoryBuffer;
 var receiverJson;
-let deferHistory = [];
+let deferHistory;
 let historyLoaded = jQuery.Deferred();
+let zstdDefer = jQuery.Deferred();
 let configureReceiver = jQuery.Deferred();
+let historyQueued = jQuery.Deferred();
 let historyTimeout = 60;
+let haveTraces = false;
 let globeIndex = 0;
 let globeIndexGrid = 0;
 let globeIndexSpecialTiles;
 let binCraft = false;
 let reApi = false;
-let zstd = true; // init hasn't failed
+let zstd = true; // default to on
 let dbServer = false;
 let l3harris = false;
 let heatmap = false;
@@ -65,7 +71,15 @@ try {
     usp = {
         params: new URLSearchParams(),
         has: function(s) {return this.params.has(s.toLowerCase());},
-        get: function(s) {return this.params.get(s.toLowerCase());},
+        get: function(s) {
+            let val = this.params.get(s.toLowerCase());
+            if (val) {
+                // make XSS a bit harder
+                val = val.replace(/[<>#&]/g, '');
+                //console.log("usp.get(" + s + ") = " + val);
+            }
+            return val;
+        },
         getFloat: function(s) {
             if (!this.params.has(s.toLowerCase())) return null;
             const param =  this.params.get(s.toLowerCase());
@@ -141,8 +155,8 @@ var fakeLocalStorage = function() {
 };
 
 
-if (window.location.href.match(/adsbexchange.com/) && window.location.pathname == '/') {
-    adsbexchange = true;
+if (window.location.href.match(/aggregator.com/) && window.location.pathname == '/') {
+    aggregator = true;
 }
 if (0 && window.self != window.top) {
     fakeLocalStorage();
@@ -204,7 +218,7 @@ if (feed != null) {
         for (let i in split) {
             uuid.push(encodeURIComponent(split[i]));
         }
-        if (uuid[0].length > 18) {
+        if (uuid[0].length > 18 && window.location.href.match(/adsbexchange.com/)) {
             console.log('redirecting the idiot, oui!');
             let URL = 'https://www.adsbexchange.com/api/feeders/tar1090/?feed=' + uuid[0];
             console.log(URL);
@@ -222,6 +236,10 @@ if (usp.has('tfrs')) {
 let uk_advisory = false;
 if (usp.has('uk_advisory')) {
     uk_advisory = true;
+}
+let atcStyle = false;
+if (usp.has('atcStyle')) {
+    atcStyle = true;
 }
 
 const customTiles = usp.get('customTiles');
@@ -267,6 +285,8 @@ if (usp.has('heatmap') || usp.has('realHeat')) {
         heatmap.end -= tmp * 3600 * 1000;
     if (usp.has('heatLines'))
         heatmap.lines = true;
+    if (usp.has('heatfilters'))
+        heatmap.filters = true;
     tmp = parseFloat(usp.get('heatAlpha'));
     if (!isNaN(tmp)) {
         heatmap.alpha = tmp;
@@ -322,7 +342,13 @@ function zuluTime(date) {
         + ":" + date.getUTCMinutes().toString().padStart(2,'0')
         + ":" + date.getUTCSeconds().toString().padStart(2,'0');
 }
-const TIMEZONE = new Date().toLocaleTimeString(undefined,{timeZoneName:'short'}).split(' ')[2];
+let TIMEZONE;
+if (navigator.language == 'en-US') {
+    TIMEZONE = new Date().toLocaleTimeString('en-US', {timeZoneName:'short'}).split(' ')[2];
+} else {
+    TIMEZONE = new Date().toLocaleTimeString('en-GB', {timeZoneName:'short'}).split(' ')[1];
+}
+TIMEZONE = TIMEZONE.replace("GMT", "UTC");
 function localTime(date) {
     return date.getHours().toString().padStart(2,'0')
         + ":" + date.getMinutes().toString().padStart(2,'0')
@@ -349,14 +375,57 @@ function lDateString(date) {
     return string;
 }
 
+function chunksDefer() {
+    return jQuery.ajax({
+        url:'chunks/chunks.json',
+        cache: false,
+        dataType: 'json',
+        timeout: 4000,
+    });
+}
+
+function handleJsonWorker(e) {
+    const url = e.data.url;
+    //console.log("url finished: " + url);
+    const defer = g.jwr[url];
+    delete g.jwr[url];
+
+    defer.resolve(e.data.json);
+};
+
+function jsonGetWorker(url) {
+    const defer = jQuery.Deferred();
+    g.jwr[url] = defer;
+    const wid = g.jsonGetId++ % g.jsonWorker.length;
+    //console.log(`using worker ${wid}`);
+    g.jsonWorker[wid].postMessage(url);
+
+    return defer;
+}
+
+g.jWorkers = 0;
+if (g.jWorkers) {
+    g.jwr = {};
+
+    g.jsonWorker = [];
+    g.jsonGetId = 0;
+
+    for (let i = 0; i < g.jWorkers; i++) {
+        const worker = new Worker("jsonWorker.js");
+        g.jsonWorker.push(worker);
+        worker.onmessage = handleJsonWorker;
+    }
+
+}
+
 let get_receiver_defer;
 let test_chunk_defer;
 const hostname = window.location.hostname;
 if (uuid) {
     // don't need receiver / chunks json
-} else if (0 || (adsbexchange && (hostname.startsWith('globe.') || hostname.startsWith('globe-')))) {
-    console.log("Using adsbexchange fast-path load!");
-    let data = {"zstd":true,"reapi":true,"refresh":1600,"history":1,"dbServer":true,"binCraft":true,"globeIndexGrid":3,"globeIndexSpecialTiles":[],"version":"adsbexchange backend"};
+} else if (aggregator) {
+    console.log("Using aggregator fast-path load!");
+    let data = {"zstd":true,"reapi":true,"refresh":1000,"history":1,"dbServer":true,"binCraft":true,"globeIndexGrid":3,"globeIndexSpecialTiles":[],"version":"aggregator backend"};
     get_receiver_defer = jQuery.Deferred().resolve(data);
     test_chunk_defer = jQuery.Deferred().reject();
 } else {
@@ -368,12 +437,7 @@ if (uuid) {
         dataType: 'json',
         timeout: 10000,
     });}
-    {test_chunk_defer = jQuery.ajax({
-        url:'chunks/chunks.json',
-        cache: false,
-        dataType: 'json',
-        timeout: 4000,
-    });}
+    {test_chunk_defer = chunksDefer();}
 }
 
 {jQuery.getJSON(databaseFolder + "/ranges.js").done(function(ranges) {
@@ -394,15 +458,15 @@ if (uuid) {
 
 let heatmapLoadingState = {};
 function loadHeatChunk() {
-    if (heatmapLoadingState.index > heatChunks.length) {
+    if (heatmapLoadingState.index >= heatChunks.length) {
         heatmapDefer.resolve();
         return; // done, stop recursing
     }
 
-
     let time = new Date(heatmapLoadingState.start + heatmapLoadingState.index * heatmapLoadingState.interval);
     let sDate = sDateString(time);
     let index = 2 * time.getUTCHours() + Math.floor(time.getUTCMinutes() / 30);
+
 
     let base = "globe_history/";
 
@@ -414,51 +478,46 @@ function loadHeatChunk() {
         num: heatmapLoadingState.index,
         xhr: arraybufferRequest,
     });
+    heatmapLoadingState.index++;
+
+    const sliceEnd = new Date(time.getTime() + (30 * 60 - 1) * 1000);
+    console.log(zDateString(time) + ' ' + zuluTime(time) + ' - ' + zuluTime(sliceEnd) + ' ' + URL);
+
     {req.done(function (responseData) {
+        heatmapLoadingState.completed++;
+        jQuery("#loader_progress").attr('value', heatmapLoadingState.completed);
         heatChunks[this.num] = responseData;
         loadHeatChunk();
     });}
     {req.fail(function(jqxhr, status, error) {
         loadHeatChunk();
     });}
-    heatmapLoadingState.index++;
 }
 
 if (!heatmap) {
     heatmapDefer.resolve();
 } else {
+    // round heatmap end to half hour
+    heatmap.end = Math.floor(heatmap.end / (1800 * 1000)) * (1800 * 1000);
     let end = heatmap.end;
     let start = end - heatmap.duration * 3600 * 1000; // timestamp in ms
     let interval = 1800 * 1000;
     let numChunks = Math.round((end - start) / interval);
-    console.log('numChunks: ' + numChunks + ' heatDuration: ' + heatmap.duration + ' heatEnd: ' + new Date(heatmap.end));
+    console.log('numChunks: ' + numChunks + ' heatDuration: ' + heatmap.duration + ' heatEnd: ' + new Date(heatmap.end) + ' / ' + new Date(heatmap.end).toUTCString());
     heatChunks = Array(numChunks).fill(null);
     heatPoints = Array(numChunks).fill(null);
     // load chunks sequentially via recursion:
     heatmapLoadingState.index = 0;
     heatmapLoadingState.interval = interval;
     heatmapLoadingState.start = start;
+
+    heatmapLoadingState.completed = 0;
+    jQuery("#loader_progress").attr('value', heatmapLoadingState.completed);
+    jQuery("#loader_progress").attr('max', numChunks);
+
     // 2 async chains of heat chunk loading:
     loadHeatChunk();
-    loadHeatChunk();
-}
-
-init_zstddec();
-
-function historyQueued() {
-    if (!globeIndex && !uuid) {
-        let request = jQuery.ajax({ url: 'upintheair.json',
-            cache: true,
-            dataType: 'json' });
-        request.done(function(data) {
-            calcOutlineData = data;
-        });
-        request.always(function() {
-            configureReceiver.resolve();
-        });
-    } else {
-        configureReceiver.resolve();
-    }
+    setTimeout(loadHeatChunk, 500);
 }
 
 if (uuid != null) {
@@ -468,6 +527,7 @@ if (uuid != null) {
     configureReceiver.resolve();
     //console.time("Downloaded History");
     zstd = false;
+    init_zstddec();
 } else {
     get_receiver_defer.fail(function(data){
 
@@ -487,12 +547,14 @@ if (uuid != null) {
         RefreshInterval = data.refresh;
         nHistoryItems = (data.history < 2) ? 0 : data.history;
         binCraft = data.binCraft ? true : false || data.aircraft_binCraft ? true : false;
-        zstd = zstd && data.zstd; // check if it already failed, leave it off then
+        zstd = data.zstd;
         reApi = data.reapi ? true : false;
         if (usp.has('noglobe') || usp.has('ptracks')) {
             data.globeIndexGrid = null; // disable globe on user request
         }
         dbServer = (data.dbServer) ? true : false;
+
+        haveTraces = Boolean(data.haveTraces || data.globeIndexGrid);
 
         if (heatmap || replay) {
             if (replay && data.globeIndexGrid != null)
@@ -500,7 +562,6 @@ if (uuid != null) {
             HistoryChunks = false;
             nHistoryItems = 0;
             get_history();
-            historyQueued();
         } else if (data.globeIndexGrid != null) {
             HistoryChunks = false;
             nHistoryItems = 0;
@@ -518,7 +579,6 @@ if (uuid != null) {
             }
 
             get_history();
-            historyQueued();
         } else {
             test_chunk_defer.done(function(data) {
                 HistoryChunks = true;
@@ -530,19 +590,40 @@ if (uuid != null) {
                 if (enable_uat)
                     console.log("UAT/978 enabled!");
                 get_history();
-                historyQueued();
             }).fail(function() {
                 HistoryChunks = false;
                 get_history();
-                historyQueued();
             });
         }
+
+        init_zstddec();
     });
 }
 
 function get_history() {
+    if (!loadFinished) {
+        if (!globeIndex && !uuid) {
+            let request = jQuery.ajax({ url: 'upintheair.json',
+                cache: true,
+                dataType: 'json' });
+            request.done(function(data) {
+                calcOutlineData = data;
+            });
+            request.always(function() {
+                configureReceiver.resolve();
+            });
+        } else {
+            configureReceiver.resolve();
+        }
+    }
+
+    deferHistory = [];
+    HistoryItemsLoaded = 0;
 
     if (nHistoryItems > 0) {
+        jQuery("#loader_progress").attr('max',nHistoryItems + 1);
+        console.time("Downloaded History");
+
         nHistoryItems++;
         let request = jQuery.ajax({ url: 'data/aircraft.json',
             timeout: historyTimeout*800,
@@ -557,35 +638,37 @@ function get_history() {
                 dataType: 'json' });
             deferHistory.push(request);
         }
-    }
 
-    if (HistoryChunks) {
-        if (nHistoryItems > 0) {
-            console.log("Starting to load history (" + nHistoryItems + " chunks)");
-            console.time("Downloaded History");
+        if (HistoryChunks) {
+            //console.log("Starting to load history (" + nHistoryItems + " chunks)");
             for (let i = chunkNames.length-1; i >= 0; i--) {
                 get_history_item(i);
             }
+        } else  {
+            //console.log("Starting to load history (" + nHistoryItems + " items)");
+            for (let i = nHistoryItems-1; i >= 0; i--) {
+                get_history_item(i);
+            }
         }
-    } else if (nHistoryItems > 0) {
-        console.log("Starting to load history (" + nHistoryItems + " items)");
-        console.time("Downloaded History");
-        // Queue up the history file downloads
-        for (let i = nHistoryItems-1; i >= 0; i--) {
-            get_history_item(i);
-        }
+
     }
+    historyQueued.resolve();
 }
 
 function get_history_item(i) {
-
     let request;
 
     if (HistoryChunks) {
-        request = jQuery.ajax({ url: 'chunks/' + chunkNames[i],
-            timeout: historyTimeout * 1000,
-            dataType: 'json'
-        });
+        const url = 'chunks/' + chunkNames[i];
+
+        if (g.jWorkers) {
+            request = jsonGetWorker(url);
+        } else {
+            request = jQuery.ajax({ url: url,
+                timeout: historyTimeout * 1000,
+                dataType: 'json'
+            });
+        }
     } else {
 
         request = jQuery.ajax({ url: 'data/history_' + i + '.json',
@@ -593,6 +676,15 @@ function get_history_item(i) {
             cache: false,
             dataType: 'json' });
     }
+
+    request
+        .done(function(json) {
+            jQuery("#loader_progress").attr('value',++HistoryItemsLoaded);
+        })
+        .fail(function(jqxhr, status, error) {
+            jQuery("#loader_progress").attr('value',++HistoryItemsLoaded);
+        });
+
     deferHistory.push(request);
 }
 
@@ -763,8 +855,11 @@ function add_kml_overlay(url, name, opacity) {
 function webAssemblyFail(e) {
     zstdDecode = null;
     zstd = false;
-    binCraft = false;
-    if (adsbexchange && !uuid) {
+    if (!reApi) {
+        binCraft = false;
+    }
+    // this enforcing should not be needed
+    if (0 && aggregator && !uuid) {
         inhibitFetch = true;
         reApi = false;
         jQuery("#generic_error_detail").text("Your browser is not supporting webassembly, this website does not work without webassembly.");
@@ -777,12 +872,31 @@ function webAssemblyFail(e) {
 }
 
 function init_zstddec() {
+    if (!zstd) {
+        zstdDefer.resolve();
+        return;
+    }
     try {
         zstddec.decoder = new zstddec.ZSTDDecoder();
         zstddec.promise = zstddec.decoder.init();
         zstdDecode = zstddec.decoder.decode;
     } catch (e) {
         webAssemblyFail(e);
+        zstdDefer.resolve();
+        return;
+    }
+
+    if (!zstdDecode) {
+        zstdDefer.resolve();
+    } else {
+        try {
+            zstddec.promise.then(function() {
+                zstdDefer.resolve();
+            });
+        } catch (e) {
+            webAssemblyFail(e);
+            zstdDefer.resolve();
+        }
     }
 }
 
