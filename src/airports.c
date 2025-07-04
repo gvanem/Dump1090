@@ -857,7 +857,7 @@ static void API_trace_LOL (const char *req_resp, uint32_t num, const char *str, 
 static int API_num_pending (void)
 {
   const flight_info *f;
-  int   i, num, max = smartlist_len (g_data.flight_info);
+  int   i, num, max = g_data.flight_info ? smartlist_len (g_data.flight_info) : 0;
 
   for (i = num = 0; i < max; i++)
   {
