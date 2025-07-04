@@ -1,6 +1,22 @@
 @echo off
 setlocal enabledelayedexpansion
 
+REM Find setup.py in current directory or tools directory
+set SETUP_PATH=
+if exist "setup.py" (
+    set "SETUP_PATH=setup.py"
+) else if exist "tools\setup.py" (
+    set "SETUP_PATH=tools\setup.py"
+)
+
+if not defined SETUP_PATH (
+    echo ERROR: setup.py not found in current directory or tools directory
+    pause
+    exit /b 1
+)
+
+echo Found setup.py at: !SETUP_PATH!
+
 echo Checking for PyInstaller...
 
 REM Check if pyinstaller.exe is in PATH
@@ -14,15 +30,8 @@ if %errorlevel% neq 0 (
 
 echo PyInstaller found in PATH
 
-REM Check if setup.py exists
-if not exist "setup.py" (
-    echo ERROR: setup.py not found in current directory
-    pause
-    exit /b 1
-)
-
 echo Building executable with PyInstaller...
-pyinstaller --onefile setup.py
+pyinstaller --onefile !SETUP_PATH!
 
 REM Check if PyInstaller succeeded
 if %errorlevel% neq 0 (
@@ -39,7 +48,7 @@ if not exist "dist\setup.exe" (
 )
 
 echo Moving executable to current directory...
-move "dist\setup.exe" "setup.exe"
+move "dist\setup.exe" "..\setup.exe"
 
 if %errorlevel% neq 0 (
     echo ERROR: Failed to move setup.exe
