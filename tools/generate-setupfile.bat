@@ -47,8 +47,16 @@ if not exist "dist\setup.exe" (
     exit /b 1
 )
 
-echo Moving executable to current directory...
-move "dist\setup.exe" "..\setup.exe"
+REM Move executable to appropriate location
+set "CURDIR=%CD%"
+for %%I in ("%CURDIR%") do set "CURFOLDER=%%~nxI"
+if /I "!CURFOLDER!"=="tools" (
+    echo Moving executable to parent directory...
+    move "dist\setup.exe" "..\setup.exe"
+) else (
+    echo Moving executable to current directory...
+    move "dist\setup.exe" "setup.exe"
+)
 
 if %errorlevel% neq 0 (
     echo ERROR: Failed to move setup.exe
