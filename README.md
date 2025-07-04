@@ -56,6 +56,7 @@ and added some more references and screen-shots. But in the source-code I've don
     * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`. <nl>
       The project may have to be retargeted. *Devenv* would do this automatically and print <nl>
       `Configuration 'Release|x64': changing Platform Toolset to 'v143' (was 'v142')` when finished.
+  * Build setup.exe by moving into the `tools/` directory with `cd ..\tools`, and running `.\generate-setupfile.bat`
 
 ## Normal usage
 
