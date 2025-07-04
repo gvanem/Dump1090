@@ -18,12 +18,6 @@
 
 #define USE_MG_DNS 1
 
-/*
-LOG93YE     EGPE-EGPA-EGPB ==
-
-           Inverness -> Orkney Islands -> Lerwick
-*/
-
 /**
  * Handlers for the network services.
  *
