@@ -19,12 +19,12 @@ typedef enum
 } sdrplay_api_Rsp2_AmPortSelectT;
 
 // RSP2 parameter structs
-typedef struct 
+typedef struct
 {
     unsigned char extRefOutputEn;                // default: 0
 } sdrplay_api_Rsp2ParamsT;
 
-typedef struct 
+typedef struct
 {
     unsigned char biasTEnable;                   // default: 0
     sdrplay_api_Rsp2_AmPortSelectT amPortSel;    // default: sdrplay_api_Rsp2_AMPORT_2
