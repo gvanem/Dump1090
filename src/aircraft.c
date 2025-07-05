@@ -15,6 +15,7 @@
 #include "sqlite3.h"
 #include "zip.h"
 #include "cpr.h"
+#include "net_io.h"
 #include "aircraft.h"
 
 /**
@@ -2223,6 +2224,38 @@ char *aircraft_make_json (bool extended_client)
      fprintf (Modes.log, "\nJSON dump of file-number %u for %u aircrafts, extended_client: %d:\n%s\n\n",
               json_file_num++, aircrafts, extended_client, buf);
   return (buf);
+}
+
+/**
+ * Send the "/data/receiver.json" array to a Web-client which
+ * describes the receiver:
+ *  { "version" : "0.3", "refresh" : 1000, "history" : 3 }
+ */
+void aircraft_receiver_json (mg_connection *c)
+{
+  char *data;
+  int   history_size = DIM (Modes.json_aircraft_history) - 1;
+
+  /* work out number of valid history entries
+   */
+  if (!Modes.json_aircraft_history [history_size].buf)
+     history_size = Modes.json_aircraft_history_next;
+
+  data = mg_mprintf ("{\"version\": \"%s\", "
+                      "\"refresh\": %llu, "
+                      "\"history\": %d, "
+                      "\"lat\": %.8g, "       /* if 'Modes.home_pos_ok == false', this is 0. */
+                      "\"lon\": %.8g}",       /* ditto */
+                      PROG_VERSION,
+                      Modes.json_interval,
+                      history_size,
+                      Modes.home_pos.lat,
+                      Modes.home_pos.lon);
+
+  DEBUG (DEBUG_NET2, "Feeding conn-id %lu with receiver-data:\n%.100s\n", c->id, data);
+
+  mg_http_reply (c, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
+  free (data);
 }
 
 /**

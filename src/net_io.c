@@ -490,31 +490,6 @@ static int send_file (mg_connection *c, connection *cli, mg_http_message *hm,
 }
 
 /**
- * Return a description of the receiver in JSON.
- *  { "version" : "0.3", "refresh" : 1000, "history" : 3 }
- */
-static char *receiver_to_json (void)
-{
-  int history_size = DIM (Modes.json_aircraft_history) - 1;
-
-  /* work out number of valid history entries
-   */
-  if (!Modes.json_aircraft_history [history_size].buf)
-     history_size = Modes.json_aircraft_history_next;
-
-  return mg_mprintf ("{\"version\": \"%s\", "
-                      "\"refresh\": %llu, "
-                      "\"history\": %d, "
-                      "\"lat\": %.8g, "       /* if 'Modes.home_pos_ok == false', this is 0. */
-                      "\"lon\": %.8g}",       /* ditto */
-                      PROG_VERSION,
-                      Modes.json_interval,
-                      history_size,
-                      Modes.home_pos.lat,
-                      Modes.home_pos.lon);
-}
-
-/**
  * The event handler for all HTTP traffic.
  * I.e. `HTTP_SERVICE(service) == true`.
  */
@@ -614,12 +589,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
 
   if (!stricmp(uri, "/data/receiver.json"))
   {
-    char *data = receiver_to_json();
-
-    DEBUG (DEBUG_NET2, "Feeding conn-id %lu with receiver-data:\n%.100s\n", c->id, data);
-
-    mg_http_reply (c, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
-    free (data);
+    aircraft_receiver_json (c);
     return (200);
   }
 

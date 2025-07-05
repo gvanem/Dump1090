@@ -271,6 +271,7 @@ bool        aircraft_match_init (const char *arg);
 bool        aircraft_match (uint32_t addr);
 bool        aircraft_set_est_home_distance (aircraft *a, uint64_t now);
 char       *aircraft_make_json (bool extended_client);
+void        aircraft_receiver_json (mg_connection *c);
 void        aircraft_remove_stale (uint64_t now);
 void        aircraft_show_stats (void);
 bool        aircraft_set_sort (const char *arg);
