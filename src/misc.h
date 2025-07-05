@@ -26,6 +26,7 @@
 #define MODES_NOTUSED(V)   ((void)V)
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define DIM(array)         (sizeof(array) / sizeof(array[0]))
+#define NONE_STR           "<none>"
 #define STDIN_FILENO       0
 
 /**

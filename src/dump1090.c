@@ -691,8 +691,8 @@ static bool modeS_init_hardware (void)
                 "              Modes.FIFO_init_bufs:   %u\n"
                 "              Modes.FIFO_acquire_ms:  %u\n"
                 "              Using converter:        %s(), '%s'\n\n",
-                Modes.rtlsdr.index, Modes.rtlsdr.name ? Modes.rtlsdr.name : "<none>",
-                Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : "<none>",
+                Modes.rtlsdr.index, Modes.rtlsdr.name ? Modes.rtlsdr.name : NONE_STR,
+                Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : NONE_STR,
                 (double)Modes.sample_rate / 1E6,
                 Modes.rtltcp.remote ? Modes.rtltcp.remote : "<n/a>",
                 Modes.selected_dev,

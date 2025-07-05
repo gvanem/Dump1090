@@ -156,7 +156,6 @@ static void rtl_tcp_no_stats (intptr_t service);
 #define HOSTILE_IP_1   "45.128.232.127"
 #define HOSTILE_IP_2   "80.94.95.226"
 #define HOSTILE_IP6_1  "2a00:1450:400f:803::200e"    /* ipv6.google.com :-) */
-#define NONE_STR       "<none>"
 
 static bool test_mode = false;
 

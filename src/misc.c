@@ -527,7 +527,7 @@ const char *flags_decode (DWORD flags, const struct search_list *list, int num)
   p = &buf[idx][0];
 
   if (flags == 0UL)
-     return strcpy (p, "<none>");
+     return strcpy (p, NONE_STR);
 
   *p = '\0';
 

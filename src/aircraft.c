@@ -1619,11 +1619,11 @@ const char *aircraft_extra_info (const aircraft *a)
 
   if (a->AC_flags & MODES_ACFLAGS_CATEGORY_VALID)
        p += snprintf (p, end - p, ", category: 0x%02X", a->category);
-  else p += snprintf (p, end - p, ", category: <none>");
+  else p += snprintf (p, end - p, ", category: " NONE_STR);
 
   if (a->AC_flags & MODES_ACFLAGS_SQUAWK_VALID)
        p += snprintf (p, end - p, ", squawk: 0x%04X", a->identity);
-  else p += snprintf (p, end - p, ", squawk: <none>");
+  else p += snprintf (p, end - p, ", squawk: " NONE_STR);
 
   p += snprintf (p, end - p, "\n              AC_flags: %s",
                  aircraft_AC_flags(a->AC_flags));
