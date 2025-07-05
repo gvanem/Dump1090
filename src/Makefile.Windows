@@ -170,6 +170,10 @@ else
   gen_data_arg =
 endif
 
+ifeq ($(USE_BIN_FILES),1)
+  CFLAGS += -DUSE_BIN_FILES
+endif
+
 #
 # If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
 #
@@ -300,15 +304,6 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_r82xx.c)
 
 #
-# For '$(OBJ_DIR)/web-pages.rc:'
-#
-vpath %.rc $(OBJ_DIR)
-
-ifeq ($(USE_BIN_FILES),1)
-  CFLAGS += -DUSE_BIN_FILES
-endif
-
-#
 # For '../web-pages.dll':
 #
 WEB_SUFFIXES ?= 1 2 3 4 5
@@ -317,6 +312,8 @@ WEB_SRC := $(addsuffix .c, \
              $(addprefix $(OBJ_DIR)/web-page-, $(WEB_SUFFIXES)))
 
 ifeq ($(USE_PACKED_DLL),1)
+  vpath %.rc $(OBJ_DIR)
+
   TARGETS   += ../web-pages.dll
   CFLAGS    += -DUSE_PACKED_DLL
   GENERATED += $(WEB_SRC)
@@ -474,7 +471,8 @@ $(OBJ_DIR)/%_test.obj: %.c | $(CC).args $(OBJ_DIR)
 $(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, $<)
 
-OpenLayers3_ARGS = --ignore "../web_root-OpenLayers3/3d/*" --ignore "../web_root-OpenLayers3/sql/*"
+OpenLayers3_ARGS = --ignore "../web_root-OpenLayers3/3d/*" \
+                   --ignore "../web_root-OpenLayers3/sql/*"
 
 $(OBJ_DIR)/web-page-1.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root, 1,)
@@ -693,12 +691,12 @@ define generate_ldflags_h
 endef
 
 #
-# Ignore any temp-file 't'
+# Ignore any temp-files matching "t.*"
 #
 define generate_web_page
   $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
   $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --verbose --recursive \
-            --suffix=_$(strip $(3)) --ignore t $(4) --strip $(2)/ $(2)/)
+            --suffix=_$(strip $(3)) --ignore "t.*" $(4) --strip $(2)/ $(2)/)
   @echo
 endef
 
