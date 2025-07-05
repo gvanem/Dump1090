@@ -12,15 +12,15 @@ typedef void *HANDLE;
 #endif
 
 #ifndef _SDRPLAY_DLL_QUALIFIER
-#if !defined(STATIC_LIB) && (defined(_M_X64) || defined(_M_IX86) || defined(_M_ARM64)) 
+#if !defined(STATIC_LIB) && (defined(_M_X64) || defined(_M_IX86) || defined(_M_ARM64))
 #define _SDRPLAY_DLL_QUALIFIER __declspec(dllimport)
-#elif defined(STATIC_LIB) || defined(__GNUC__) 
+#elif defined(STATIC_LIB) || defined(__GNUC__)
 #define _SDRPLAY_DLL_QUALIFIER
 #endif
 #endif  // _SDRPLAY_DLL_QUALIFIER
 
 // Application code should check that it is compiled against the same API version
-// sdrplay_api_ApiVersion() returns the API version 
+// sdrplay_api_ApiVersion() returns the API version
 #define SDRPLAY_API_VERSION                   (float)(3.15)
 
 // API Constants
@@ -72,7 +72,7 @@ typedef enum
 {
     sdrplay_api_Update_None                        = 0x00000000,
 
-    // Reasons for master only mode 
+    // Reasons for master only mode
     sdrplay_api_Update_Dev_Fs                      = 0x00000001,
     sdrplay_api_Update_Dev_Ppm                     = 0x00000002,
     sdrplay_api_Update_Dev_SyncUpdate              = 0x00000004,
@@ -120,7 +120,7 @@ typedef enum
 {
     sdrplay_api_Update_Ext1_None                   = 0x00000000,
 
-    // Reasons for master only mode 
+    // Reasons for master only mode
     sdrplay_api_Update_RspDx_HdrEnable             = 0x00000001,
     sdrplay_api_Update_RspDx_BiasTControl          = 0x00000002,
     sdrplay_api_Update_RspDx_AntennaControl        = 0x00000004,
@@ -141,8 +141,8 @@ typedef enum
     sdrplay_api_DbgLvl_Message       = 4,
 } sdrplay_api_DbgLvl_t;
 
-// Device structure 
-typedef struct 
+// Device structure
+typedef struct
 {
     char SerNo[SDRPLAY_MAX_SER_NO_LEN];
     unsigned char hwVer;
@@ -154,7 +154,7 @@ typedef struct
 } sdrplay_api_DeviceT;
 
 // Device parameter structure
-typedef struct 
+typedef struct
 {
     sdrplay_api_DevParamsT       *devParams;
     sdrplay_api_RxChannelParamsT *rxChannelA;
@@ -162,7 +162,7 @@ typedef struct
 } sdrplay_api_DeviceParamsT;
 
 // Extended error message structure
-typedef struct 
+typedef struct
 {
     char file[256];
     char function[256];
@@ -171,23 +171,23 @@ typedef struct
 } sdrplay_api_ErrorInfoT;
 
 // Comman API function types
-typedef sdrplay_api_ErrT        (*sdrplay_api_Open_t)(void);    
-typedef sdrplay_api_ErrT        (*sdrplay_api_Close_t)(void);    
-typedef sdrplay_api_ErrT        (*sdrplay_api_ApiVersion_t)(float *apiVer);    
-typedef sdrplay_api_ErrT        (*sdrplay_api_LockDeviceApi_t)(void);    
-typedef sdrplay_api_ErrT        (*sdrplay_api_UnlockDeviceApi_t)(void);    
-typedef sdrplay_api_ErrT        (*sdrplay_api_GetDevices_t)(sdrplay_api_DeviceT *devices, unsigned int *numDevs, unsigned int maxDevs);    
-typedef sdrplay_api_ErrT        (*sdrplay_api_SelectDevice_t)(sdrplay_api_DeviceT *device);    
-typedef sdrplay_api_ErrT        (*sdrplay_api_ReleaseDevice_t)(sdrplay_api_DeviceT *device);    
+typedef sdrplay_api_ErrT        (*sdrplay_api_Open_t)(void);
+typedef sdrplay_api_ErrT        (*sdrplay_api_Close_t)(void);
+typedef sdrplay_api_ErrT        (*sdrplay_api_ApiVersion_t)(float *apiVer);
+typedef sdrplay_api_ErrT        (*sdrplay_api_LockDeviceApi_t)(void);
+typedef sdrplay_api_ErrT        (*sdrplay_api_UnlockDeviceApi_t)(void);
+typedef sdrplay_api_ErrT        (*sdrplay_api_GetDevices_t)(sdrplay_api_DeviceT *devices, unsigned int *numDevs, unsigned int maxDevs);
+typedef sdrplay_api_ErrT        (*sdrplay_api_SelectDevice_t)(sdrplay_api_DeviceT *device);
+typedef sdrplay_api_ErrT        (*sdrplay_api_ReleaseDevice_t)(sdrplay_api_DeviceT *device);
 typedef const char*             (*sdrplay_api_GetErrorString_t)(sdrplay_api_ErrT err);
 typedef sdrplay_api_ErrorInfoT* (*sdrplay_api_GetLastError_t)(sdrplay_api_DeviceT *device);
 typedef sdrplay_api_ErrorInfoT* (*sdrplay_api_GetLastErrorByType_t)(sdrplay_api_DeviceT *device, int type, unsigned long long *time);
 typedef sdrplay_api_ErrT        (*sdrplay_api_DisableHeartbeat_t)(void);
 
 // Device API function types
-typedef sdrplay_api_ErrT        (*sdrplay_api_DebugEnable_t)(HANDLE dev, sdrplay_api_DbgLvl_t dbgLvl); 
-typedef sdrplay_api_ErrT        (*sdrplay_api_GetDeviceParams_t)(HANDLE dev, sdrplay_api_DeviceParamsT **deviceParams); 
-typedef sdrplay_api_ErrT        (*sdrplay_api_Init_t)(HANDLE dev, sdrplay_api_CallbackFnsT *callbackFns, void *cbContext); 
+typedef sdrplay_api_ErrT        (*sdrplay_api_DebugEnable_t)(HANDLE dev, sdrplay_api_DbgLvl_t dbgLvl);
+typedef sdrplay_api_ErrT        (*sdrplay_api_GetDeviceParams_t)(HANDLE dev, sdrplay_api_DeviceParamsT **deviceParams);
+typedef sdrplay_api_ErrT        (*sdrplay_api_Init_t)(HANDLE dev, sdrplay_api_CallbackFnsT *callbackFns, void *cbContext);
 typedef sdrplay_api_ErrT        (*sdrplay_api_Uninit_t)(HANDLE dev);
 typedef sdrplay_api_ErrT        (*sdrplay_api_Update_t)(HANDLE dev, sdrplay_api_TunerSelectT tuner, sdrplay_api_ReasonForUpdateT reasonForUpdate, sdrplay_api_ReasonForUpdateExtension1T reasonForUpdateExt1);
 typedef sdrplay_api_ErrT        (*sdrplay_api_SwapRspDuoActiveTuner_t)(HANDLE dev, sdrplay_api_TunerSelectT *tuner, sdrplay_api_RspDuo_AmPortSelectT tuner1AmPortSel);
@@ -203,23 +203,23 @@ extern "C"
 #endif
 
     // Comman API function definitions
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_Open(void);    
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_Close(void);    
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_ApiVersion(float *apiVer);    
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_LockDeviceApi(void);    
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_UnlockDeviceApi(void);    
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_GetDevices(sdrplay_api_DeviceT *devices, unsigned int *numDevs, unsigned int maxDevs);    
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_SelectDevice(sdrplay_api_DeviceT *device);   
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_ReleaseDevice(sdrplay_api_DeviceT *device);   
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_Open(void);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_Close(void);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_ApiVersion(float *apiVer);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_LockDeviceApi(void);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_UnlockDeviceApi(void);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_GetDevices(sdrplay_api_DeviceT *devices, unsigned int *numDevs, unsigned int maxDevs);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_SelectDevice(sdrplay_api_DeviceT *device);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_ReleaseDevice(sdrplay_api_DeviceT *device);
     _SDRPLAY_DLL_QUALIFIER const char*             sdrplay_api_GetErrorString(sdrplay_api_ErrT err);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrorInfoT* sdrplay_api_GetLastError(sdrplay_api_DeviceT *device);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrorInfoT* sdrplay_api_GetLastErrorByType(sdrplay_api_DeviceT *device, int type, unsigned long long *time);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_DisableHeartbeat(void); // Must be called before sdrplay_api_SelectDevice()
 
     // Device API function definitions
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_DebugEnable(HANDLE dev, sdrplay_api_DbgLvl_t enable); 
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_GetDeviceParams(HANDLE dev, sdrplay_api_DeviceParamsT **deviceParams); 
-    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_Init(HANDLE dev, sdrplay_api_CallbackFnsT *callbackFns, void *cbContext); 
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_DebugEnable(HANDLE dev, sdrplay_api_DbgLvl_t enable);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_GetDeviceParams(HANDLE dev, sdrplay_api_DeviceParamsT **deviceParams);
+    _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_Init(HANDLE dev, sdrplay_api_CallbackFnsT *callbackFns, void *cbContext);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_Uninit(HANDLE dev);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_Update(HANDLE dev, sdrplay_api_TunerSelectT tuner, sdrplay_api_ReasonForUpdateT reasonForUpdate, sdrplay_api_ReasonForUpdateExtension1T reasonForUpdateExt1);
     _SDRPLAY_DLL_QUALIFIER sdrplay_api_ErrT        sdrplay_api_SwapRspDuoActiveTuner(HANDLE dev, sdrplay_api_TunerSelectT *currentTuner, sdrplay_api_RspDuo_AmPortSelectT tuner1AmPortSel);

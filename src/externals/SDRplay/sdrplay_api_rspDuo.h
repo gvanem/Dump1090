@@ -23,12 +23,12 @@ typedef enum
 } sdrplay_api_RspDuo_AmPortSelectT;
 
 // RSPduo parameter structs
-typedef struct 
+typedef struct
 {
     int extRefOutputEn;                             // default: 0
 } sdrplay_api_RspDuoParamsT;
 
-typedef struct 
+typedef struct
 {
    unsigned char resetGainUpdate;      // default: 0
    unsigned char resetRfUpdate;        // default: 0

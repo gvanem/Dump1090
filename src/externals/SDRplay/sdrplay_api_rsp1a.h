@@ -8,13 +8,13 @@
 // RSP1A parameter enums
 
 // RSP1A parameter structs
-typedef struct 
+typedef struct
 {
     unsigned char rfNotchEnable;                              // default: 0
     unsigned char rfDabNotchEnable;                           // default: 0
 } sdrplay_api_Rsp1aParamsT;
 
-typedef struct 
+typedef struct
 {
     unsigned char biasTEnable;                   // default: 0
 } sdrplay_api_Rsp1aTunerParamsT;

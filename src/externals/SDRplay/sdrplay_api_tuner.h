@@ -57,7 +57,7 @@ typedef struct
     float min;
 } sdrplay_api_GainValuesT;
 
-typedef struct 
+typedef struct
 {
     int gRdB;                            // default: 50
     unsigned char LNAstate;              // default: 0
@@ -66,13 +66,13 @@ typedef struct
     sdrplay_api_GainValuesT gainVals;    // output parameter
 } sdrplay_api_GainT;
 
-typedef struct 
+typedef struct
 {
     double rfHz;                         // default: 200000000.0
     unsigned char syncUpdate;            // default: 0
 } sdrplay_api_RfFreqT;
 
-typedef struct 
+typedef struct
 {
     unsigned char dcCal;                 // default: 3 (Periodic mode)
     unsigned char speedUp;               // default: 0 (No speedup)
@@ -80,7 +80,7 @@ typedef struct
     int refreshRateTime;                 // default: 2048 (=> time in uSec = (72 * 3 * refreshRateTime) / 24e6 = 18432uSec)
 } sdrplay_api_DcOffsetTunerT;
 
-typedef struct 
+typedef struct
 {
     sdrplay_api_Bw_MHzT bwType;          // default: sdrplay_api_BW_0_200
     sdrplay_api_If_kHzT ifType;          // default: sdrplay_api_IF_Zero

@@ -29,19 +29,19 @@ typedef enum
 } sdrplay_api_EventT;
 
 // Event callback parameter structs
-typedef struct 
+typedef struct
 {
     unsigned int gRdB;
     unsigned int lnaGRdB;
     double currGain;
 } sdrplay_api_GainCbParamT;
 
-typedef struct 
+typedef struct
 {
     sdrplay_api_PowerOverloadCbEventIdT powerOverloadChangeType;
 } sdrplay_api_PowerOverloadCbParamT;
 
-typedef struct 
+typedef struct
 {
     sdrplay_api_RspDuoModeCbEventIdT modeChangeType;
 } sdrplay_api_RspDuoModeCbParamT;
@@ -55,7 +55,7 @@ typedef union
 } sdrplay_api_EventParamsT;
 
 // Stream callback parameter structs
-typedef struct 
+typedef struct
 {
     unsigned int firstSampleNum;
     int grChanged;
@@ -65,11 +65,11 @@ typedef struct
 } sdrplay_api_StreamCbParamsT;
 
 // Callback function prototypes
-typedef void (*sdrplay_api_StreamCallback_t)(short *xi, short *xq, sdrplay_api_StreamCbParamsT *params, unsigned int numSamples, unsigned int reset, void *cbContext); 
-typedef void (*sdrplay_api_EventCallback_t)(sdrplay_api_EventT eventId, sdrplay_api_TunerSelectT tuner, sdrplay_api_EventParamsT *params, void *cbContext); 
+typedef void (*sdrplay_api_StreamCallback_t)(short *xi, short *xq, sdrplay_api_StreamCbParamsT *params, unsigned int numSamples, unsigned int reset, void *cbContext);
+typedef void (*sdrplay_api_EventCallback_t)(sdrplay_api_EventT eventId, sdrplay_api_TunerSelectT tuner, sdrplay_api_EventParamsT *params, void *cbContext);
 
 // Callback function struct
-typedef struct 
+typedef struct
 {
     sdrplay_api_StreamCallback_t StreamACbFn;
     sdrplay_api_StreamCallback_t StreamBCbFn;

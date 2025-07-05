@@ -20,20 +20,20 @@ typedef enum
 } sdrplay_api_AdsbModeT;
 
 // Control parameter structs
-typedef struct 
+typedef struct
 {
     unsigned char DCenable;          // default: 1
     unsigned char IQenable;          // default: 1
 } sdrplay_api_DcOffsetT;
 
-typedef struct 
+typedef struct
 {
     unsigned char enable;            // default: 0
     unsigned char decimationFactor;  // default: 1
     unsigned char wideBandSignal;    // default: 0
 } sdrplay_api_DecimationT;
 
-typedef struct 
+typedef struct
 {
     sdrplay_api_AgcControlT enable;    // default: sdrplay_api_AGC_50HZ
     int setPoint_dBfs;                 // default: -60
@@ -44,7 +44,7 @@ typedef struct
     int syncUpdate;                    // default: 0
 } sdrplay_api_AgcT;
 
-typedef struct 
+typedef struct
 {
     sdrplay_api_DcOffsetT dcOffset;
     sdrplay_api_DecimationT decimation;

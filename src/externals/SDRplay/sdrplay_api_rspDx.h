@@ -29,7 +29,7 @@ typedef enum
 } sdrplay_api_RspDx_HdrModeBwT;
 
 // RSPdx parameter structs
-typedef struct 
+typedef struct
 {
     unsigned char hdrEnable;                            // default: 0
     unsigned char biasTEnable;                          // default: 0
@@ -38,7 +38,7 @@ typedef struct
     unsigned char rfDabNotchEnable;                     // default: 0
 } sdrplay_api_RspDxParamsT;
 
-typedef struct 
+typedef struct
 {
     sdrplay_api_RspDx_HdrModeBwT hdrBw;                 // default: sdrplay_api_RspDx_HDRMODE_BW_1_700
 } sdrplay_api_RspDxTunerParamsT;
