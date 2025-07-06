@@ -1285,8 +1285,8 @@ static bool mouse_pos (HWND wnd, POINT *pos)
   if (!con_wnd || !GetCursorPos(pos) || !ScreenToClient(wnd, pos))
      return (false);
 
-  pos->x /= x_scale;
-  pos->y /= y_scale;
+  if (x_scale > 0) pos->x /= x_scale;
+  if (y_scale > 0) pos->y /= y_scale;
   return (true);
 }
 
