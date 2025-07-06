@@ -56,7 +56,7 @@ static int CPR_set_error (int result, aircraft *a, uint64_t now)
 {
   if (result >= 0)
      a->seen_pos_EST = now;
-  else if (Modes.cpr_trace)
+  else if (Modes.cpr_trace && CPR_errline)
      LOG_FILEONLY2 ("%s %06X, %s.\n",
                     a->is_helicopter ? "helicopter" : "plane",
                     a->addr, CPR_strerror());
@@ -422,6 +422,7 @@ static int CPR_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat
   if (CPR_NL_func(rlat0) != CPR_NL_func(rlat1))
   {
     CPR_SET_ERR (ERANGE);
+    CPR_errline = 0;   /* ignore this since it's too frequent */
     return (-1);       /* positions crossed a latitude zone, try again later */
   }
 
