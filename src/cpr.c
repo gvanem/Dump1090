@@ -260,12 +260,14 @@ int cpr_do_global (struct aircraft *a, const struct modeS_message *mm, uint64_t 
                  a->addr, new_pos->lat, new_pos->lon, Modes.max_dist / 1000.0, distance / 1000.0);
 
       Modes.stat.cpr_global_dist_checks++;
+      a->global_dist_checks++;
       return (-2);    /* we consider an out-of-distance value to be bad data */
     }
 
     a->distance     = distance;
     a->distance_ok  = true;
     a->position_EST = *new_pos;
+    a->global_dist_ok++;
     LOG_DISTANCE (a);
   }
 

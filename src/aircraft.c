@@ -2359,6 +2359,34 @@ static void aircraft_update_mode_S (aircraft *a)
 }
 
 /**
+ * If sum of all `a->global_dist_checks` counters equals
+ * `Modes.stat.cpr_global_dist_checks`, means that `Modes.home_pos`
+ * is totally wrong.
+ *
+ * Notify user and exit after 1 minute.
+ */
+static void aircraft_check_dist (uint64_t sum)
+{
+  if (sum > 0 && Modes.stat.cpr_global_dist_checks > 0 &&
+      (Modes.stat.cpr_global_dist_checks - sum) == 0ULL)
+  {
+    FILETIME  now;
+    ULONGLONG elapsed;
+
+    get_FILETIME_now (&now);
+    elapsed = *(ULONGLONG*) &now - *(ULONGLONG*) &Modes.start_FILETIME;
+    elapsed /= (60 * 10000000ULL);  /* from 100 nsec units to minutes */
+    if (elapsed >= 1)
+    {
+      LOG_STDOUT ("All aircrafts failed 'global-dist check': %llu, sum: %llu\n"
+                  "Fix your \"homepos = lat,lon\" to fix it, elapsed: %llu\n",
+                  Modes.stat.cpr_global_dist_checks, sum, elapsed);
+      Modes.exit = true;
+    }
+  }
+}
+
+/**
  * Called from `background_tasks()` 4 times per second.
  *
  * If we don't receive new nessages within `Modes.interactive_ttl`
@@ -2368,7 +2396,11 @@ static void aircraft_update_mode_S (aircraft *a)
  */
 void aircraft_remove_stale (uint64_t now)
 {
-  int i, max = smartlist_len (Modes.aircrafts);
+  static uint64_t elapsed = 0;
+
+
+  int      i, max = smartlist_len (Modes.aircrafts);
+  uint64_t cpr_error_sum = 0;
 
   for (i = 0; i < max; i++)
   {
@@ -2403,7 +2435,9 @@ void aircraft_remove_stale (uint64_t now)
       a->AC_flags &= ~(MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
     }
     aircraft_update_mode_S (a);
+    cpr_error_sum += a->global_dist_checks;
   }
+  aircraft_check_dist (cpr_error_sum);
 }
 
 /**

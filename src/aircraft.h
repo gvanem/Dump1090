@@ -165,6 +165,8 @@ typedef struct aircraft {
         uint64_t  seen_pos_EST;           /**< Tick-time (in milli-sec) at which the last estimated position was done */
 
         uint32_t  messages;               /**< Number of Mode S messages received */
+        uint32_t  global_dist_ok;         /**< Number of CPR global distance check okay */
+        uint32_t  global_dist_checks;     /**< Number of CPR global distance check failures */
         int       identity;               /**< 13 bits identity (Squawk) */
         int       vert_rate;              /**< Vertical rate */
         a_show_t  show;                   /**< The plane's show-state */
