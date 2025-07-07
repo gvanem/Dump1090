@@ -2270,7 +2270,7 @@ static void aircraft_free (aircraft *a)
 
 /**
  * Periodically search through the list of known Mode-S aircraft and tag them if this
- * Mode A/C  matches their known Mode S Squawks or Altitudes (+/- 50 feet).
+ * Mode A/C matches their known Mode S Squawks or Altitudes (+/- 50 feet).
  *
  * A Mode S equipped aircraft may also respond to Mode A and Mode C SSR interrogations.
  * We can't tell if this is a Mode A or C, so scan through the entire aircraft list
@@ -2360,14 +2360,17 @@ static void aircraft_update_mode_S (aircraft *a)
 
 /**
  * If sum of all `a->global_dist_checks` counters equals
- * `Modes.stat.cpr_global_dist_checks`, means that `Modes.home_pos`
- * is totally wrong.
+ * `Modes.stat.cpr_global_dist_checks` on every check during the
+ * first minute of running, it means that `Modes.home_pos` is totally
+ * wrong.
  *
- * Notify user and exit after 1 minute.
+ * Notify user and exit.
  */
 static void aircraft_check_dist (uint64_t sum)
 {
-  if (sum > 0 && Modes.stat.cpr_global_dist_checks > 0 &&
+  static uint64_t last_sum = 0;
+
+  if (last_sum > 0 && sum > 0 && Modes.stat.cpr_global_dist_checks > 0 &&
       (Modes.stat.cpr_global_dist_checks - sum) == 0ULL)
   {
     FILETIME  now;
@@ -2375,15 +2378,18 @@ static void aircraft_check_dist (uint64_t sum)
 
     get_FILETIME_now (&now);
     elapsed = *(ULONGLONG*) &now - *(ULONGLONG*) &Modes.start_FILETIME;
-    elapsed /= (60 * 10000000ULL);  /* from 100 nsec units to minutes */
-    if (elapsed >= 1)
+    elapsed /= 10000000ULL;     /* from 100 nsec units to seconds */
+    if (elapsed >= 50 && elapsed <= 80)
     {
-      LOG_STDOUT ("All aircrafts failed 'global-dist check': %llu, sum: %llu\n"
-                  "Fix your \"homepos = lat,lon\" to fix it, elapsed: %llu\n",
-                  Modes.stat.cpr_global_dist_checks, sum, elapsed);
-      Modes.exit = true;
+      LOG_STDERR ("\7All aircrafts failed 'global-dist check' (%llu, sum: %llu).\n"
+                  "Fix your \"homepos = lat,lon\" to continue.\n",
+                  Modes.stat.cpr_global_dist_checks, sum);
+
+      Modes.no_stats = true;
+      modeS_signal_handler (0);  /* break out of main_data_loop()  */
     }
   }
+  last_sum = sum;
 }
 
 /**
@@ -2392,17 +2398,15 @@ static void aircraft_check_dist (uint64_t sum)
  * If we don't receive new nessages within `Modes.interactive_ttl`
  * milli-seconds, we remove the aircraft from the list.
  *
- * Also call `aircraft_update_mode_S(a)` and `aircraft_update_mode_A()` in the same loop.
+ * Also call `aircraft_update_mode_S(a)` and `aircraft_update_mode_A(a)`
+ * in the same loop.
  */
 void aircraft_remove_stale (uint64_t now)
 {
-  static uint64_t elapsed = 0;
-
-
-  int      i, max = smartlist_len (Modes.aircrafts);
+  int      i, num, max = smartlist_len (Modes.aircrafts);
   uint64_t cpr_error_sum = 0;
 
-  for (i = 0; i < max; i++)
+  for (i = num = 0; i < max; i++)
   {
     aircraft *a = smartlist_get (Modes.aircrafts, i);
     int64_t   diff = (int64_t) (now - a->seen_last);
@@ -2434,10 +2438,15 @@ void aircraft_remove_stale (uint64_t now)
        */
       a->AC_flags &= ~(MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
     }
+
     aircraft_update_mode_S (a);
+
     cpr_error_sum += a->global_dist_checks;
+    num++;
   }
-  aircraft_check_dist (cpr_error_sum);
+
+  if (num > 0)
+     aircraft_check_dist (cpr_error_sum);
 }
 
 /**
