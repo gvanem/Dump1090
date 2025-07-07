@@ -156,7 +156,7 @@ static bool show_dep_dst = false;
 //                  |    |      |    |          |      |    |__ lat_buf
 //                  |    |      |    |          |      |__ speed_buf
 //                  |    |      |    |          |__ alt_buf
-//                  |    |      |    |___ cc_short
+//                  |    |      |    |___ country
 //                  |    |      |____ reg_num
 //                  |    |__ call_sign
 //                  |__ a->addr
@@ -174,7 +174,7 @@ static bool show_dep_dst = false;
 //                    |    |      |    |       |
 //                    |    |      |    |       |
 //                    |    |      |    |       |___ dep_dst_buf
-//                    |    |      |    |___ cc_short
+//                    |    |      |    |___ country
 //                    |    |      |____ reg_num
 //                    |    |__ call_sign
 //                    |__ a->addr
@@ -202,25 +202,73 @@ static const char *headers[] = {
                   "Msg ", "Seen "
                 };
 
+#if 0
 /**
  * \todo
- * define the column header and width dynamically at runtime using this structure
+ * define the column header and width dynamically at runtime.
+ * Pseudo-code:
  */
-typedef struct col_widths {
-        int ICAO;
-        int call_sign;
-        int reg_num;
-        int cntry;
-        int DEP_DST;
-        int altitude;
-        int speed;
-        int lat;
-        int lon;
-        int hdg;
-        int dist;
-        int msg;
-        int seen;
-      } col_widths;
+typedef struct table {
+     // TBD ...
+      } table;
+
+typedef struct table_row {
+        const char *header;
+        const char *format;
+        int         max_len;
+        int         flags;
+      } table_row;
+
+static void show_dep (const table *t, const aircraft *a);
+static void show_dst (const table *t, const aircraft *a);
+
+static const table_row headers1[] = {
+                  { "ICAO",     "%06X",    6 },
+                  { "Callsign", "%s",      0 },
+                  { "Reg-num",  "%s",      0 },
+                  { "Cntry",    "%s",      0 },
+                  { "DEP",      (char*)show_dep, 0, ROW_FUNC },
+                  { "DST",      (char*)show_dst, 0, ROW_FUNC },
+                  { "Altitude", "%s",      0 },
+                  { "Speed",    "%4u",     4 },
+                  { "Lat",      "%+7.3lf", 7 },
+                  { "Long",     "%+6.3lf", 6 },
+                  { "Hdg",      "%d",      0 },
+                  { "Dist",     "%.1lf",   0 },
+                  { "Msg",      "%5u",     5 },
+                  { "Seen",     "%2d",     2 },
+                };
+
+static table *g_table;
+
+// Add this ..
+static bool common_init (void)
+{
+  g_table = table_create();
+
+  if (show_dep_dst)
+       table_header (g_table, headers1);
+  else table_header (g_table, headers2);
+}
+
+static void common_exit (void)
+{
+  table_delete (g_table);
+  g_table = NULL;
+}
+
+static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_t now)
+{
+  int column;
+
+  for (column = 0; column < table_width(g_table); x++)
+  {
+    if (table_hit_test(column, row, mouse->x, mouse->y))
+         table_hilight (g_table, column, row, a);
+    else table_show (g_table, column, row, a);
+  }
+}
+#endif
 
 static void curses_hilight_header (int x, int field)
 {
@@ -732,25 +780,25 @@ void interactive_update_gain (void)
  */
 static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_t now)
 {
-  int     altitude, speed;
-  char    alt_buf [10]      = "  - ";
-  char    lat_buf [10]      = "   - ";
-  char    lon_buf [10]      = "    - ";
-  char    speed_buf [8]     = " - ";
-  char    heading_buf [8]   = " - ";
-  char    distance_buf [10] = " - ";
-  char    dep_buf [30]      = " -";
-  char    dst_buf [30]      = " -";
-  char    dep_dst_buf [30]  = "";
-  char    line_buf [120];
-  bool    restore_colour    = false;
-  const   char *reg_num     = "  -";
-  const   char *call_sign   = "  -";
-  const   char *km_nmiles   = NULL;
-  const   char *cc_short;
-  int64_t       ms_diff;
-  int           min_x1, min_x2;  /* mouse hit-test */
-  int           max_x1, max_x2 = strlen ("ICAO   Callsign  Reg-num  Cntry  DEP  DEST");
+  int         altitude, speed;
+  char        alt_buf [10]      = "  - ";
+  char        lat_buf [10]      = "   - ";
+  char        lon_buf [10]      = "    - ";
+  char        speed_buf [8]     = " - ";
+  char        heading_buf [8]   = " - ";
+  char        distance_buf [10] = " - ";
+  char        dep_buf [30]      = " -";
+  char        dst_buf [30]      = " -";
+  char        dep_dst_buf [30]  = "";
+  char        line_buf [120];
+  bool        restore_colour    = false;
+  const char *reg_num   = "  -";
+  const char *call_sign = "  -";
+  const char *km_nmiles = NULL;
+  const char *country   = NULL;
+  int64_t     ms_diff;
+  int         min_x1, min_x2;  /* mouse hit-test */
+  int         max_x1, max_x2 = strlen ("ICAO   Callsign  Reg-num  Cntry  DEP  DEST");
 
   /* Convert units to metric if option `--metric` was used.
    */
@@ -888,9 +936,25 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
   if (ms_diff < 0LL)  /* clock wrapped */
      ms_diff = 0L;
 
-  cc_short = aircraft_get_country (a->addr, true);
-  if (!cc_short)
-     cc_short = "--";
+#if 0
+  /*
+   * if mouse at the "Cntry" column, show the long country name.
+   */
+  if (mouse->y == row)
+  {
+    min_x1 = strlen ("ICAO   Callsign  Reg-num  ");
+    max_x1 = strlen ("ICAO   Callsign  Reg-num  Cntry ");
+    if (mouse->x >= min_x1 && mouse->x <= max_x1)
+       country = aircraft_get_country (a->addr, false);
+  }
+#endif
+
+  if (!country)
+  {
+    country = aircraft_get_country (a->addr, true);
+    if (!country)
+       country = "--";
+  }
 
   if (show_dep_dst)
   {
@@ -898,7 +962,7 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
        snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%-4.4s %-4.4s", dep_buf, dst_buf);
 
     snprintf (line_buf, sizeof(line_buf), LINE_FMT2_1,
-              a->addr, call_sign, reg_num, cc_short, dep_dst_buf);
+              a->addr, call_sign, reg_num, country, dep_dst_buf);
 
     (*api->print_line) (0, row, line_buf);
 
@@ -911,7 +975,7 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
   else
   {
     snprintf (line_buf, sizeof(line_buf), LINE_FMT1,
-              a->addr, call_sign, reg_num, cc_short,
+              a->addr, call_sign, reg_num, country,
               alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
               distance_buf, a->messages, ms_diff / 1000);
 
@@ -1285,8 +1349,10 @@ static bool mouse_pos (HWND wnd, POINT *pos)
   if (!con_wnd || !GetCursorPos(pos) || !ScreenToClient(wnd, pos))
      return (false);
 
-  pos->x /= x_scale;
-  pos->y /= y_scale;
+ if (x_scale > 0)
+    pos->x /= x_scale;
+ if (y_scale > 0)
+    pos->y /= y_scale;
   return (true);
 }
 
