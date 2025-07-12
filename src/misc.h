@@ -211,6 +211,20 @@ typedef struct unrecognized_ME {
       } unrecognized_ME;
 
 /**
+ * Statistics for HTTP4 / HTTP6 servers
+ */
+typedef struct HTTP_statistics {
+        uint64_t  HTTP_get_requests;
+        uint64_t  HTTP_keep_alive_recv;
+        uint64_t  HTTP_keep_alive_sent;
+        uint64_t  HTTP_websockets;
+        uint64_t  HTTP_tls_handshakes;
+        uint64_t  HTTP_400_responses;
+        uint64_t  HTTP_404_responses;
+        uint64_t  HTTP_500_responses;
+      } HTTP_statistics;
+
+/**
  * Keep all collected statistics in this structure.
  * \todo Move to 'stats.h'
  */
@@ -288,14 +302,10 @@ typedef struct statistics {
         uint64_t  bytes_sent     [MODES_NET_SERVICES_NUM];
         uint64_t  bytes_recv     [MODES_NET_SERVICES_NUM];
         uint64_t  unique_clients [MODES_NET_SERVICES_NUM];
-        uint64_t  HTTP_get_requests;
-        uint64_t  HTTP_keep_alive_recv;
-        uint64_t  HTTP_keep_alive_sent;
-        uint64_t  HTTP_websockets;
-        uint64_t  HTTP_tls_handshakes;
-        uint64_t  HTTP_400_responses;
-        uint64_t  HTTP_404_responses;
-        uint64_t  HTTP_500_responses;
+
+        /* `HTTP_stat[0]` is for HTTP IPv4 and `HTTP_stat[1]` is for IPv6
+         */
+        HTTP_statistics HTTP_stat [2];
 
         /* Network statistics for receiving RAW and SBS messages:
          */
@@ -394,8 +404,9 @@ typedef struct global_data {
         uint16_t           *mag_lut;                  /**< I/Q -> Magnitude lookup table. */
         uint16_t           *log10_lut;                /**< Magnitude -> log10 lookup table. */
         convert_format      input_format;             /**< Converted input format. */
-        uint32_t            FIFO_init_bufs;           /**< # of buffers for `fifo_init()` */
+        uint32_t            FIFO_bufs;                /**< Number of buffers for `fifo_init()` */
         uint32_t            FIFO_acquire_ms;          /**< `fifo_acquire()` timeout in milli-sec (default 100). */
+        uint32_t            FIFO_dequeue_ms;          /**< `fifo_dequeue()` timeout in milli-sec (default 100). */
         bool                FIFO_active;              /**< We have (and need) a FIFO for `mag_buf` data. */
         bool                phase_enhance;            /**< Enable phase enhancement in `demod_*()`. */
         int                 infile_fd;                /**< File descriptor for `--infile` option. */
@@ -458,6 +469,7 @@ typedef struct global_data {
         bool           https_enable;                /**< Enable TLS (MG_TLS_BUILTIN) for HTTP server */
         bool           https_lol_API;               /**< Enable Mongoose's TLS (MG_TLS_BUILTIN) over WinInet. Not yet */
         bool           reverse_resolve;             /**< Call `net_reverse_resolve()` on accepted clients */
+        uint32_t       net_poll_ms;                 /**< `mg_mgr_poll()` timeout in milli-sec (default 20). */
 
         /** Aircraft history
          */

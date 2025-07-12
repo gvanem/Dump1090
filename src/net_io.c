@@ -385,7 +385,7 @@ connection *connection_get (mg_connection *c, intptr_t service, bool is_server)
   return (NULL);
 }
 
-static const char *set_headers (const connection *cli, const char *content_type)
+static const char *set_headers (const connection *cli, const char *content_type, int s_idx)
 {
   static char headers [200];
   char       *p = headers;
@@ -404,7 +404,7 @@ static const char *set_headers (const connection *cli, const char *content_type)
   if (Modes.keep_alive && cli->keep_alive)
   {
     strcpy (p, "Connection: keep-alive\r\n");
-    Modes.stat.HTTP_keep_alive_sent++;
+    Modes.stat.HTTP_stat[s_idx]. HTTP_keep_alive_sent++;
   }
   return (headers);
 }
@@ -416,7 +416,7 @@ static const char *set_headers (const connection *cli, const char *content_type)
  */
 #include "favicon.c"
 
-static int send_file_favicon (mg_connection *c, connection *cli, bool send_png)
+static int send_file_favicon (mg_connection *c, connection *cli, bool send_png, int s_idx)
 {
   const char    *file;
   const uint8_t *data;
@@ -443,14 +443,14 @@ static int send_file_favicon (mg_connection *c, connection *cli, bool send_png)
 
   mg_printf (c, "HTTP/1.1 200 OK\r\n"
                 "Content-Length: %lu\r\n"
-                "%s\r\n", data_len, set_headers(cli, content_type));
+                "%s\r\n", data_len, set_headers(cli, content_type, s_idx));
   mg_send (c, data, data_len);
   c->is_resp = 0;
   return (200);
 }
 
 static int send_file (mg_connection *c, connection *cli, mg_http_message *hm,
-                      const char *uri, const char *content_type)
+                      const char *uri, const char *content_type, int s_idx)
 {
   mg_http_serve_opts opts;
   mg_file_path       file;
@@ -459,7 +459,7 @@ static int send_file (mg_connection *c, connection *cli, mg_http_message *hm,
   int                rc = 200;    /* Assume status 200 OK */
 
   memset (&opts, '\0', sizeof(opts));
-  opts.extra_headers = set_headers (cli, content_type);
+  opts.extra_headers = set_headers (cli, content_type, s_idx);
 
 #if defined(USE_PACKED_DLL)
   if (use_packed_dll)
@@ -483,7 +483,7 @@ static int send_file (mg_connection *c, connection *cli, mg_http_message *hm,
 
   if (!found)
   {
-    Modes.stat.HTTP_404_responses++;
+    Modes.stat.HTTP_stat [s_idx].HTTP_404_responses++;
     rc = 404;
   }
   return (rc);
@@ -503,6 +503,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   mg_host_name addr_buf;
   size_t       len;
   intptr_t     service = (c->loc.is_ip6 ? MODES_NET_SERVICE_HTTP6 : MODES_NET_SERVICE_HTTP4);
+  int          s_idx   = (service == MODES_NET_SERVICE_HTTP6 ? 1 : 0);
 
   /* Make a copy of the URI for the caller
    */
@@ -532,7 +533,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
            (int)hm->method.len, hm->method.buf, uri,
            net_str_addr_port(&c->rem, addr_buf, sizeof(addr_buf)), c->id);
 
-    Modes.stat.HTTP_400_responses++;
+    Modes.stat.HTTP_stat [s_idx].HTTP_400_responses++;
     return (400);
   }
 
@@ -540,13 +541,13 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   if (!cli)
      return (505);
 
-  Modes.stat.HTTP_get_requests++;
+  Modes.stat.HTTP_stat [s_idx].HTTP_get_requests++;
 
   header = mg_http_get_header (hm, "Connection");
   if (header && !strnicmp(header->buf, "keep-alive", header->len))
   {
     DEBUG (DEBUG_NET2, "Connection: '%.*s'\n", (int)header->len, header->buf);
-    Modes.stat.HTTP_keep_alive_recv++;
+    Modes.stat.HTTP_stat [s_idx].HTTP_keep_alive_recv++;
     cli->keep_alive = true;
   }
 
@@ -560,7 +561,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
 #if 0
   if (!cli->rem_addr.is_ip6 && Modes.http_ipv6_only)
   {
-    send_file (c, cli, "404-http-ipv6-only.html");
+    send_file (c, cli, "404-http-ipv6-only.html", s_idx);
     return (404);
   }
 #endif
@@ -614,7 +615,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
     if (!data)
     {
       c->is_closing = 1;
-      Modes.stat.HTTP_500_responses++;   /* malloc() failed -> "Internal Server Error" */
+      Modes.stat.HTTP_stat [s_idx].HTTP_500_responses++;   /* malloc() failed -> "Internal Server Error" */
       return (500);
     }
 
@@ -632,15 +633,15 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   if (dot)
   {
     if (!stricmp(uri, "/favicon.png"))
-       return send_file_favicon (c, cli, true);
+       return send_file_favicon (c, cli, true, s_idx);
 
     if (!stricmp(uri, "/favicon.ico"))   /* Some browsers may want a 'favicon.ico' file */
-       return send_file_favicon (c, cli, false);
+       return send_file_favicon (c, cli, false, s_idx);
 
-    return send_file (c, cli, hm, uri, content_type);
+    return send_file (c, cli, hm, uri, content_type, s_idx);
   }
 
-  mg_http_reply (c, 404, set_headers(cli, NULL), "Not found\n");
+  mg_http_reply (c, 404, set_headers(cli, NULL, s_idx), "Not found\n");
   DEBUG (DEBUG_NET, "Unhandled URI '%.20s' (conn-id: %lu).\n", uri, c->id);
   return (404);
 }
@@ -653,6 +654,7 @@ static int net_handler_websocket (mg_connection *c, const mg_ws_message *ws, int
 {
   mg_host_name addr_buf;
   const char  *remote = net_str_addr_port (&c->rem, addr_buf, sizeof(addr_buf));
+  int          s_idx = (c->loc.is_ip6 ? 1 : 0);
 
   DEBUG (DEBUG_NET, "%s from %s has %zd bytes for us. is_websocket: %d.\n",
          event_name(ev), remote, c->recv.len, c->is_websocket);
@@ -674,7 +676,7 @@ static int net_handler_websocket (mg_connection *c, const mg_ws_message *ws, int
   {
     DEBUG (DEBUG_MONGOOSE2, "WebSock control from conn-id: %lu:\n", c->id);
     HEX_DUMP (ws->data.buf, ws->data.len);
-    Modes.stat.HTTP_websockets++;
+    Modes.stat.HTTP_stat [s_idx].HTTP_websockets++;
   }
   return (1);
 }
@@ -932,7 +934,10 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 
   if (ev == MG_EV_TLS_HS)
   {
-    Modes.stat.HTTP_tls_handshakes++;
+    if (service == MODES_NET_SERVICE_HTTP4)
+       Modes.stat.HTTP_stat[0].HTTP_tls_handshakes++;
+    else if (service == MODES_NET_SERVICE_HTTP6)
+       Modes.stat.HTTP_stat[1].HTTP_tls_handshakes++;
     return;
   }
 
@@ -2249,13 +2254,19 @@ void net_show_stats (void)
 
     if (HTTP_SERVICE(s))
     {
-      LOG_STDOUT ("    %8llu HTTP GET requests received.\n", Modes.stat.HTTP_get_requests);
-      LOG_STDOUT ("    %8llu HTTP 400 replies sent.\n", Modes.stat.HTTP_400_responses);
-      LOG_STDOUT ("    %8llu HTTP 404 replies sent.\n", Modes.stat.HTTP_404_responses);
-      LOG_STDOUT ("    %8llu HTTP/WebSocket upgrades.\n", Modes.stat.HTTP_websockets);
-      LOG_STDOUT ("    %8llu HTP/TLS handshakes.\n", Modes.stat.HTTP_tls_handshakes);
-      LOG_STDOUT ("    %8llu server connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_sent);
-      LOG_STDOUT ("    %8llu client connection \"keep-alive\".\n", Modes.stat.HTTP_keep_alive_recv);
+      const HTTP_statistics *hs;
+
+      if (s == MODES_NET_SERVICE_HTTP4)
+           hs = &Modes.stat.HTTP_stat [0];
+      else hs = &Modes.stat.HTTP_stat [1];
+
+      LOG_STDOUT ("    %8llu HTTP GET requests received.\n", hs->HTTP_get_requests);
+      LOG_STDOUT ("    %8llu HTTP 400 replies sent.\n", hs->HTTP_400_responses);
+      LOG_STDOUT ("    %8llu HTTP 404 replies sent.\n", hs->HTTP_404_responses);
+      LOG_STDOUT ("    %8llu HTTP/WebSocket upgrades.\n", hs->HTTP_websockets);
+      LOG_STDOUT ("    %8llu HTP/TLS handshakes.\n", hs->HTTP_tls_handshakes);
+      LOG_STDOUT ("    %8llu server connection \"keep-alive\".\n", hs->HTTP_keep_alive_sent);
+      LOG_STDOUT ("    %8llu client connection \"keep-alive\".\n", hs->HTTP_keep_alive_recv);
     }
 
     if (Modes.net_active)
@@ -3065,16 +3076,28 @@ bool net_exit (void)
   return (num > 0);
 }
 
+/**
+ * Periodically writes the `g_reverse_file` file.
+ */
+static void flush_net_reverse (void)
+{
+  static uint64_t tc_last = 0;
+  uint64_t        tc_now  = MSEC_TIME();
+
+  if (tc_now - tc_last >= REVERSE_FLUSH_T)   /* approx. every 20 min */
+  {
+    net_reverse_write();
+    tc_last = tc_now;
+  }
+}
+
 void net_poll (void)
 {
-  static uint64_t tc_last1 = 0;
-  static uint64_t tc_last2 = 0;
-  uint64_t        tc_now;
-
   /* Poll Mongoose for network events.
-   * Block for max. 50 msec.
+   * Block for max. `Modes.net_poll_ms` msec.
+   * Default is 20 msec.
    */
-  mg_mgr_poll (&Modes.mgr, 50);
+  mg_mgr_poll (&Modes.mgr, Modes.net_poll_ms);
 
   /* If the RTL_TCP server went away, that's fatal
    */
@@ -3083,22 +3106,7 @@ void net_poll (void)
     LOG_STDERR ("RTL_TCP-server at '%s' vanished!\n", net_handler_url(MODES_NET_SERVICE_RTL_TCP));
     Modes.exit = true;
   }
-
-  tc_now = MSEC_TIME();
-  if (tc_now - tc_last1 >= 30000)  /* approx. every 30 sec */
-  {
-    tc_last1 = tc_now;
-    if (Modes.log)
-    {
-      fflush (Modes.log);
-      _commit (fileno(Modes.log));
-    }
-  }
-  if (tc_now - tc_last2 >= REVERSE_FLUSH_T)   /* approx. every 20 min */
-  {
-    net_reverse_write();
-    tc_last2 = tc_now;
-  }
+  flush_net_reverse();
 }
 
 /**

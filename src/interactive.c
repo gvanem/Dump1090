@@ -606,10 +606,14 @@ void interactive_other_stats (void)
      * Like number of unique planes, CSV/SQL-lookups and cache hits,
      * Number of network clients, bytes etc.
      */
-    mvwprintw (stats_win, 20, 0, "HTTP GET:   %llu", Modes.stat.HTTP_get_requests);
-    mvwprintw (stats_win, 21, 0, "HTTP bytes: %llu/%llu",
-               Modes.stat.bytes_sent[MODES_NET_SERVICE_HTTP4] + Modes.stat.bytes_sent[MODES_NET_SERVICE_HTTP6],
-               Modes.stat.bytes_recv[MODES_NET_SERVICE_HTTP4] + Modes.stat.bytes_recv[MODES_NET_SERVICE_HTTP6]);
+    uint64_t sum1, sum2;
+
+    sum1 = Modes.stat.HTTP_stat [0].HTTP_get_requests + Modes.stat.HTTP_stat [1].HTTP_get_requests;
+    mvwprintw (stats_win, 20, 0, "HTTP GET:   %llu", sum1);
+
+    sum1 = Modes.stat.bytes_sent[MODES_NET_SERVICE_HTTP4] + Modes.stat.bytes_sent[MODES_NET_SERVICE_HTTP6];
+    sum2 = Modes.stat.bytes_recv[MODES_NET_SERVICE_HTTP4] + Modes.stat.bytes_recv[MODES_NET_SERVICE_HTTP6];
+    mvwprintw (stats_win, 21, 0, "HTTP bytes: %llu/%llu", sum1, sum2);
   }
 
   /* Refresh the sub-window for flight-information.
