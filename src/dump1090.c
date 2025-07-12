@@ -152,8 +152,9 @@ static const cfg_table config[] = {
     { "aircrafts",         ARG_STRCPY,  (void*) &Modes.aircraft_db },
     { "aircrafts-url",     ARG_STRDUP,  (void*) &Modes.aircraft_db_url },
     { "bandwidth",         ARG_FUNC,    (void*) set_bandwidth },
-    { "fifo-bufs",         ARG_ATO_U32, (void*) &Modes.FIFO_init_bufs },
+    { "fifo-bufs",         ARG_ATO_U32, (void*) &Modes.FIFO_bufs },
     { "fifo-acquire",      ARG_ATO_U32, (void*) &Modes.FIFO_acquire_ms },
+    { "fifo-dequeue",      ARG_ATO_U32, (void*) &Modes.FIFO_dequeue_ms },
     { "freq",              ARG_FUNC,    (void*) set_frequency },
     { "agc",               ARG_ATOB,    (void*) &Modes.dig_agc },
     { "interactive-ttl",   ARG_FUNC,    (void*) set_interactive_ttl },
@@ -169,6 +170,7 @@ static const cfg_table config[] = {
     { "max-frames",        ARG_ATO_U64, (void*) &Modes.max_frames },
     { "measure-noise",     ARG_ATOB,    (void*) &Modes.measure_noise },
     { "net-http-port",     ARG_FUNC,    (void*) set_port_http },
+    { "net-poll",          ARG_ATO_U32, (void*) &Modes.net_poll_ms },
     { "net-ri-port",       ARG_FUNC,    (void*) set_port_raw_in },
     { "net-ro-port",       ARG_FUNC,    (void*) set_port_raw_out },
     { "net-sbs-port",      ARG_FUNC,    (void*) set_port_sbs },
@@ -497,11 +499,13 @@ static void modeS_init_config (void)
   Modes.interactive_ttl  = MODES_INTERACTIVE_TTL;
   Modes.a_sort           = INTERACTIVE_SORT_NONE;
   Modes.json_interval    = 1000;
+  Modes.net_poll_ms      = 10;
   Modes.tui_interface    = TUI_WINCON;
   Modes.min_dist         = 0.0;                /* 0 Km default min distance */
   Modes.max_dist         = 500000.0;           /* 500 Km default max distance */
   Modes.FIFO_acquire_ms  = 100;                /* timeout for `fifo_acquire()` */
-  Modes.FIFO_init_bufs   = MODES_MAG_BUFFERS;  /* # of buffers for `fifo_init()` */
+  Modes.FIFO_dequeue_ms  = 100;                /* timeout for `fifo_dequeue()` */
+  Modes.FIFO_bufs        = MODES_MAG_BUFFERS;  /* # of buffers for `fifo_init()` */
   Modes.error_correct_1 = true;
   Modes.error_correct_2 = false;
 
@@ -651,7 +655,7 @@ static bool modeS_init_hardware (void)
     Modes.bytes_per_sample = 4;
   }
 
-  if (!fifo_init(Modes.FIFO_init_bufs, MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
+  if (!fifo_init(Modes.FIFO_bufs, MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
   {
     LOG_STDERR ("Out of memory allocating FIFO\n");
     return (false);
@@ -688,8 +692,9 @@ static bool modeS_init_hardware (void)
                 "              Modes.measure_noise:    %d\n"
                 "              Modes.phase_enhance:    %d\n"
                 "              Modes.demod_func:       demod_%u()\n"
-                "              Modes.FIFO_init_bufs:   %u\n"
+                "              Modes.FIFO_bufs:        %u\n"
                 "              Modes.FIFO_acquire_ms:  %u\n"
+                "              Modes.FIFO_dequeue_ms:  %u\n"
                 "              Using converter:        %s(), '%s'\n\n",
                 Modes.rtlsdr.index, Modes.rtlsdr.name ? Modes.rtlsdr.name : NONE_STR,
                 Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : NONE_STR,
@@ -703,8 +708,9 @@ static bool modeS_init_hardware (void)
                 Modes.measure_noise,
                 Modes.phase_enhance,
                 Modes.sample_rate / 1000,
-                Modes.FIFO_init_bufs,
+                Modes.FIFO_bufs,
                 Modes.FIFO_acquire_ms,
+                Modes.FIFO_dequeue_ms,
                 Modes.converter_state->func_name, Modes.converter_state->description);
   return (true);
 }
@@ -1150,9 +1156,9 @@ static void main_data_loop (void)
     }
     else
     {
-     /* Wait max. 100 msec for a magnitude buffer
+     /* Wait for a magnitude buffer (default 100 msec)
       */
-      mag_buf *buf = fifo_dequeue (100);
+      mag_buf *buf = fifo_dequeue (Modes.FIFO_dequeue_ms);
 
       if (!buf)
          continue;
@@ -2017,6 +2023,20 @@ static const char *capability_str [8] = {
           };
 
 /**
+ * Capability table, DF18.
+ */
+static const char *capability18_str [8] = {
+    /* 0 */ "ADS-B ES/NT device with ICAO 24-bit address",
+    /* 1 */ "ADS-B ES/NT device with other address",
+    /* 2 */ "Fine format TIS-B",
+    /* 3 */ "Coarse format TIS-B",
+    /* 4 */ "TIS-B management message",
+    /* 5 */ "TIS-B relay of ADS-B message with other address",
+    /* 6 */ "ADS-B rebroadcast using DF-17 message format",
+    /* 7 */ "Reserved"
+         };
+
+/**
  * Flight status table.
  */
 static const char *flight_status_str [8] = {
@@ -2557,7 +2577,7 @@ static void print_unrecognized_ME (void)
   LOG_STDOUT (" %8llu unrecognized ME types:\n", totals);
   if (totals == 0ULL)
   {
-    LOG_STDOUT ("! ");
+    LOG_STDOUT ("!\n");
     return;
   }
 
@@ -2645,9 +2665,11 @@ static const char *ac_type_str[] = {
                   "Aircraft Type A"
                  };
 
+/*
+ * Decode the extended squitter message.
+ */
 static bool display_extended_squitter (const modeS_message *mm)
 {
-  /* Decode the extended squitter message. */
   if (mm->ME_type >= 1 && mm->ME_type <= 4)
   {
     /* Aircraft identification
@@ -2849,6 +2871,44 @@ static bool modeS_message_display (modeS_message *mm)
     LOG_STDOUT ("  Extended Squitter Name: %s\n", get_ME_description(mm));
 
     display_extended_squitter (mm);
+  }
+  else if (mm->msg_type == 18)
+  {
+    /* DF18 */
+    LOG_STDOUT ("DF 18: Extended Squitter.\n");
+    LOG_STDOUT ("  Control Field : %d (%s)\n", mm->cf, capability18_str[mm->cf]);
+    display_addr (mm, 0);
+
+    if (mm->cf == 0 || mm->cf == 1 || mm->cf == 2 || mm->cf == 5 || mm->cf == 6)
+        display_extended_squitter (mm);
+  }
+  else if (mm->msg_type == 19)
+  {
+    /* DF19 */
+    LOG_STDOUT ("DF 19: Military Extended Squitter.\n");
+  }
+  else if (mm->msg_type == 22)
+  {
+    /* DF22 */
+    LOG_STDOUT ("DF 22: Military Use.\n");
+  }
+  else if (mm->msg_type == 24)
+  {
+    /* DF24 */
+    LOG_STDOUT ("DF 24: Comm D Extended Length Message.\n");
+  }
+  else if (mm->msg_type == 32)
+  {
+    /* DF 32 is special code we use for Mode A/C */
+    LOG_STDOUT ("SSR : Mode A/C Reply.\n");
+    if (mm->flight_status & 0x0080)
+       LOG_STDOUT ("  Mode A : %04x IDENT\n", mm->identity);
+    else
+    {
+      LOG_STDOUT ("  Mode A : %04x\n", mm->identity);
+      if (mm->AC_flags & MODES_ACFLAGS_ALTITUDE_VALID)
+         LOG_STDOUT ("  Mode C : %d feet\n", mm->altitude);
+    }
   }
   else
   {
@@ -3569,9 +3629,25 @@ static void show_help (const char *fmt, ...)
 }
 
 /**
+ * Periodically flushes the `Modes.log` file.
+ */
+static void flush_log (uint64_t now)
+{
+  static uint64_t tc_last = 0;
+
+  if (Modes.log && (now - tc_last >= 30000))  /* approx. every 30 sec */
+  {
+    tc_last = now;
+    fflush (Modes.log);
+    _commit (fileno(Modes.log));
+  }
+}
+
+/**
  * This background function is called continously by `main_data_loop()`.
  * It performs:
  *  \li Polls the network for events blocking less than 125 msec.
+ *  \li Flushes the `Modes.log` file every 30 sec.
  *  \li Polls the `Windows Location API` for a location every 250 msec.
  *  \li Removes inactive aircrafts from the list.
  *  \li Refreshes interactive data every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`).
@@ -3579,9 +3655,10 @@ static void show_help (const char *fmt, ...)
  */
 void background_tasks (void)
 {
-  bool     refresh;
-  pos_t    pos;
-  uint64_t now;
+  bool            refresh;
+  pos_t           pos;
+  uint64_t        now;
+  static uint64_t tc_last = 0;
 
   if (Modes.net)
      net_poll();
@@ -3590,6 +3667,8 @@ void background_tasks (void)
      return;
 
   now = MSEC_TIME();
+
+  flush_log (now);
 
   refresh = (now - Modes.last_update_ms) >= MODES_INTERACTIVE_REFRESH_TIME;
   if (!refresh)
