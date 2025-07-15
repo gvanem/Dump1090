@@ -16,7 +16,9 @@
 #include "server-cert-key.h"
 #include "client-cert-key.h"
 
-#define USE_MG_DNS 1
+#ifndef USE_MG_DNS
+#define USE_MG_DNS 0
+#endif
 
 /**
  * Handlers for the network services.
