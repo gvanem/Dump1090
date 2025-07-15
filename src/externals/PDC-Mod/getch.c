@@ -1,7 +1,6 @@
 /* PDCurses */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -94,15 +93,13 @@ getch
 
 **man-end****************************************************************/
 
-#include <stdlib.h>
-
-       /* By default,  the PDC_function_key[] array contains 0       */
-       /* (i.e., there's no key that's supposed to be returned for   */
-       /* exit handling), and 22 = Ctrl-V (i.e.,  hit Ctrl-V to      */
-       /* paste text from the clipboard into the key queue);  then   */
-       /* no key by default to enlarge/decrease font size or to      */
-       /* select a font from the font dialog;  then Ctrl-C for copy. */
-
+/* By default,  the PDC_function_key[] array contains 0
+ * (i.e., there's no key that's supposed to be returned for
+ * exit handling), and 22 = Ctrl-V (i.e.,  hit Ctrl-V to
+ * paste text from the clipboard into the key queue);  then
+ * no key by default to enlarge/decrease font size or to
+ * select a font from the font dialog;  then Ctrl-C for copy.
+ */
 static int PDC_function_key[PDC_MAX_FUNCTION_KEYS] = { 0, 22, 0, 0, 0, 0, 3 };
 
 /*man-start**************************************************************
@@ -146,6 +143,7 @@ Function keys
    PDCursesMod-only function.
 
 **man-end****************************************************************/
+
 int PDC_set_function_key( const unsigned function, const int new_key)
 {
     int old_key = -1;
@@ -207,14 +205,7 @@ static bool _highlight(void)
 
 static void _copy(void)
 {
-#ifdef PDC_WIDE
     wchar_t *wtmp;
-# define TMP wtmp
-# define MASK A_CHARTEXT
-#else
-# define TMP tmp
-# define MASK 0xff
-#endif
     char *tmp;
     long pos;
     int i, j, y_start, y_end, x_start, x_end, len;
@@ -227,49 +218,35 @@ static void _copy(void)
     if (!len)
         return;
 
-#ifdef PDC_WIDE
     wtmp = (wchar_t *)malloc((len + 1) * sizeof(wchar_t));
     len *= 4;
-#endif
+
     tmp = (char *)malloc(len + 1);
 
     for (j = y_start, pos = 0; j <= y_end; j++)
     {
         for (i = (j == y_start ? x_start : 0);
              i < (j == y_end ? x_end : COLS); i++)
-#ifdef PDC_WIDE
-            wtmp[pos++] = (wchar_t)( curscr->_y[j][i] & MASK);
-#else
-            tmp[pos++] = (char)( curscr->_y[j][i] & MASK);
-#endif
+            wtmp[pos++] = (wchar_t)( curscr->_y[j][i] & A_CHARTEXT);
 
-        while (y_start != y_end && pos > 0 && TMP[pos - 1] == 32)
+        while (y_start != y_end && pos > 0 && wtmp[pos - 1] == 32)
             pos--;
 
         if (j < y_end)
-            TMP[pos++] = 10;
+            wtmp[pos++] = 10;
     }
-    TMP[pos] = 0;
+    wtmp[pos] = 0;
 
-#ifdef PDC_WIDE
     pos = (long)PDC_wcstombs(tmp, wtmp, len);
-#endif
 
     PDC_setclipboard(tmp, pos);
     free(tmp);
-#ifdef PDC_WIDE
     free(wtmp);
-#endif
 }
 
 static int _paste(void)
 {
-#ifdef PDC_WIDE
     wchar_t *wpaste;
-# define PASTE wpaste
-#else
-# define PASTE paste
-#endif
     char *paste;
     long len, newmax;
     int key;
@@ -278,10 +255,8 @@ static int _paste(void)
     if (PDC_CLIP_SUCCESS != key || !len)
         return -1;
 
-#ifdef PDC_WIDE
     wpaste = (wchar_t *)malloc((len + 1) * sizeof(wchar_t));
     len = (long)PDC_mbstowcs(wpaste, paste, len + 1);
-#endif
     newmax = len + SP->c_ungind;
     if (newmax > SP->c_ungmax)
     {
@@ -291,18 +266,16 @@ static int _paste(void)
         SP->c_ungmax = newmax;
     }
     while (len > 1)
-        PDC_ungetch(PASTE[--len]);
-    key = *PASTE;
-#ifdef PDC_WIDE
+        PDC_ungetch(wpaste[--len]);
+    key = *wpaste;
     free(wpaste);
-#endif
     PDC_freeclipboard(paste);
     SP->key_modifiers = 0;
 
     return key;
 }
 
-#define WHEEL_EVENTS (PDC_MOUSE_WHEEL_UP|PDC_MOUSE_WHEEL_DOWN|PDC_MOUSE_WHEEL_RIGHT | PDC_MOUSE_WHEEL_LEFT)
+#define WHEEL_EVENTS (PDC_MOUSE_WHEEL_UP | PDC_MOUSE_WHEEL_DOWN | PDC_MOUSE_WHEEL_RIGHT | PDC_MOUSE_WHEEL_LEFT)
 
 static int _mouse_key(void)
 {
@@ -411,45 +384,15 @@ static int _mouse_key(void)
 millisecond precision on older compilers/systems.  We'll
 use clock_gettime() or gettimeofday() when available. */
 
-#if defined( _POSIX_C_SOURCE) && (_POSIX_C_SOURCE >= 199309L)
-   #define CLOCK_GETTIME_AVAILABLE    1
-#endif
-#if defined( _DEFAULT_SOURCE) || defined( _BSD_SOURCE) \
-     || defined(HAVE_GETTIMEOFDAY) || defined( __FreeBSD__)
-   #define GETTIMEOFDAY_AVAILABLE    1
-#endif
-
-#if defined( GETTIMEOFDAY_AVAILABLE)
-#include <sys/time.h>
+extern int _gettimeofday (struct timeval *tv, void *timezone);
 
 long PDC_millisecs( void)
 {
     struct timeval t;
 
-    gettimeofday( &t, NULL);
+    _gettimeofday( &t, NULL);
     return( t.tv_sec * 1000 + t.tv_usec / 1000);
 }
-#elif defined( CLOCK_GETTIME_AVAILABLE)
-#include <time.h>
-
-long PDC_millisecs( void)
-{
-    struct timespec t;
-
-    clock_gettime( CLOCK_REALTIME, &t);
-    return( t.tv_sec * 1000 + t.tv_nsec / 1000000);
-}
-#else    /* neither gettimeofday() or clock_gettime() available */
-#include <sys/timeb.h>
-
-long PDC_millisecs( void)
-{
-    struct timeb t;
-
-    ftime( &t);
-    return( (long)t.time * 1000L + (long)t.millitm);
-}
-#endif
 
 /* On many systems,  checking for a key hit is quite slow.  If
 PDC_check_key( ) returns FALSE,  we can safely stop checking for
@@ -461,9 +404,6 @@ better off (by a small margin) not using this scheme.  */
 
 static bool _fast_check_key( void)
 {
-#if defined( __DMC__) && !defined( _WIN32)
-    return( PDC_check_key( ));
-#else
     static long prev_millisecond;
     const long curr_ms = PDC_millisecs( );
     bool rval;
@@ -474,7 +414,6 @@ static bool _fast_check_key( void)
     if( !rval)
         prev_millisecond = curr_ms;
     return( rval);
-#endif
 }
 
 
@@ -483,13 +422,11 @@ bool PDC_is_function_key( const int key)
    return( key >= KEY_MIN && key < KEY_MAX);
 }
 
-#define WAIT_FOREVER    -1
+#define WAIT_FOREVER  -1
 
 static int _raw_wgetch_no_surrogate_pairs( WINDOW *win)
 {
     int key = ERR, remaining_millisecs;
-
-    PDC_LOG(("_raw_wgetch_no_surrogate_pairs() - called\n"));
 
     assert( SP);
     assert( win);
@@ -574,9 +511,6 @@ static int _raw_wgetch_no_surrogate_pairs( WINDOW *win)
         {
 
             /* copy or paste? */
-#ifndef _WIN32
-            if (SP->key_modifiers & PDC_KEY_MODIFIER_SHIFT)
-#endif
             {
                 if (PDC_function_key[FUNCTION_KEY_COPY] == key)
                 {
@@ -650,7 +584,7 @@ static int _raw_wgetch_no_surrogate_pairs( WINDOW *win)
 #define IS_HIGH_SURROGATE( x)  ((x) >= 0xd800 && (x) < 0xdc00)
 #define IS_LOW_SURROGATE( x)   ((x) >= 0xdc00 && (x) < 0xe000)
 
-static int _raw_wgetch( WINDOW *win)
+static int _raw_wgetch (WINDOW *win)
 {
    int rval = _raw_wgetch_no_surrogate_pairs( win);
 
@@ -666,8 +600,6 @@ static int _raw_wgetch( WINDOW *win)
 
 int mvgetch(int y, int x)
 {
-    PDC_LOG(("mvgetch() - called\n"));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -676,8 +608,6 @@ int mvgetch(int y, int x)
 
 int mvwgetch(WINDOW *win, int y, int x)
 {
-    PDC_LOG(("mvwgetch() - called\n"));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
@@ -686,8 +616,6 @@ int mvwgetch(WINDOW *win, int y, int x)
 
 int PDC_ungetch(int ch)
 {
-    PDC_LOG(("ungetch() - called\n"));
-
     if (SP->c_ungind >= SP->c_ungmax)   /* pushback stack full */
         return ERR;
 
@@ -698,8 +626,6 @@ int PDC_ungetch(int ch)
 
 int flushinp(void)
 {
-    PDC_LOG(("flushinp() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -715,8 +641,6 @@ int flushinp(void)
 
 unsigned long PDC_get_key_modifiers(void)
 {
-    PDC_LOG(("PDC_get_key_modifiers() - called\n"));
-
     assert( SP);
     if (!SP)
         return (unsigned long)ERR;
@@ -726,8 +650,6 @@ unsigned long PDC_get_key_modifiers(void)
 
 int PDC_return_key_modifiers(bool flag)
 {
-    PDC_LOG(("PDC_return_key_modifiers() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -738,9 +660,6 @@ int PDC_return_key_modifiers(bool flag)
 
 int wgetch(WINDOW *win)
 {
-#ifndef PDC_WIDE
-    return( _raw_wgetch( win));
-#else
     static unsigned char buffered[8];
     static size_t n_buff = 0;
     int rval;
@@ -774,15 +693,11 @@ int wgetch(WINDOW *win)
         }
     }
     return( rval);
-#endif
 }
 
-#ifdef PDC_WIDE
 int wget_wch(WINDOW *win, wint_t *wch)
 {
     int key;
-
-    PDC_LOG(("wget_wch() - called\n"));
 
     assert( wch);
     if (!wch)
@@ -800,15 +715,11 @@ int wget_wch(WINDOW *win, wint_t *wch)
 
 int get_wch(wint_t *wch)
 {
-    PDC_LOG(("get_wch() - called\n"));
-
     return wget_wch(stdscr, wch);
 }
 
 int mvget_wch(int y, int x, wint_t *wch)
 {
-    PDC_LOG(("mvget_wch() - called\n"));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -817,8 +728,6 @@ int mvget_wch(int y, int x, wint_t *wch)
 
 int mvwget_wch(WINDOW *win, int y, int x, wint_t *wch)
 {
-    PDC_LOG(("mvwget_wch() - called\n"));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
@@ -829,4 +738,3 @@ int unget_wch(const wchar_t wch)
 {
     return PDC_ungetch(wch);
 }
-#endif

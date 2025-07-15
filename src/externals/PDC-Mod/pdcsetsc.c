@@ -40,11 +40,7 @@ pdcsetsc
 int PDC_curs_set(int visibility)
 {
     CONSOLE_CURSOR_INFO cci;
-    int ret_vis;
-
-    PDC_LOG(("PDC_curs_set() - called: visibility=%d\n", visibility));
-
-    ret_vis = SP->visibility;
+    int ret_vis = SP->visibility;
 
     if (GetConsoleCursorInfo(pdc_con_out, &cci) == FALSE)
         return ERR;
@@ -73,17 +69,10 @@ int PDC_curs_set(int visibility)
 
 void PDC_set_title(const char *title)
 {
-#ifdef PDC_WIDE
     wchar_t wtitle[512];
-#endif
-    PDC_LOG(("PDC_set_title() - called:<%s>\n", title));
 
-#ifdef PDC_WIDE
     PDC_mbstowcs(wtitle, title, 511);
     SetConsoleTitleW(wtitle);
-#else
-    SetConsoleTitleA(title);
-#endif
 }
 
 int PDC_set_blink(bool blinkon)

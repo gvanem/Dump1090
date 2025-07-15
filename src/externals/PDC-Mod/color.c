@@ -1,6 +1,7 @@
 /* PDCursesMod */
 
 #include <curspriv.h>
+#include <limits.h>
 
 /*man-start**************************************************************
 
@@ -134,11 +135,6 @@ color
 
 **man-end****************************************************************/
 
-#include <stdlib.h>
-#include <string.h>
-#include <limits.h>
-#include <assert.h>
-
 /* Color pair structure */
 
 typedef struct _pdc_pair
@@ -227,8 +223,6 @@ static void _check_hash_tbl( void)
 
 int start_color(void)
 {
-    PDC_LOG(("start_color() - called\n"));
-
     assert( SP);
     if (!SP || SP->mono)
         return ERR;
@@ -244,7 +238,6 @@ int start_color(void)
                         SP->default_background_idx);
     if( !SP->_preserve)
         curscr->_clear = TRUE;
-#if !defined( CHTYPE_32) && !defined(OS2) && !defined(DOS)
     if( COLORS >= 1024 && (long)INT_MAX > 1024L * 1024L)
         COLOR_PAIRS = 1024 * 1024;
     else if( COLORS >= 16)
@@ -254,9 +247,6 @@ int start_color(void)
         else
             COLOR_PAIRS = INT_MAX;
     }
-#else
-    COLOR_PAIRS = (1 << PDC_COLOR_BITS);
-#endif           /* will be 256 (wide-char builds) or 4096 (8-bit chars) */
     return OK;
 }
 
@@ -408,8 +398,6 @@ static void _init_pair_core(int pair, int fg, int bg)
 
 int init_extended_pair(int pair, int fg, int bg)
 {
-    PDC_LOG(("init_pair() - called: pair %d fg %d bg %d\n", pair, fg, bg));
-
     assert( SP);
     if (!SP || !SP->color_started || pair < 1 || pair >= COLOR_PAIRS
         || fg < SP->first_col || fg >= COLORS
@@ -422,16 +410,12 @@ int init_extended_pair(int pair, int fg, int bg)
 
 bool has_colors(void)
 {
-    PDC_LOG(("has_colors() - called\n"));
-
     assert( SP);
     return SP ? !(SP->mono) : FALSE;
 }
 
 int init_extended_color(int color, int red, int green, int blue)
 {
-    PDC_LOG(("init_color() - called\n"));
-
     assert( SP);
     if (!SP || color < 0 || color >= COLORS || !PDC_can_change_color() ||
         red < -1 || red > 1000 || green < -1 || green > 1000 ||
@@ -445,8 +429,6 @@ int init_extended_color(int color, int red, int green, int blue)
 
 int extended_color_content(int color, int *red, int *green, int *blue)
 {
-    PDC_LOG(("color_content() - called\n"));
-
     if (color < 0 || color >= COLORS || !red || !green || !blue)
         return ERR;
 
@@ -469,16 +451,12 @@ int extended_color_content(int color, int *red, int *green, int *blue)
 
 bool can_change_color(void)
 {
-    PDC_LOG(("can_change_color() - called\n"));
-
     return PDC_can_change_color();
 }
 
 int extended_pair_content(int pair, int *fg, int *bg)
 {
     PDC_PAIR *p = SP->pairs + pair;
-
-    PDC_LOG(("pair_content() - called\n"));
 
     if (pair < 0 || pair >= COLOR_PAIRS || !fg || !bg)
         return ERR;
@@ -498,8 +476,6 @@ int extended_pair_content(int pair, int *fg, int *bg)
 
 int assume_default_colors(int f, int b)
 {
-    PDC_LOG(("assume_default_colors() - called: f %d b %d\n", f, b));
-
     if (f < -1 || f >= COLORS || b < -1 || b >= COLORS)
         return ERR;
 
@@ -514,8 +490,6 @@ int assume_default_colors(int f, int b)
 
 int use_default_colors(void)
 {
-    PDC_LOG(("use_default_colors() - called\n"));
-
     SP->default_colors = TRUE;
     SP->first_col = -1;
 
@@ -524,8 +498,6 @@ int use_default_colors(void)
 
 int PDC_set_line_color(short color)
 {
-    PDC_LOG(("PDC_set_line_color() - called: %d\n", color));
-
     assert( SP);
     if (!SP || color < -1 || color >= COLORS)
         return ERR;
@@ -701,59 +673,3 @@ void reset_color_pairs( void)
     curscr->_clear = TRUE;
 }
 
-#ifdef PDC_COLOR_PAIR_DEBUGGING_FUNCTIONS
-
-/* The following is solely for testing the color pair table,  and
-specifically its two doubly-linked lists (one of 'used' pairs, one of
-'free' pairs).  The elements in both lists are counted. The total should
-equal the number of allocated pairs.  All pairs in the first linked list
-are checked to make sure they're really used;  all in the second to make
-sure they're really free.  We also check that the links are consistent.
-The return value is 0 if the table checks out,  -1 if it does not.
-'results' contains the number of used pairs,  the number of free pairs,
-and the number of allocated pairs (which should be the sum of the first
-two numbers.)  It also returns some data on the hash table size and
-usage.  See 'pairs.txt' for more details.   */
-
-int PDC_check_color_pair_table( int *results)
-{
-    int idx, n_used = 1, n_free = 1;
-    PDC_PAIR *p;
-
-    assert( SP && SP->pairs);
-    p = (PDC_PAIR *)SP->pairs;
-    idx = 0;
-    while( n_used < SP->pairs_allocated + 10 && p[idx].next)
-    {                /* loop through all _used_ color pairs */
-        const int next = p[idx].next;
-
-        assert( p[idx].f != UNSET_COLOR_PAIR);
-        assert( next >= 0 && next < SP->pairs_allocated);
-        assert( p[next].prev == idx);
-        idx = p[idx].next;
-        n_used++;
-    }
-
-    idx = SP->pairs_allocated;
-    while( n_free < SP->pairs_allocated + 10 && p[idx].next != SP->pairs_allocated)
-    {                /* loop through all _free_ color pairs */
-        const int next = p[idx].next;
-
-        assert( p[idx].f == UNSET_COLOR_PAIR);
-        assert( next > 0 && next <= SP->pairs_allocated);
-        assert( p[next].prev == idx);
-        idx = p[idx].next;
-        n_free++;
-    }
-
-    if( results)
-    {
-        results[0] = n_used;
-        results[1] = n_free;
-        results[2] = SP->pairs_allocated + 1;      /* include the 'dummy' pair */
-        results[3] = SP->pair_hash_tbl_size;
-        results[4] = SP->pair_hash_tbl_used;
-    }
-    return( (n_used + n_free == SP->pairs_allocated + 1) ? 0 : -1);
-}
-#endif   /*  #ifdef PDC_COLOR_PAIR_DEBUGGING_FUNCTIONS */

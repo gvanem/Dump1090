@@ -1,8 +1,6 @@
 /* PDCurses */
 
 #include <curspriv.h>
-#include <string.h>
-
 #include <stdlib.h>
 
 /*man-start**************************************************************
@@ -61,8 +59,6 @@ int PDC_getclipboard(char **contents, long *length)
 {
     int len;
 
-    PDC_LOG(("PDC_getclipboard() - called\n"));
-
     if (!pdc_clipboard)
         return PDC_CLIP_EMPTY;
 
@@ -79,8 +75,6 @@ int PDC_getclipboard(char **contents, long *length)
 
 int PDC_setclipboard(const char *contents, long length)
 {
-    PDC_LOG(("PDC_setclipboard() - called\n"));
-
     PDC_clearclipboard( );
 
     if (contents)
@@ -97,17 +91,16 @@ int PDC_setclipboard(const char *contents, long length)
 
 int PDC_freeclipboard(char *contents)
 {
-    PDC_LOG(("PDC_freeclipboard() - called\n"));
-
     /* should we also free empty the system clipboard? probably not */
 
     if (contents)
     {
         /* NOTE: We free the memory, but we can not set caller's pointer
-           to NULL, so if caller calls again then will try to access
-           free'd memory.  We 1st overwrite memory with a string so if
-           caller tries to use free memory they won't get what they
-           expect & hopefully notice. */
+         * to NULL, so if caller calls again then will try to access
+         * free'd memory.  We 1st overwrite memory with a string so if
+         * caller tries to use free memory they won't get what they
+         * expect & hopefully notice.
+         */
         const char *refreed = "!Freed buffer PDC clipboard!";
         const char *tptr = refreed;
         char *tptr2 = contents;
@@ -123,13 +116,10 @@ int PDC_freeclipboard(char *contents)
 
 int PDC_clearclipboard(void)
 {
-    PDC_LOG(("PDC_clearclipboard() - called\n"));
-
     if (pdc_clipboard)
     {
         free(pdc_clipboard);
         pdc_clipboard = NULL;
     }
-
     return PDC_CLIP_SUCCESS;
 }

@@ -124,8 +124,6 @@ int slk_init(int fmt)
 {
     int i;
 
-    PDC_LOG(("slk_init() - called\n"));
-
     switch (fmt)
     {
     case 0:  /* 3 - 2 - 3 */
@@ -157,12 +155,9 @@ int slk_init(int fmt)
     for( i = abs( label_fmt); i; i /= 16)
        labels += i % 16;
 
-    PDC_LOG(("slk_init: fmt %d, %d labels, %p\n",
-               fmt, labels, slk));
     if( slk)
         free( slk);
     slk = (struct SLK *)calloc(labels, sizeof(struct SLK));
-    PDC_LOG(( "New slk: %p; SP = %p\n", slk, SP));
 
     if (!slk)
         labels = 0;
@@ -247,68 +242,19 @@ static void _redraw(void)
 
 int slk_set(int labnum, const char *label, int justify)
 {
-#ifdef PDC_WIDE
     wchar_t wlabel[MAX_LABEL_LENGTH];
 
     PDC_mbstowcs(wlabel, label, MAX_LABEL_LENGTH - 1);
     return slk_wset(labnum, wlabel, justify);
-#else
-    PDC_LOG(("slk_set() - called\n"));
-
-    if (labnum < 1 || labnum > labels || justify < 0 || justify > 2)
-        return ERR;
-
-    labnum--;
-
-    if (!label || !(*label))
-    {
-        /* Clear the label */
-
-        *slk[labnum].label = 0;
-        slk[labnum].format = 0;
-        slk[labnum].len = 0;
-    }
-    else
-    {
-        int i;
-
-        /* Skip leading spaces */
-
-        while( *label == ' ')
-            label++;
-
-        /* Copy it */
-
-        for (i = 0; label[i] && i < MAX_LABEL_LENGTH - 1; i++)
-            slk[labnum].label[i] = label[i];
-
-        /* Drop trailing spaces */
-
-        while( i && label[i - 1] == ' ')
-            i--;
-
-        slk[labnum].label[i] = 0;
-        slk[labnum].format = justify;
-        slk[labnum].len = i;
-    }
-
-    _drawone(labnum);
-
-    return OK;
-#endif
 }
 
 int slk_refresh(void)
 {
-    PDC_LOG(("slk_refresh() - called\n"));
-
     return (slk_noutrefresh() == ERR) ? ERR : doupdate();
 }
 
 int slk_noutrefresh(void)
 {
-    PDC_LOG(("slk_noutrefresh() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -319,31 +265,14 @@ int slk_noutrefresh(void)
 char *slk_label(int labnum)
 {
     static char temp[MAX_LABEL_LENGTH + 1];
-#ifdef PDC_WIDE
     wchar_t *wtemp = slk_wlabel(labnum);
 
     PDC_wcstombs(temp, wtemp, MAX_LABEL_LENGTH);
-#else
-    chtype *p;
-    int i;
-
-    PDC_LOG(("slk_label() - called\n"));
-
-    if (labnum < 1 || labnum > labels)
-        return (char *)0;
-
-    for (i = 0, p = slk[labnum - 1].label; *p; i++)
-        temp[i] = (char)*p++;
-
-    temp[i] = '\0';
-#endif
     return temp;
 }
 
 int slk_clear(void)
 {
-    PDC_LOG(("slk_clear() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -355,8 +284,6 @@ int slk_clear(void)
 
 int slk_restore(void)
 {
-    PDC_LOG(("slk_restore() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -368,8 +295,6 @@ int slk_restore(void)
 
 int slk_touch(void)
 {
-    PDC_LOG(("slk_touch() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -380,8 +305,6 @@ int slk_touch(void)
 int slk_attron(const chtype attrs)
 {
     int rc;
-
-    PDC_LOG(("slk_attron() - called\n"));
 
     assert( SP);
     if (!SP)
@@ -395,8 +318,6 @@ int slk_attron(const chtype attrs)
 
 int slk_attr_on(const attr_t attrs, void *opts)
 {
-    PDC_LOG(("slk_attr_on() - called\n"));
-
     INTENTIONALLY_UNUSED_PARAMETER( opts);
     return slk_attron(attrs);
 }
@@ -404,8 +325,6 @@ int slk_attr_on(const attr_t attrs, void *opts)
 int slk_attroff(const chtype attrs)
 {
     int rc;
-
-    PDC_LOG(("slk_attroff() - called\n"));
 
     assert( SP);
     if (!SP)
@@ -419,8 +338,6 @@ int slk_attroff(const chtype attrs)
 
 int slk_attr_off(const attr_t attrs, void *opts)
 {
-    PDC_LOG(("slk_attr_off() - called\n"));
-
     INTENTIONALLY_UNUSED_PARAMETER( opts);
     return slk_attroff(attrs);
 }
@@ -428,8 +345,6 @@ int slk_attr_off(const attr_t attrs, void *opts)
 int slk_attrset(const chtype attrs)
 {
     int rc;
-
-    PDC_LOG(("slk_attrset() - called\n"));
 
     assert( SP);
     if (!SP)
@@ -443,8 +358,6 @@ int slk_attrset(const chtype attrs)
 
 attr_t slk_attr( void)
 {
-    PDC_LOG(("slk_attrset() - called\n"));
-
     assert( SP);
     assert( SP->slk_winptr);
     if (!SP || !SP->slk_winptr)
@@ -456,8 +369,6 @@ attr_t slk_attr( void)
 int extended_slk_color( int pair)
 {
     int rc;
-
-    PDC_LOG(("extended_slk_color() - called\n"));
 
     assert( SP);
     if (!SP)
@@ -473,8 +384,6 @@ int slk_color(short color_pair)
 {
     int integer_color_pair = (int)color_pair;
 
-    PDC_LOG(("slk_color() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -484,8 +393,6 @@ int slk_color(short color_pair)
 int slk_attr_set(const attr_t attrs, short color_pair, void *opts)
 {
     const int integer_color_pair = (opts ? *(int *)opts : (int)color_pair);
-
-    PDC_LOG(("slk_attr_set() - called\n"));
 
     return slk_attrset(attrs | COLOR_PAIR(integer_color_pair));
 }
@@ -575,8 +482,6 @@ int PDC_mouse_in_slk(int y, int x)
 {
     int i;
 
-    PDC_LOG(("PDC_mouse_in_slk() - called: y->%d x->%d\n", y, x));
-
     /* If the line on which the mouse was clicked is NOT the last line
        of the screen, or the SLKs are hidden,  we are not interested in it. */
 
@@ -592,11 +497,8 @@ int PDC_mouse_in_slk(int y, int x)
     return 0;
 }
 
-#ifdef PDC_WIDE
 int slk_wset(int labnum, const wchar_t *label, int justify)
 {
-    PDC_LOG(("slk_wset() - called\n"));
-
     if (labnum < 1 || labnum > labels || justify < 0 || justify > 2)
         return ERR;
 
@@ -645,8 +547,6 @@ wchar_t *slk_wlabel(int labnum)
     chtype *p;
     int i;
 
-    PDC_LOG(("slk_wlabel() - called\n"));
-
     if (labnum < 1 || labnum > labels)
         return (wchar_t *)0;
 
@@ -657,4 +557,4 @@ wchar_t *slk_wlabel(int labnum)
 
     return temp;
 }
-#endif
+

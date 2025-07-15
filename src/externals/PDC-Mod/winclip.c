@@ -43,18 +43,12 @@ clipboard
 
 **man-end****************************************************************/
 
-#ifdef PDC_WIDE
-# define PDC_TEXT CF_UNICODETEXT
-#else
-# define PDC_TEXT CF_OEMTEXT
-#endif
+#define PDC_TEXT CF_UNICODETEXT
 
 int PDC_getclipboard(char **contents, long *length)
 {
     HANDLE handle;
     long len;
-
-    PDC_LOG(("PDC_getclipboard() - called\n"));
 
     if (!OpenClipboard(NULL))
         return PDC_CLIP_ACCESS_ERROR;
@@ -65,11 +59,7 @@ int PDC_getclipboard(char **contents, long *length)
         return PDC_CLIP_EMPTY;
     }
 
-#ifdef PDC_WIDE
     len = (long)wcslen((wchar_t *)handle) * 3;
-#else
-    len = (long)strlen((char *)handle);
-#endif
     *contents = (char *)GlobalAlloc(GMEM_FIXED, len + 1);
 
     if (!*contents)
@@ -78,11 +68,7 @@ int PDC_getclipboard(char **contents, long *length)
         return PDC_CLIP_MEMORY_ERROR;
     }
 
-#ifdef PDC_WIDE
     len = (long)PDC_wcstombs((char *)*contents, (wchar_t *)handle, len);
-#else
-    strcpy((char *)*contents, (char *)handle);
-#endif
     *length = len;
     CloseClipboard();
 
@@ -93,8 +79,6 @@ int PDC_setclipboard(const char *contents, long length)
 {
     HGLOBAL ptr1;
     LPTSTR ptr2;
-
-    PDC_LOG(("PDC_setclipboard() - called\n"));
 
     if (!OpenClipboard(NULL))
         return PDC_CLIP_ACCESS_ERROR;
@@ -107,11 +91,7 @@ int PDC_setclipboard(const char *contents, long length)
 
     ptr2 = GlobalLock(ptr1);
 
-#ifdef PDC_WIDE
     PDC_mbstowcs((wchar_t *)ptr2, contents, length);
-#else
-    memcpy((char *)ptr2, contents, length + 1);
-#endif
     GlobalUnlock(ptr1);
     EmptyClipboard();
 
@@ -129,8 +109,6 @@ int PDC_setclipboard(const char *contents, long length)
 
 int PDC_freeclipboard(char *contents)
 {
-    PDC_LOG(("PDC_freeclipboard() - called\n"));
-
     GlobalFree(contents);
     return PDC_CLIP_SUCCESS;
 }
@@ -138,8 +116,6 @@ int PDC_freeclipboard(char *contents)
 int PDC_clearclipboard(void)
 {
     int rval = PDC_CLIP_ACCESS_ERROR;
-
-    PDC_LOG(("PDC_clearclipboard() - called\n"));
 
     if (OpenClipboard(NULL))
     {

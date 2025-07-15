@@ -6,11 +6,7 @@
 #include <string.h>
 #include <assert.h>
 
-#ifdef PDC_WIDE
-   #define USE_UNICODE_ACS_CHARS 1
-#else
-   #define USE_UNICODE_ACS_CHARS 0
-#endif
+#define USE_UNICODE_ACS_CHARS 1
 
 #include "acs_defs.h"
 
@@ -23,9 +19,6 @@ static bool in_italic = FALSE;
 void PDC_gotoyx(int row, int col)
 {
     COORD coord;
-
-    PDC_LOG(("PDC_gotoyx() - called: row %d col %d from row %d col %d\n",
-             row, col, SP->cursrow, SP->curscol));
 
     coord.X = (SHORT)col;
     coord.Y = (SHORT)row;
@@ -150,26 +143,18 @@ static void _set_ansi_color(short f, short b, attr_t attr)
 
 /* see 'addch.c' for an explanation of how combining chars are handled. */
 
-#ifdef USING_COMBINING_CHARACTER_SCHEME
-   int PDC_expand_combined_characters( const cchar_t c, cchar_t *added);  /* addch.c */
-#endif
+int PDC_expand_combined_characters( const cchar_t c, cchar_t *added);  /* addch.c */
 
-#ifdef PDC_WIDE
-   #undef DUMMY_CHAR_NEXT_TO_FULLWIDTH
+#undef DUMMY_CHAR_NEXT_TO_FULLWIDTH
 
-   const chtype DUMMY_CHAR_NEXT_TO_FULLWIDTH = (chtype)MAX_UNICODE;
-   #define IS_SUPPLEMENTAL_MULTILINGUAL_PLANE( c) ((c) & 0x1f0000)
-#endif
+const chtype DUMMY_CHAR_NEXT_TO_FULLWIDTH = (chtype)MAX_UNICODE;
+#define IS_SUPPLEMENTAL_MULTILINGUAL_PLANE( c) ((c) & 0x1f0000)
 
 static void _show_run_of_ansi_characters( const attr_t attr,
                            const int fore, const int back, const bool blink,
                            const int lineno, const int x, const chtype *srcp, const int len)
 {
-#ifdef PDC_WIDE
     WCHAR buffer[MAX_PACKET_LEN];
-#else
-    char buffer[MAX_PACKET_LEN];
-#endif
     int j, n_out;
 
     for (j = n_out = 0; j < len; j++)
@@ -182,7 +167,6 @@ static void _show_run_of_ansi_characters( const attr_t attr,
         if (blink && blinked_off)
             ch = ' ';
 
-#ifdef PDC_WIDE
         ch &= A_CHARTEXT;
         if( ch <= MAX_UNICODE)
         {
@@ -194,18 +178,11 @@ static void _show_run_of_ansi_characters( const attr_t attr,
             else
                 buffer[n_out++] = (WCHAR)ch;
         }
-#else
-        buffer[n_out++] = (char)( ch & A_CHARTEXT);
-#endif
     }
 
     PDC_gotoyx(lineno, x);
     _set_ansi_color( (short)fore, (short)back, attr);
-#ifdef PDC_WIDE
     WriteConsoleW(pdc_con_out, buffer, n_out, NULL, NULL);
-#else
-    WriteConsoleA(pdc_con_out, buffer, n_out, NULL, NULL);
-#endif
 }
 
 static void _show_run_of_nonansi_characters( attr_t attr,
@@ -243,9 +220,7 @@ static void _show_run_of_nonansi_characters( attr_t attr,
         if (blink && blinked_off)
             ch = ' ';
 
-#ifdef PDC_WIDE
         ch &= A_CHARTEXT;
-#ifdef USING_COMBINING_CHARACTER_SCHEME
         if( ch > DUMMY_CHAR_NEXT_TO_FULLWIDTH)
         {
             cchar_t added[10], root = ch;
@@ -262,7 +237,6 @@ static void _show_run_of_nonansi_characters( attr_t attr,
                 buffer[n_out++].Char.UnicodeChar = (WCHAR)added[n_combined];
             }
         }
-#endif
         if( ch <= MAX_UNICODE)
         {
             if( IS_SUPPLEMENTAL_MULTILINGUAL_PLANE( ch))
@@ -273,10 +247,6 @@ static void _show_run_of_nonansi_characters( attr_t attr,
             else
                 buffer[n_out++].Char.UnicodeChar = (WCHAR)ch;
         }
-#else
-        buffer[n_out++].Char.UnicodeChar = (WCHAR)( ch & A_CHARTEXT);
-#endif
-
     }
 
     for( j = 0; j < n_out; j++)
@@ -341,8 +311,6 @@ void PDC_transform_line(int lineno, int x, int len, const chtype *srcp)
     attr_t old_attr, attr;
     int i, j;
 
-    PDC_LOG(("PDC_transform_line() - called: lineno=%d\n", lineno));
-
     old_attr = *srcp & (A_ATTRIBUTES | A_ALTCHARSET);
 
     for (i = 1, j = 1; j < len; i++, j++)
@@ -406,6 +374,3 @@ void PDC_blink_text(void)
     pdc_last_blink = GetTickCount();
 }
 
-void PDC_doupdate(void)
-{
-}

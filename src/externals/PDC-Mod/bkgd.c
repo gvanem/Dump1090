@@ -1,7 +1,6 @@
 /* PDCursesMod */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -71,8 +70,6 @@ int wbkgd(WINDOW *win, chtype ch)
     chtype oldcolr, oldch, newcolr, newch, colr, attr;
     chtype oldattr = 0, newattr = 0;
     chtype *winptr;
-
-    PDC_LOG(("wbkgd() - called\n"));
 
     assert( win);
     if (!win)
@@ -146,74 +143,54 @@ int wbkgd(WINDOW *win, chtype ch)
 
 int bkgd(chtype ch)
 {
-    PDC_LOG(("bkgd() - called\n"));
-
     return wbkgd(stdscr, ch);
 }
 
 void wbkgdset(WINDOW *win, chtype ch)
 {
-    PDC_LOG(("wbkgdset() - called\n"));
-
     if (win)
     {
         if (!(ch & A_CHARTEXT))
             ch |= ' ';
-
         win->_bkgd = ch;
     }
 }
 
 void bkgdset(chtype ch)
 {
-    PDC_LOG(("bkgdset() - called\n"));
-
     wbkgdset(stdscr, ch);
 }
 
 chtype getbkgd(WINDOW *win)
 {
-    PDC_LOG(("getbkgd() - called\n"));
-
     assert( win);
     return win ? win->_bkgd : (chtype)ERR;
 }
 
-#ifdef PDC_WIDE
 int wbkgrnd(WINDOW *win, const cchar_t *wch)
 {
-    PDC_LOG(("wbkgrnd() - called\n"));
-
     assert( wch);
     return wch ? wbkgd(win, *wch) : ERR;
 }
 
 int bkgrnd(const cchar_t *wch)
 {
-    PDC_LOG(("bkgrnd() - called\n"));
-
     return wbkgrnd(stdscr, wch);
 }
 
 void wbkgrndset(WINDOW *win, const cchar_t *wch)
 {
-    PDC_LOG(("wbkgdset() - called\n"));
-
     if (wch)
         wbkgdset(win, *wch);
 }
 
 void bkgrndset(const cchar_t *wch)
 {
-    PDC_LOG(("bkgrndset() - called\n"));
-
     wbkgrndset(stdscr, wch);
 }
 
 int wgetbkgrnd(WINDOW *win, cchar_t *wch)
 {
-    PDC_LOG(("wgetbkgrnd() - called\n"));
-
     assert( win);
     assert( wch);
     if (!win || !wch)
@@ -226,8 +203,6 @@ int wgetbkgrnd(WINDOW *win, cchar_t *wch)
 
 int getbkgrnd(cchar_t *wch)
 {
-    PDC_LOG(("getbkgrnd() - called\n"));
-
     return wgetbkgrnd(stdscr, wch);
 }
-#endif
+

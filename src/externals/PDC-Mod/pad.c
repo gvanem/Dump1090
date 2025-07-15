@@ -85,8 +85,6 @@ WINDOW *newpad(int nlines, int ncols)
 {
     WINDOW *win;
 
-    PDC_LOG(("newpad() - called: lines=%d cols=%d\n", nlines, ncols));
-
     assert( nlines > 0 && ncols > 0);
     win = PDC_makenew(nlines, ncols, 0, 0);
     if (win)
@@ -117,9 +115,6 @@ WINDOW *subpad(WINDOW *orig, int nlines, int ncols, int begy, int begx)
 {
     WINDOW *win;
     int i;
-
-    PDC_LOG(("subpad() - called: lines=%d cols=%d begy=%d begx=%d\n",
-             nlines, ncols, begy, begx));
 
     assert( orig && (orig->_flags & _PAD));
     if (!orig || !(orig->_flags & _PAD))
@@ -173,8 +168,6 @@ WINDOW *subpad(WINDOW *orig, int nlines, int ncols, int begy, int begx)
 
 int prefresh(WINDOW *win, int py, int px, int sy1, int sx1, int sy2, int sx2)
 {
-    PDC_LOG(("prefresh() - called\n"));
-
     if (pnoutrefresh(win, py, px, sy1, sx1, sy2, sx2) == ERR)
         return ERR;
 
@@ -187,8 +180,6 @@ int pnoutrefresh(WINDOW *w, int py, int px, int sy1, int sx1, int sy2, int sx2)
     int num_cols;
     int sline;
     int pline;
-
-    PDC_LOG(("pnoutrefresh() - called\n"));
 
     assert( w);
 
@@ -262,8 +253,6 @@ int pechochar(WINDOW *pad, chtype ch)
 {
     int rval;
 
-    PDC_LOG(("pechochar() - called\n"));
-
     if (waddch(pad, ch) == ERR)
         return ERR;
 
@@ -273,12 +262,9 @@ int pechochar(WINDOW *pad, chtype ch)
     return( rval);
 }
 
-#ifdef PDC_WIDE
 int pecho_wchar(WINDOW *pad, const cchar_t *wch)
 {
     int rval;
-
-    PDC_LOG(("pecho_wchar() - called\n"));
 
     assert( wch);
     if (!wch || (waddch(pad, *wch) == ERR))
@@ -289,12 +275,9 @@ int pecho_wchar(WINDOW *pad, const cchar_t *wch)
         doupdate( );
     return( rval);
 }
-#endif
 
 bool is_pad(const WINDOW *pad)
 {
-    PDC_LOG(("is_pad() - called\n"));
-
     assert( pad);
     if (!pad)
         return FALSE;

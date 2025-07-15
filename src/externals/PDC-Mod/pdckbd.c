@@ -2,7 +2,6 @@
 
 #include <assert.h>
 #include "pdcwin.h"
-#include "mouse.c"
 
 /* These variables are used to store information about the next
    Input Event. */
@@ -336,8 +335,6 @@ void PDC_set_keyboard_binary(bool on)
 {
     DWORD mode;
 
-    PDC_LOG(("PDC_set_keyboard_binary() - called\n"));
-
     GetConsoleMode(pdc_con_in, &mode);
     SetConsoleMode(pdc_con_in, !on ? (mode | ENABLE_PROCESSED_INPUT) :
                                     (mode & ~ENABLE_PROCESSED_INPUT));
@@ -376,8 +373,6 @@ bool PDC_check_key(void)
 static int _get_key_count(void)
 {
     int num_keys = 0, vk;
-
-    PDC_LOG(("_get_key_count() - called\n"));
 
     vk = KEV.wVirtualKeyCode;
 
@@ -436,9 +431,6 @@ static int _get_key_count(void)
             num_keys = 1;
         }
     }
-
-    PDC_LOG(("_get_key_count() - returning: num_keys %d\n", num_keys));
-
     return num_keys;
 }
 
@@ -468,12 +460,7 @@ static bool running_under_wine( void)
 
 static int _process_key_event(void)
 {
-    int key =
-#ifdef PDC_WIDE
-        KEV.uChar.UnicodeChar;
-#else
-        (unsigned char)KEV.uChar.AsciiChar;
-#endif
+    int key = KEV.uChar.UnicodeChar;
     WORD vk = KEV.wVirtualKeyCode;
     DWORD state = KEV.dwControlKeyState;
 
@@ -593,10 +580,6 @@ static int _process_key_event(void)
 }
 
 #define BUTTON_N_CLICKED(N)   PDC_SHIFTED_BUTTON( BUTTON1_CLICKED, (N))
-#ifndef MOUSE_HWHEELED
-   #define MOUSE_HWHEELED 0x8
-#endif
-
 
 static void _process_mouse_event(void)
 {
@@ -741,8 +724,6 @@ int PDC_get_key(void)
 
 void PDC_flushinp(void)
 {
-    PDC_LOG(("PDC_flushinp() - called\n"));
-
     FlushConsoleInputBuffer(pdc_con_in);
 }
 

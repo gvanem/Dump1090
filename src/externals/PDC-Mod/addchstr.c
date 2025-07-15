@@ -1,7 +1,6 @@
 /* PDCursesMod */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -67,14 +66,10 @@ addchstr
 
 **man-end****************************************************************/
 
-#include <string.h>
-
 int waddchnstr(WINDOW *win, const chtype *ch, int n)
 {
     int y, x;
     chtype *ptr;
-
-    PDC_LOG(("waddchnstr() - called: win=%p n=%d\n", win, n));
 
     assert( win);
     assert( ch);
@@ -102,29 +97,21 @@ int waddchnstr(WINDOW *win, const chtype *ch, int n)
 
 int addchstr(const chtype *ch)
 {
-    PDC_LOG(("addchstr() - called\n"));
-
     return waddchnstr(stdscr, ch, -1);
 }
 
 int addchnstr(const chtype *ch, int n)
 {
-    PDC_LOG(("addchnstr() - called\n"));
-
     return waddchnstr(stdscr, ch, n);
 }
 
 int waddchstr(WINDOW *win, const chtype *ch)
 {
-    PDC_LOG(("waddchstr() - called: win=%p\n", win));
-
     return waddchnstr(win, ch, -1);
 }
 
 int mvaddchstr(int y, int x, const chtype *ch)
 {
-    PDC_LOG(("mvaddchstr() - called: y %d x %d\n", y, x));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -133,8 +120,6 @@ int mvaddchstr(int y, int x, const chtype *ch)
 
 int mvaddchnstr(int y, int x, const chtype *ch, int n)
 {
-    PDC_LOG(("mvaddchnstr() - called: y %d x %d n %d\n", y, x, n));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -143,8 +128,6 @@ int mvaddchnstr(int y, int x, const chtype *ch, int n)
 
 int mvwaddchstr(WINDOW *win, int y, int x, const chtype *ch)
 {
-    PDC_LOG(("mvwaddchstr() - called:\n"));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
@@ -153,47 +136,34 @@ int mvwaddchstr(WINDOW *win, int y, int x, const chtype *ch)
 
 int mvwaddchnstr(WINDOW *win, int y, int x, const chtype *ch, int n)
 {
-    PDC_LOG(("mvwaddchnstr() - called: y %d x %d n %d \n", y, x, n));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
     return waddchnstr(win, ch, n);
 }
 
-#ifdef PDC_WIDE
 int wadd_wchnstr(WINDOW *win, const cchar_t *wch, int n)
 {
-    PDC_LOG(("wadd_wchnstr() - called: win=%p n=%d\n", win, n));
-
     return waddchnstr(win, wch, n);
 }
 
 int add_wchstr(const cchar_t *wch)
 {
-    PDC_LOG(("add_wchstr() - called\n"));
-
     return wadd_wchnstr(stdscr, wch, -1);
 }
 
 int add_wchnstr(const cchar_t *wch, int n)
 {
-    PDC_LOG(("add_wchnstr() - called\n"));
-
     return wadd_wchnstr(stdscr, wch, n);
 }
 
 int wadd_wchstr(WINDOW *win, const cchar_t *wch)
 {
-    PDC_LOG(("wadd_wchstr() - called: win=%p\n", win));
-
     return wadd_wchnstr(win, wch, -1);
 }
 
 int mvadd_wchstr(int y, int x, const cchar_t *wch)
 {
-    PDC_LOG(("mvadd_wchstr() - called: y %d x %d\n", y, x));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -202,8 +172,6 @@ int mvadd_wchstr(int y, int x, const cchar_t *wch)
 
 int mvadd_wchnstr(int y, int x, const cchar_t *wch, int n)
 {
-    PDC_LOG(("mvadd_wchnstr() - called: y %d x %d n %d\n", y, x, n));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -212,8 +180,6 @@ int mvadd_wchnstr(int y, int x, const cchar_t *wch, int n)
 
 int mvwadd_wchstr(WINDOW *win, int y, int x, const cchar_t *wch)
 {
-    PDC_LOG(("mvwadd_wchstr() - called:\n"));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
@@ -222,11 +188,8 @@ int mvwadd_wchstr(WINDOW *win, int y, int x, const cchar_t *wch)
 
 int mvwadd_wchnstr(WINDOW *win, int y, int x, const cchar_t *wch, int n)
 {
-    PDC_LOG(("mvwadd_wchnstr() - called: y %d x %d n %d \n", y, x, n));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
     return wadd_wchnstr(win, wch, n);
 }
-#endif

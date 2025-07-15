@@ -6,6 +6,14 @@
 #define __PDCURSES__ 1
 #define __PDCURSESMOD__ 1
 
+#if !defined(PDC_WIDE)
+#error "'PDC_WIDE' MUST be defined"
+#endif
+
+#if !defined(PDC_FORCE_UTF8)
+#error "'PDC_FORCE_UTF8' MUST be defined"
+#endif
+
 /*man-start**************************************************************
 
 Define before inclusion (only those needed):
@@ -37,6 +45,7 @@ Defined by this header:
 
 #define PDCURSES        1
 #define PDC_BUILD (PDC_VER_MAJOR*1000 + PDC_VER_MINOR *100 + PDC_VER_CHANGE)
+
          /* NOTE : For version changes that are not backward compatible, */
          /* the 'endwin_*' #defines below should be updated.             */
 #define PDC_VER_MAJOR    4
@@ -65,51 +74,18 @@ Defined by this header:
 
 #define PDC_VERSION_PATCH (PDC_VER_YEAR * 10000 + PDC_VER_MONTH * 100 + PDC_VER_DAY)
 
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
-# define PDC_99         1
-#endif
-
-#if defined(__cplusplus) && __cplusplus >= 199711L
-# define PDC_PP98       1
-#endif
-
 /*----------------------------------------------------------------------*/
 
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>
-
-#if defined( PDC_FORCE_UTF8) && !defined( PDC_WIDE)
-   #define PDC_WIDE 1
-#endif
-
-#ifdef PDC_WIDE
-# include <wchar.h>
-#endif
-
-#if defined(PDC_99) && !defined(__bool_true_false_are_defined)
-# include <stdbool.h>
-#endif
+#include <wchar.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C"
 {
-# ifndef PDC_PP98
-#  define bool _bool
-# endif
-#endif
-
-#ifdef NO_STDINT_H
-   #define uint64_t unsigned __int64
-   #define uint32_t unsigned long
-   #define uint16_t unsigned short
-   #define int32_t  long
-   #define int16_t  short
-#else
-   #include <stdint.h>
-   #ifdef __DMC__
-      #define uint64_t unsigned long long
-   #endif
 #endif
 
 /*----------------------------------------------------------------------
@@ -130,26 +106,12 @@ extern "C"
 #undef OK
 #define OK 0
 
-#if !defined(PDC_PP98) && !defined(__bool_true_false_are_defined)
-typedef unsigned char bool;
-#endif
+typedef uint64_t chtype;       /* chtypes will be 64 bits */
+typedef uint64_t mmask_t;
 
-#if defined( CHTYPE_32)
-   typedef uint32_t chtype;       /* chtypes will be 32 bits */
-   typedef uint32_t mmask_t;
-#else
-   typedef uint64_t chtype;       /* chtypes will be 64 bits */
-   typedef uint64_t mmask_t;
-   #define PDC_LONG_MMASK
-   #ifdef PDC_WIDE
-      #define USING_COMBINING_CHARACTER_SCHEME
-   #endif
-#endif
+#define PDC_LONG_MMASK
 
-#ifdef PDC_WIDE
 typedef chtype cchar_t;
-#endif
-
 typedef chtype attr_t;
 
 /*----------------------------------------------------------------------
@@ -286,13 +248,8 @@ if PDC_NCMOUSE is defined.  For portable code,  use REPORT_MOUSE_POSITION
 to get all mouse movement events,  and keep track of press/release events
 to determine which button(s) are held at a given time.            */
 
-#ifdef PDC_LONG_MMASK
-   #define BUTTON1_MOVED           (mmask_t)0x20  /* PDCurses* only; deprecated */
-   #define PDC_BITS_PER_BUTTON     6
-#else
-   #define BUTTON1_MOVED           (mmask_t)0x10  /* PDCurses* only; deprecated */
-   #define PDC_BITS_PER_BUTTON     5
-#endif
+#define BUTTON1_MOVED           (mmask_t)0x20  /* PDCurses* only; deprecated */
+#define PDC_BITS_PER_BUTTON     6
 
 #define PDC_SHIFTED_BUTTON( button, n)  ((mmask_t)(button) << (((n) - 1) * PDC_BITS_PER_BUTTON))
 
@@ -385,27 +342,16 @@ typedef struct _screen SCREEN;
  *  External Variables
  *
  */
-
-#ifdef PDC_DLL_BUILD
-# ifdef CURSES_LIBRARY
-#  define PDCEX __declspec(dllexport) extern
-# else
-#  define PDCEX __declspec(dllimport) extern
-# endif
-#else
-# define PDCEX extern
-#endif
-
-PDCEX  int          LINES;        /* terminal height */
-PDCEX  int          COLS;         /* terminal width */
-PDCEX  WINDOW       *stdscr;      /* the default screen window */
-PDCEX  WINDOW       *curscr;      /* the current screen image */
-PDCEX  MOUSE_STATUS Mouse_status;
-PDCEX  int          COLORS;
-PDCEX  int          COLOR_PAIRS;
-PDCEX  int          TABSIZE;
-PDCEX  chtype       acs_map[];    /* alternate character set map */
-PDCEX  char         ttytype[];    /* terminal name/description */
+extern  int          LINES;        /* terminal height */
+extern  int          COLS;         /* terminal width */
+extern  WINDOW       *stdscr;      /* the default screen window */
+extern  WINDOW       *curscr;      /* the current screen image */
+extern  MOUSE_STATUS Mouse_status;
+extern  int          COLORS;
+extern  int          COLOR_PAIRS;
+extern  int          TABSIZE;
+extern  chtype       acs_map[];    /* alternate character set map */
+extern  char         ttytype[];    /* terminal name/description */
 
 /*man-start**************************************************************
 
@@ -466,67 +412,41 @@ capability.
 
 #define WA_NORMAL      (chtype)0
 
-#ifndef CHTYPE_32
-            /* 64-bit chtypes,  both wide- and narrow */
-    # define PDC_CHARTEXT_BITS   21
-    # define PDC_ATTRIBUTE_BITS  17
-    # define PDC_UNUSED_BITS      6
-    # define PDC_COLOR_BITS      20
-# else
-#ifdef PDC_WIDE
-            /* 32-bit chtypes,  wide character */
-    # define PDC_CHARTEXT_BITS      16
-    # define PDC_ATTRIBUTE_BITS      8
-    # define PDC_UNUSED_BITS         0
-    # define PDC_COLOR_BITS          8
-#else
-            /* 32-bit chtypes,  narrow (8-bit) characters */
-    # define PDC_CHARTEXT_BITS      8
-    # define PDC_ATTRIBUTE_BITS    12
-    # define PDC_UNUSED_BITS        0
-    # define PDC_COLOR_BITS        12
-#endif
-#endif
+/* 64-bit chtypes,  both wide- and narrow */
+#define PDC_CHARTEXT_BITS   21
+#define PDC_ATTRIBUTE_BITS  17
+#define PDC_UNUSED_BITS      6
+#define PDC_COLOR_BITS      20
 
-# define PDC_COLOR_SHIFT (PDC_CHARTEXT_BITS + PDC_ATTRIBUTE_BITS + PDC_UNUSED_BITS)
-# define A_COLOR       ((((chtype)1 << PDC_COLOR_BITS) - 1) << PDC_COLOR_SHIFT)
-# define A_ATTRIBUTES (((((chtype)1 << PDC_ATTRIBUTE_BITS) - 1) << PDC_CHARTEXT_BITS) | A_COLOR)
-# define A_CHARTEXT     (((chtype)1 << PDC_CHARTEXT_BITS) - 1)
+#define PDC_COLOR_SHIFT (PDC_CHARTEXT_BITS + PDC_ATTRIBUTE_BITS + PDC_UNUSED_BITS)
+#define A_COLOR       ((((chtype)1 << PDC_COLOR_BITS) - 1) << PDC_COLOR_SHIFT)
+#define A_ATTRIBUTES (((((chtype)1 << PDC_ATTRIBUTE_BITS) - 1) << PDC_CHARTEXT_BITS) | A_COLOR)
+#define A_CHARTEXT     (((chtype)1 << PDC_CHARTEXT_BITS) - 1)
 
 #define PDC_ATTRIBUTE_BIT( N)  ((chtype)1 << (N))
-# define WA_ALTCHARSET   PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS)
-# define WA_RIGHT        PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 1)
-# define WA_LEFT         PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 2)
-# define WA_ITALIC       PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 3)
-# define WA_UNDERLINE    PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 4)
-# define WA_REVERSE      PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 5)
-# define WA_BLINK        PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 6)
-# define WA_BOLD         PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 7)
-#if PDC_COLOR_BITS >= 11
-    # define WA_TOP        PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 8)
-    # define WA_STRIKEOUT  PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 9)
-    # define WA_DIM        PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 10)
-/*  Reserved bit :         PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 11) */
-#else
-    # define WA_DIM        WA_NORMAL
-    # define WA_TOP        WA_NORMAL
-    # define WA_STRIKEOUT  WA_NORMAL
-#endif
-#if PDC_COLOR_BITS >= 17
-    # define WA_HORIZONTAL PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 11)
-    # define WA_VERTICAL   PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 12)
-    # define WA_INVIS      PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 13)
-    # define WA_LOW        PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 14)
-    # define WA_PROTECT    PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 15)
-    # define WA_STANDOUT   PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 16)
-#else
-    # define WA_HORIZONTAL 0
-    # define WA_VERTICAL   0
-    # define WA_INVIS      0
-    # define WA_LOW        WA_UNDERLINE
-    # define WA_PROTECT    (WA_UNDERLINE | WA_LEFT | WA_RIGHT | WA_TOP)
-    # define WA_STANDOUT   (WA_REVERSE | WA_BOLD) /* X/Open */
-#endif
+
+#define WA_ALTCHARSET   PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS)
+#define WA_RIGHT        PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 1)
+#define WA_LEFT         PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 2)
+#define WA_ITALIC       PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 3)
+#define WA_UNDERLINE    PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 4)
+#define WA_REVERSE      PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 5)
+#define WA_BLINK        PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 6)
+#define WA_BOLD         PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 7)
+
+#define WA_TOP        PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 8)
+#define WA_STRIKEOUT  PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 9)
+#define WA_DIM        PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 10)
+/*  Reserved bit :
+   PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 11)
+ */
+
+#define WA_HORIZONTAL PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 11)
+#define WA_VERTICAL   PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 12)
+#define WA_INVIS      PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 13)
+#define WA_LOW        PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 14)
+#define WA_PROTECT    PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 15)
+#define WA_STANDOUT   PDC_ATTRIBUTE_BIT( PDC_CHARTEXT_BITS + 16)
 
 #define CHR_MSK       A_CHARTEXT           /* Obsolete */
 #define ATR_MSK       A_ATTRIBUTES         /* Obsolete */
@@ -759,64 +679,62 @@ X11 builds (see 'common/acs_defs.h' for details).  Best avoided. */
 
 /* cchar_t aliases */
 
-#ifdef PDC_WIDE
+#define WACS_CENT          (&(acs_map['{']))
+#define WACS_YEN           (&(acs_map['|']))
+#define WACS_PESETA        (&(acs_map['}']))
+#define WACS_HALF          (&(acs_map['&']))
+#define WACS_QUARTER       (&(acs_map['\'']))
+#define WACS_LEFT_ANG_QU   (&(acs_map[')']))
+#define WACS_RIGHT_ANG_QU  (&(acs_map['*']))
+#define WACS_D_HLINE       (&(acs_map['a']))
+#define WACS_D_VLINE       (&(acs_map['b']))
+#define WACS_CLUB          (&(acs_map[ 11]))
+#define WACS_HEART         (&(acs_map[ 12]))
+#define WACS_SPADE         (&(acs_map[ 13]))
+#define WACS_SMILE         (&(acs_map[ 14]))
+#define WACS_REV_SMILE     (&(acs_map[ 15]))
+#define WACS_MED_BULLET    (&(acs_map[ 16]))
+#define WACS_WHITE_BULLET  (&(acs_map[ 17]))
+#define WACS_PILCROW       (&(acs_map[ 18]))
+#define WACS_SECTION       (&(acs_map[ 19]))
 
-# define WACS_CENT          (&(acs_map['{']))
-# define WACS_YEN           (&(acs_map['|']))
-# define WACS_PESETA        (&(acs_map['}']))
-# define WACS_HALF          (&(acs_map['&']))
-# define WACS_QUARTER       (&(acs_map['\'']))
-# define WACS_LEFT_ANG_QU   (&(acs_map[')']))
-# define WACS_RIGHT_ANG_QU  (&(acs_map['*']))
-# define WACS_D_HLINE       (&(acs_map['a']))
-# define WACS_D_VLINE       (&(acs_map['b']))
-# define WACS_CLUB          (&(acs_map[ 11]))
-# define WACS_HEART         (&(acs_map[ 12]))
-# define WACS_SPADE         (&(acs_map[ 13]))
-# define WACS_SMILE         (&(acs_map[ 14]))
-# define WACS_REV_SMILE     (&(acs_map[ 15]))
-# define WACS_MED_BULLET    (&(acs_map[ 16]))
-# define WACS_WHITE_BULLET  (&(acs_map[ 17]))
-# define WACS_PILCROW       (&(acs_map[ 18]))
-# define WACS_SECTION       (&(acs_map[ 19]))
+#define WACS_SUP2          (&(acs_map[',']))
+#define WACS_ALPHA         (&(acs_map['.']))
+#define WACS_BETA          (&(acs_map['/']))
+#define WACS_GAMMA         (&(acs_map['0']))
+#define WACS_UP_SIGMA      (&(acs_map['1']))
+#define WACS_LO_SIGMA      (&(acs_map['2']))
+#define WACS_MU            (&(acs_map['4']))
+#define WACS_TAU           (&(acs_map['5']))
+#define WACS_UP_PHI        (&(acs_map['6']))
+#define WACS_THETA         (&(acs_map['7']))
+#define WACS_OMEGA         (&(acs_map['8']))
+#define WACS_DELTA         (&(acs_map['9']))
+#define WACS_INFINITY      (&(acs_map['-']))
+#define WACS_LO_PHI        (&(acs_map[ 22]))
+#define WACS_EPSILON       (&(acs_map[':']))
+#define WACS_INTERSECT     (&(acs_map['e']))
+#define WACS_TRIPLE_BAR    (&(acs_map['f']))
+#define WACS_DIVISION      (&(acs_map['c']))
+#define WACS_APPROX_EQ     (&(acs_map['d']))
+#define WACS_SM_BULLET     (&(acs_map['g']))
+#define WACS_SQUARE_ROOT   (&(acs_map['i']))
+#define WACS_UBLOCK        (&(acs_map['p']))
+#define WACS_BBLOCK        (&(acs_map['q']))
+#define WACS_LBLOCK        (&(acs_map['r']))
+#define WACS_RBLOCK        (&(acs_map['s']))
 
-# define WACS_SUP2          (&(acs_map[',']))
-# define WACS_ALPHA         (&(acs_map['.']))
-# define WACS_BETA          (&(acs_map['/']))
-# define WACS_GAMMA         (&(acs_map['0']))
-# define WACS_UP_SIGMA      (&(acs_map['1']))
-# define WACS_LO_SIGMA      (&(acs_map['2']))
-# define WACS_MU            (&(acs_map['4']))
-# define WACS_TAU           (&(acs_map['5']))
-# define WACS_UP_PHI        (&(acs_map['6']))
-# define WACS_THETA         (&(acs_map['7']))
-# define WACS_OMEGA         (&(acs_map['8']))
-# define WACS_DELTA         (&(acs_map['9']))
-# define WACS_INFINITY      (&(acs_map['-']))
-# define WACS_LO_PHI        (&(acs_map[ 22]))
-# define WACS_EPSILON       (&(acs_map[':']))
-# define WACS_INTERSECT     (&(acs_map['e']))
-# define WACS_TRIPLE_BAR    (&(acs_map['f']))
-# define WACS_DIVISION      (&(acs_map['c']))
-# define WACS_APPROX_EQ     (&(acs_map['d']))
-# define WACS_SM_BULLET     (&(acs_map['g']))
-# define WACS_SQUARE_ROOT   (&(acs_map['i']))
-# define WACS_UBLOCK        (&(acs_map['p']))
-# define WACS_BBLOCK        (&(acs_map['q']))
-# define WACS_LBLOCK        (&(acs_map['r']))
-# define WACS_RBLOCK        (&(acs_map['s']))
-
-# define WACS_A_ORDINAL     (&(acs_map[20]))
-# define WACS_O_ORDINAL     (&(acs_map[21]))
-# define WACS_INV_QUERY     (&(acs_map[24]))
-# define WACS_REV_NOT       (&(acs_map[25]))
-# define WACS_NOT           (&(acs_map[26]))
-# define WACS_INV_BANG      (&(acs_map[23]))
-# define WACS_UP_INTEGRAL   (&(acs_map[27]))
-# define WACS_LO_INTEGRAL   (&(acs_map[28]))
-# define WACS_SUP_N         (&(acs_map[29]))
-# define WACS_CENTER_SQU    (&(acs_map[30]))
-# define WACS_F_WITH_HOOK   (&(acs_map[31]))
+#define WACS_A_ORDINAL     (&(acs_map[20]))
+#define WACS_O_ORDINAL     (&(acs_map[21]))
+#define WACS_INV_QUERY     (&(acs_map[24]))
+#define WACS_REV_NOT       (&(acs_map[25]))
+#define WACS_NOT           (&(acs_map[26]))
+#define WACS_INV_BANG      (&(acs_map[23]))
+#define WACS_UP_INTEGRAL   (&(acs_map[27]))
+#define WACS_LO_INTEGRAL   (&(acs_map[28]))
+#define WACS_SUP_N         (&(acs_map[29]))
+#define WACS_CENTER_SQU    (&(acs_map[30]))
+#define WACS_F_WITH_HOOK   (&(acs_map[31]))
 
 /* See above comments about box characters and their aliases. The
 following eleven characters,  for single-line boxes,  are the only
@@ -824,155 +742,148 @@ portable ones.  The thick and double-line characters are ncurses
 extensions.  The 'mixed' single-double and double-single
 characters are PDCursesMod extensions and totally non-portable. */
 
-# define WACS_LRCORNER      (&(acs_map['V']))
-# define WACS_URCORNER      (&(acs_map['W']))
-# define WACS_ULCORNER      (&(acs_map['X']))
-# define WACS_LLCORNER      (&(acs_map['Y']))
-# define WACS_PLUS          (&(acs_map['Z']))
-# define WACS_LTEE          (&(acs_map['[']))
-# define WACS_RTEE          (&(acs_map['\\']))
-# define WACS_BTEE          (&(acs_map[']']))
-# define WACS_TTEE          (&(acs_map['^']))
-# define WACS_HLINE         (&(acs_map['_']))
-# define WACS_VLINE         (&(acs_map['`']))
+#define WACS_LRCORNER      (&(acs_map['V']))
+#define WACS_URCORNER      (&(acs_map['W']))
+#define WACS_ULCORNER      (&(acs_map['X']))
+#define WACS_LLCORNER      (&(acs_map['Y']))
+#define WACS_PLUS          (&(acs_map['Z']))
+#define WACS_LTEE          (&(acs_map['[']))
+#define WACS_RTEE          (&(acs_map['\\']))
+#define WACS_BTEE          (&(acs_map[']']))
+#define WACS_TTEE          (&(acs_map['^']))
+#define WACS_HLINE         (&(acs_map['_']))
+#define WACS_VLINE         (&(acs_map['`']))
 
-# define WACS_SBBS     WACS_LRCORNER
-# define WACS_BBSS     WACS_URCORNER
-# define WACS_BSSB     WACS_ULCORNER
-# define WACS_SSBB     WACS_LLCORNER
-# define WACS_SSSS     WACS_PLUS
-# define WACS_SSSB     WACS_LTEE
-# define WACS_SBSS     WACS_RTEE
-# define WACS_SSBS     WACS_BTEE
-# define WACS_BSSS     WACS_TTEE
-# define WACS_BSBS     WACS_HLINE
-# define WACS_SBSB     WACS_VLINE
+#define WACS_SBBS     WACS_LRCORNER
+#define WACS_BBSS     WACS_URCORNER
+#define WACS_BSSB     WACS_ULCORNER
+#define WACS_SSBB     WACS_LLCORNER
+#define WACS_SSSS     WACS_PLUS
+#define WACS_SSSB     WACS_LTEE
+#define WACS_SBSS     WACS_RTEE
+#define WACS_SSBS     WACS_BTEE
+#define WACS_BSSS     WACS_TTEE
+#define WACS_BSBS     WACS_HLINE
+#define WACS_SBSB     WACS_VLINE
 
-# define WACS_SD_LRCORNER   (&(acs_map[';']))
-# define WACS_SD_URCORNER   (&(acs_map['<']))
-# define WACS_SD_ULCORNER   (&(acs_map['=']))
-# define WACS_SD_LLCORNER   (&(acs_map['>']))
-# define WACS_SD_PLUS       (&(acs_map['?']))
-# define WACS_SD_LTEE       (&(acs_map['@']))
-# define WACS_SD_RTEE       (&(acs_map['A']))
-# define WACS_SD_BTEE       (&(acs_map['B']))
-# define WACS_SD_TTEE       (&(acs_map['C']))
+#define WACS_SD_LRCORNER   (&(acs_map[';']))
+#define WACS_SD_URCORNER   (&(acs_map['<']))
+#define WACS_SD_ULCORNER   (&(acs_map['=']))
+#define WACS_SD_LLCORNER   (&(acs_map['>']))
+#define WACS_SD_PLUS       (&(acs_map['?']))
+#define WACS_SD_LTEE       (&(acs_map['@']))
+#define WACS_SD_RTEE       (&(acs_map['A']))
+#define WACS_SD_BTEE       (&(acs_map['B']))
+#define WACS_SD_TTEE       (&(acs_map['C']))
 
-# define WACS_SBBD     WACS_SD_LRCORNER
-# define WACS_BBSD     WACS_SD_URCORNER
-# define WACS_BDSB     WACS_SD_ULCORNER
-# define WACS_SDBB     WACS_SD_LLCORNER
-# define WACS_SDSD     WACS_SD_PLUS
-# define WACS_SDSB     WACS_SD_LTEE
-# define WACS_SBSD     WACS_SD_RTEE
-# define WACS_SDBD     WACS_SD_BTEE
-# define WACS_BDSD     WACS_SD_TTEE
+#define WACS_SBBD     WACS_SD_LRCORNER
+#define WACS_BBSD     WACS_SD_URCORNER
+#define WACS_BDSB     WACS_SD_ULCORNER
+#define WACS_SDBB     WACS_SD_LLCORNER
+#define WACS_SDSD     WACS_SD_PLUS
+#define WACS_SDSB     WACS_SD_LTEE
+#define WACS_SBSD     WACS_SD_RTEE
+#define WACS_SDBD     WACS_SD_BTEE
+#define WACS_BDSD     WACS_SD_TTEE
 
-# define WACS_D_LRCORNER    (&(acs_map['D']))
-# define WACS_D_URCORNER    (&(acs_map['E']))
-# define WACS_D_ULCORNER    (&(acs_map['F']))
-# define WACS_D_LLCORNER    (&(acs_map['G']))
-# define WACS_D_PLUS        (&(acs_map['H']))
-# define WACS_D_LTEE        (&(acs_map['I']))
-# define WACS_D_RTEE        (&(acs_map['J']))
-# define WACS_D_BTEE        (&(acs_map['K']))
-# define WACS_D_TTEE        (&(acs_map['L']))
+#define WACS_D_LRCORNER    (&(acs_map['D']))
+#define WACS_D_URCORNER    (&(acs_map['E']))
+#define WACS_D_ULCORNER    (&(acs_map['F']))
+#define WACS_D_LLCORNER    (&(acs_map['G']))
+#define WACS_D_PLUS        (&(acs_map['H']))
+#define WACS_D_LTEE        (&(acs_map['I']))
+#define WACS_D_RTEE        (&(acs_map['J']))
+#define WACS_D_BTEE        (&(acs_map['K']))
+#define WACS_D_TTEE        (&(acs_map['L']))
 
-# define WACS_DBBD     WACS_D_LRCORNER
-# define WACS_BBDD     WACS_D_URCORNER
-# define WACS_BDDB     WACS_D_ULCORNER
-# define WACS_DDBB     WACS_D_LLCORNER
-# define WACS_DDDD     WACS_D_PLUS
-# define WACS_DDDB     WACS_D_LTEE
-# define WACS_DBDD     WACS_D_RTEE
-# define WACS_DDBD     WACS_D_BTEE
-# define WACS_BDDD     WACS_D_TTEE
-# define WACS_BDBD     WACS_D_HLINE
-# define WACS_DBDB     WACS_D_VLINE
+#define WACS_DBBD     WACS_D_LRCORNER
+#define WACS_BBDD     WACS_D_URCORNER
+#define WACS_BDDB     WACS_D_ULCORNER
+#define WACS_DDBB     WACS_D_LLCORNER
+#define WACS_DDDD     WACS_D_PLUS
+#define WACS_DDDB     WACS_D_LTEE
+#define WACS_DBDD     WACS_D_RTEE
+#define WACS_DDBD     WACS_D_BTEE
+#define WACS_BDDD     WACS_D_TTEE
+#define WACS_BDBD     WACS_D_HLINE
+#define WACS_DBDB     WACS_D_VLINE
 
-# define WACS_T_LRCORNER    (&(acs_map[0]))
-# define WACS_T_URCORNER    (&(acs_map[1]))
-# define WACS_T_ULCORNER    (&(acs_map[2]))
-# define WACS_T_LLCORNER    (&(acs_map[3]))
-# define WACS_T_PLUS        (&(acs_map[4]))
-# define WACS_T_LTEE        (&(acs_map[5]))
-# define WACS_T_RTEE        (&(acs_map[6]))
-# define WACS_T_BTEE        (&(acs_map[7]))
-# define WACS_T_TTEE        (&(acs_map[8]))
-# define WACS_T_HLINE       (&(acs_map[9]))
-# define WACS_T_VLINE       (&(acs_map[10]))
+#define WACS_T_LRCORNER    (&(acs_map[0]))
+#define WACS_T_URCORNER    (&(acs_map[1]))
+#define WACS_T_ULCORNER    (&(acs_map[2]))
+#define WACS_T_LLCORNER    (&(acs_map[3]))
+#define WACS_T_PLUS        (&(acs_map[4]))
+#define WACS_T_LTEE        (&(acs_map[5]))
+#define WACS_T_RTEE        (&(acs_map[6]))
+#define WACS_T_BTEE        (&(acs_map[7]))
+#define WACS_T_TTEE        (&(acs_map[8]))
+#define WACS_T_HLINE       (&(acs_map[9]))
+#define WACS_T_VLINE       (&(acs_map[10]))
 
-# define WACS_TBBT     WACS_T_LRCORNER
-# define WACS_BBTT     WACS_T_URCORNER
-# define WACS_BTTB     WACS_T_ULCORNER
-# define WACS_TTBB     WACS_T_LLCORNER
-# define WACS_TTTT     WACS_T_PLUS
-# define WACS_TTTB     WACS_T_LTEE
-# define WACS_TBTT     WACS_T_RTEE
-# define WACS_TTBT     WACS_T_BTEE
-# define WACS_BTTS     WACS_T_TTEE
-# define WACS_BTBT     WACS_T_HLINE
-# define WACS_TBTB     WACS_T_VLINE
+#define WACS_TBBT     WACS_T_LRCORNER
+#define WACS_BBTT     WACS_T_URCORNER
+#define WACS_BTTB     WACS_T_ULCORNER
+#define WACS_TTBB     WACS_T_LLCORNER
+#define WACS_TTTT     WACS_T_PLUS
+#define WACS_TTTB     WACS_T_LTEE
+#define WACS_TBTT     WACS_T_RTEE
+#define WACS_TTBT     WACS_T_BTEE
+#define WACS_BTTS     WACS_T_TTEE
+#define WACS_BTBT     WACS_T_HLINE
+#define WACS_TBTB     WACS_T_VLINE
 
-# define WACS_DS_LRCORNER   (&(acs_map['M']))
-# define WACS_DS_URCORNER   (&(acs_map['N']))
-# define WACS_DS_ULCORNER   (&(acs_map['O']))
-# define WACS_DS_LLCORNER   (&(acs_map['P']))
-# define WACS_DS_PLUS       (&(acs_map['Q']))
-# define WACS_DS_LTEE       (&(acs_map['R']))
-# define WACS_DS_RTEE       (&(acs_map['S']))
-# define WACS_DS_BTEE       (&(acs_map['T']))
-# define WACS_DS_TTEE       (&(acs_map['U']))
+#define WACS_DS_LRCORNER   (&(acs_map['M']))
+#define WACS_DS_URCORNER   (&(acs_map['N']))
+#define WACS_DS_ULCORNER   (&(acs_map['O']))
+#define WACS_DS_LLCORNER   (&(acs_map['P']))
+#define WACS_DS_PLUS       (&(acs_map['Q']))
+#define WACS_DS_LTEE       (&(acs_map['R']))
+#define WACS_DS_RTEE       (&(acs_map['S']))
+#define WACS_DS_BTEE       (&(acs_map['T']))
+#define WACS_DS_TTEE       (&(acs_map['U']))
 
-# define WACS_DBBS     WACS_DS_LRCORNER
-# define WACS_BBDS     WACS_DS_URCORNER
-# define WACS_BSDB     WACS_DS_ULCORNER
-# define WACS_DSBB     WACS_DS_LLCORNER
-# define WACS_DSDS     WACS_DS_PLUS
-# define WACS_DSDB     WACS_DS_LTEE
-# define WACS_DBDS     WACS_DS_RTEE
-# define WACS_DSBS     WACS_DS_BTEE
-# define WACS_BSDS     WACS_DS_TTEE
+#define WACS_DBBS     WACS_DS_LRCORNER
+#define WACS_BBDS     WACS_DS_URCORNER
+#define WACS_BSDB     WACS_DS_ULCORNER
+#define WACS_DSBB     WACS_DS_LLCORNER
+#define WACS_DSDS     WACS_DS_PLUS
+#define WACS_DSDB     WACS_DS_LTEE
+#define WACS_DBDS     WACS_DS_RTEE
+#define WACS_DSBS     WACS_DS_BTEE
+#define WACS_BSDS     WACS_DS_TTEE
 
-# define WACS_S1            (&(acs_map['l']))
-# define WACS_S9            (&(acs_map['o']))
-# define WACS_DIAMOND       (&(acs_map['j']))
-# define WACS_CKBOARD       (&(acs_map['k']))
-# define WACS_DEGREE        (&(acs_map['w']))
-# define WACS_PLMINUS       (&(acs_map['x']))
-# define WACS_BULLET        (&(acs_map['h']))
+#define WACS_S1            (&(acs_map['l']))
+#define WACS_S9            (&(acs_map['o']))
+#define WACS_DIAMOND       (&(acs_map['j']))
+#define WACS_CKBOARD       (&(acs_map['k']))
+#define WACS_DEGREE        (&(acs_map['w']))
+#define WACS_PLMINUS       (&(acs_map['x']))
+#define WACS_BULLET        (&(acs_map['h']))
 
-# define WACS_LARROW        (&(acs_map['!']))
-# define WACS_RARROW        (&(acs_map[' ']))
-# define WACS_DARROW        (&(acs_map['#']))
-# define WACS_UARROW        (&(acs_map['"']))
-# define WACS_BOARD         (&(acs_map['+']))
-# define WACS_LTBOARD       (&(acs_map['y']))
-# define WACS_LANTERN       (&(acs_map['z']))
-# define WACS_BLOCK         (&(acs_map['t']))
+#define WACS_LARROW        (&(acs_map['!']))
+#define WACS_RARROW        (&(acs_map[' ']))
+#define WACS_DARROW        (&(acs_map['#']))
+#define WACS_UARROW        (&(acs_map['"']))
+#define WACS_BOARD         (&(acs_map['+']))
+#define WACS_LTBOARD       (&(acs_map['y']))
+#define WACS_LANTERN       (&(acs_map['z']))
+#define WACS_BLOCK         (&(acs_map['t']))
 
-# define WACS_S3            (&(acs_map['m']))
-# define WACS_S7            (&(acs_map['n']))
-# define WACS_LEQUAL        (&(acs_map['u']))
-# define WACS_GEQUAL        (&(acs_map['v']))
-# define WACS_PI            (&(acs_map['$']))
-# define WACS_NEQUAL        (&(acs_map['%']))
-# define WACS_STERLING      (&(acs_map['~']))
-#endif
+#define WACS_S3            (&(acs_map['m']))
+#define WACS_S7            (&(acs_map['n']))
+#define WACS_LEQUAL        (&(acs_map['u']))
+#define WACS_GEQUAL        (&(acs_map['v']))
+#define WACS_PI            (&(acs_map['$']))
+#define WACS_NEQUAL        (&(acs_map['%']))
+#define WACS_STERLING      (&(acs_map['~']))
 
 /*** Color macros ***/
 
 #define COLOR_BLACK   0
 
-#ifdef PDC_RGB        /* RGB */
-# define COLOR_RED    1
-# define COLOR_GREEN  2
-# define COLOR_BLUE   4
-#else                 /* BGR */
-# define COLOR_BLUE   1
-# define COLOR_GREEN  2
-# define COLOR_RED    4
-#endif
+#define COLOR_BLUE   1
+#define COLOR_GREEN  2
+#define COLOR_RED    4
 
 #define COLOR_CYAN    (COLOR_BLUE | COLOR_GREEN)
 #define COLOR_MAGENTA (COLOR_RED | COLOR_BLUE)
@@ -986,12 +897,7 @@ characters are PDCursesMod extensions and totally non-portable. */
  *  Many are just for compatibility
  *
  */
-
-#ifdef PDC_WIDE
-   #define KEY_OFFSET 0xec00
-#else
-   #define KEY_OFFSET 0x100
-#endif
+#define KEY_OFFSET 0xec00
 
 #define KEY_CODE_YES     (KEY_OFFSET + 0x00) /* If get_wch() gives a key code */
 
@@ -1289,520 +1195,490 @@ characters are PDCursesMod extensions and totally non-portable. */
 
 /* Standard */
 
-PDCEX  int     addch(const chtype);
-PDCEX  int     addchnstr(const chtype *, int);
-PDCEX  int     addchstr(const chtype *);
-PDCEX  int     addnstr(const char *, int);
-PDCEX  int     addstr(const char *);
-PDCEX  int     attroff(chtype);
-PDCEX  int     attron(chtype);
-PDCEX  int     attrset(chtype);
-PDCEX  int     attr_get(attr_t *, short *, void *);
-PDCEX  int     attr_off(attr_t, void *);
-PDCEX  int     attr_on(attr_t, void *);
-PDCEX  int     attr_set(attr_t, short, void *);
-PDCEX  int     baudrate(void);
-PDCEX  int     beep(void);
-PDCEX  int     bkgd(chtype);
-PDCEX  void    bkgdset(chtype);
-PDCEX  int     border(chtype, chtype, chtype, chtype,
-                      chtype, chtype, chtype, chtype);
-PDCEX  int     box(WINDOW *, chtype, chtype);
-PDCEX  bool    can_change_color(void);
-PDCEX  int     cbreak(void);
-PDCEX  int     chgat(int, attr_t, short, const void *);
-PDCEX  int     clearok(WINDOW *, bool);
-PDCEX  int     clear(void);
-PDCEX  int     clrtobot(void);
-PDCEX  int     clrtoeol(void);
-PDCEX  int     color_content(short, short *, short *, short *);
-PDCEX  int     color_set(short, void *);
-PDCEX  int     copywin(const WINDOW *, WINDOW *, int, int, int,
-                       int, int, int, int);
-PDCEX  int     curs_set(int);
-PDCEX  int     def_prog_mode(void);
-PDCEX  int     def_shell_mode(void);
-PDCEX  int     delay_output(int);
-PDCEX  int     delch(void);
-PDCEX  int     deleteln(void);
-PDCEX  void    delscreen(SCREEN *);
-PDCEX  int     delwin(WINDOW *);
-PDCEX  WINDOW *derwin(WINDOW *, int, int, int, int);
-PDCEX  int     doupdate(void);
-PDCEX  WINDOW *dupwin(WINDOW *);
-PDCEX  int     echochar(const chtype);
-PDCEX  int     echo(void);
+int     addch(const chtype);
+int     addchnstr(const chtype *, int);
+int     addchstr(const chtype *);
+int     addnstr(const char *, int);
+int     addstr(const char *);
+int     attroff(chtype);
+int     attron(chtype);
+int     attrset(chtype);
+int     attr_get(attr_t *, short *, void *);
+int     attr_off(attr_t, void *);
+int     attr_on(attr_t, void *);
+int     attr_set(attr_t, short, void *);
+int     baudrate(void);
+int     beep(void);
+int     bkgd(chtype);
+void    bkgdset(chtype);
+int     border(chtype, chtype, chtype, chtype,
+               chtype, chtype, chtype, chtype);
+int     box(WINDOW *, chtype, chtype);
+bool    can_change_color(void);
+int     cbreak(void);
+int     chgat(int, attr_t, short, const void *);
+int     clearok(WINDOW *, bool);
+int     clear(void);
+int     clrtobot(void);
+int     clrtoeol(void);
+int     color_content(short, short *, short *, short *);
+int     color_set(short, void *);
+int     copywin(const WINDOW *, WINDOW *, int, int, int,
+                int, int, int, int);
+int     curs_set(int);
+int     def_prog_mode(void);
+int     def_shell_mode(void);
+int     delay_output(int);
+int     delch(void);
+int     deleteln(void);
+void    delscreen(SCREEN *);
+int     delwin(WINDOW *);
+WINDOW *derwin(WINDOW *, int, int, int, int);
+int     doupdate(void);
+WINDOW *dupwin(WINDOW *);
+int     echochar(const chtype);
+int     echo(void);
 
-#ifdef PDC_WIDE
-   #ifdef PDC_FORCE_UTF8
-      #ifdef CHTYPE_32
-         #define endwin endwin_u32_4400
-      #else
-         #define endwin endwin_u64_4400
-      #endif
-   #else
-      #ifdef CHTYPE_32
-         #define endwin endwin_w32_4400
-      #else
-         #define endwin endwin_w64_4400
-      #endif
-   #endif
-#else       /* 8-bit chtypes */
-   #ifdef CHTYPE_32
-      #define endwin endwin_x32_4400
-   #else
-      #define endwin endwin_x64_4400
-   #endif
-#endif
+#define endwin endwin_u64_4400
 
-PDCEX  int     endwin(void);
-PDCEX  char    erasechar(void);
-PDCEX  int     erase(void);
-PDCEX  int     extended_color_content(int, int *, int *, int *);
-PDCEX  int     extended_pair_content(int, int *, int *);
-PDCEX  void    filter(void);
-PDCEX  int     flash(void);
-PDCEX  int     flushinp(void);
-PDCEX  chtype  getbkgd(WINDOW *);
-PDCEX  int     getnstr(char *, int);
-PDCEX  int     getstr(char *);
-PDCEX  WINDOW *getwin(FILE *);
-PDCEX  int     halfdelay(int);
-PDCEX  bool    has_colors(void);
-PDCEX  bool    has_ic(void);
-PDCEX  bool    has_il(void);
-PDCEX  int     hline(chtype, int);
-PDCEX  void    idcok(WINDOW *, bool);
-PDCEX  int     idlok(WINDOW *, bool);
-PDCEX  void    immedok(WINDOW *, bool);
-PDCEX  int     inchnstr(chtype *, int);
-PDCEX  int     inchstr(chtype *);
-PDCEX  chtype  inch(void);
-PDCEX  int     init_color(short, short, short, short);
-PDCEX  int     init_extended_color(int, int, int, int);
-PDCEX  int     init_extended_pair(int, int, int);
-PDCEX  int     init_pair(short, short, short);
-PDCEX  WINDOW *initscr(void);
-PDCEX  int     innstr(char *, int);
-PDCEX  int     insch(chtype);
-PDCEX  int     insdelln(int);
-PDCEX  int     insertln(void);
-PDCEX  int     insnstr(const char *, int);
-PDCEX  int     insstr(const char *);
-PDCEX  int     instr(char *);
-PDCEX  int     intrflush(WINDOW *, bool);
-PDCEX  bool    isendwin(void);
-PDCEX  bool    is_linetouched(WINDOW *, int);
-PDCEX  bool    is_wintouched(WINDOW *);
-PDCEX  char   *keyname(int);
-PDCEX  int     keypad(WINDOW *, bool);
-PDCEX  char    killchar(void);
-PDCEX  int     leaveok(WINDOW *, bool);
-PDCEX  char   *longname(void);
-PDCEX  int     meta(WINDOW *, bool);
-PDCEX  int     move(int, int);
-PDCEX  int     mvaddch(int, int, const chtype);
-PDCEX  int     mvaddchnstr(int, int, const chtype *, int);
-PDCEX  int     mvaddchstr(int, int, const chtype *);
-PDCEX  int     mvaddnstr(int, int, const char *, int);
-PDCEX  int     mvaddstr(int, int, const char *);
-PDCEX  int     mvchgat(int, int, int, attr_t, short, const void *);
-PDCEX  int     mvcur(int, int, int, int);
-PDCEX  int     mvdelch(int, int);
-PDCEX  int     mvderwin(WINDOW *, int, int);
-PDCEX  int     mvgetch(int, int);
-PDCEX  int     mvgetnstr(int, int, char *, int);
-PDCEX  int     mvgetstr(int, int, char *);
-PDCEX  int     mvhline(int, int, chtype, int);
-PDCEX  chtype  mvinch(int, int);
-PDCEX  int     mvinchnstr(int, int, chtype *, int);
-PDCEX  int     mvinchstr(int, int, chtype *);
-PDCEX  int     mvinnstr(int, int, char *, int);
-PDCEX  int     mvinsch(int, int, chtype);
-PDCEX  int     mvinsnstr(int, int, const char *, int);
-PDCEX  int     mvinsstr(int, int, const char *);
-PDCEX  int     mvinstr(int, int, char *);
-PDCEX  int     mvprintw(int, int, const char *, ...);
-PDCEX  int     mvscanw(int, int, const char *, ...);
-PDCEX  int     mvvline(int, int, chtype, int);
-PDCEX  int     mvwaddchnstr(WINDOW *, int, int, const chtype *, int);
-PDCEX  int     mvwaddchstr(WINDOW *, int, int, const chtype *);
-PDCEX  int     mvwaddch(WINDOW *, int, int, const chtype);
-PDCEX  int     mvwaddnstr(WINDOW *, int, int, const char *, int);
-PDCEX  int     mvwaddstr(WINDOW *, int, int, const char *);
-PDCEX  int     mvwchgat(WINDOW *, int, int, int, attr_t, short, const void *);
-PDCEX  int     mvwdelch(WINDOW *, int, int);
-PDCEX  int     mvwgetch(WINDOW *, int, int);
-PDCEX  int     mvwgetnstr(WINDOW *, int, int, char *, int);
-PDCEX  int     mvwgetstr(WINDOW *, int, int, char *);
-PDCEX  int     mvwhline(WINDOW *, int, int, chtype, int);
-PDCEX  int     mvwinchnstr(WINDOW *, int, int, chtype *, int);
-PDCEX  int     mvwinchstr(WINDOW *, int, int, chtype *);
-PDCEX  chtype  mvwinch(WINDOW *, int, int);
-PDCEX  int     mvwinnstr(WINDOW *, int, int, char *, int);
-PDCEX  int     mvwinsch(WINDOW *, int, int, chtype);
-PDCEX  int     mvwinsnstr(WINDOW *, int, int, const char *, int);
-PDCEX  int     mvwinsstr(WINDOW *, int, int, const char *);
-PDCEX  int     mvwinstr(WINDOW *, int, int, char *);
-PDCEX  int     mvwin(WINDOW *, int, int);
-PDCEX  int     mvwprintw(WINDOW *, int, int, const char *, ...);
-PDCEX  int     mvwscanw(WINDOW *, int, int, const char *, ...);
-PDCEX  int     mvwvline(WINDOW *, int, int, chtype, int);
-PDCEX  int     napms(int);
-PDCEX  WINDOW *newpad(int, int);
-PDCEX  SCREEN *newterm(const char *, FILE *, FILE *);
-PDCEX  WINDOW *newwin(int, int, int, int);
-PDCEX  int     nl(void);
-PDCEX  int     nocbreak(void);
-PDCEX  int     nodelay(WINDOW *, bool);
-PDCEX  int     noecho(void);
-PDCEX  int     nonl(void);
-PDCEX  void    noqiflush(void);
-PDCEX  int     noraw(void);
-PDCEX  int     notimeout(WINDOW *, bool);
-PDCEX  int     overlay(const WINDOW *, WINDOW *);
-PDCEX  int     overwrite(const WINDOW *, WINDOW *);
-PDCEX  int     pair_content(short, short *, short *);
-PDCEX  int     pechochar(WINDOW *, chtype);
-PDCEX  int     pnoutrefresh(WINDOW *, int, int, int, int, int, int);
-PDCEX  int     prefresh(WINDOW *, int, int, int, int, int, int);
-PDCEX  int     printw(const char *, ...);
-PDCEX  int     putwin(WINDOW *, FILE *);
-PDCEX  void    qiflush(void);
-PDCEX  int     raw(void);
-PDCEX  int     redrawwin(WINDOW *);
-PDCEX  int     refresh(void);
-PDCEX  int     reset_prog_mode(void);
-PDCEX  int     reset_shell_mode(void);
-PDCEX  int     resetty(void);
-PDCEX  int     ripoffline(int, int (*)(WINDOW *, int));
-PDCEX  int     savetty(void);
-PDCEX  int     scanw(const char *, ...);
-PDCEX  int     scr_dump(const char *);
-PDCEX  int     scr_init(const char *);
-PDCEX  int     scr_restore(const char *);
-PDCEX  int     scr_set(const char *);
-PDCEX  int     scrl(int);
-PDCEX  int     scroll(WINDOW *);
-PDCEX  int     scrollok(WINDOW *, bool);
-PDCEX  SCREEN *set_term(SCREEN *);
-PDCEX  int     setscrreg(int, int);
-PDCEX  attr_t  slk_attr(void);
-PDCEX  int     slk_attroff(const chtype);
-PDCEX  int     slk_attr_off(const attr_t, void *);
-PDCEX  int     slk_attron(const chtype);
-PDCEX  int     slk_attr_on(const attr_t, void *);
-PDCEX  int     slk_attrset(const chtype);
-PDCEX  int     slk_attr_set(const attr_t, short, void *);
-PDCEX  int     slk_clear(void);
-PDCEX  int     extended_slk_color(int);
-PDCEX  int     slk_color(short);
-PDCEX  int     slk_init(int);
-PDCEX  char   *slk_label(int);
-PDCEX  int     slk_noutrefresh(void);
-PDCEX  int     slk_refresh(void);
-PDCEX  int     slk_restore(void);
-PDCEX  int     slk_set(int, const char *, int);
-PDCEX  int     slk_touch(void);
-PDCEX  int     standend(void);
-PDCEX  int     standout(void);
-PDCEX  int     start_color(void);
-PDCEX  WINDOW *subpad(WINDOW *, int, int, int, int);
-PDCEX  WINDOW *subwin(WINDOW *, int, int, int, int);
-PDCEX  int     syncok(WINDOW *, bool);
-PDCEX  chtype  termattrs(void);
-PDCEX  attr_t  term_attrs(void);
-PDCEX  char   *termname(void);
-PDCEX  void    timeout(int);
-PDCEX  int     touchline(WINDOW *, int, int);
-PDCEX  int     touchwin(WINDOW *);
-PDCEX  int     typeahead(int);
-PDCEX  int     untouchwin(WINDOW *);
-PDCEX  void    use_env(bool);
-PDCEX  int     vidattr(chtype);
-PDCEX  int     vid_attr(attr_t, short, void *);
-PDCEX  int     vidputs(chtype, int (*)(int));
-PDCEX  int     vid_puts(attr_t, short, void *, int (*)(int));
-PDCEX  int     vline(chtype, int);
-PDCEX  int     vw_printw(WINDOW *, const char *, va_list);
-PDCEX  int     vwprintw(WINDOW *, const char *, va_list);
-PDCEX  int     vw_scanw(WINDOW *, const char *, va_list);
-PDCEX  int     vwscanw(WINDOW *, const char *, va_list);
-PDCEX  int     waddchnstr(WINDOW *, const chtype *, int);
-PDCEX  int     waddchstr(WINDOW *, const chtype *);
-PDCEX  int     waddch(WINDOW *, const chtype);
-PDCEX  int     waddnstr(WINDOW *, const char *, int);
-PDCEX  int     waddstr(WINDOW *, const char *);
-PDCEX  int     wattroff(WINDOW *, chtype);
-PDCEX  int     wattron(WINDOW *, chtype);
-PDCEX  int     wattrset(WINDOW *, chtype);
-PDCEX  int     wattr_get(WINDOW *, attr_t *, short *, void *);
-PDCEX  int     wattr_off(WINDOW *, attr_t, void *);
-PDCEX  int     wattr_on(WINDOW *, attr_t, void *);
-PDCEX  int     wattr_set(WINDOW *, attr_t, short, void *);
-PDCEX  void    wbkgdset(WINDOW *, chtype);
-PDCEX  int     wbkgd(WINDOW *, chtype);
-PDCEX  int     wborder(WINDOW *, chtype, chtype, chtype, chtype,
-                        chtype, chtype, chtype, chtype);
-PDCEX  int     wchgat(WINDOW *, int, attr_t, short, const void *);
-PDCEX  int     wclear(WINDOW *);
-PDCEX  int     wclrtobot(WINDOW *);
-PDCEX  int     wclrtoeol(WINDOW *);
-PDCEX  int     wcolor_set(WINDOW *, short, void *);
-PDCEX  void    wcursyncup(WINDOW *);
-PDCEX  int     wdelch(WINDOW *);
-PDCEX  int     wdeleteln(WINDOW *);
-PDCEX  int     wechochar(WINDOW *, const chtype);
-PDCEX  int     werase(WINDOW *);
-PDCEX  int     wgetch(WINDOW *);
-PDCEX  int     wgetnstr(WINDOW *, char *, int);
-PDCEX  int     wgetstr(WINDOW *, char *);
-PDCEX  int     whline(WINDOW *, chtype, int);
-PDCEX  int     winchnstr(WINDOW *, chtype *, int);
-PDCEX  int     winchstr(WINDOW *, chtype *);
-PDCEX  chtype  winch(WINDOW *);
-PDCEX  int     winnstr(WINDOW *, char *, int);
-PDCEX  int     winsch(WINDOW *, chtype);
-PDCEX  int     winsdelln(WINDOW *, int);
-PDCEX  int     winsertln(WINDOW *);
-PDCEX  int     winsnstr(WINDOW *, const char *, int);
-PDCEX  int     winsstr(WINDOW *, const char *);
-PDCEX  int     winstr(WINDOW *, char *);
-PDCEX  int     wmove(WINDOW *, int, int);
-PDCEX  int     wnoutrefresh(WINDOW *);
-PDCEX  int     wprintw(WINDOW *, const char *, ...);
-PDCEX  int     wredrawln(WINDOW *, int, int);
-PDCEX  int     wrefresh(WINDOW *);
-PDCEX  int     wscanw(WINDOW *, const char *, ...);
-PDCEX  int     wscrl(WINDOW *, int);
-PDCEX  int     wsetscrreg(WINDOW *, int, int);
-PDCEX  int     wstandend(WINDOW *);
-PDCEX  int     wstandout(WINDOW *);
-PDCEX  void    wsyncdown(WINDOW *);
-PDCEX  void    wsyncup(WINDOW *);
-PDCEX  void    wtimeout(WINDOW *, int);
-PDCEX  int     wtouchln(WINDOW *, int, int, int);
-PDCEX  int     wvline(WINDOW *, chtype, int);
+int     endwin(void);
+char    erasechar(void);
+int     erase(void);
+int     extended_color_content(int, int *, int *, int *);
+int     extended_pair_content(int, int *, int *);
+void    filter(void);
+int     flash(void);
+int     flushinp(void);
+chtype  getbkgd(WINDOW *);
+int     getnstr(char *, int);
+int     getstr(char *);
+WINDOW *getwin(FILE *);
+int     halfdelay(int);
+bool    has_colors(void);
+bool    has_ic(void);
+bool    has_il(void);
+int     hline(chtype, int);
+void    idcok(WINDOW *, bool);
+int     idlok(WINDOW *, bool);
+void    immedok(WINDOW *, bool);
+int     inchnstr(chtype *, int);
+int     inchstr(chtype *);
+chtype  inch(void);
+int     init_color(short, short, short, short);
+int     init_extended_color(int, int, int, int);
+int     init_extended_pair(int, int, int);
+int     init_pair(short, short, short);
+WINDOW *initscr(void);
+int     innstr(char *, int);
+int     insch(chtype);
+int     insdelln(int);
+int     insertln(void);
+int     insnstr(const char *, int);
+int     insstr(const char *);
+int     instr(char *);
+int     intrflush(WINDOW *, bool);
+bool    isendwin(void);
+bool    is_linetouched(WINDOW *, int);
+bool    is_wintouched(WINDOW *);
+char   *keyname(int);
+int     keypad(WINDOW *, bool);
+char    killchar(void);
+int     leaveok(WINDOW *, bool);
+char   *longname(void);
+int     meta(WINDOW *, bool);
+int     move(int, int);
+int     mvaddch(int, int, const chtype);
+int     mvaddchnstr(int, int, const chtype *, int);
+int     mvaddchstr(int, int, const chtype *);
+int     mvaddnstr(int, int, const char *, int);
+int     mvaddstr(int, int, const char *);
+int     mvchgat(int, int, int, attr_t, short, const void *);
+int     mvcur(int, int, int, int);
+int     mvdelch(int, int);
+int     mvderwin(WINDOW *, int, int);
+int     mvgetch(int, int);
+int     mvgetnstr(int, int, char *, int);
+int     mvgetstr(int, int, char *);
+int     mvhline(int, int, chtype, int);
+chtype  mvinch(int, int);
+int     mvinchnstr(int, int, chtype *, int);
+int     mvinchstr(int, int, chtype *);
+int     mvinnstr(int, int, char *, int);
+int     mvinsch(int, int, chtype);
+int     mvinsnstr(int, int, const char *, int);
+int     mvinsstr(int, int, const char *);
+int     mvinstr(int, int, char *);
+int     mvprintw(int, int, const char *, ...);
+int     mvscanw(int, int, const char *, ...);
+int     mvvline(int, int, chtype, int);
+int     mvwaddchnstr(WINDOW *, int, int, const chtype *, int);
+int     mvwaddchstr(WINDOW *, int, int, const chtype *);
+int     mvwaddch(WINDOW *, int, int, const chtype);
+int     mvwaddnstr(WINDOW *, int, int, const char *, int);
+int     mvwaddstr(WINDOW *, int, int, const char *);
+int     mvwchgat(WINDOW *, int, int, int, attr_t, short, const void *);
+int     mvwdelch(WINDOW *, int, int);
+int     mvwgetch(WINDOW *, int, int);
+int     mvwgetnstr(WINDOW *, int, int, char *, int);
+int     mvwgetstr(WINDOW *, int, int, char *);
+int     mvwhline(WINDOW *, int, int, chtype, int);
+int     mvwinchnstr(WINDOW *, int, int, chtype *, int);
+int     mvwinchstr(WINDOW *, int, int, chtype *);
+chtype  mvwinch(WINDOW *, int, int);
+int     mvwinnstr(WINDOW *, int, int, char *, int);
+int     mvwinsch(WINDOW *, int, int, chtype);
+int     mvwinsnstr(WINDOW *, int, int, const char *, int);
+int     mvwinsstr(WINDOW *, int, int, const char *);
+int     mvwinstr(WINDOW *, int, int, char *);
+int     mvwin(WINDOW *, int, int);
+int     mvwprintw(WINDOW *, int, int, const char *, ...);
+int     mvwscanw(WINDOW *, int, int, const char *, ...);
+int     mvwvline(WINDOW *, int, int, chtype, int);
+int     napms(int);
+WINDOW *newpad(int, int);
+SCREEN *newterm(const char *, FILE *, FILE *);
+WINDOW *newwin(int, int, int, int);
+int     nl(void);
+int     nocbreak(void);
+int     nodelay(WINDOW *, bool);
+int     noecho(void);
+int     nonl(void);
+void    noqiflush(void);
+int     noraw(void);
+int     notimeout(WINDOW *, bool);
+int     overlay(const WINDOW *, WINDOW *);
+int     overwrite(const WINDOW *, WINDOW *);
+int     pair_content(short, short *, short *);
+int     pechochar(WINDOW *, chtype);
+int     pnoutrefresh(WINDOW *, int, int, int, int, int, int);
+int     prefresh(WINDOW *, int, int, int, int, int, int);
+int     printw(const char *, ...);
+int     putwin(WINDOW *, FILE *);
+void    qiflush(void);
+int     raw(void);
+int     redrawwin(WINDOW *);
+int     refresh(void);
+int     reset_prog_mode(void);
+int     reset_shell_mode(void);
+int     resetty(void);
+int     ripoffline(int, int (*)(WINDOW *, int));
+int     savetty(void);
+int     scanw(const char *, ...);
+int     scr_dump(const char *);
+int     scr_init(const char *);
+int     scr_restore(const char *);
+int     scr_set(const char *);
+int     scrl(int);
+int     scroll(WINDOW *);
+int     scrollok(WINDOW *, bool);
+SCREEN *set_term(SCREEN *);
+int     setscrreg(int, int);
+attr_t  slk_attr(void);
+int     slk_attroff(const chtype);
+int     slk_attr_off(const attr_t, void *);
+int     slk_attron(const chtype);
+int     slk_attr_on(const attr_t, void *);
+int     slk_attrset(const chtype);
+int     slk_attr_set(const attr_t, short, void *);
+int     slk_clear(void);
+int     extended_slk_color(int);
+int     slk_color(short);
+int     slk_init(int);
+char   *slk_label(int);
+int     slk_noutrefresh(void);
+int     slk_refresh(void);
+int     slk_restore(void);
+int     slk_set(int, const char *, int);
+int     slk_touch(void);
+int     standend(void);
+int     standout(void);
+int     start_color(void);
+WINDOW *subpad(WINDOW *, int, int, int, int);
+WINDOW *subwin(WINDOW *, int, int, int, int);
+int     syncok(WINDOW *, bool);
+chtype  termattrs(void);
+attr_t  term_attrs(void);
+char   *termname(void);
+void    timeout(int);
+int     touchline(WINDOW *, int, int);
+int     touchwin(WINDOW *);
+int     typeahead(int);
+int     untouchwin(WINDOW *);
+void    use_env(bool);
+int     vidattr(chtype);
+int     vid_attr(attr_t, short, void *);
+int     vidputs(chtype, int (*)(int));
+int     vid_puts(attr_t, short, void *, int (*)(int));
+int     vline(chtype, int);
+int     vw_printw(WINDOW *, const char *, va_list);
+int     vwprintw(WINDOW *, const char *, va_list);
+int     vw_scanw(WINDOW *, const char *, va_list);
+int     vwscanw(WINDOW *, const char *, va_list);
+int     waddchnstr(WINDOW *, const chtype *, int);
+int     waddchstr(WINDOW *, const chtype *);
+int     waddch(WINDOW *, const chtype);
+int     waddnstr(WINDOW *, const char *, int);
+int     waddstr(WINDOW *, const char *);
+int     wattroff(WINDOW *, chtype);
+int     wattron(WINDOW *, chtype);
+int     wattrset(WINDOW *, chtype);
+int     wattr_get(WINDOW *, attr_t *, short *, void *);
+int     wattr_off(WINDOW *, attr_t, void *);
+int     wattr_on(WINDOW *, attr_t, void *);
+int     wattr_set(WINDOW *, attr_t, short, void *);
+void    wbkgdset(WINDOW *, chtype);
+int     wbkgd(WINDOW *, chtype);
+int     wborder(WINDOW *, chtype, chtype, chtype, chtype,
+                 chtype, chtype, chtype, chtype);
+int     wchgat(WINDOW *, int, attr_t, short, const void *);
+int     wclear(WINDOW *);
+int     wclrtobot(WINDOW *);
+int     wclrtoeol(WINDOW *);
+int     wcolor_set(WINDOW *, short, void *);
+void    wcursyncup(WINDOW *);
+int     wdelch(WINDOW *);
+int     wdeleteln(WINDOW *);
+int     wechochar(WINDOW *, const chtype);
+int     werase(WINDOW *);
+int     wgetch(WINDOW *);
+int     wgetnstr(WINDOW *, char *, int);
+int     wgetstr(WINDOW *, char *);
+int     whline(WINDOW *, chtype, int);
+int     winchnstr(WINDOW *, chtype *, int);
+int     winchstr(WINDOW *, chtype *);
+chtype  winch(WINDOW *);
+int     winnstr(WINDOW *, char *, int);
+int     winsch(WINDOW *, chtype);
+int     winsdelln(WINDOW *, int);
+int     winsertln(WINDOW *);
+int     winsnstr(WINDOW *, const char *, int);
+int     winsstr(WINDOW *, const char *);
+int     winstr(WINDOW *, char *);
+int     wmove(WINDOW *, int, int);
+int     wnoutrefresh(WINDOW *);
+int     wprintw(WINDOW *, const char *, ...);
+int     wredrawln(WINDOW *, int, int);
+int     wrefresh(WINDOW *);
+int     wscanw(WINDOW *, const char *, ...);
+int     wscrl(WINDOW *, int);
+int     wsetscrreg(WINDOW *, int, int);
+int     wstandend(WINDOW *);
+int     wstandout(WINDOW *);
+void    wsyncdown(WINDOW *);
+void    wsyncup(WINDOW *);
+void    wtimeout(WINDOW *, int);
+int     wtouchln(WINDOW *, int, int, int);
+int     wvline(WINDOW *, chtype, int);
 
 /* Wide-character functions */
 
-#ifdef PDC_WIDE
-PDCEX  int     addnwstr(const wchar_t *, int);
-PDCEX  int     addwstr(const wchar_t *);
-PDCEX  int     add_wch(const cchar_t *);
-PDCEX  int     add_wchnstr(const cchar_t *, int);
-PDCEX  int     add_wchstr(const cchar_t *);
-PDCEX  int     bkgrnd(const cchar_t *);
-PDCEX  void    bkgrndset(const cchar_t *);
-PDCEX  int     border_set(const cchar_t *, const cchar_t *, const cchar_t *,
-                          const cchar_t *, const cchar_t *, const cchar_t *,
-                          const cchar_t *, const cchar_t *);
-PDCEX  int     box_set(WINDOW *, const cchar_t *, const cchar_t *);
-PDCEX  int     echo_wchar(const cchar_t *);
-PDCEX  int     erasewchar(wchar_t *);
-PDCEX  int     getbkgrnd(cchar_t *);
-PDCEX  int     getcchar(const cchar_t *, wchar_t *, attr_t *, short *, void *);
-PDCEX  int     getn_wstr(wint_t *, int);
-PDCEX  int     get_wch(wint_t *);
-PDCEX  int     get_wstr(wint_t *);
-PDCEX  int     hline_set(const cchar_t *, int);
-PDCEX  int     innwstr(wchar_t *, int);
-PDCEX  int     ins_nwstr(const wchar_t *, int);
-PDCEX  int     ins_wch(const cchar_t *);
-PDCEX  int     ins_wstr(const wchar_t *);
-PDCEX  int     inwstr(wchar_t *);
-PDCEX  int     in_wch(cchar_t *);
-PDCEX  int     in_wchnstr(cchar_t *, int);
-PDCEX  int     in_wchstr(cchar_t *);
-PDCEX  char   *key_name(wchar_t);
-PDCEX  int     killwchar(wchar_t *);
-PDCEX  int     mvaddnwstr(int, int, const wchar_t *, int);
-PDCEX  int     mvaddwstr(int, int, const wchar_t *);
-PDCEX  int     mvadd_wch(int, int, const cchar_t *);
-PDCEX  int     mvadd_wchnstr(int, int, const cchar_t *, int);
-PDCEX  int     mvadd_wchstr(int, int, const cchar_t *);
-PDCEX  int     mvgetn_wstr(int, int, wint_t *, int);
-PDCEX  int     mvget_wch(int, int, wint_t *);
-PDCEX  int     mvget_wstr(int, int, wint_t *);
-PDCEX  int     mvhline_set(int, int, const cchar_t *, int);
-PDCEX  int     mvinnwstr(int, int, wchar_t *, int);
-PDCEX  int     mvins_nwstr(int, int, const wchar_t *, int);
-PDCEX  int     mvins_wch(int, int, const cchar_t *);
-PDCEX  int     mvins_wstr(int, int, const wchar_t *);
-PDCEX  int     mvinwstr(int, int, wchar_t *);
-PDCEX  int     mvin_wch(int, int, cchar_t *);
-PDCEX  int     mvin_wchnstr(int, int, cchar_t *, int);
-PDCEX  int     mvin_wchstr(int, int, cchar_t *);
-PDCEX  int     mvvline_set(int, int, const cchar_t *, int);
-PDCEX  int     mvwaddnwstr(WINDOW *, int, int, const wchar_t *, int);
-PDCEX  int     mvwaddwstr(WINDOW *, int, int, const wchar_t *);
-PDCEX  int     mvwadd_wch(WINDOW *, int, int, const cchar_t *);
-PDCEX  int     mvwadd_wchnstr(WINDOW *, int, int, const cchar_t *, int);
-PDCEX  int     mvwadd_wchstr(WINDOW *, int, int, const cchar_t *);
-PDCEX  int     mvwgetn_wstr(WINDOW *, int, int, wint_t *, int);
-PDCEX  int     mvwget_wch(WINDOW *, int, int, wint_t *);
-PDCEX  int     mvwget_wstr(WINDOW *, int, int, wint_t *);
-PDCEX  int     mvwhline_set(WINDOW *, int, int, const cchar_t *, int);
-PDCEX  int     mvwinnwstr(WINDOW *, int, int, wchar_t *, int);
-PDCEX  int     mvwins_nwstr(WINDOW *, int, int, const wchar_t *, int);
-PDCEX  int     mvwins_wch(WINDOW *, int, int, const cchar_t *);
-PDCEX  int     mvwins_wstr(WINDOW *, int, int, const wchar_t *);
-PDCEX  int     mvwin_wch(WINDOW *, int, int, cchar_t *);
-PDCEX  int     mvwin_wchnstr(WINDOW *, int, int, cchar_t *, int);
-PDCEX  int     mvwin_wchstr(WINDOW *, int, int, cchar_t *);
-PDCEX  int     mvwinwstr(WINDOW *, int, int, wchar_t *);
-PDCEX  int     mvwvline_set(WINDOW *, int, int, const cchar_t *, int);
-PDCEX  int     pecho_wchar(WINDOW *, const cchar_t*);
-PDCEX  int     setcchar(cchar_t*, const wchar_t*, const attr_t,
-                        short, const void*);
-PDCEX  int     slk_wset(int, const wchar_t *, int);
-PDCEX  int     unget_wch(const wchar_t);
-PDCEX  int     vline_set(const cchar_t *, int);
-PDCEX  int     waddnwstr(WINDOW *, const wchar_t *, int);
-PDCEX  int     waddwstr(WINDOW *, const wchar_t *);
-PDCEX  int     wadd_wch(WINDOW *, const cchar_t *);
-PDCEX  int     wadd_wchnstr(WINDOW *, const cchar_t *, int);
-PDCEX  int     wadd_wchstr(WINDOW *, const cchar_t *);
-PDCEX  int     wbkgrnd(WINDOW *, const cchar_t *);
-PDCEX  void    wbkgrndset(WINDOW *, const cchar_t *);
-PDCEX  int     wborder_set(WINDOW *, const cchar_t *, const cchar_t *,
-                           const cchar_t *, const cchar_t *, const cchar_t *,
-                           const cchar_t *, const cchar_t *, const cchar_t *);
-PDCEX  int     wecho_wchar(WINDOW *, const cchar_t *);
-PDCEX  int     wgetbkgrnd(WINDOW *, cchar_t *);
-PDCEX  int     wgetn_wstr(WINDOW *, wint_t *, int);
-PDCEX  int     wget_wch(WINDOW *, wint_t *);
-PDCEX  int     wget_wstr(WINDOW *, wint_t *);
-PDCEX  int     whline_set(WINDOW *, const cchar_t *, int);
-PDCEX  int     winnwstr(WINDOW *, wchar_t *, int);
-PDCEX  int     wins_nwstr(WINDOW *, const wchar_t *, int);
-PDCEX  int     wins_wch(WINDOW *, const cchar_t *);
-PDCEX  int     wins_wstr(WINDOW *, const wchar_t *);
-PDCEX  int     winwstr(WINDOW *, wchar_t *);
-PDCEX  int     win_wch(WINDOW *, cchar_t *);
-PDCEX  int     win_wchnstr(WINDOW *, cchar_t *, int);
-PDCEX  int     win_wchstr(WINDOW *, cchar_t *);
-PDCEX  wchar_t *wunctrl(cchar_t *);
-PDCEX  int     wvline_set(WINDOW *, const cchar_t *, int);
-#endif
+int     addnwstr(const wchar_t *, int);
+int     addwstr(const wchar_t *);
+int     add_wch(const cchar_t *);
+int     add_wchnstr(const cchar_t *, int);
+int     add_wchstr(const cchar_t *);
+int     bkgrnd(const cchar_t *);
+void    bkgrndset(const cchar_t *);
+int     border_set(const cchar_t *, const cchar_t *, const cchar_t *,
+                   const cchar_t *, const cchar_t *, const cchar_t *,
+                   const cchar_t *, const cchar_t *);
+int     box_set(WINDOW *, const cchar_t *, const cchar_t *);
+int     echo_wchar(const cchar_t *);
+int     erasewchar(wchar_t *);
+int     getbkgrnd(cchar_t *);
+int     getcchar(const cchar_t *, wchar_t *, attr_t *, short *, void *);
+int     getn_wstr(wint_t *, int);
+int     get_wch(wint_t *);
+int     get_wstr(wint_t *);
+int     hline_set(const cchar_t *, int);
+int     innwstr(wchar_t *, int);
+int     ins_nwstr(const wchar_t *, int);
+int     ins_wch(const cchar_t *);
+int     ins_wstr(const wchar_t *);
+int     inwstr(wchar_t *);
+int     in_wch(cchar_t *);
+int     in_wchnstr(cchar_t *, int);
+int     in_wchstr(cchar_t *);
+char   *key_name(wchar_t);
+int     killwchar(wchar_t *);
+int     mvaddnwstr(int, int, const wchar_t *, int);
+int     mvaddwstr(int, int, const wchar_t *);
+int     mvadd_wch(int, int, const cchar_t *);
+int     mvadd_wchnstr(int, int, const cchar_t *, int);
+int     mvadd_wchstr(int, int, const cchar_t *);
+int     mvgetn_wstr(int, int, wint_t *, int);
+int     mvget_wch(int, int, wint_t *);
+int     mvget_wstr(int, int, wint_t *);
+int     mvhline_set(int, int, const cchar_t *, int);
+int     mvinnwstr(int, int, wchar_t *, int);
+int     mvins_nwstr(int, int, const wchar_t *, int);
+int     mvins_wch(int, int, const cchar_t *);
+int     mvins_wstr(int, int, const wchar_t *);
+int     mvinwstr(int, int, wchar_t *);
+int     mvin_wch(int, int, cchar_t *);
+int     mvin_wchnstr(int, int, cchar_t *, int);
+int     mvin_wchstr(int, int, cchar_t *);
+int     mvvline_set(int, int, const cchar_t *, int);
+int     mvwaddnwstr(WINDOW *, int, int, const wchar_t *, int);
+int     mvwaddwstr(WINDOW *, int, int, const wchar_t *);
+int     mvwadd_wch(WINDOW *, int, int, const cchar_t *);
+int     mvwadd_wchnstr(WINDOW *, int, int, const cchar_t *, int);
+int     mvwadd_wchstr(WINDOW *, int, int, const cchar_t *);
+int     mvwgetn_wstr(WINDOW *, int, int, wint_t *, int);
+int     mvwget_wch(WINDOW *, int, int, wint_t *);
+int     mvwget_wstr(WINDOW *, int, int, wint_t *);
+int     mvwhline_set(WINDOW *, int, int, const cchar_t *, int);
+int     mvwinnwstr(WINDOW *, int, int, wchar_t *, int);
+int     mvwins_nwstr(WINDOW *, int, int, const wchar_t *, int);
+int     mvwins_wch(WINDOW *, int, int, const cchar_t *);
+int     mvwins_wstr(WINDOW *, int, int, const wchar_t *);
+int     mvwin_wch(WINDOW *, int, int, cchar_t *);
+int     mvwin_wchnstr(WINDOW *, int, int, cchar_t *, int);
+int     mvwin_wchstr(WINDOW *, int, int, cchar_t *);
+int     mvwinwstr(WINDOW *, int, int, wchar_t *);
+int     mvwvline_set(WINDOW *, int, int, const cchar_t *, int);
+int     pecho_wchar(WINDOW *, const cchar_t*);
+int     setcchar(cchar_t*, const wchar_t*, const attr_t,
+                 short, const void*);
+int     slk_wset(int, const wchar_t *, int);
+int     unget_wch(const wchar_t);
+int     vline_set(const cchar_t *, int);
+int     waddnwstr(WINDOW *, const wchar_t *, int);
+int     waddwstr(WINDOW *, const wchar_t *);
+int     wadd_wch(WINDOW *, const cchar_t *);
+int     wadd_wchnstr(WINDOW *, const cchar_t *, int);
+int     wadd_wchstr(WINDOW *, const cchar_t *);
+int     wbkgrnd(WINDOW *, const cchar_t *);
+void    wbkgrndset(WINDOW *, const cchar_t *);
+int     wborder_set(WINDOW *, const cchar_t *, const cchar_t *,
+                    const cchar_t *, const cchar_t *, const cchar_t *,
+                    const cchar_t *, const cchar_t *, const cchar_t *);
+int     wecho_wchar(WINDOW *, const cchar_t *);
+int     wgetbkgrnd(WINDOW *, cchar_t *);
+int     wgetn_wstr(WINDOW *, wint_t *, int);
+int     wget_wch(WINDOW *, wint_t *);
+int     wget_wstr(WINDOW *, wint_t *);
+int     whline_set(WINDOW *, const cchar_t *, int);
+int     winnwstr(WINDOW *, wchar_t *, int);
+int     wins_nwstr(WINDOW *, const wchar_t *, int);
+int     wins_wch(WINDOW *, const cchar_t *);
+int     wins_wstr(WINDOW *, const wchar_t *);
+int     winwstr(WINDOW *, wchar_t *);
+int     win_wch(WINDOW *, cchar_t *);
+int     win_wchnstr(WINDOW *, cchar_t *, int);
+int     win_wchstr(WINDOW *, cchar_t *);
+wchar_t *wunctrl(cchar_t *);
+int     wvline_set(WINDOW *, const cchar_t *, int);
 
 /* Quasi-standard */
 
-PDCEX  chtype  getattrs( const WINDOW *);
-PDCEX  int     getbegx( const WINDOW *);
-PDCEX  int     getbegy( const WINDOW *);
-PDCEX  int     getmaxx( const WINDOW *);
-PDCEX  int     getmaxy( const WINDOW *);
-PDCEX  int     getparx( const WINDOW *);
-PDCEX  int     getpary( const WINDOW *);
-PDCEX  int     getcurx( const WINDOW *);
-PDCEX  int     getcury( const WINDOW *);
-PDCEX  void    traceoff(void);
-PDCEX  void    traceon(void);
-PDCEX  void    trace( const unsigned);
-PDCEX  unsigned curses_trace( const unsigned);
-PDCEX  char   *unctrl(chtype);
+chtype  getattrs( const WINDOW *);
+int     getbegx( const WINDOW *);
+int     getbegy( const WINDOW *);
+int     getmaxx( const WINDOW *);
+int     getmaxy( const WINDOW *);
+int     getparx( const WINDOW *);
+int     getpary( const WINDOW *);
+int     getcurx( const WINDOW *);
+int     getcury( const WINDOW *);
+char   *unctrl(chtype);
 
-PDCEX  int     crmode(void);
-PDCEX  int     nocrmode(void);
-PDCEX  int     draino(int);
-PDCEX  int     resetterm(void);
-PDCEX  int     fixterm(void);
-PDCEX  int     saveterm(void);
-PDCEX  void    setsyx(int, int);
+int     crmode(void);
+int     nocrmode(void);
+int     draino(int);
+int     resetterm(void);
+int     fixterm(void);
+int     saveterm(void);
+void    setsyx(int, int);
 
-PDCEX  int     mouse_set(mmask_t);
-PDCEX  int     mouse_on(mmask_t);
-PDCEX  int     mouse_off(mmask_t);
-PDCEX  int     request_mouse_pos(void);
-PDCEX  void    wmouse_position(WINDOW *, int *, int *);
-PDCEX  mmask_t getmouse(void);
+int     mouse_set(mmask_t);
+int     mouse_on(mmask_t);
+int     mouse_off(mmask_t);
+int     request_mouse_pos(void);
+void    wmouse_position(WINDOW *, int *, int *);
+mmask_t getmouse(void);
 
 /* ncurses */
 
-PDCEX  int     alloc_pair(int, int);
-PDCEX  int     assume_default_colors(int, int);
-PDCEX  const char *curses_version(void);
-PDCEX  int     find_pair(int, int);
-PDCEX  int     free_pair( int);
-PDCEX  bool    has_key(int);
-PDCEX  bool    is_cleared(const WINDOW *);
-PDCEX  bool    is_idcok(const WINDOW *);
-PDCEX  bool    is_idlok(const WINDOW *);
-PDCEX  bool    is_immedok(const WINDOW *);
-PDCEX  bool    is_keypad(const WINDOW *);
-PDCEX  bool    is_leaveok(const WINDOW *);
-PDCEX  bool    is_nodelay(const WINDOW *);
-PDCEX  bool    is_notimeout(const WINDOW *);
-PDCEX  bool    is_pad(const WINDOW *);
-PDCEX  void    reset_color_pairs( void);
-PDCEX  bool    is_scrollok(const WINDOW *);
-PDCEX  bool    is_subwin(const WINDOW *);
-PDCEX  bool    is_syncok(const WINDOW *);
-PDCEX  int     set_tabsize(int);
-PDCEX  int     use_default_colors(void);
-PDCEX  int     wgetdelay(const WINDOW *);
-PDCEX  WINDOW *wgetparent(const WINDOW *);
-PDCEX  int     wgetscrreg(const WINDOW *, int *, int *);
-PDCEX  int     wresize(WINDOW *, int, int);
+int     alloc_pair(int, int);
+int     assume_default_colors(int, int);
+const char *curses_version(void);
+int     find_pair(int, int);
+int     free_pair( int);
+bool    has_key(int);
+bool    is_cleared(const WINDOW *);
+bool    is_idcok(const WINDOW *);
+bool    is_idlok(const WINDOW *);
+bool    is_immedok(const WINDOW *);
+bool    is_keypad(const WINDOW *);
+bool    is_leaveok(const WINDOW *);
+bool    is_nodelay(const WINDOW *);
+bool    is_notimeout(const WINDOW *);
+bool    is_pad(const WINDOW *);
+void    reset_color_pairs( void);
+bool    is_scrollok(const WINDOW *);
+bool    is_subwin(const WINDOW *);
+bool    is_syncok(const WINDOW *);
+int     set_tabsize(int);
+int     use_default_colors(void);
+int     wgetdelay(const WINDOW *);
+WINDOW *wgetparent(const WINDOW *);
+int     wgetscrreg(const WINDOW *, int *, int *);
+int     wresize(WINDOW *, int, int);
 
-PDCEX  bool    has_mouse(void);
-PDCEX  int     mouseinterval(int);
-PDCEX  mmask_t mousemask(mmask_t, mmask_t *);
-PDCEX  bool    mouse_trafo(int *, int *, bool);
-PDCEX  int     nc_getmouse(MEVENT *);
-PDCEX  mmask_t nc_mousemask(mmask_t, mmask_t *);
-PDCEX  int     ungetmouse(MEVENT *);
-PDCEX  bool    wenclose(const WINDOW *, int, int);
-PDCEX  bool    wmouse_trafo(const WINDOW *, int *, int *, bool);
+bool    has_mouse(void);
+int     mouseinterval(int);
+mmask_t mousemask(mmask_t, mmask_t *);
+bool    mouse_trafo(int *, int *, bool);
+int     nc_getmouse(MEVENT *);
+mmask_t nc_mousemask(mmask_t, mmask_t *);
+int     ungetmouse(MEVENT *);
+bool    wenclose(const WINDOW *, int, int);
+bool    wmouse_trafo(const WINDOW *, int *, int *, bool);
 
 /* PDCurses */
 
-PDCEX  int     addrawch(chtype);
-PDCEX  int     insrawch(chtype);
-PDCEX  bool    is_termresized(void);
-PDCEX  int     mvaddrawch(int, int, chtype);
-PDCEX  int     mvdeleteln(int, int);
-PDCEX  int     mvinsertln(int, int);
-PDCEX  int     mvinsrawch(int, int, chtype);
-PDCEX  int     mvwaddrawch(WINDOW *, int, int, chtype);
-PDCEX  int     mvwdeleteln(WINDOW *, int, int);
-PDCEX  int     mvwinsertln(WINDOW *, int, int);
-PDCEX  int     mvwinsrawch(WINDOW *, int, int, chtype);
-PDCEX  int     raw_output(bool);
-PDCEX  int     resize_term(int, int);
-PDCEX  WINDOW *resize_window(WINDOW *, int, int);
-PDCEX  int     waddrawch(WINDOW *, chtype);
-PDCEX  int     winsrawch(WINDOW *, chtype);
-PDCEX  char    wordchar(void);
+int     addrawch(chtype);
+int     insrawch(chtype);
+bool    is_termresized(void);
+int     mvaddrawch(int, int, chtype);
+int     mvdeleteln(int, int);
+int     mvinsertln(int, int);
+int     mvinsrawch(int, int, chtype);
+int     mvwaddrawch(WINDOW *, int, int, chtype);
+int     mvwdeleteln(WINDOW *, int, int);
+int     mvwinsertln(WINDOW *, int, int);
+int     mvwinsrawch(WINDOW *, int, int, chtype);
+int     raw_output(bool);
+int     resize_term(int, int);
+WINDOW *resize_window(WINDOW *, int, int);
+int     waddrawch(WINDOW *, chtype);
+int     winsrawch(WINDOW *, chtype);
+char    wordchar(void);
 
-#ifdef PDC_WIDE
-PDCEX  wchar_t *slk_wlabel(int);
-#endif
+wchar_t *slk_wlabel(int);
 
-PDCEX  int     is_cbreak( void);
-PDCEX  int     is_echo( void);
-PDCEX  int     is_nl( void);
-PDCEX  int     is_raw( void);
-PDCEX  bool    PDC_getcbreak(void);    /* deprecated;  use is_cbreak() */
-PDCEX  bool    PDC_getecho(void);      /* deprecated;  use is_echo()   */
-PDCEX  void    PDC_debug(const char *, ...);
-PDCEX  void    _tracef(const char *, ...);
-PDCEX  void    PDC_get_version(PDC_VERSION *);
-PDCEX  int     PDC_ungetch(int);
-PDCEX  int     PDC_set_blink(bool);
-PDCEX  int     PDC_set_bold(bool);
-PDCEX  int     PDC_set_line_color(short);
-PDCEX  void    PDC_set_title(const char *);
+int     is_cbreak( void);
+int     is_echo( void);
+int     is_nl( void);
+int     is_raw( void);
+bool    PDC_getcbreak(void);    /* deprecated;  use is_cbreak() */
+bool    PDC_getecho(void);      /* deprecated;  use is_echo()   */
+void    PDC_get_version(PDC_VERSION *);
+int     PDC_ungetch(int);
+int     PDC_set_blink(bool);
+int     PDC_set_bold(bool);
+int     PDC_set_line_color(short);
+void    PDC_set_title(const char *);
 
-PDCEX  int     PDC_clearclipboard(void);
-PDCEX  int     PDC_freeclipboard(char *);
-PDCEX  int     PDC_getclipboard(char **, long *);
-PDCEX  int     PDC_setclipboard(const char *, long);
+int     PDC_clearclipboard(void);
+int     PDC_freeclipboard(char *);
+int     PDC_getclipboard(char **, long *);
+int     PDC_setclipboard(const char *, long);
 
-PDCEX  unsigned long PDC_get_key_modifiers(void);
-PDCEX  int     PDC_return_key_modifiers(bool);
-PDCEX  void    PDC_set_resize_limits( const int new_min_lines,
+unsigned long PDC_get_key_modifiers(void);
+int     PDC_return_key_modifiers(bool);
+void    PDC_set_resize_limits( const int new_min_lines,
                                const int new_max_lines,
                                const int new_min_cols,
                                const int new_max_cols);
@@ -1816,30 +1692,23 @@ PDCEX  void    PDC_set_resize_limits( const int new_min_lines,
 #define FUNCTION_KEY_COPY             6
 #define PDC_MAX_FUNCTION_KEYS         7
 
-PDCEX int     PDC_set_function_key( const unsigned function,
+int     PDC_set_function_key( const unsigned function,
                               const int new_key);
-PDCEX int     PDC_get_function_key( const unsigned function);
+int     PDC_get_function_key( const unsigned function);
 
-PDCEX void    PDC_set_window_resized_callback(void (*callback)(void));
+void    PDC_set_window_resized_callback(void (*callback)(void));
 
-PDCEX  WINDOW *Xinitscr(int, char **);
-#ifdef XCURSES
-PDCEX  void    XCursesExit(void);
-PDCEX  int     sb_init(void);
-PDCEX  int     sb_set_horz(int, int, int);
-PDCEX  int     sb_set_vert(int, int, int);
-PDCEX  int     sb_get_horz(int *, int *, int *);
-PDCEX  int     sb_get_vert(int *, int *, int *);
-PDCEX  int     sb_refresh(void);
-#endif
+#if 0
+  WINDOW *Xinitscr(int, char **);
 
 /* NetBSD */
 
-PDCEX  int     touchoverlap(const WINDOW *, WINDOW *);
-PDCEX  int     underend(void);
-PDCEX  int     underscore(void);
-PDCEX  int     wunderend(WINDOW *);
-PDCEX  int     wunderscore(WINDOW *);
+  int     touchoverlap(const WINDOW *, WINDOW *);
+  int     underend(void);
+  int     underscore(void);
+  int     wunderend(WINDOW *);
+  int     wunderscore(WINDOW *);
+#endif
 
 /*** Functions defined as macros ***/
 
@@ -1862,10 +1731,10 @@ PDCEX  int     wunderscore(WINDOW *);
                              else getyx(curscr,(y),(x)); }
 
 #ifdef NCURSES_MOUSE_VERSION
-PDCEX  mmask_t nc_mousemask(mmask_t, mmask_t *);
+  mmask_t nc_mousemask(mmask_t, mmask_t *);
 
-# define getmouse(x) nc_getmouse(x)
-# define mousemask(x, ret_mask) nc_mousemask(x, ret_mask)
+  #define getmouse(x) nc_getmouse(x)
+  #define mousemask(x, ret_mask) nc_mousemask(x, ret_mask)
 #endif
 
 /* Deprecated */
@@ -1897,34 +1766,7 @@ PDCEX  mmask_t nc_mousemask(mmask_t, mmask_t *);
 #define PDC_KEY_MODIFIER_HYPER      0x100
 #define PDC_KEY_MODIFIER_MENU       0x200
 
-/* Bitflags for trace(), curses_trace(),  for ncurses compatibility.
-Values were copied from ncurses.  Note that those involving terminfo,
-termcap,  and TTY control bits are meaningless in PDCurses and will be
-ignored.       */
-
-#define TRACE_DISABLE   0x0000   /* turn off tracing */
-#define TRACE_TIMES     0x0001   /* trace user and system times of updates */
-#define TRACE_TPUTS     0x0002   /* trace tputs calls */
-#define TRACE_UPDATE    0x0004   /* trace update actions, old & new screens */
-#define TRACE_MOVE      0x0008   /* trace cursor moves and scrolls */
-#define TRACE_CHARPUT   0x0010   /* trace all character outputs */
-#define TRACE_ORDINARY  0x001F   /* trace all update actions */
-#define TRACE_CALLS     0x0020   /* trace all curses calls */
-#define TRACE_VIRTPUT   0x0040   /* trace virtual character puts */
-#define TRACE_IEVENT    0x0080   /* trace low-level input processing */
-#define TRACE_BITS      0x0100   /* trace state of TTY control bits */
-#define TRACE_ICALLS    0x0200   /* trace internal/nested calls */
-#define TRACE_CCALLS    0x0400   /* trace per-character calls */
-#define TRACE_DATABASE  0x0800   /* trace read/write of terminfo/termcap data */
-#define TRACE_ATTRS     0x1000   /* trace attribute updates */
-
-#define TRACE_SHIFT         13   /* number of bits in the trace masks */
-#define TRACE_MAXIMUM   ((1u << TRACE_SHIFT) - 1u) /* max tracing */
-
 #ifdef __cplusplus
-# ifndef PDC_PP98
-#  undef bool
-# endif
 }
 #endif
 

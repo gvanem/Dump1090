@@ -1,41 +1,33 @@
 /* Public Domain Curses */
 
-/*----------------------------------------------------------------------*
- *                         Panels for PDCurses                          *
- *----------------------------------------------------------------------*/
-
-#ifndef __PDCURSES_PANEL_H__
-#define __PDCURSES_PANEL_H__ 1
+#pragma once
 
 #include <curses.h>
 
-#if defined(__cplusplus) || defined(__cplusplus__) || defined(__CPLUSPLUS)
-extern "C"
-{
+#if defined(__cplusplus)
+extern "C" {
 #endif
 
 typedef struct panel PANEL;
 
-PDCEX int     bottom_panel(PANEL *pan);
-PDCEX int     del_panel(PANEL *pan);
-PDCEX int     hide_panel(PANEL *pan);
-PDCEX int     move_panel(PANEL *pan, int starty, int startx);
-PDCEX PANEL  *new_panel(WINDOW *win);
-PDCEX PANEL  *panel_above(const PANEL *pan);
-PDCEX PANEL  *panel_below(const PANEL *pan);
-PDCEX PANEL  *ground_panel(SCREEN *sp);
-PDCEX PANEL  *ceiling_panel(SCREEN *sp);
-PDCEX int     panel_hidden(const PANEL *pan);
-PDCEX const void *panel_userptr(const PANEL *pan);
-PDCEX WINDOW *panel_window(const PANEL *pan);
-PDCEX int     replace_panel(PANEL *pan, WINDOW *win);
-PDCEX int     set_panel_userptr(PANEL *pan, const void *uptr);
-PDCEX int     show_panel(PANEL *pan);
-PDCEX int     top_panel(PANEL *pan);
-PDCEX void    update_panels(void);
+int         bottom_panel (PANEL *pan);
+int         del_panel (PANEL *pan);
+int         hide_panel (PANEL *pan);
+int         move_panel (PANEL *pan, int starty, int startx);
+PANEL      *new_panel (WINDOW *win);
+PANEL      *panel_above (const PANEL *pan);
+PANEL      *panel_below (const PANEL *pan);
+PANEL      *ground_panel (SCREEN *sp);
+PANEL      *ceiling_panel (SCREEN *sp);
+int         panel_hidden (const PANEL *pan);
+const void *panel_userptr (const PANEL *pan);
+WINDOW     *panel_window (const PANEL *pan);
+int         replace_panel (PANEL *pan, WINDOW *win);
+int         set_panel_userptr (PANEL *pan, const void *uptr);
+int         show_panel (PANEL *pan);
+int         top_panel (PANEL *pan);
+void        update_panels (void);
 
-#if defined(__cplusplus) || defined(__cplusplus__) || defined(__CPLUSPLUS)
+#if defined(__cplusplus)
 }
 #endif
-
-#endif /* __PDCURSES_PANEL_H__ */

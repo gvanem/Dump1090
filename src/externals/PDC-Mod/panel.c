@@ -130,11 +130,7 @@ panel
 
 **man-end****************************************************************/
 
-#include <stdlib.h>
-
-#include <assert.h>
-
-#include "curspriv.h"
+#include <curspriv.h>
 #include <panel.h>
 
 struct panel
@@ -345,8 +341,8 @@ int hide_panel(PANEL *pan)
     {
         assert( !pan->above);
         assert( !pan->below);
-        pan->above = (PANEL *)0;
-        pan->below = (PANEL *)0;
+        pan->above = NULL;
+        pan->below = NULL;
         return ERR;
     }
 
@@ -382,7 +378,7 @@ PANEL *new_panel(WINDOW *win)
 
     assert( win);
     if (!win)
-        return (PANEL *)NULL;
+        return (NULL);
 
     pan  = malloc(sizeof(PANEL));
 
@@ -451,11 +447,9 @@ const void *panel_userptr(const PANEL *pan)
 
 WINDOW *panel_window(const PANEL *pan)
 {
-    PDC_LOG(("panel_window() - called\n"));
-
     assert( pan);
     if (!pan)
-        return (WINDOW *)NULL;
+        return (NULL);
 
     return pan->win;
 }
@@ -525,8 +519,6 @@ panels and calling _override( PANELS_ABOVE) for each one.  */
 void update_panels(void)
 {
     PANEL *pan = _bottom_panel;
-
-    PDC_LOG(("update_panels() - called\n"));
 
     assert( pan);
     while( pan != &_stdscr_pseudo_panel)     /* look at each panel;  update */

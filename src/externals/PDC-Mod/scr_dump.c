@@ -1,7 +1,7 @@
 /* PDCurses */
 
 #include <curspriv.h>
-#include <assert.h>
+#include <stdlib.h>
 
 /*man-start**************************************************************
 
@@ -58,9 +58,6 @@ scr_dump
    scr_set               |    Y   |    Y    |   -
 
 **man-end****************************************************************/
-
-#include <stdlib.h>
-#include <string.h>
 
 #define DUMPVER 2   /* Should be updated whenever the WINDOW struct is
                        changed */
@@ -120,8 +117,6 @@ int putwin(WINDOW *win, FILE *filep)
     char buff[16];
     int y, x;
 
-    PDC_LOG(("putwin() - called\n"));
-
     assert( filep);
     /* write the marker and the WINDOW struct */
 
@@ -159,10 +154,6 @@ int putwin(WINDOW *win, FILE *filep)
 
 void PDC_add_window_to_list( WINDOW *win);
 
-#ifdef _MSC_VER
-   #pragma warning( disable: 4701)  /* suppress spurious warnings */
-#endif                         /* about 'uninitialised' variables */
-
 WINDOW *getwin(FILE *filep)
 {
     WINDOW *win, temp_win;
@@ -171,8 +162,6 @@ WINDOW *getwin(FILE *filep)
     int _clear, _leaveit, _scroll, _nodelay, _immed, _sync, _use_keypad;
     int version, window_size;
     bool failure = FALSE;
-
-    PDC_LOG(("getwin() - called\n"));
 
     assert( filep);
     memset( &temp_win, 0, sizeof( WINDOW));
@@ -261,15 +250,9 @@ WINDOW *getwin(FILE *filep)
     return win;
 }
 
-#ifdef _MSC_VER
-   #pragma warning( default: 4701)
-#endif
-
 int scr_dump(const char *filename)
 {
     FILE *filep;
-
-    PDC_LOG(("scr_dump() - called: filename %s\n", filename));
 
     if (filename && (filep = fopen(filename, "wb")) != NULL)
     {
@@ -283,8 +266,6 @@ int scr_dump(const char *filename)
 
 int scr_init(const char *filename)
 {
-    PDC_LOG(("scr_init() - called: filename %s\n", filename));
-
     INTENTIONALLY_UNUSED_PARAMETER( filename);
     return OK;
 }
@@ -292,8 +273,6 @@ int scr_init(const char *filename)
 int scr_restore(const char *filename)
 {
     FILE *filep;
-
-    PDC_LOG(("scr_restore() - called: filename %s\n", filename));
 
     if (filename && (filep = fopen(filename, "rb")) != NULL)
     {
@@ -313,7 +292,5 @@ int scr_restore(const char *filename)
 
 int scr_set(const char *filename)
 {
-    PDC_LOG(("scr_set() - called: filename %s\n", filename));
-
     return scr_restore(filename);
 }

@@ -1,7 +1,6 @@
 /* PDCurses */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -35,8 +34,6 @@ keyname
    has_key               |    -   |    Y    |   Y
 
 **man-end****************************************************************/
-
-#include <string.h>
 
 char *keyname(int key)
 {
@@ -104,20 +101,20 @@ char *keyname(int key)
     "SHF_IC", "SHF_DC", "KEY_MOUSE", "KEY_SHIFT_L", "KEY_SHIFT_R",
     "KEY_CONTROL_L", "KEY_CONTROL_R", "KEY_ALT_L", "KEY_ALT_R",
     "KEY_RESIZE", "KEY_SUP", "KEY_SDOWN",
-                  /* PDCursesMod additions: */
-              "KEY_APPS", "KEY_PAUSE",
-              "KEY_PRINTSCREEN", "KEY_SCROLLLOCK",
-              "BROWSER_BACK", "BROWSER_FWD", "BROWSER_REF", "BROWSER_STOP",
-              "SEARCH", "FAVORITES", "BROWSER_HOME",
-              "VOLUME_MUTE", "VOLUME_DOWN", "VOLUME_UP",
-              "NEXT_TRACK", "PREV_TRACK", "MEDIA_STOP", "PLAY_PAUSE",
-              "LAUNCH_MAIL", "MEDIA_SELECT",
-              "LAUNCH_APP1", "LAUNCH_APP2", "LAUNCH_APP3", "LAUNCH_APP4",
-              "LAUNCH_APP5", "LAUNCH_APP6", "LAUNCH_APP7", "LAUNCH_APP8",
-              "LAUNCH_APP9", "LAUNCH_APP10" };
-    const size_t n_keys = sizeof( key_names) / sizeof( key_names[0]);
 
-    PDC_LOG(("keyname() - called: key %d\n", key));
+    /* PDCursesMod additions:
+     */
+    "KEY_APPS", "KEY_PAUSE",
+    "KEY_PRINTSCREEN", "KEY_SCROLLLOCK",
+    "BROWSER_BACK", "BROWSER_FWD", "BROWSER_REF", "BROWSER_STOP",
+    "SEARCH", "FAVORITES", "BROWSER_HOME",
+    "VOLUME_MUTE", "VOLUME_DOWN", "VOLUME_UP",
+    "NEXT_TRACK", "PREV_TRACK", "MEDIA_STOP", "PLAY_PAUSE",
+    "LAUNCH_MAIL", "MEDIA_SELECT",
+    "LAUNCH_APP1", "LAUNCH_APP2", "LAUNCH_APP3", "LAUNCH_APP4",
+    "LAUNCH_APP5", "LAUNCH_APP6", "LAUNCH_APP7", "LAUNCH_APP8",
+    "LAUNCH_APP9", "LAUNCH_APP10" };
+    const size_t n_keys = sizeof( key_names) / sizeof( key_names[0]);
 
     if( key >= 0 && key < 0x80)
         strcpy( _keyname, unctrl( (chtype)key));
@@ -134,16 +131,10 @@ char *keyname(int key)
 
 bool has_key(int key)
 {
-    PDC_LOG(("has_key() - called: key %d\n", key));
-
     return (key >= KEY_MIN && key <= KEY_MAX);
 }
 
-#ifdef PDC_WIDE
 char *key_name(wchar_t c)
 {
-    PDC_LOG(("key_name() - called\n"));
-
     return keyname((int)c);
 }
-#endif

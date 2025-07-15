@@ -78,8 +78,6 @@ int wnoutrefresh(WINDOW *win)
     int begy, begx;     /* window's place on screen   */
     int i, j;
 
-    PDC_LOG(("wnoutrefresh() - called: win=%p\n", win));
-
     assert( win);
     if ( !win)
         return ERR;
@@ -161,7 +159,6 @@ void PDC_transform_line_sliced( int lineno, int x, int len, const chtype *srcp)
     assert( lineno < SP->lines);
     while( len)
     {
-#ifdef PDC_WIDE
         int i = 1;
         chtype ch;
 
@@ -174,10 +171,6 @@ void PDC_transform_line_sliced( int lineno, int x, int len, const chtype *srcp)
         assert( i > 1 || ch != MAX_UNICODE);
         PDC_transform_line( lineno, x,
                           i - ((ch == MAX_UNICODE) ? 1 : 0), srcp);
-#else
-        const int i = min( len, MAX_PACKET_LEN - 1);
-        PDC_transform_line( lineno, x, i, srcp);
-#endif
         x += i;
         len -= i;
         srcp += i;
@@ -188,8 +181,6 @@ int doupdate(void)
 {
     int y;
     bool clearall;
-
-    PDC_LOG(("doupdate() - called\n"));
 
     assert( SP);
     assert( curscr);
@@ -207,10 +198,6 @@ int doupdate(void)
 
     for (y = 0; y < SP->lines; y++)
     {
-        PDC_LOG(("doupdate() - Transforming line %d of %d: %s\n",
-                 y, SP->lines, (curscr->_firstch[y] != _NO_CHANGE) ?
-                 "Yes" : "No"));
-
         if (clearall || curscr->_firstch[y] != _NO_CHANGE)
         {
             int first, last;
@@ -275,16 +262,12 @@ int doupdate(void)
     SP->cursrow = curscr->_cury;
     SP->curscol = curscr->_curx;
 
-    PDC_doupdate();
-
     return OK;
 }
 
 int wrefresh(WINDOW *win)
 {
     bool save_clear;
-
-    PDC_LOG(("wrefresh() - called\n"));
 
     assert( win && !(win->_flags & (_PAD|_SUBPAD)) );
     if ( !win || (win->_flags & (_PAD|_SUBPAD)) )
@@ -305,17 +288,12 @@ int wrefresh(WINDOW *win)
 
 int refresh(void)
 {
-    PDC_LOG(("refresh() - called\n"));
-
     return wrefresh(stdscr);
 }
 
 int wredrawln(WINDOW *win, int start, int num)
 {
     int i;
-
-    PDC_LOG(("wredrawln() - called: win=%p start=%d num=%d\n",
-        win, start, num));
 
     assert( win);
     if (!win || start > win->_maxy || start + num > win->_maxy)
@@ -329,8 +307,6 @@ int wredrawln(WINDOW *win, int start, int num)
 
 int redrawwin(WINDOW *win)
 {
-    PDC_LOG(("redrawwin() - called: win=%p\n", win));
-
     assert( win);
     if (!win)
         return ERR;

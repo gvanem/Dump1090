@@ -1,7 +1,6 @@
 /* PDCursesMod */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -76,72 +75,54 @@ getyx
 
 int getbegy(const WINDOW *win)
 {
-    PDC_LOG(("getbegy() - called\n"));
-
     assert( win);
     return win ? win->_begy : ERR;
 }
 
 int getbegx(const WINDOW *win)
 {
-    PDC_LOG(("getbegx() - called\n"));
-
     assert( win);
     return win ? win->_begx : ERR;
 }
 
 int getcury(const WINDOW *win)
 {
-    PDC_LOG(("getcury() - called\n"));
-
     assert( win);
     return win ? win->_cury : ERR;
 }
 
 int getcurx(const WINDOW *win)
 {
-    PDC_LOG(("getcurx() - called\n"));
-
     assert( win);
     return win ? win->_curx : ERR;
 }
 
 int getpary(const WINDOW *win)
 {
-    PDC_LOG(("getpary() - called\n"));
-
     assert( win);
     return win ? win->_pary : ERR;
 }
 
 int getparx(const WINDOW *win)
 {
-    PDC_LOG(("getparx() - called\n"));
-
     assert( win);
     return win ? win->_parx : ERR;
 }
 
 int getmaxy(const WINDOW *win)
 {
-    PDC_LOG(("getmaxy() - called\n"));
-
     assert( win);
     return win ? win->_maxy : ERR;
 }
 
 int getmaxx(const WINDOW *win)
 {
-    PDC_LOG(("getmaxx() - called\n"));
-
     assert( win);
     return win ? win->_maxx : ERR;
 }
 
 void setsyx(int y, int x)
 {
-    PDC_LOG(("setsyx() - called\n"));
-
     if (curscr)
     {
         curscr->_leaveit = y == -1 || x == -1;

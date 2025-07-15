@@ -1,7 +1,6 @@
 /* PDCursesMod */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -62,16 +61,11 @@ insch
 
 **man-end****************************************************************/
 
-#include <string.h>
-
 int winsch(WINDOW *win, chtype ch)
 {
     int x, y;
     chtype attr;
     bool xlat;
-
-    PDC_LOG(("winsch() - called: win=%p ch=%x (text=%c attr=0x%x)\n",
-             win, ch, ch & A_CHARTEXT, ch & A_ATTRIBUTES));
 
     assert( win);
     if (!win)
@@ -170,15 +164,11 @@ int winsch(WINDOW *win, chtype ch)
 
 int insch(chtype ch)
 {
-    PDC_LOG(("insch() - called\n"));
-
     return winsch(stdscr, ch);
 }
 
 int mvinsch(int y, int x, chtype ch)
 {
-    PDC_LOG(("mvinsch() - called\n"));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -187,8 +177,6 @@ int mvinsch(int y, int x, chtype ch)
 
 int mvwinsch(WINDOW *win, int y, int x, chtype ch)
 {
-    PDC_LOG(("mvwinsch() - called\n"));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
@@ -197,10 +185,6 @@ int mvwinsch(WINDOW *win, int y, int x, chtype ch)
 
 int winsrawch(WINDOW *win, chtype ch)
 {
-    PDC_LOG(("winsrawch() - called: win=%p ch=%x "
-             "(char=%c attr=0x%x)\n", win, ch,
-             ch & A_CHARTEXT, ch & A_ATTRIBUTES));
-
     if ((ch & A_CHARTEXT) < ' ' || (ch & A_CHARTEXT) == 0x7f)
         ch |= A_ALTCHARSET;
 
@@ -209,15 +193,11 @@ int winsrawch(WINDOW *win, chtype ch)
 
 int insrawch(chtype ch)
 {
-    PDC_LOG(("insrawch() - called\n"));
-
     return winsrawch(stdscr, ch);
 }
 
 int mvinsrawch(int y, int x, chtype ch)
 {
-    PDC_LOG(("mvinsrawch() - called\n"));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -226,19 +206,14 @@ int mvinsrawch(int y, int x, chtype ch)
 
 int mvwinsrawch(WINDOW *win, int y, int x, chtype ch)
 {
-    PDC_LOG(("mvwinsrawch() - called\n"));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
     return winsrawch(win, ch);
 }
 
-#ifdef PDC_WIDE
 int wins_wch(WINDOW *win, const cchar_t *wch)
 {
-    PDC_LOG(("wins_wch() - called\n"));
-
     assert( win);
     assert( wch);
     return wch ? winsch(win, *wch) : ERR;
@@ -246,15 +221,11 @@ int wins_wch(WINDOW *win, const cchar_t *wch)
 
 int ins_wch(const cchar_t *wch)
 {
-    PDC_LOG(("ins_wch() - called\n"));
-
     return wins_wch(stdscr, wch);
 }
 
 int mvins_wch(int y, int x, const cchar_t *wch)
 {
-    PDC_LOG(("mvins_wch() - called\n"));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -263,11 +234,8 @@ int mvins_wch(int y, int x, const cchar_t *wch)
 
 int mvwins_wch(WINDOW *win, int y, int x, const cchar_t *wch)
 {
-    PDC_LOG(("mvwins_wch() - called\n"));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
     return wins_wch(win, wch);
 }
-#endif

@@ -2,7 +2,6 @@
 
 #include <curspriv.h>
 #include <panel.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -99,8 +98,6 @@ initscr
 
 **man-end****************************************************************/
 
-#include <stdlib.h>
-
 char ttytype[128];
 
 #if PDC_VER_MONTH == 1
@@ -185,7 +182,6 @@ SCREEN *newterm(const char *type, FILE *outfd, FILE *infd)
 {
     int lines_ripped_off_on_top;
 
-    PDC_LOG(("newterm() - called\n"));
     INTENTIONALLY_UNUSED_PARAMETER( type);
 
     if (SP && SP->alive)
@@ -318,24 +314,12 @@ SCREEN *newterm(const char *type, FILE *outfd, FILE *infd)
 
 WINDOW *initscr(void)
 {
-    PDC_LOG(("initscr() - called\n"));
     return( newterm( NULL, NULL, NULL) ? stdscr : NULL);
 }
-
-#ifdef XCURSES
-WINDOW *Xinitscr(int argc, char **argv)
-{
-    PDC_LOG(("Xinitscr() - called\n"));
-
-    PDC_set_args(argc, argv);
-    return initscr();
-}
-#endif
 
 int endwin(void)
 {
     SP->in_endwin = TRUE;
-    PDC_LOG(("endwin() - called\n"));
 
     /* Allow temporary exit from curses using endwin() */
 
@@ -351,16 +335,12 @@ int endwin(void)
 
 bool isendwin(void)
 {
-    PDC_LOG(("isendwin() - called\n"));
-
     assert( SP);
     return SP ? !(SP->alive) : FALSE;
 }
 
 SCREEN *set_term(SCREEN *new_scr)
 {
-    PDC_LOG(("set_term() - called\n"));
-
     /* We only support one screen */
 
     return (new_scr == SP) ? SP : NULL;
@@ -370,13 +350,10 @@ void delscreen(SCREEN *sp)
 {
     int i = 0;
 
-    PDC_LOG(("delscreen() - called\n"));
-
     assert( SP && sp == SP);
     if (!SP || sp != SP)
         return;
 
-    traceoff( );
     free(SP->c_ungch);
     free(SP->c_buffer);
 
@@ -410,8 +387,6 @@ void delscreen(SCREEN *sp)
 int resize_term(int nlines, int ncols)
 {
     PANEL *panel_ptr = NULL;
-
-    PDC_LOG(("resize_term() - called: nlines %d\n", nlines));
 
     if( PDC_resize_screen(nlines, ncols) == ERR)
         return ERR;
@@ -466,8 +441,6 @@ int resize_term(int nlines, int ncols)
 
 bool is_termresized(void)
 {
-    PDC_LOG(("is_termresized() - called\n"));
-
     return SP->resized;
 }
 
@@ -484,23 +457,7 @@ void PDC_get_version(PDC_VERSION *ver)
     if (!ver)
         return;
 
-    ver->flags = 0
-#ifdef PDCDEBUG
-        | PDC_VFLAG_DEBUG
-#endif
-#ifdef PDC_WIDE
-        | PDC_VFLAG_WIDE
-#endif
-#ifdef PDC_FORCE_UTF8
-        | PDC_VFLAG_UTF8
-#endif
-#ifdef PDC_DLL_BUILD
-        | PDC_VFLAG_DLL
-#endif
-#ifdef PDC_RGB
-        | PDC_VFLAG_RGB
-#endif
-        ;
+    ver->flags = PDC_VFLAG_WIDE | PDC_VFLAG_UTF8;
 
     ver->build = PDC_BUILD;
     ver->major = PDC_VER_MAJOR;
@@ -513,12 +470,9 @@ void PDC_get_version(PDC_VERSION *ver)
 
 int set_tabsize(int tabsize)
 {
-    PDC_LOG(("set_tabsize() - called: tabsize %d\n", tabsize));
-
     if (tabsize < 1)
         return ERR;
 
     TABSIZE = tabsize;
-
     return OK;
 }

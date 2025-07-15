@@ -1,7 +1,6 @@
 /* PDCurses */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -140,14 +139,10 @@ mouse
 
 **man-end****************************************************************/
 
-#include <string.h>
-
 static bool ungot = FALSE;
 
 int mouse_set(mmask_t mbe)
 {
-    PDC_LOG(("mouse_set() - called: event %x\n", mbe));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -158,8 +153,6 @@ int mouse_set(mmask_t mbe)
 
 int mouse_on(mmask_t mbe)
 {
-    PDC_LOG(("mouse_on() - called: event %x\n", mbe));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -170,8 +163,6 @@ int mouse_on(mmask_t mbe)
 
 int mouse_off(mmask_t mbe)
 {
-    PDC_LOG(("mouse_off() - called: event %x\n", mbe));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -182,17 +173,12 @@ int mouse_off(mmask_t mbe)
 
 int request_mouse_pos(void)
 {
-    PDC_LOG(("request_mouse_pos() - called\n"));
-
     Mouse_status = SP->mouse_status;
-
     return OK;
 }
 
 void wmouse_position(WINDOW *win, int *y, int *x)
 {
-    PDC_LOG(("wmouse_position() - called\n"));
-
     if (win && wenclose(win, MOUSE_Y_POS, MOUSE_X_POS))
     {
         if (y)
@@ -211,8 +197,6 @@ void wmouse_position(WINDOW *win, int *y, int *x)
 
 mmask_t getmouse(void)
 {
-    PDC_LOG(("getmouse() - called\n"));
-
     assert( SP);
     return SP ? SP->_trap_mbe : (mmask_t)0;
 }
@@ -224,8 +208,6 @@ const int max_mouse_interval = 32767;        /* 32.767 seconds */
 int mouseinterval(int wait)
 {
     int old_wait;
-
-    PDC_LOG(("mouseinterval() - called: %d\n", wait));
 
     if (!SP)
         return max_mouse_interval;
@@ -240,8 +222,6 @@ int mouseinterval(int wait)
 
 bool wenclose(const WINDOW *win, int y, int x)
 {
-    PDC_LOG(("wenclose() - called: %p %d %d\n", win, y, x));
-
     assert( win);
     return (win && y >= win->_begy && y < win->_begy + win->_maxy
                 && x >= win->_begx && x < win->_begx + win->_maxx);
@@ -250,8 +230,6 @@ bool wenclose(const WINDOW *win, int y, int x)
 bool wmouse_trafo(const WINDOW *win, int *y, int *x, bool to_screen)
 {
     int newy, newx;
-
-    PDC_LOG(("wmouse_trafo() - called\n"));
 
     assert( win);
     assert( x);
@@ -289,8 +267,6 @@ bool wmouse_trafo(const WINDOW *win, int *y, int *x, bool to_screen)
 
 bool mouse_trafo(int *y, int *x, bool to_screen)
 {
-    PDC_LOG(("mouse_trafo() - called\n"));
-
     return wmouse_trafo(stdscr, y, x, to_screen);
 }
 
@@ -300,8 +276,6 @@ bool mouse_trafo(int *y, int *x, bool to_screen)
 
 mmask_t mousemask(mmask_t mask, mmask_t *oldmask)
 {
-    PDC_LOG(("mousemask() - called\n"));
-
     assert( SP);
     if (!SP)
         return (mmask_t)0;
@@ -336,8 +310,6 @@ int nc_getmouse(MEVENT *event)
 {
     int i;
     mmask_t bstate = 0;
-
-    PDC_LOG(("nc_getmouse() - called\n"));
 
     assert( SP);
     assert( event);
@@ -406,8 +378,6 @@ int ungetmouse(MEVENT *event)
 {
     int i;
     mmask_t bstate;
-
-    PDC_LOG(("ungetmouse() - called\n"));
 
     assert( event);
     if (!event || ungot)

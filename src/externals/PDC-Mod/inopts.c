@@ -1,7 +1,6 @@
 /* PDCursesMod */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -163,8 +162,6 @@ inopts
 
 int cbreak(void)
 {
-    PDC_LOG(("cbreak() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -176,8 +173,6 @@ int cbreak(void)
 
 int nocbreak(void)
 {
-    PDC_LOG(("nocbreak() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -190,31 +185,23 @@ int nocbreak(void)
 
 bool PDC_getcbreak(void)
 {
-    PDC_LOG(("PDC_getcbreak() - called\n"));
-
     assert( SP);
     return( SP->cbreak);
 }
 
 int is_cbreak(void)
 {
-    PDC_LOG(("is_cbreak() - called\n"));
-
     return( SP ? SP->cbreak : -1);
 }
 
 int is_echo(void)
 {
-    PDC_LOG(("is_echo() - called\n"));
-
     return( SP ? SP->echo : -1);
 }
 
 
 int echo(void)
 {
-    PDC_LOG(("echo() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -226,8 +213,6 @@ int echo(void)
 
 int noecho(void)
 {
-    PDC_LOG(("noecho() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -239,16 +224,12 @@ int noecho(void)
 
 bool PDC_getecho(void)
 {
-    PDC_LOG(("PDC_getecho() - called\n"));
-
     assert( SP);
     return( SP->echo);
 }
 
 int halfdelay(int tenths)
 {
-    PDC_LOG(("halfdelay() - called\n"));
-
     assert( SP);
     if (!SP || tenths < 1 || tenths > 255)
         return ERR;
@@ -260,8 +241,6 @@ int halfdelay(int tenths)
 
 int intrflush(WINDOW *win, bool bf)
 {
-    PDC_LOG(("intrflush() - called\n"));
-
     INTENTIONALLY_UNUSED_PARAMETER( win);
     INTENTIONALLY_UNUSED_PARAMETER( bf);
     return OK;
@@ -269,8 +248,6 @@ int intrflush(WINDOW *win, bool bf)
 
 int keypad(WINDOW *win, bool bf)
 {
-    PDC_LOG(("keypad() - called\n"));
-
     assert( win);
     if (!win)
         return ERR;
@@ -282,8 +259,6 @@ int keypad(WINDOW *win, bool bf)
 
 int meta(WINDOW *win, bool bf)
 {
-    PDC_LOG(("meta() - called\n"));
-
     INTENTIONALLY_UNUSED_PARAMETER( win);
     assert( SP);
     if (!SP)
@@ -296,8 +271,6 @@ int meta(WINDOW *win, bool bf)
 
 int nl(void)
 {
-    PDC_LOG(("nl() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -309,8 +282,6 @@ int nl(void)
 
 int nonl(void)
 {
-    PDC_LOG(("nonl() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -322,15 +293,11 @@ int nonl(void)
 
 int is_nl(void)
 {
-    PDC_LOG(("is_nl() - called\n"));
-
     return( SP ? SP->autocr : -1);
 }
 
 int nodelay(WINDOW *win, bool flag)
 {
-    PDC_LOG(("nodelay() - called\n"));
-
     assert( win);
     if (!win)
         return ERR;
@@ -342,8 +309,6 @@ int nodelay(WINDOW *win, bool flag)
 
 int notimeout(WINDOW *win, bool flag)
 {
-    PDC_LOG(("notimeout() - called\n"));
-
     INTENTIONALLY_UNUSED_PARAMETER( win);
     INTENTIONALLY_UNUSED_PARAMETER( flag);
     return OK;
@@ -351,8 +316,6 @@ int notimeout(WINDOW *win, bool flag)
 
 int wgetdelay(const WINDOW *win)
 {
-    PDC_LOG(("wgetdelay() - called\n"));
-
     assert( win);
     if (!win)
         return 0;
@@ -362,8 +325,6 @@ int wgetdelay(const WINDOW *win)
 
 int raw(void)
 {
-    PDC_LOG(("raw() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -376,8 +337,6 @@ int raw(void)
 
 int noraw(void)
 {
-    PDC_LOG(("noraw() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -390,33 +349,25 @@ int noraw(void)
 
 int is_raw(void)
 {
-    PDC_LOG(("is_raw() - called\n"));
-
     return( SP ? SP->raw_inp : -1);
 }
 
 void noqiflush(void)
 {
-    PDC_LOG(("noqiflush() - called\n"));
 }
 
 void qiflush(void)
 {
-    PDC_LOG(("qiflush() - called\n"));
 }
 
 int typeahead(int fildes)
 {
     INTENTIONALLY_UNUSED_PARAMETER( fildes);
-    PDC_LOG(("typeahead() - called\n"));
-
     return OK;
 }
 
 void wtimeout(WINDOW *win, int delay)
 {
-    PDC_LOG(("wtimeout() - called\n"));
-
     assert( win);
     if (!win)
         return;
@@ -450,29 +401,21 @@ void wtimeout(WINDOW *win, int delay)
 
 void timeout(int delay)
 {
-    PDC_LOG(("timeout() - called\n"));
-
     wtimeout(stdscr, delay);
 }
 
 int crmode(void)
 {
-    PDC_LOG(("crmode() - called\n"));
-
     return cbreak();
 }
 
 int nocrmode(void)
 {
-    PDC_LOG(("nocrmode() - called\n"));
-
     return nocbreak();
 }
 
 bool is_keypad(const WINDOW *win)
 {
-    PDC_LOG(("is_keypad() - called\n"));
-
     assert( win);
     if (!win)
         return FALSE;
@@ -482,8 +425,6 @@ bool is_keypad(const WINDOW *win)
 
 bool is_nodelay(const WINDOW *win)
 {
-    PDC_LOG(("is_nodelay() - called\n"));
-
     assert( win);
     if (!win)
         return FALSE;
@@ -493,10 +434,7 @@ bool is_nodelay(const WINDOW *win)
 
 bool is_notimeout(const WINDOW *win)
 {
-    PDC_LOG(("is_notimeout() - called - returning FALSE...\n"));
-
     assert( win);
     INTENTIONALLY_UNUSED_PARAMETER( win);
-
     return FALSE;
 }

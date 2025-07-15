@@ -8,10 +8,7 @@ int PDC_get_cursor_mode(void)
 {
     CONSOLE_CURSOR_INFO ci;
 
-    PDC_LOG(("PDC_get_cursor_mode() - called\n"));
-
     GetConsoleCursorInfo(pdc_con_out, &ci);
-
     return ci.dwSize;
 }
 
@@ -21,10 +18,7 @@ int PDC_get_rows(void)
 {
     CONSOLE_SCREEN_BUFFER_INFO scr;
 
-    PDC_LOG(("PDC_get_rows() - called\n"));
-
     GetConsoleScreenBufferInfo(pdc_con_out, &scr);
-
     return scr.srWindow.Bottom - scr.srWindow.Top + 1;
 }
 
@@ -34,9 +28,6 @@ int PDC_get_columns(void)
 {
     CONSOLE_SCREEN_BUFFER_INFO scr;
 
-    PDC_LOG(("PDC_get_columns() - called\n"));
-
     GetConsoleScreenBufferInfo(pdc_con_out, &scr);
-
     return scr.srWindow.Right - scr.srWindow.Left + 1;
 }

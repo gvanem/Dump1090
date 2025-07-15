@@ -1,8 +1,6 @@
 /* PDCurses */
 
 #include <curspriv.h>
-#include <assert.h>
-#include <string.h>
 
 /*man-start**************************************************************
 
@@ -101,14 +99,10 @@ int wscrl(WINDOW *win, int n)
 
 int scrl(int n)
 {
-    PDC_LOG(("scrl() - called\n"));
-
     return wscrl(stdscr, n);
 }
 
 int scroll(WINDOW *win)
 {
-    PDC_LOG(("scroll() - called\n"));
-
     return wscrl(win, 1);
 }

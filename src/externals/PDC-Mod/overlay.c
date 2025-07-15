@@ -1,7 +1,6 @@
 /* PDCurses */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -51,9 +50,9 @@ overlay
 /* Thanks to Andreas Otte <venn@@uni-paderborn.de> for the
    corrected overlay()/overwrite() behavior. */
 
-static int _copy_win(const WINDOW *src_w, WINDOW *dst_w, int src_tr,
-                     int src_tc, int src_br, int src_bc, int dst_tr,
-                     int dst_tc, bool _overlay)
+static int _copy_win (const WINDOW *src_w, WINDOW *dst_w, int src_tr,
+                      int src_tc, int src_br, int src_bc, int dst_tr,
+                      int dst_tc, bool _overlay)
 {
     int col, line, y1, fc;
     chtype *w1ptr, *w2ptr;
@@ -103,7 +102,7 @@ static int _copy_win(const WINDOW *src_w, WINDOW *dst_w, int src_tr,
     return OK;
 }
 
-int _copy_overlap(const WINDOW *src_w, WINDOW *dst_w, bool overlay)
+int _copy_overlap (const WINDOW *src_w, WINDOW *dst_w, bool overlay)
 {
     int first_line, first_col, last_line, last_col;
     int src_start_x, src_start_y, dst_start_x, dst_start_y;
@@ -162,26 +161,20 @@ int _copy_overlap(const WINDOW *src_w, WINDOW *dst_w, bool overlay)
 
 int overlay(const WINDOW *src_w, WINDOW *dst_w)
 {
-    PDC_LOG(("overlay() - called\n"));
-
     return _copy_overlap(src_w, dst_w, TRUE);
 }
 
 int overwrite(const WINDOW *src_w, WINDOW *dst_w)
 {
-    PDC_LOG(("overwrite() - called\n"));
-
     return _copy_overlap(src_w, dst_w, FALSE);
 }
 
-int copywin(const WINDOW *src_w, WINDOW *dst_w, int src_tr, int src_tc,
-            int dst_tr, int dst_tc, int dst_br, int dst_bc, int _overlay)
+int copywin (const WINDOW *src_w, WINDOW *dst_w, int src_tr, int src_tc,
+             int dst_tr, int dst_tc, int dst_br, int dst_bc, int _overlay)
 {
     int src_end_x, src_end_y;
     int src_rows, src_cols, dst_rows, dst_cols;
     int min_rows, min_cols;
-
-    PDC_LOG(("copywin() - called\n"));
 
     assert( src_w);
     assert( dst_w);

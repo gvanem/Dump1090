@@ -128,8 +128,6 @@ int touchwin(WINDOW *win)
 {
     int i;
 
-    PDC_LOG(("touchwin() - called: Win=%x\n", win));
-
     assert( win);
     if (!win)
         return ERR;
@@ -143,9 +141,6 @@ int touchwin(WINDOW *win)
 int touchline(WINDOW *win, int start, int count)
 {
     int i;
-
-    PDC_LOG(("touchline() - called: win=%p start %d count %d\n",
-             win, start, count));
 
     assert( win && count > 0 && start >= 0 && start + count <= win->_maxy);
     if (!win || count <= 0 || start < 0 || start + count > win->_maxy)
@@ -161,8 +156,6 @@ int untouchwin(WINDOW *win)
 {
     int i;
 
-    PDC_LOG(("untouchwin() - called: win=%p", win));
-
     assert( win);
     if (!win)
         return ERR;
@@ -176,9 +169,6 @@ int untouchwin(WINDOW *win)
 int wtouchln(WINDOW *win, int y, int n, int changed)
 {
     int i;
-
-    PDC_LOG(("wtouchln() - called: win=%p y=%d n=%d changed=%d\n",
-             win, y, n, changed));
 
     assert( win && n >= 0 && y + n <= win->_maxy);
     if (!win || n < 0 || y + n > win->_maxy)
@@ -197,8 +187,6 @@ int wtouchln(WINDOW *win, int y, int n, int changed)
 
 bool is_linetouched(WINDOW *win, int line)
 {
-    PDC_LOG(("is_linetouched() - called: win=%p line=%d\n", win, line));
-
     assert( win && line < win->_maxy && line >= 0);
     if (!win || line >= win->_maxy || line < 0)
         return FALSE;
@@ -209,8 +197,6 @@ bool is_linetouched(WINDOW *win, int line)
 bool is_wintouched(WINDOW *win)
 {
     int i;
-
-    PDC_LOG(("is_wintouched() - called: win=%p\n", win));
 
     assert( win);
     if (win)
@@ -224,8 +210,6 @@ bool is_wintouched(WINDOW *win)
 int touchoverlap(const WINDOW *win1, WINDOW *win2)
 {
     int y, endy, endx, starty, startx;
-
-    PDC_LOG(("touchoverlap() - called: win1=%p win2=%p\n", win1, win2));
 
     assert( win1);
     assert( win2);

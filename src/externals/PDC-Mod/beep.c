@@ -1,7 +1,6 @@
 /* PDCursesMod */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -36,25 +35,19 @@ beep
 
 int beep(void)
 {
-    PDC_LOG(("beep() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
 
     if (SP->audible)
-        PDC_beep();
-    else
-        flash();
-
+         PDC_beep();
+    else flash();
     return OK;
 }
 
 int flash(void)
 {
     int z, y, x;
-
-    PDC_LOG(("flash() - called\n"));
 
     assert( curscr);
     if (!curscr)
@@ -69,10 +62,8 @@ int flash(void)
                 curscr->_y[y][x] ^= A_REVERSE;
 
         wrefresh(curscr);
-
         if (!z)
             napms(50);
     }
-
     return OK;
 }

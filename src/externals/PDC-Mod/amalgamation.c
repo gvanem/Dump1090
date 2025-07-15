@@ -7,15 +7,8 @@
 #include <windows.h>
 
 #define PDC_99 1
-
-/* Other possible defines:
- *   #define PDC_WIDE
- *   #define PDC_RGB
- *   #define PDC_FORCE_UTF8
- *   #define PDCDEBUG
- */
-#undef PDC_NCMOUSE
-#undef MOUSE_MOVED
+#undef  PDC_NCMOUSE
+#undef  MOUSE_MOVED
 
 #include "addch.c"
 #include "addstr.c"
@@ -29,7 +22,8 @@
 #include "initscr.c"
 #include "inopts.c"
 #include "kernel.c"
-#include "mouse2.c"
+#include "mouse.c"       /* From '$(PDC-MOD-ROOT)/common/mouse.c */
+#include "mouse2.c"      /* From '$(PDC-MOD-ROOT)/pdcurses/mouse.c */
 #include "move.c"
 #include "outopts.c"
 #include "overlay.c"
@@ -50,6 +44,5 @@
 #include "util.c"
 #include "winclip.c"
 #include "window.c"
-#include "debug.c"
 
 #pragma comment (lib, "winmm.lib")

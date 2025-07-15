@@ -2,8 +2,6 @@
 
 #include "pdcwin.h"
 
-#include <stdlib.h>
-
 /* Color component table */
 
 PDCCOLOR pdc_color[PDC_MAXCOL];
@@ -73,22 +71,6 @@ static struct
     WCHAR    ConsoleTitle[0x100];
 } console_info;
 
-#ifdef HAVE_NO_INFOEX
-/* Console screen buffer information (extended version) */
-typedef struct _CONSOLE_SCREEN_BUFFER_INFOEX {
-    ULONG       cbSize;
-    COORD       dwSize;
-    COORD       dwCursorPosition;
-    WORD        wAttributes;
-    SMALL_RECT  srWindow;
-    COORD       dwMaximumWindowSize;
-    WORD        wPopupAttributes;
-    BOOL        bFullscreenSupported;
-    COLORREF    ColorTable[16];
-} CONSOLE_SCREEN_BUFFER_INFOEX;
-typedef CONSOLE_SCREEN_BUFFER_INFOEX    *PCONSOLE_SCREEN_BUFFER_INFOEX;
-#endif
-
 typedef BOOL (WINAPI *SetConsoleScreenBufferInfoExFn) (HANDLE, CONSOLE_SCREEN_BUFFER_INFOEX *);
 typedef BOOL (WINAPI *GetConsoleScreenBufferInfoExFn) (HANDLE, CONSOLE_SCREEN_BUFFER_INFOEX *);
 
@@ -106,11 +88,7 @@ static DWORD old_console_mode = 0;
 on any MSVC after that (_MSC_VER > 1310),  is_nt is going to be true
 no matter what.  */
 
-#if defined(_MSC_VER) && _MSC_VER > 1310
-   const bool is_nt = TRUE;
-#else
-   static bool is_nt;
-#endif
+const bool is_nt = TRUE;
 
 static void _reset_old_colors(void)
 {
@@ -342,8 +320,6 @@ static BOOL WINAPI _ctrl_break(DWORD dwCtrlType)
 
 void PDC_scr_close(void)
 {
-    PDC_LOG(("PDC_scr_close() - called\n"));
-
     if (SP->visibility != 1)
         curs_set(1);
 
@@ -392,8 +368,6 @@ int PDC_scr_open(void)
     BOOL result;
     int i;
 
-    PDC_LOG(("PDC_scr_open() - called\n"));
-
     for (i = 0; i < 16; i++)
     {
         pdc_curstoreal[realtocurs[i]] = (short)i;
@@ -411,18 +385,10 @@ int PDC_scr_open(void)
         exit(1);
     }
 
-#if !defined(_MSC_VER) || _MSC_VER <= 1310
-    is_nt = !(GetVersion() & 0x80000000);
-#endif
-
     pdc_wt = !!getenv("WT_SESSION");
     str = pdc_wt ? NULL : getenv("ConEmuANSI");
     pdc_conemu = !!str;
-    pdc_ansi =
-#ifdef PDC_WIDE
-        pdc_wt ? TRUE :
-#endif
-        pdc_conemu ? !strcmp(str, "ON") : FALSE;
+    pdc_ansi = pdc_wt ? TRUE : pdc_conemu ? !strcmp(str, "ON") : FALSE;
 
     GetConsoleScreenBufferInfo(pdc_con_out, &csbi);
     GetConsoleScreenBufferInfo(pdc_con_out, &orig_scr);
@@ -459,8 +425,6 @@ int PDC_scr_open(void)
 
         if (pdc_con_out == INVALID_HANDLE_VALUE)
         {
-            PDC_LOG(("PDC_scr_open() - screen buffer failure\n"));
-
             pdc_con_out = std_con_out;
         }
         else
@@ -584,8 +548,6 @@ int PDC_resize_screen(int nlines, int ncols)
 
 void PDC_reset_prog_mode(void)
 {
-    PDC_LOG(("PDC_reset_prog_mode() - called.\n"));
-
     if (pdc_con_out != std_con_out)
         SetConsoleActiveScreenBuffer(pdc_con_out);
     else if (is_nt)
@@ -611,8 +573,6 @@ void PDC_reset_prog_mode(void)
 
 void PDC_reset_shell_mode(void)
 {
-    PDC_LOG(("PDC_reset_shell_mode() - called.\n"));
-
     if (pdc_con_out != std_con_out)
         SetConsoleActiveScreenBuffer(std_con_out);
     else if (is_nt)
@@ -713,8 +673,8 @@ int PDC_init_color(int color, int red, int green, int blue)
 /* Does nothing in the Win32 flavor of PDCurses.  Included solely because
 without this,  we get an unresolved external... */
 
-void PDC_set_resize_limits( const int new_min_lines, const int new_max_lines,
-                  const int new_min_cols, const int new_max_cols)
+void PDC_set_resize_limits (const int new_min_lines, const int new_max_lines,
+                            const int new_min_cols, const int new_max_cols)
 {
     INTENTIONALLY_UNUSED_PARAMETER( new_min_lines);
     INTENTIONALLY_UNUSED_PARAMETER( new_max_lines);

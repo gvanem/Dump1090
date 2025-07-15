@@ -1,7 +1,6 @@
 /* PDCursesMod */
 
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -57,8 +56,6 @@ deleteln
 
 int wdeleteln(WINDOW *win)
 {
-    PDC_LOG(("wdeleteln() - called\n"));
-
     assert( win);
     if (!win)
         return ERR;
@@ -68,15 +65,11 @@ int wdeleteln(WINDOW *win)
 
 int deleteln(void)
 {
-    PDC_LOG(("deleteln() - called\n"));
-
     return wdeleteln(stdscr);
 }
 
 int mvdeleteln(int y, int x)
 {
-    PDC_LOG(("mvdeleteln() - called\n"));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -85,8 +78,6 @@ int mvdeleteln(int y, int x)
 
 int mvwdeleteln(WINDOW *win, int y, int x)
 {
-    PDC_LOG(("mvwdeleteln() - called\n"));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
@@ -95,8 +86,6 @@ int mvwdeleteln(WINDOW *win, int y, int x)
 
 int winsdelln(WINDOW *win, int n)
 {
-    PDC_LOG(("winsdelln() - called\n"));
-
     assert( win);
     if (!win)
         return ERR;
@@ -105,15 +94,11 @@ int winsdelln(WINDOW *win, int n)
 
 int insdelln(int n)
 {
-    PDC_LOG(("insdelln() - called\n"));
-
     return winsdelln(stdscr, n);
 }
 
 int winsertln(WINDOW *win)
 {
-    PDC_LOG(("winsertln() - called\n"));
-
     assert( win);
     if (!win)
         return ERR;
@@ -123,15 +108,11 @@ int winsertln(WINDOW *win)
 
 int insertln(void)
 {
-    PDC_LOG(("insertln() - called\n"));
-
     return winsertln(stdscr);
 }
 
 int mvinsertln(int y, int x)
 {
-    PDC_LOG(("mvinsertln() - called\n"));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -140,8 +121,6 @@ int mvinsertln(int y, int x)
 
 int mvwinsertln(WINDOW *win, int y, int x)
 {
-    PDC_LOG(("mvwinsertln() - called\n"));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 

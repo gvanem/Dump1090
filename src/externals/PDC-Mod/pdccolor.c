@@ -6,14 +6,12 @@ and/or the Plan9 platform,  all of which have full color capability.
 It will presumably never be useful for the DOS or OS/2 platforms.
 See 'pdccolor.txt' for a rationale of how this works. */
 
-   #include <stdlib.h>
-   #include <assert.h>
+#include <stdlib.h>
+#include <assert.h>
 
 #define PACKED_RGB uint32_t
 
-#ifndef PACK_RGB
-   #define PACK_RGB( red, green, blue) ((red) | ((green)<<8) | ((PACKED_RGB)(blue) << 16))
-#endif
+#define PACK_RGB( red, green, blue) ((red) | ((green)<<8) | ((PACKED_RGB)(blue) << 16))
 
 #include <curspriv.h>
 #include "pdccolor.h"
@@ -179,6 +177,7 @@ void PDC_get_rgb_values( const chtype srcp,
         default_foreground = TRUE;
     else
         *foreground_rgb = PDC_get_palette_entry( foreground_index);
+
     if( background_index < 0 && SP->orig_attr)
         default_background = TRUE;
     else

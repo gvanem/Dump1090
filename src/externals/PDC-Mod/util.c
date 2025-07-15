@@ -1,7 +1,8 @@
 /* PDCursesMod */
 
 #include <curspriv.h>
-#include <assert.h>
+#include <string.h>
+#include <stdlib.h>
 
 /*man-start**************************************************************
 
@@ -81,21 +82,11 @@ util
 
 **man-end****************************************************************/
 
-#ifdef PDC_WIDE
-# ifdef PDC_FORCE_UTF8
-#  include <string.h>
-# else
-#  include <stdlib.h>
-# endif
-#endif
-
 char *unctrl(chtype c)
 {
     static char strbuf[3] = {0, 0, 0};
 
     chtype ic;
-
-    PDC_LOG(("unctrl() - called\n"));
 
     ic = c & A_CHARTEXT;
 
@@ -118,19 +109,15 @@ char *unctrl(chtype c)
 
 void filter(void)
 {
-    PDC_LOG(("filter() - called\n"));
 }
 
 void use_env(bool x)
 {
     INTENTIONALLY_UNUSED_PARAMETER( x);
-    PDC_LOG(("use_env() - called: x %d\n", x));
 }
 
 int delay_output(int ms)
 {
-    PDC_LOG(("delay_output() - called: ms %d\n", ms));
-
     return napms(ms);
 }
 
@@ -182,12 +169,8 @@ int PDC_wc_to_utf8( char *dest, const int32_t code)
    return( n_bytes_out);
 }
 
-#ifdef PDC_WIDE
-
-         /* I think that only under Windows is wchar_t 16 bits. */
-#ifdef _WIN32
-   #define WCHAR_T_IS_16_BITS
-#endif
+/* I think that only under Windows is wchar_t 16 bits. */
+#define WCHAR_T_IS_16_BITS
 
    /* This expands a string of wchar_t values,  possibly including surrogate
    pairs,  into an array of int32_t Unicode points.  The output array will
@@ -241,18 +224,12 @@ static int _int32_to_wchar_array( wchar_t *obuff, const int obuffsize, const int
 
     if( !obuff)         /* just getting the size of the output array */
     {
-#ifdef WCHAR_T_IS_16_BITS
         while( *wint)
             i += 1 + (*wint++ >= 0x10000 ? 1 : 0);
-#else
-        while( *wint++)
-            i++;
-#endif
         return( i + 1);    /* include the '\0' terminator */
     }
     while( i < obuffsize && *wint)
     {
-#ifdef WCHAR_T_IS_16_BITS
         if( *wint >= 0x10000)    /* make surrogate pair */
         {
             obuff[i++] = (wchar_t)( 0xd800 + (*wint >> 10));
@@ -261,7 +238,6 @@ static int _int32_to_wchar_array( wchar_t *obuff, const int obuffsize, const int
             wint++;
         }
         else
-#endif
             obuff[i++] = (wchar_t)*wint++;
     }
     if( i < obuffsize)
@@ -271,12 +247,10 @@ static int _int32_to_wchar_array( wchar_t *obuff, const int obuffsize, const int
     return( i);
 }
 
-#ifdef USING_COMBINING_CHARACTER_SCHEME
-   int PDC_expand_combined_characters( const cchar_t c, cchar_t *added);
-   int PDC_find_combined_char_idx( const cchar_t root, const cchar_t added);
+int PDC_expand_combined_characters( const cchar_t c, cchar_t *added);
+int PDC_find_combined_char_idx( const cchar_t root, const cchar_t added);
 
-   #define COMBINED_CHAR_START          (MAX_UNICODE + 1)
-#endif
+#define COMBINED_CHAR_START          (MAX_UNICODE + 1)
 
 int getcchar(const cchar_t *wcval, wchar_t *wch, attr_t *attrs,
              short *color_pair, void *opts)
@@ -288,10 +262,11 @@ int getcchar(const cchar_t *wcval, wchar_t *wch, attr_t *attrs,
     if (!wcval)
         return ERR;
     c[0] = (int32_t)( *wcval & A_CHARTEXT);
-            /* TODO: if c[0] == 0x110000,  it's a placeholder with a
-            fullwidth character to its left.  If c[0] > 0x110001,  it's
-            a marker for a combining character string. */
-#ifdef USING_COMBINING_CHARACTER_SCHEME
+
+    /* TODO: if c[0] == 0x110000,  it's a placeholder with a
+       fullwidth character to its left.  If c[0] > 0x110001,  it's
+       a marker for a combining character string.
+     */
     while( n < 10 && c[n] >= COMBINED_CHAR_START)
     {
         cchar_t added;
@@ -300,7 +275,6 @@ int getcchar(const cchar_t *wcval, wchar_t *wch, attr_t *attrs,
         c[n] = (int32_t)added;
         n++;
     }
-#endif
     c[++n] = 0;
     if( !wch)
         return( c[0] ? _int32_to_wchar_array( NULL, 0, c) : -1);
@@ -333,23 +307,22 @@ int setcchar(cchar_t *wcval, const wchar_t *wch, const attr_t attrs,
              short color_pair, const void *opts)
 {
     int32_t ochar[20], rval;
-#ifdef USING_COMBINING_CHARACTER_SCHEME
     int i;
-#endif
 
     const int integer_color_pair = (opts ? *(int *)opts : (int)color_pair);
     assert( wcval);
     assert( wch);
     if (!wcval || !wch)
         return ERR;
+
     _wchar_to_int32_array( ochar, 20, wch);
     rval = ochar[0];
-         /* If len_out > 1,  we have combining characters.  See */
-         /* 'addch.c' for a discussion of how we handle those.  */
-#ifdef USING_COMBINING_CHARACTER_SCHEME
+
+    /* If len_out > 1,  we have combining characters.  See
+     * 'addch.c' for a discussion of how we handle those.
+     */
     for( i = 1; ochar[i]; i++)
         rval = COMBINED_CHAR_START + PDC_find_combined_char_idx( rval, ochar[i]);
-#endif
     *wcval = rval | attrs | COLOR_PAIR(integer_color_pair);
     return OK;
 }
@@ -359,8 +332,6 @@ wchar_t *wunctrl(cchar_t *wc)
     static wchar_t strbuf[3] = {0, 0, 0};
 
     cchar_t ic;
-
-    PDC_LOG(("wunctrl() - called\n"));
 
     assert( wc);
     if (!wc)
@@ -389,7 +360,6 @@ wchar_t *wunctrl(cchar_t *wc)
 
 int PDC_mbtowc(wchar_t *pwc, const char *s, size_t n)
 {
-# ifdef PDC_FORCE_UTF8
     uint32_t key;
     int i = -1;
     const unsigned char *string;
@@ -439,16 +409,10 @@ int PDC_mbtowc(wchar_t *pwc, const char *s, size_t n)
        *pwc = (wchar_t)key;
 
     return i;
-# else
-    assert( s);
-    assert( pwc);
-    return mbtowc(pwc, s, n);
-# endif
 }
 
 size_t PDC_mbstowcs(wchar_t *dest, const char *src, size_t n)
 {
-# ifdef PDC_FORCE_UTF8
     size_t i = 0, len;
 
     assert( src);
@@ -469,16 +433,12 @@ size_t PDC_mbstowcs(wchar_t *dest, const char *src, size_t n)
         len -= retval;
         i++;
     }
-# else
-    size_t i = mbstowcs(dest, src, n);
-# endif
     dest[i] = 0;
     return i;
 }
 
 size_t PDC_wcstombs(char *dest, const wchar_t *src, size_t n)
 {
-# ifdef PDC_FORCE_UTF8
     size_t i = 0;
 
     assert( src);
@@ -499,10 +459,6 @@ size_t PDC_wcstombs(char *dest, const wchar_t *src, size_t n)
        memcpy( dest + i, tbuff, count);
        i += count;
     }
-# else
-    size_t i = wcstombs(dest, src, n);
-# endif
     dest[i] = '\0';
     return i;
 }
-#endif

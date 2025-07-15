@@ -1,16 +1,6 @@
 /* PDCursesMod */
 
-/* On Linux,  and probably some other platforms,  we can just
-use the built-in wcwidth() function.  */
-#ifdef __linux
-   #ifdef _XOPEN_SOURCE
-      #define HAVE_WCWIDTH
-   #endif
-   #include <wchar.h>
-#endif
-
 #include <curspriv.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -128,32 +118,22 @@ addch
    So if PDC_WIDE is defined _and_ we're using 64-bit chtypes,  we're
    using the combining character scheme.  See curses.h. */
 
-#ifdef PDC_WIDE
-#include <stdlib.h>
 
-#ifdef HAVE_WCWIDTH
+/* A greatly modified version of Markus Kuhn's excellent
+   wcwidth implementation.  For his latest version and many
+   comments,  see http://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c
+   For PDCursesMod,  only PDC_wcwidth is used,  modified to take an
+   int argument instead of wchar_t,  because in MS-land, wchar_t
+   is 16 bits;  getting the full Unicode range requires 21 bits.
+   Also modified format/indenting to conform to PDCurses norms,
+   and (December 2024) updated from Unicode 5.0 to 16.0.0.  See
+   uni_tbl.c in the Bill-Gray/junk repository.
 
-PDCEX int PDC_wcwidth( const int32_t ucs)
-{
-   assert( ucs < MAX_UNICODE && ucs > 0);
-   return( wcwidth( (wchar_t)ucs));
-}
+   Following function modified from one in the README.md at
+   https://github.com/depp/uniset
+ */
 
-#else
-/*  A greatly modified version of Markus Kuhn's excellent
-wcwidth implementation.  For his latest version and many
-comments,  see http://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c
-For PDCursesMod,  only PDC_wcwidth is used,  modified to take an
-int argument instead of wchar_t,  because in MS-land, wchar_t
-is 16 bits;  getting the full Unicode range requires 21 bits.
-Also modified format/indenting to conform to PDCurses norms,
-and (December 2024) updated from Unicode 5.0 to 16.0.0.  See
-uni_tbl.c in the Bill-Gray/junk repository.
-
-Following function modified from one in the README.md at
-https://github.com/depp/uniset */
-
-static bool _uniset_test( uint16_t const set[][2], uint32_t c)
+static bool _uniset_test (uint16_t const set[][2], uint32_t c)
 {
     const unsigned int p = c >> 16;
     unsigned int l = set[p][0] + 17, r = set[p][1] + 17;
@@ -206,7 +186,7 @@ static bool _uniset_test( uint16_t const set[][2], uint32_t c)
  * in ISO 10646.
  */
 
-PDCEX int PDC_wcwidth( const int32_t ucs)
+int PDC_wcwidth( const int32_t ucs)
 {
       /* see 'uni_tbl.c' in the Bill-Gray/junk repo */
 const uint16_t tbl_for_zero_width_chars[][2] = {
@@ -407,9 +387,6 @@ const uint16_t tbl_for_fullwidth_chars[][2] = {
     else
        return 1;
 }
-#endif
-
-#ifdef USING_COMBINING_CHARACTER_SCHEME
 
 /* The handling of "fullwidth" characters (those consuming two "normal"
 columns) and combining characters (characters that can add accents to a
@@ -455,7 +432,8 @@ for anybody).      */
 #define DUMMY_CHAR_NEXT_TO_FULLWIDTH  MAX_UNICODE
 #define COMBINED_CHAR_START          (MAX_UNICODE + 1)
 
-                                /* "non-standard" 64-bit chtypes     */
+/* "non-standard" 64-bit chtypes
+ */
 static int n_combos = 0, n_combos_allocated = 0;
 static struct combined_char
 {
@@ -504,20 +482,12 @@ int PDC_expand_combined_characters( const cchar_t c, cchar_t *added)
     return( combos[c - COMBINED_CHAR_START].root);
 }
 
-#endif      /* #ifdef USING_COMBINING_CHARACTER_SCHEME  */
-#endif      /* #ifdef PDC_WIDE                        */
-
 int waddch( WINDOW *win, const chtype ch)
 {
     int x, y;
-#ifdef USING_COMBINING_CHARACTER_SCHEME
     int text_width;
-#endif
     chtype text, attr;
     bool xlat;
-
-    PDC_LOG(("waddch() - called: win=%p ch=%x (text=%c attr=0x%x)\n",
-             win, ch, ch & A_CHARTEXT, ch & A_ATTRIBUTES));
 
     assert( SP);
     assert( win);
@@ -533,7 +503,6 @@ int waddch( WINDOW *win, const chtype ch)
     xlat = !SP->raw_out && !(ch & A_ALTCHARSET);
     text = ch & A_CHARTEXT;
     attr = ch & A_ATTRIBUTES;
-#ifdef USING_COMBINING_CHARACTER_SCHEME
     text_width = PDC_wcwidth( (int)text);
 
     if( x || y)
@@ -562,7 +531,6 @@ int waddch( WINDOW *win, const chtype ch)
                 text = prev_char;   /* supposed to happen */
         }
     }
-#endif
 
     if (xlat && (text < ' ' || text == 0x7f))
     {
@@ -688,12 +656,11 @@ int waddch( WINDOW *win, const chtype ch)
     win->_curx = x;
     win->_cury = y;
 
-#ifdef USING_COMBINING_CHARACTER_SCHEME
-         /* If the character was fullwidth (should occupy two cells),  we */
-         /* add a "dummy" character next to it : */
+    /* If the character was fullwidth (should occupy two cells),  we
+     * add a "dummy" character next to it :
+     */
     if( text_width == 2 && x)
         waddch( win, DUMMY_CHAR_NEXT_TO_FULLWIDTH);
-#endif
 
     if (win->_immed)
         wrefresh(win);
@@ -705,15 +672,11 @@ int waddch( WINDOW *win, const chtype ch)
 
 int addch(const chtype ch)
 {
-    PDC_LOG(("addch() - called: ch=%x\n", ch));
-
     return waddch(stdscr, ch);
 }
 
 int mvaddch(int y, int x, const chtype ch)
 {
-    PDC_LOG(("mvaddch() - called: y=%d x=%d ch=%x\n", y, x, ch));
-
     if (move(y,x) == ERR)
         return ERR;
 
@@ -722,8 +685,6 @@ int mvaddch(int y, int x, const chtype ch)
 
 int mvwaddch(WINDOW *win, int y, int x, const chtype ch)
 {
-    PDC_LOG(("mvwaddch() - called: win=%p y=%d x=%d ch=%d\n", win, y, x, ch));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
@@ -732,15 +693,11 @@ int mvwaddch(WINDOW *win, int y, int x, const chtype ch)
 
 int echochar(const chtype ch)
 {
-    PDC_LOG(("echochar() - called: ch=%x\n", ch));
-
     return wechochar(stdscr, ch);
 }
 
 int wechochar(WINDOW *win, const chtype ch)
 {
-    PDC_LOG(("wechochar() - called: win=%p ch=%x\n", win, ch));
-
     if (waddch(win, ch) == ERR)
         return ERR;
 
@@ -749,9 +706,6 @@ int wechochar(WINDOW *win, const chtype ch)
 
 int waddrawch(WINDOW *win, chtype ch)
 {
-    PDC_LOG(("waddrawch() - called: win=%p ch=%x (text=%c attr=0x%x)\n",
-             win, ch, ch & A_CHARTEXT, ch & A_ATTRIBUTES));
-
     if ((ch & A_CHARTEXT) < ' ' || (ch & A_CHARTEXT) == 0x7f)
         ch |= A_ALTCHARSET;
 
@@ -760,15 +714,11 @@ int waddrawch(WINDOW *win, chtype ch)
 
 int addrawch(chtype ch)
 {
-    PDC_LOG(("addrawch() - called: ch=%x\n", ch));
-
     return waddrawch(stdscr, ch);
 }
 
 int mvaddrawch(int y, int x, chtype ch)
 {
-    PDC_LOG(("mvaddrawch() - called: y=%d x=%d ch=%d\n", y, x, ch));
-
     if (move(y, x) == ERR)
         return ERR;
 
@@ -777,35 +727,25 @@ int mvaddrawch(int y, int x, chtype ch)
 
 int mvwaddrawch(WINDOW *win, int y, int x, chtype ch)
 {
-    PDC_LOG(("mvwaddrawch() - called: win=%p y=%d x=%d ch=%d\n",
-             win, y, x, ch));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
     return waddrawch(win, ch);
 }
 
-#ifdef PDC_WIDE
 int wadd_wch(WINDOW *win, const cchar_t *wch)
 {
-    PDC_LOG(("wadd_wch() - called: win=%p wch=%x\n", win, *wch));
-
     assert( wch);
     return wch ? waddch(win, *wch) : ERR;
 }
 
 int add_wch(const cchar_t *wch)
 {
-    PDC_LOG(("add_wch() - called: wch=%x\n", *wch));
-
     return wadd_wch(stdscr, wch);
 }
 
 int mvadd_wch(int y, int x, const cchar_t *wch)
 {
-    PDC_LOG(("mvaddch() - called: y=%d x=%d wch=%x\n", y, x, *wch));
-
     if (move(y,x) == ERR)
         return ERR;
 
@@ -814,9 +754,6 @@ int mvadd_wch(int y, int x, const cchar_t *wch)
 
 int mvwadd_wch(WINDOW *win, int y, int x, const cchar_t *wch)
 {
-    PDC_LOG(("mvwaddch() - called: win=%p y=%d x=%d wch=%d\n",
-             win, y, x, *wch));
-
     if (wmove(win, y, x) == ERR)
         return ERR;
 
@@ -825,19 +762,14 @@ int mvwadd_wch(WINDOW *win, int y, int x, const cchar_t *wch)
 
 int echo_wchar(const cchar_t *wch)
 {
-    PDC_LOG(("echo_wchar() - called: wch=%x\n", *wch));
-
     return wecho_wchar(stdscr, wch);
 }
 
 int wecho_wchar(WINDOW *win, const cchar_t *wch)
 {
-    PDC_LOG(("wecho_wchar() - called: win=%p wch=%x\n", win, *wch));
-
     assert( wch);
     if (!wch || (wadd_wch(win, wch) == ERR))
         return ERR;
 
     return wrefresh(win);
 }
-#endif

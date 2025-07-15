@@ -1,8 +1,6 @@
 /* PDCursesMod */
 
 #include <curspriv.h>
-#include <stdlib.h>
-#include <assert.h>
 
 /*man-start**************************************************************
 
@@ -91,9 +89,6 @@ kernel
 
 **man-end****************************************************************/
 
-#include <string.h>
-
-
 static struct cttyset
 {
     bool been_set;
@@ -151,8 +146,6 @@ static int _restore_mode(int i)
 
 int def_prog_mode(void)
 {
-    PDC_LOG(("def_prog_mode() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -164,8 +157,6 @@ int def_prog_mode(void)
 
 int def_shell_mode(void)
 {
-    PDC_LOG(("def_shell_mode() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -177,8 +168,6 @@ int def_shell_mode(void)
 
 int reset_prog_mode(void)
 {
-    PDC_LOG(("reset_prog_mode() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -191,8 +180,6 @@ int reset_prog_mode(void)
 
 int reset_shell_mode(void)
 {
-    PDC_LOG(("reset_shell_mode() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -205,8 +192,6 @@ int reset_shell_mode(void)
 
 int resetty(void)
 {
-    PDC_LOG(("resetty() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -216,8 +201,6 @@ int resetty(void)
 
 int savetty(void)
 {
-    PDC_LOG(("savetty() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -230,8 +213,6 @@ int savetty(void)
 int curs_set(int visibility)
 {
     int ret_vis;
-
-    PDC_LOG(("curs_set() - called: visibility=%d\n", visibility));
 
     assert( visibility >= 0);
     assert( !(visibility & ~0xf0f));
@@ -254,8 +235,6 @@ on some platforms,  but is it true for all?  */
 
 int napms(int ms)
 {
-    PDC_LOG(("napms() - called: ms=%d\n", ms));
-
     assert( SP);
     if (!SP)
         return ERR;
@@ -286,8 +265,6 @@ int ripoffline(int line, int (*init)(WINDOW *, int))
     static RIPPEDOFFLINE *linesripped = NULL;
     static int linesrippedoff = 0;
 
-    PDC_LOG(("ripoffline() - called: line=%d\n", line));
-
     if( !init && SP)
     {                 /* copy ripped-off line data into the SCREEN struct */
         SP->linesripped = linesripped;
@@ -311,28 +288,20 @@ int ripoffline(int line, int (*init)(WINDOW *, int))
 
 int draino(int ms)
 {
-    PDC_LOG(("draino() - called\n"));
-
     return napms(ms);
 }
 
 int resetterm(void)
 {
-    PDC_LOG(("resetterm() - called\n"));
-
     return reset_shell_mode();
 }
 
 int fixterm(void)
 {
-    PDC_LOG(("fixterm() - called\n"));
-
     return reset_prog_mode();
 }
 
 int saveterm(void)
 {
-    PDC_LOG(("saveterm() - called\n"));
-
     return def_prog_mode();
 }

@@ -103,8 +103,6 @@ outopts
 
 int clearok(WINDOW *win, bool bf)
 {
-    PDC_LOG(("clearok() - called\n"));
-
     assert( win);
     if (!win)
         return ERR;
@@ -118,8 +116,6 @@ int idlok(WINDOW *win, bool bf)
 {
     INTENTIONALLY_UNUSED_PARAMETER( win);
     INTENTIONALLY_UNUSED_PARAMETER( bf);
-    PDC_LOG(("idlok() - called\n"));
-
     return OK;
 }
 
@@ -127,21 +123,16 @@ void idcok(WINDOW *win, bool bf)
 {
     INTENTIONALLY_UNUSED_PARAMETER( win);
     INTENTIONALLY_UNUSED_PARAMETER( bf);
-    PDC_LOG(("idcok() - called\n"));
 }
 
 void immedok(WINDOW *win, bool bf)
 {
-    PDC_LOG(("immedok() - called\n"));
-
     if (win)
         win->_immed = bf;
 }
 
 int leaveok(WINDOW *win, bool bf)
 {
-    PDC_LOG(("leaveok() - called\n"));
-
     assert( win);
     if (!win)
         return ERR;
@@ -155,15 +146,11 @@ int leaveok(WINDOW *win, bool bf)
 
 int setscrreg(int top, int bottom)
 {
-    PDC_LOG(("setscrreg() - called: top %d bottom %d\n", top, bottom));
-
     return wsetscrreg(stdscr, top, bottom);
 }
 
 int wsetscrreg(WINDOW *win, int top, int bottom)
 {
-    PDC_LOG(("wsetscrreg() - called: top %d bottom %d\n", top, bottom));
-
     assert( win);
     if (win && 0 <= top && top <= bottom && bottom < win->_maxy)
     {
@@ -178,8 +165,6 @@ int wsetscrreg(WINDOW *win, int top, int bottom)
 
 int wgetscrreg(const WINDOW *win, int *top, int *bot)
 {
-    PDC_LOG(("wgetscrreg() - called\n"));
-
     assert( win);
     assert( top);
     assert( bot);
@@ -194,8 +179,6 @@ int wgetscrreg(const WINDOW *win, int *top, int *bot)
 
 int scrollok(WINDOW *win, bool bf)
 {
-    PDC_LOG(("scrollok() - called\n"));
-
     assert( win);
     if (!win)
         return ERR;
@@ -207,8 +190,6 @@ int scrollok(WINDOW *win, bool bf)
 
 bool is_cleared(const WINDOW *win)
 {
-    PDC_LOG(("is_cleared() - called\n"));
-
     assert( win);
     if (!win)
         return FALSE;
@@ -218,8 +199,6 @@ bool is_cleared(const WINDOW *win)
 
 bool is_idlok(const WINDOW *win)
 {
-    PDC_LOG(("is_idlok() - called\n"));
-
     INTENTIONALLY_UNUSED_PARAMETER( win);
     assert( win);
 
@@ -228,8 +207,6 @@ bool is_idlok(const WINDOW *win)
 
 bool is_idcok(const WINDOW *win)
 {
-    PDC_LOG(("is_idcok() - called\n"));
-
     INTENTIONALLY_UNUSED_PARAMETER( win);
     assert( win);
 
@@ -238,8 +215,6 @@ bool is_idcok(const WINDOW *win)
 
 bool is_immedok(const WINDOW *win)
 {
-    PDC_LOG(("is_immedok() - called\n"));
-
     assert( win);
     if (!win)
         return FALSE;
@@ -249,8 +224,6 @@ bool is_immedok(const WINDOW *win)
 
 bool is_leaveok(const WINDOW *win)
 {
-    PDC_LOG(("is_leaveok() - called\n"));
-
     assert( win);
     if (!win)
         return FALSE;
@@ -260,8 +233,6 @@ bool is_leaveok(const WINDOW *win)
 
 bool is_scrollok(const WINDOW *win)
 {
-    PDC_LOG(("is_scrollok() - called\n"));
-
     assert( win);
     if (!win)
         return FALSE;
@@ -271,8 +242,6 @@ bool is_scrollok(const WINDOW *win)
 
 int raw_output(bool bf)
 {
-    PDC_LOG(("raw_output() - called\n"));
-
     assert( SP);
     if (!SP)
         return ERR;
