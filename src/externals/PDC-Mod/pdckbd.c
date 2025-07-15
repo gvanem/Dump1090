@@ -654,7 +654,7 @@ static void _process_mouse_event(void)
         incomplete_event = _add_raw_mouse_event( button, event, modifiers, x, y);
         while( incomplete_event)
          {
-             DWORD event_count = 0;
+             event_count = 0;
              int remaining_ms = SP->mouse_wait;
 
              while( !event_count && remaining_ms)

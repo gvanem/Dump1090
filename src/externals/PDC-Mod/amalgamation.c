@@ -4,6 +4,8 @@
  * this single file, the entire code can be compiled as a single
  * translation unit.
  */
+#include <windows.h>
+
 #define PDC_99 1
 
 /* Other possible defines:

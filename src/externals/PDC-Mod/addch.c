@@ -483,6 +483,9 @@ int PDC_find_combined_char_idx( const cchar_t root, const cchar_t added)
     return( i);
 }
 
+#undef  IS_HIGH_SURROGATE
+#undef  IS_LOW_SURROGATE
+
 #define IS_LOW_SURROGATE( c) ((c) >= 0xdc00 && (c) < 0xe000)
 #define IS_HIGH_SURROGATE( c) ((c) >= 0xd800 && (c) < 0xdc00)
 
