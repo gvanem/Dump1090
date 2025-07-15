@@ -23,14 +23,16 @@
 #undef MOUSE_MOVED
 #include <curses.h>
 
+extern SCREEN *SP;
+
 typedef enum colours {
         COLOUR_DEFAULT = 0,
         COLOUR_WHITE,
         COLOUR_GREEN,
         COLOUR_RED,
         COLOUR_YELLOW,
-        COLOUR_REVERSE,
-        COLOUR_HEADER,
+        COLOUR_HEADER1,
+        COLOUR_HEADER2,
         COLOUR_MAX
       } colours;
 
@@ -272,7 +274,7 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
 
 static void curses_hilight_header (int x, int field)
 {
-  curses_set_colour (COLOUR_HEADER);
+  curses_set_colour (COLOUR_HEADER2);
   mvaddstr (0, x, headers[field]);
   curses_set_colour (0);
 }
@@ -1070,7 +1072,7 @@ static bool wincon_init (void)
   colour_map [COLOUR_GREEN  ].attrib = (bg | 10);                 /* bright green */
   colour_map [COLOUR_RED    ].attrib = (bg | 12);                 /* bright red */
   colour_map [COLOUR_YELLOW ].attrib = (bg | 14);                 /* bright yellow */
-  colour_map [COLOUR_REVERSE].attrib = 9 + (7 << 4);              /* bright blue on white */
+  colour_map [COLOUR_HEADER1].attrib = 9 + (7 << 4);              /* bright blue on white */
   return (true);
 }
 
@@ -1182,7 +1184,7 @@ static void wincon_print_line (int x, int y, const char *str)
 
 static void wincon_print_header (void)
 {
-  wincon_set_colour (COLOUR_REVERSE);
+  wincon_set_colour (COLOUR_HEADER1);
   printf (HEADER "\n", show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
   wincon_set_colour (0);
   spin_idx++;
@@ -1196,10 +1198,6 @@ static bool curses_init (void)
   bool slk_ok = (slk_init(1) == OK);
 
   initscr();
-
-  /* Ensure PCcurses do not clear the screen on exit
-   */
-  SP->_preserve = true;
 
   if (slk_ok)
   {
@@ -1229,25 +1227,42 @@ static bool curses_init (void)
   init_pair (COLOUR_GREEN,  COLOR_GREEN, COLOR_BLUE);
   init_pair (COLOUR_RED,    COLOR_RED,   COLOR_BLUE);
   init_pair (COLOUR_YELLOW, COLOR_YELLOW, COLOR_GREEN);
-  init_pair (COLOUR_HEADER, 254, 254);  /* for curses_hilight_header() */
 
-  colour_map [COLOUR_DEFAULT].pair   = 0;
+  colour_map [COLOUR_DEFAULT].pair   = COLOUR_DEFAULT;
   colour_map [COLOUR_DEFAULT].attrib = A_NORMAL;
 
-  colour_map [COLOUR_WHITE  ].pair   = 1;
+  colour_map [COLOUR_WHITE  ].pair   = COLOUR_WHITE;
   colour_map [COLOUR_WHITE  ].attrib = A_BOLD;
 
-  colour_map [COLOUR_GREEN  ].pair   = 2;
+  colour_map [COLOUR_GREEN  ].pair   = COLOUR_GREEN;
   colour_map [COLOUR_GREEN  ].attrib = A_BOLD;
 
-  colour_map [COLOUR_RED    ].pair   = 3;
+  colour_map [COLOUR_RED    ].pair   = COLOUR_RED;
   colour_map [COLOUR_RED    ].attrib = A_BOLD;
 
-  colour_map [COLOUR_YELLOW ].pair   = 4;
+  colour_map [COLOUR_YELLOW ].pair   = COLOUR_YELLOW;
   colour_map [COLOUR_YELLOW ].attrib = A_NORMAL;
 
-  colour_map [COLOUR_REVERSE].pair   = 5;
-  colour_map [COLOUR_REVERSE].attrib = A_REVERSE | COLOR_BLUE;
+  colour_map [COLOUR_HEADER1].pair   = COLOUR_HEADER1;
+  colour_map [COLOUR_HEADER1].attrib = A_REVERSE | COLOR_BLUE;
+
+  init_pair (COLOUR_HEADER1, 15, 27);
+  colour_map [COLOUR_HEADER1].attrib = A_BOLD;
+
+ /* for curses_hilight_header()
+  */
+  init_pair (COLOUR_HEADER2, 15, 254);
+  colour_map [COLOUR_HEADER2].attrib = A_BOLD | A_UNDERLINE | A_STANDOUT;
+
+  short pair, fg, bg;
+
+  LOG_FILEONLY ("pair_content():\n");
+  for (pair = COLOUR_WHITE; pair < COLOUR_MAX; pair++)
+  {
+    fg = bg = 0;
+    pair_content (pair, &fg, &bg);
+    LOG_FILEONLY ("!  pair[%d] -> fg: %2d, bg: %3d\n", pair, fg, bg);
+  }
 
   noecho();
   mousemask (0, NULL);
@@ -1279,23 +1294,26 @@ static void curses_exit (void)
      delwin (flight_win);
 
   endwin();
+
   delscreen (SP);  /* PDCurses does not free this memory */
 }
 
 static void curses_set_colour (enum colours colour)
 {
-  int pair, attrib, attr;
+  chtype pair;
+  attr_t attrib;
 
   assert (colour >= 0);
   assert (colour < COLOUR_MAX);
 
   pair = colour_map [colour].pair;
-  assert (pair < COLOR_PAIRS);  /* == 256 */
+
+  /* `COLOR_PAIRS == 256` in PDCurses, but a variable
+   * (potentially == `INT_MAX`) in PDCurses-MOD.
+   */
+  assert (pair < (chtype)COLOR_PAIRS);
 
   attrib = colour_map [colour].attrib;
-
-  attr = attrib & A_ATTRIBUTES;
-  assert (attr == A_NORMAL || attr == A_BOLD || attr == A_REVERSE);
   attrset (COLOR_PAIR(pair) | attrib);
 }
 
@@ -1307,7 +1325,8 @@ static void curses_set_cursor (bool enable)
 
 static void curses_refresh (int x, int y)
 {
-  wrefresh (stats_win);
+  if (stats_win)
+     wrefresh (stats_win);
   move (y, x);
 //clrtobot();
   refresh();
@@ -1340,7 +1359,7 @@ static void curses_print_line (int x, int y, const char *str)
 
 static void curses_print_header (void)
 {
-  curses_set_colour (COLOUR_REVERSE);
+  curses_set_colour (COLOUR_HEADER1);
   mvprintw (0, 0, HEADER, show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
   curses_set_colour (0);
   spin_idx++;
