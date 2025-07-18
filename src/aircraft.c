@@ -2233,29 +2233,29 @@ char *aircraft_make_json (bool extended_client)
  */
 void aircraft_receiver_json (mg_connection *c)
 {
-  char *data;
-  int   history_size = DIM (Modes.json_aircraft_history) - 1;
+  int  history_size = DIM (Modes.json_aircraft_history) - 1;
+  char buf [200];
 
   /* work out number of valid history entries
    */
   if (!Modes.json_aircraft_history [history_size].buf)
      history_size = Modes.json_aircraft_history_next;
 
-  data = mg_mprintf ("{\"version\": \"%s\", "
-                      "\"refresh\": %llu, "
-                      "\"history\": %d, "
-                      "\"lat\": %.8g, "       /* if 'Modes.home_pos_ok == false', this is 0. */
-                      "\"lon\": %.8g}",       /* ditto */
-                      PROG_VERSION,
-                      Modes.json_interval,
-                      history_size,
-                      Modes.home_pos.lat,
-                      Modes.home_pos.lon);
+  snprintf (buf, sizeof(buf),
+            "{\"version\": \"%s\", "
+            "\"refresh\": %llu, "
+            "\"history\": %d, "
+            "\"lat\": %.8g, "       /* if 'Modes.home_pos_ok == false', this is 0. */
+            "\"lon\": %.8g}",       /* ditto */
+            PROG_VERSION,
+            Modes.json_interval,
+            history_size,
+            Modes.home_pos.lat,
+            Modes.home_pos.lon);
 
-  DEBUG (DEBUG_NET2, "Feeding conn-id %lu with receiver-data:\n%.100s\n", c->id, data);
+  DEBUG (DEBUG_NET2, "Feeding conn-id %lu with receiver-data:\n%.100s\n", c->id, buf);
 
-  mg_http_reply (c, 200, MODES_CONTENT_TYPE_JSON "\r\n", data);
-  free (data);
+  mg_http_reply (c, 200, MODES_CONTENT_TYPE_JSON "\r\n", buf);
 }
 
 /**
