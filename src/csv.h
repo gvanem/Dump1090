@@ -42,12 +42,15 @@ typedef struct CSV_context {
         CSV_STATE   state;          /**< The current CSV-parser state. */
         csv_state_t state_func;     /**< The current parse function set by CSV_context::state. */
         int         c_in;           /**< The current character read from CSV_context::parse_buf. */
+        int         init_done;      /**< `CSV_init_ctx()` was called */
 
         /** The user callback for adding records.
          */
         int (*callback) (struct CSV_context *ctx, const char *value);
       } CSV_context;
 
-int CSV_open_and_parse_file (struct CSV_context *ctx);
+int      CSV_init_ctx (struct CSV_context *ctx);
+unsigned CSV_num_fields (struct CSV_context *ctx);
+int      CSV_open_and_parse_file (struct CSV_context *ctx);
 
 #endif /* _CSV_H */

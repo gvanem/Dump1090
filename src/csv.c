@@ -178,7 +178,8 @@ static const char *CSV_get_next_field (struct CSV_context *ctx)
     }
     if (new_state == STATE_STOP && ctx->delimiter == ' ')
     {
-      while ((ctx->c_in = fgetc (ctx->file)) == ' ') ;
+      while ((ctx->c_in = fgetc(ctx->file)) == ' ')
+             ;
       ungetc (ctx->c_in, ctx->file);
     }
 
@@ -231,7 +232,7 @@ static int CSV_parse_file (struct CSV_context *ctx)
  * \param[in]  ctx  the CSV context to work with.
  * \retval     0 on failure. 1 on success.
  */
-static int CSV_autodetect_num_fields (struct CSV_context *ctx)
+unsigned CSV_num_fields (struct CSV_context *ctx)
 {
   unsigned num_fields = 0;
   const char *delim, *next;
@@ -259,9 +260,8 @@ static int CSV_autodetect_num_fields (struct CSV_context *ctx)
     delim = next + 1;
     num_fields++;
   }
-  ctx->num_fields = num_fields;
   fseek (ctx->file, 0, SEEK_SET);
-  return (1);
+  return (num_fields);
 }
 
 /**
@@ -272,8 +272,11 @@ static int CSV_autodetect_num_fields (struct CSV_context *ctx)
  * \retval     1 if the members are okay.
  * \retval    -1 if some members are not okay etc.
  */
-static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
+int CSV_init_ctx (struct CSV_context *ctx)
 {
+  unsigned num_fields;
+
+  ctx->init_done = 1;
   if (!ctx->callback || !ctx->file_name)
   {
     errno = EINVAL;
@@ -295,15 +298,20 @@ static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
   if (ctx->line_size == 0)
      ctx->line_size = DEFAULT_BUF_SIZE;
 
-  ctx->parse_buf = malloc (ctx->line_size+1);
+  ctx->parse_buf = malloc (ctx->line_size + 1);
   if (!ctx->parse_buf)
      return (0);
 
-  if (ctx->num_fields == 0 && !CSV_autodetect_num_fields(ctx))
+  if (ctx->num_fields == 0)
   {
-    free (ctx->parse_buf);
-    errno = EINVAL;
-    return (0);
+    num_fields = CSV_num_fields (ctx);
+    if (num_fields == 0)
+    {
+      free (ctx->parse_buf);
+      errno = EINVAL;
+      return (0);
+    }
+    ctx->num_fields = num_fields;
   }
 
   if (!ctx->file)
@@ -315,7 +323,7 @@ static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
     return (0);
   }
 
-  setvbuf (ctx->file, NULL, _IOFBF, 100*ctx->line_size);
+  setvbuf (ctx->file, NULL, _IOFBF, 100 * ctx->line_size);
   ctx->state_func = state_illegal;
   ctx->state      = STATE_ILLEGAL;
   ctx->rec_num    = 0;
@@ -327,7 +335,7 @@ static int CSV_check_and_fill_ctx (struct CSV_context *ctx)
  */
 int CSV_open_and_parse_file (struct CSV_context *ctx)
 {
-  if (!CSV_check_and_fill_ctx(ctx))
+  if (ctx->init_done == 0 && !CSV_init_ctx (ctx))
      return (0);
 
   while (1)

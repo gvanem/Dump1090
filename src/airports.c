@@ -368,11 +368,11 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
 
   if (ctx->field_num == 0)        /* "ICAO" and first field */
   {
-    strcpy_s (rec.ICAO, sizeof(rec.ICAO), value);
+    strncpy (rec.ICAO, value, sizeof(rec.ICAO)-1);
   }
   else if (ctx->field_num == 1)   /* "IATA" field */
   {
-    strcpy_s (rec.IATA, sizeof(rec.IATA), value);
+    strncpy (rec.IATA, value, sizeof(rec.IATA)-1);
   }
   else if (ctx->field_num == 2)   /* "Full_name" field */
   {
@@ -510,7 +510,7 @@ static const char *airport_t_str (airport_t type)
 static bool airports_init_CSV (void)
 {
   double   start_t = get_usec_now();
-  uint32_t i, max;
+  uint32_t i, max, num;
 
   memset (&g_data.csv_ctx, '\0', sizeof(g_data.csv_ctx));
   g_data.csv_ctx.file_name  = Modes.airport_db;
@@ -523,6 +523,16 @@ static bool airports_init_CSV (void)
     LOG_STDERR ("Running with no `Modes.airport_db'\n");
     g_data.no_db = true;
     return (true);
+  }
+
+  CSV_init_ctx (&g_data.csv_ctx);
+
+  num = CSV_num_fields (&g_data.csv_ctx);
+  if (num != g_data.csv_ctx.num_fields)
+  {
+    LOG_STDERR ("Incorrect number of fields in \"Modes.airport_db = %s\". Got %u, expected %u\n",
+                Modes.airport_db, num, g_data.csv_ctx.num_fields);
+    return (false);
   }
 
   if (!CSV_open_and_parse_file(&g_data.csv_ctx))
