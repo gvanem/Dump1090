@@ -57,7 +57,3 @@
 #include "touch.c"
 #include "util.c"
 #include "window.c"
-
-#ifdef PDCDEBUG
-#include "debug.c"
-#endif
