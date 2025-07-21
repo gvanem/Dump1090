@@ -3230,7 +3230,7 @@ static void modeS_send_SBS_output (const modeS_message *mm)
   }
   else if (mm->msg_type == 5)
   {
-    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%d,%d,%d,%d,%d",
+    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%04X,%d,%d,%d,%d",
                   mm->addr, date_str, mm->identity, alert, emergency, spi, ground);
   }
   else if (mm->msg_type == 11)
@@ -3260,7 +3260,7 @@ static void modeS_send_SBS_output (const modeS_message *mm)
   }
   else if (mm->msg_type == 21)
   {
-    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%d,%d,%d,%d,%d",
+    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%04X,%d,%d,%d,%d",
                   mm->addr, date_str, mm->identity, alert, emergency, spi, ground);
   }
   else
