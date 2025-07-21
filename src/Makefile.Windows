@@ -189,7 +189,6 @@ endif
 
 CFLAGS += -I./$(CURSES_ROOT)
 
-
 #
 # If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
 #
@@ -296,19 +295,16 @@ SOURCES = aircraft.c    \
           smartlist.c   \
           speech.c
 
-vpath %.c externals         \
-          externals/AirSpy  \
-          externals/SDRplay \
-          $(CURSES_ROOT)
+vpath %.c externals        \
+          externals/AirSpy \
+          externals/SDRplay
 
 SOURCES += $(addprefix externals/, \
              mongoose.c            \
              sqlite3.c             \
              zip.c                 \
              AirSpy/airspy.c       \
-             SDRplay/sdrplay.c)    \
-                                   \
-           $(CURSES_ROOT)/amalgamation.c
+             SDRplay/sdrplay.c)
 
 vpath %.c externals/rtl-sdr
 
@@ -319,6 +315,9 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_fc001x.c                \
              tuner_fc2580.c                \
              tuner_r82xx.c)
+
+vpath %.c  $(CURSES_ROOT)
+SOURCES += $(CURSES_ROOT)/amalgamation.c
 
 #
 # For '../web-pages.dll':
@@ -572,6 +571,9 @@ speech_test.i: speech.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, -DTEST $<)
 
 %.i: %.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+	$(call C_preprocess, $@, $<)
+
+pdc_%.i: $(CURSES_ROOT)/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, $<)
 
 FORCE:
@@ -945,22 +947,35 @@ endif
 
 CURSES_SRC = $(addprefix $(CURSES_ROOT)/, \
                addch.c                    \
+               addchstr.c                 \
                addstr.c                   \
+               amalgamation.c             \
                attr.c                     \
-               border.c                   \
+               beep.c                     \
                bkgd.c                     \
+               border.c                   \
                clear.c                    \
                color.c                    \
+               delch.c                    \
+               deleteln.c                 \
                getch.c                    \
+               getstr.c                   \
                getyx.c                    \
+               inch.c                     \
+               inchstr.c                  \
                initscr.c                  \
                inopts.c                   \
+               insch.c                    \
+               insstr.c                   \
+               instr.c                    \
                kernel.c                   \
+               keyname.c                  \
                mouse.c                    \
                move.c                     \
                outopts.c                  \
                overlay.c                  \
                pad.c                      \
+               panel.c                    \
                pdcclip.c                  \
                pdcdisp.c                  \
                pdcgetsc.c                 \
@@ -970,11 +985,26 @@ CURSES_SRC = $(addprefix $(CURSES_ROOT)/, \
                pdcutil.c                  \
                printw.c                   \
                refresh.c                  \
+               scanw.c                    \
                scroll.c                   \
+               scr_dump.c                 \
                slk.c                      \
+               termattr.c                 \
                touch.c                    \
                util.c                     \
                window.c)
+
+ifeq ($(USE_PDC_MOD),1)
+  CURSES_SRC += $(CURSES_ROOT)/acs_defs.h \
+                $(CURSES_ROOT)/mouse2.c   \
+                $(CURSES_ROOT)/panel.h    \
+                $(CURSES_ROOT)/pdccolor.h \
+                $(CURSES_ROOT)/pdccolor.c \
+                $(CURSES_ROOT)/winclip.c
+else
+  CURSES_SRC += $(CURSES_ROOT)/acs437.h \
+                $(CURSES_ROOT)/acsuni.h
+endif
 
 $(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
 $(OBJ_DIR)/net_io.obj:       client-cert-key.h server-cert-key.h
