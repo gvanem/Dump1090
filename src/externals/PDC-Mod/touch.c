@@ -34,7 +34,7 @@
 
  */
 
-void PDC_set_changed_cells_range( WINDOW *win, const int y, const int start, const int end)
+void PDC_set_changed_cells_range(WINDOW *win, int y, int start, int end)
 {
     assert( win);
     assert( y >= 0 && y < win->_maxy);
@@ -45,7 +45,7 @@ void PDC_set_changed_cells_range( WINDOW *win, const int y, const int start, con
     win->_lastch[y] = end;
 }
 
-void PDC_mark_line_as_changed( WINDOW *win, const int y)
+void PDC_mark_line_as_changed(WINDOW *win, int y)
 {
     assert( win);
     assert( y >= 0 && y < win->_maxy);
@@ -53,7 +53,7 @@ void PDC_mark_line_as_changed( WINDOW *win, const int y)
     win->_lastch[y] = win->_maxx - 1;
 }
 
-void PDC_mark_cells_as_changed( WINDOW *win, const int y, const int start, const int end)
+void PDC_mark_cells_as_changed(WINDOW *win, int y, int start, int end)
 {
     assert( win);
     assert( y >= 0 && y < win->_maxy);
@@ -74,7 +74,7 @@ void PDC_mark_cells_as_changed( WINDOW *win, const int y, const int start, const
     }
 }
 
-bool PDC_touched_range( const WINDOW *win, const int y, int *firstch, int *lastch)
+bool PDC_touched_range(const WINDOW *win, int y, int *firstch, int *lastch)
 {
     assert( win);
     assert( y >= 0 && y < win->_maxy);
@@ -91,7 +91,7 @@ bool PDC_touched_range( const WINDOW *win, const int y, int *firstch, int *lastc
     }
 }
 
-void PDC_mark_cell_as_changed( WINDOW *win, const int y, const int x)
+void PDC_mark_cell_as_changed(WINDOW *win, int y, int x)
 {
     PDC_mark_cells_as_changed( win, y, x, x);
 }

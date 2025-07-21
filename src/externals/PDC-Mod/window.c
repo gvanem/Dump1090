@@ -186,7 +186,7 @@ void PDC_sync(WINDOW *win)
   zero-byte allocation.  realloc() does this on most platforms, but not FreeBSD,
   and it's not guaranteed in the C specifications.
  */
-void *PDC_realloc_array( void *ptr, const size_t nmemb, const size_t size)
+void *PDC_realloc_array(void *ptr, size_t nmemb, size_t size)
 {
     if( !nmemb || !size)
     {
@@ -195,7 +195,7 @@ void *PDC_realloc_array( void *ptr, const size_t nmemb, const size_t size)
     }
     else
     {
-        const size_t nbytes = nmemb * size;
+        size_t nbytes = nmemb * size;
 
         assert( nbytes / size == nmemb);
         ptr = realloc( ptr, nbytes);

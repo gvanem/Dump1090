@@ -139,7 +139,7 @@ static bool _uniset_test (uint16_t const set[][2], uint32_t c)
  * in ISO 10646.
  */
 
-int PDC_wcwidth( const int32_t ucs)
+int PDC_wcwidth(int32_t ucs)
 {
       /* see 'uni_tbl.c' in the Bill-Gray/junk repo */
 const uint16_t tbl_for_zero_width_chars[][2] = {
@@ -396,7 +396,7 @@ static struct combined_char {
        int32_t added;
     } *combos = NULL;
 
-int PDC_find_combined_char_idx( const cchar_t root, const cchar_t added)
+int PDC_find_combined_char_idx (cchar_t root, cchar_t added)
 {
     int i;
 
@@ -418,7 +418,7 @@ int PDC_find_combined_char_idx( const cchar_t root, const cchar_t added)
     return( i);
 }
 
-int PDC_expand_combined_characters( const cchar_t c, cchar_t *added)
+int PDC_expand_combined_characters (cchar_t c, cchar_t *added)
 {
     if( !c)    /* flag to free up memory */
     {

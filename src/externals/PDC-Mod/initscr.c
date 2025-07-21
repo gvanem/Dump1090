@@ -146,7 +146,9 @@ SCREEN *newterm(const char *type, FILE *outfd, FILE *infd)
 {
     int lines_ripped_off_on_top;
 
-    INTENTIONALLY_UNUSED_PARAMETER( type);
+    INTENTIONALLY_UNUSED_PARAMETER(type);
+    INTENTIONALLY_UNUSED_PARAMETER(outfd);
+    INTENTIONALLY_UNUSED_PARAMETER(infd);
 
     if (SP && SP->alive)
         return NULL;

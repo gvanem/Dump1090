@@ -21,7 +21,7 @@
 
  */
 
-int PDC_wscrl(WINDOW *win, const int top, const int bottom, int n)
+int PDC_wscrl(WINDOW *win, int top, int bottom, int n)
 {
     int start, end, n_lines;
     chtype blank, *tptr, *endptr;
