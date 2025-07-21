@@ -432,6 +432,9 @@ static const rtlsdr_dongle_t known_devices [] =
 {
   { 0x0bda, 0x2832, "Generic RTL2832U" },
   { 0x0bda, 0x2838, "Generic RTL2832U OEM" },
+  { 0x0ba0, 0x2838, "Bricked RTL2832U" },
+  { 0xa0a0, 0xa0a0, "Bricked RTL2832U 2" },
+  { 0x00a0, 0x00a0, "Bricked RTL2832U 3" },
   { 0x0413, 0x6680, "DigitalNow Quad DVB-T PCI-E card" },
   { 0x0413, 0x6f0f, "Leadtek WinFast DTV Dongle mini D" },
   { 0x0458, 0x707f, "Genius TVGo DVB-T03 USB dongle (Ver. B)" },
@@ -1826,7 +1829,8 @@ int rtlsdr_set_tuner_gain_mode (rtlsdr_dev_t *dev, int mode)
   else
     dev->softagc.softAgcMode = SOFTAGC_OFF;
 
-  RTL_TRACE (1, "%s(): mode: %d (%s), r: %d\n", __FUNCTION__, mode, mode == 0 ? "auto" : "manual", r);
+  RTL_TRACE (1, "%s(): mode: %d (%s), r: %d\n",
+             __FUNCTION__, mode, mode == 2 ? "AGC thread" : mode == 0 ? "auto" : "manual", r);
   return (r);
 }
 
@@ -3340,7 +3344,7 @@ static void softagc (rtlsdr_dev_t *dev, uint8_t *buf, int len)
     if (u == 0 || u == 255) // 0 dBFS
        overload++;
 
-    if (u < 64 || u > 191) // -6 dBFS
+    if (u < 64 || u > 191)  // -6 dBFS
        high_level++;
   }
 
