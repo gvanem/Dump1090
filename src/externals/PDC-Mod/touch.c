@@ -1,23 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
-#include <assert.h>
 
-/*man-start**************************************************************
-
-touch
------
-
-### Synopsis
-
-    int touchwin(WINDOW *win);
-    int touchline(WINDOW *win, int start, int count);
-    int untouchwin(WINDOW *win);
-    int wtouchln(WINDOW *win, int y, int n, int changed);
-    bool is_linetouched(WINDOW *win, int line);
-    bool is_wintouched(WINDOW *win);
-
-    int touchoverlap(const WINDOW *win1, WINDOW *win2);
+/*
 
 ### Description
 
@@ -49,18 +32,7 @@ touch
    All functions return OK on success and ERR on error except
    is_wintouched() and is_linetouched().
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   touchwin              |    Y   |    Y    |   Y
-   touchline             |    Y   |    Y    |   Y
-   untouchwin            |    Y   |    Y    |   Y
-   wtouchln              |    Y   |    Y    |   Y
-   is_linetouched        |    Y   |    Y    |   Y
-   is_wintouched         |    Y   |    Y    |   Y
-   touchoverlap          |    -   |    -    |   Y
-
-**man-end****************************************************************/
+ */
 
 void PDC_set_changed_cells_range( WINDOW *win, const int y, const int start, const int end)
 {

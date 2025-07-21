@@ -12,7 +12,7 @@ typedef struct {        /* structure for ripped off lines */
         int     line;
         int   (*init)(WINDOW *, int);
         WINDOW *win;
-    } RIPPEDOFFLINE;
+      } RIPPEDOFFLINE;
 
 /* Window properties */
 
@@ -27,6 +27,31 @@ typedef struct {        /* structure for ripped off lines */
 #define _ECHAR     0x08  /* Erase char       (^H) */
 #define _DWCHAR    0x17  /* Delete Word char (^W) */
 #define _DLCHAR    0x15  /* Delete Line char (^U) */
+
+/*
+ * Microsoft(R) Windows defines these.
+ * So lets define these differently?
+ */
+#if 0
+  #define PDC_LOW_SURROGATE_START   0xDC00
+  #define PDC_LOW_SURROGATE_END     0xDFFF
+  #define PDC_HIGH_SURROGATE_START  0xD800
+  #define PDC_HIGH_SURROGATE_END    0xDBFF
+
+  #define PDC_IS_LOW_SURROGATE(c)   ((c) >= PDC_LOW_SURROGATE_START  && (c) <= PDC_LOW_SURROGATE_END)
+  #define PDC_IS_HIGH_SURROGATE(c)  ((c) >= PDC_HIGH_SURROGATE_START && (c) <= PDC_HIGH_SURROGATE_END)
+  #define PDC_IS_SURROGATE(c)       ((PDC_IS_HIGH_SURROGATE(c) && PDC_IS_LOW_SURROGATE(c)))
+
+#else
+  #define PDC_LOW_SURROGATE_START   LOW_SURROGATE_START
+  #define PDC_LOW_SURROGATE_END     LOW_SURROGATE_END
+  #define PDC_HIGH_SURROGATE_START  HIGH_SURROGATE_START
+  #define PDC_HIGH_SURROGATE_END    HIGH_SURROGATE_END
+
+  #define PDC_IS_LOW_SURROGATE(c)   IS_LOW_SURROGATE (c)
+  #define PDC_IS_HIGH_SURROGATE(c)  IS_HIGH_SURROGATE (c)
+  #define PDC_IS_SURROGATE(c)       IS_SURROGATE_PAIR (c, c)
+#endif
 
 /*----------------------------------------------------------------------*/
 
@@ -63,7 +88,7 @@ const char *PDC_sysname(void);
 
 /* Internal cross-module functions */
 
-void   *PDC_realloc_array( void *ptr, const size_t nmemb, const size_t size);
+void   *PDC_realloc_array( void *ptr, size_t nmemb, size_t size);
 int     PDC_init_atrtab(void);
 void    PDC_free_atrtab(void);
 WINDOW *PDC_makelines(WINDOW *);
@@ -73,19 +98,22 @@ int     PDC_mouse_in_slk(int, int);
 void    PDC_slk_free(void);
 void    PDC_slk_initialize(void);
 void    PDC_sync(WINDOW *);
-void    PDC_set_default_colors( const int, const int);
-void    PDC_set_changed_cells_range( WINDOW *, const int y, const int start, const int end);
-void    PDC_mark_line_as_changed( WINDOW *win, const int y);
-void    PDC_mark_cells_as_changed( WINDOW *, const int y, const int start, const int end);
-void    PDC_mark_cell_as_changed( WINDOW *, const int y, const int x);
-bool    PDC_touched_range( const WINDOW *win, const int y, int *firstch, int *lastch);
-int     PDC_wscrl(WINDOW *win, const int top, const int bottom, int n);
+void    PDC_add_window_to_list( WINDOW *win);
+void    PDC_set_default_colors(int, int);
+void    PDC_set_changed_cells_range( WINDOW *, int y, int start, int end);
+void    PDC_mark_line_as_changed( WINDOW *win, int y);
+void    PDC_mark_cells_as_changed( WINDOW *, int y, int start, int end);
+void    PDC_mark_cell_as_changed( WINDOW *, int y, int x);
+bool    PDC_touched_range( const WINDOW *win, int y, int *firstch, int *lastch);
+int     PDC_wscrl(WINDOW *win, int top, int bottom, int n);
 
 int     PDC_mbtowc(wchar_t *, const char *, size_t);
 size_t  PDC_mbstowcs(wchar_t *, const char *, size_t);
 size_t  PDC_wcstombs(char *, const wchar_t *, size_t);
-int     PDC_wcwidth( const int32_t ucs);
-int     PDC_expand_combined_characters( const cchar_t c, cchar_t *added);
+int     PDC_wcwidth(int32_t ucs);
+int     PDC_expand_combined_characters(cchar_t c, cchar_t *added);
+int     PDC_find_combined_char_idx(cchar_t root, cchar_t added);
+int     PDC_pnoutrefresh_with_stored_params (WINDOW *pad);
 
 #define MAX_UNICODE 0x110000
 
@@ -108,71 +136,71 @@ int     PDC_expand_combined_characters( const cchar_t c, cchar_t *added);
 
 #define _is_altcharset( ch)  (((ch) & (A_ALTCHARSET | (A_CHARTEXT ^ 0x7f))) == A_ALTCHARSET)
 
-struct _win               /* definition of a window */
-{
-    int   _cury;          /* current pseudo-cursor */
-    int   _curx;
-    int   _maxy;          /* max window coordinates */
-    int   _maxx;
-    int   _begy;          /* origin on screen */
-    int   _begx;
-    int   _flags;         /* window properties */
-    chtype _attrs;        /* standard attributes and colors */
-    chtype _bkgd;         /* background, normally blank */
-    bool  _clear;         /* causes clear at next refresh */
-    bool  _leaveit;       /* leaves cursor where it is */
-    bool  _scroll;        /* allows window scrolling */
-    bool  _nodelay;       /* input character wait flag */
-    bool  _immed;         /* immediate update flag */
-    bool  _sync;          /* synchronise window ancestors */
-    bool  _use_keypad;    /* flags keypad key mode active */
-    chtype **_y;          /* pointer to line pointer array */
-    int   *_firstch;      /* first changed character in line */
-    int   *_lastch;       /* last changed character in line */
-    int   _tmarg;         /* top of scrolling region */
-    int   _bmarg;         /* bottom of scrolling region */
-    int   _delayms;       /* milliseconds of delay for getch() */
-    int   _parx, _pary;   /* coords relative to parent (0,0) */
-    struct _win *_parent; /* subwin's pointer to parent win */
-    int   _pminrow, _pmincol;    /* saved position used only for pads */
-    int   _sminrow, _smaxrow;    /* saved position used only for pads */
-    int   _smincol, _smaxcol;    /* saved position used only for pads */
-};
+typedef struct _win _win;
+
+typedef struct _win {             /* definition of a window */
+    int      _cury;               /* current pseudo-cursor */
+    int      _curx;
+    int      _maxy;               /* max window Y-coordinate */
+    int      _maxx;               /* max window X-coordinate */
+    int      _begy;               /* Y-origin on screen */
+    int      _begx;               /* X-origin on screen */
+    int      _flags;              /* window properties */
+    chtype   _attrs;              /* standard attributes and colors */
+    chtype   _bkgd;               /* background, normally blank */
+    bool     _clear;              /* causes clear at next refresh */
+    bool     _leaveit;            /* leaves cursor where it is */
+    bool     _scroll;             /* allows window scrolling */
+    bool     _nodelay;            /* input character wait flag */
+    bool     _immed;              /* immediate update flag */
+    bool     _sync;               /* synchronise window ancestors */
+    bool     _use_keypad;         /* flags keypad key mode active */
+    chtype **_y;                  /* pointer to line pointer array */
+    int     *_firstch;            /* first changed character in line */
+    int     *_lastch;             /* last changed character in line */
+    int      _tmarg;              /* top of scrolling region */
+    int      _bmarg;              /* bottom of scrolling region */
+    int      _delayms;            /* milliseconds of delay for getch() */
+    int      _parx, _pary;        /* coords relative to parent (0,0) */
+    _win    *_parent;             /* subwin's pointer to parent win */
+    int      _pminrow, _pmincol;  /* saved position used only for pads */
+    int      _sminrow, _smaxrow;  /* saved position used only for pads */
+    int      _smincol, _smaxcol;  /* saved position used only for pads */
+ } _win;
 
 typedef int32_t hash_idx_t;
 
 #define MAX_RIPPEDOFFLINES 5
 
-struct _screen
-{
-    bool  alive;          /* if initscr() called, and not endwin() */
-    bool  autocr;         /* if cr -> lf */
-    bool  cbreak;         /* if terminal unbuffered */
-    bool  echo;           /* if terminal echo */
-    bool  raw_inp;        /* raw input mode (v. cooked input) */
-    bool  raw_out;        /* raw output mode (7 v. 8 bits) */
-    bool  audible;        /* FALSE if the bell is visual */
-    bool  mono;           /* TRUE if current screen is mono */
-    bool  resized;        /* TRUE if TERM has been resized */
-    bool  orig_attr;      /* TRUE if we have the original colors */
-    short orig_fore;      /* original screen foreground color */
-    short orig_back;      /* original screen foreground color */
-    int   cursrow;        /* position of physical cursor */
-    int   curscol;        /* position of physical cursor */
-    int   visibility;     /* visibility of cursor */
-    int   orig_cursor;    /* original cursor size */
-    int   lines;          /* new value for LINES */
-    int   cols;           /* new value for COLS */
+struct _screen {
+    bool    alive;                 /* if initscr() called, and not endwin() */
+    bool    autocr;                /* if cr -> lf */
+    bool    cbreak;                /* if terminal unbuffered */
+    bool    echo;                  /* if terminal echo */
+    bool    raw_inp;               /* raw input mode (v. cooked input) */
+    bool    raw_out;               /* raw output mode (7 v. 8 bits) */
+    bool    audible;               /* FALSE if the bell is visual */
+    bool    mono;                  /* TRUE if current screen is mono */
+    bool    resized;               /* TRUE if TERM has been resized */
+    bool    orig_attr;             /* TRUE if we have the original colors */
+    short   orig_fore;             /* original screen foreground color */
+    short   orig_back;             /* original screen foreground color */
+    int     cursrow;               /* position of physical cursor */
+    int     curscol;               /* position of physical cursor */
+    int     visibility;            /* visibility of cursor */
+    int     orig_cursor;           /* original cursor size */
+    int     lines;                 /* new value for LINES */
+    int     cols;                  /* new value for COLS */
     mmask_t _trap_mbe;             /* trap these mouse button events */
-    int   mouse_wait;              /* time to wait (in ms) for a
+    int     mouse_wait;            /* time to wait (in ms) for a
                                       button release after a press, in
                                       order to count it as a click */
-    int   slklines;                /* lines in use by slk_init() */
+    int     slklines;              /* lines in use by slk_init() */
     WINDOW *slk_winptr;            /* window for slk */
-    int   linesrippedoff;          /* lines ripped off via ripoffline() */
+    int     linesrippedoff;        /* lines ripped off via ripoffline() */
     RIPPEDOFFLINE *linesripped;
-    int   delaytenths;             /* 1/10ths second to wait block
-                                      getch() for */
+
+    int   delaytenths;             /* 1/10ths second to wait block getch() for */
     bool  _preserve;               /* TRUE if screen background
                                       to be preserved */
     int   _restore;                /* specifies if screen background
@@ -212,8 +240,25 @@ struct _screen
     unsigned trace_flags;
     bool want_trace_fflush;
     bool ncurses_mouse;          /* map wheel events to button 4,5 presses */
-    FILE *output_fd, *input_fd;
-    struct _port_info *pinfo;
 };
 
 extern SCREEN  *SP;          /* curses variables */
+
+/* Formerly in "pdcwin.h":
+ */
+typedef struct PDCCOLOR {
+        short r, g, b;
+        bool mapped;
+      } PDCCOLOR;
+
+extern PDCCOLOR pdc_color [PDC_MAXCOL];
+
+extern HANDLE pdc_con_out, pdc_con_in;
+extern DWORD  pdc_quick_edit;
+extern DWORD  pdc_last_blink;
+extern short  pdc_curstoreal[16], pdc_curstoansi[16];
+extern short  pdc_oldf, pdc_oldb, pdc_oldu;
+extern bool   pdc_conemu, pdc_wt, pdc_ansi;
+
+void PDC_blink_text (void);
+

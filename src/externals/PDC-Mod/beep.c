@@ -1,16 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-beep
-----
-
-### Synopsis
-
-    int beep(void);
-    int flash(void);
+/*
 
 ### Description
 
@@ -25,13 +15,7 @@ beep
 
    These functions return ERR if called before initscr(), otherwise OK.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   beep                  |    Y   |    Y    |   Y
-   flash                 |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+*/
 
 int beep(void)
 {

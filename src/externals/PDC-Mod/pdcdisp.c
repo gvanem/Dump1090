@@ -1,16 +1,11 @@
-/* PDCurses */
-
-#include "pdcwin.h"
-
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
+#include <curspriv.h>
 
 #define USE_UNICODE_ACS_CHARS 1
 
 #include "acs_defs.h"
 
 DWORD pdc_last_blink;
+
 static bool blinked_off = FALSE;
 static bool in_italic = FALSE;
 
@@ -69,9 +64,9 @@ static void _set_ansi_color(short f, short b, attr_t attr)
             p += sprintf(p, "38;5;%d", f);
         else
         {
-            short red = DIVROUND(pdc_color[f].r * 255, 1000);
+            short red   = DIVROUND(pdc_color[f].r * 255, 1000);
             short green = DIVROUND(pdc_color[f].g * 255, 1000);
-            short blue = DIVROUND(pdc_color[f].b * 255, 1000);
+            short blue  = DIVROUND(pdc_color[f].b * 255, 1000);
 
             p += sprintf(p, "38;2;%d;%d;%d", red, green, blue);
         }
@@ -143,16 +138,15 @@ static void _set_ansi_color(short f, short b, attr_t attr)
 
 /* see 'addch.c' for an explanation of how combining chars are handled. */
 
-int PDC_expand_combined_characters( const cchar_t c, cchar_t *added);  /* addch.c */
-
 #undef DUMMY_CHAR_NEXT_TO_FULLWIDTH
 
 const chtype DUMMY_CHAR_NEXT_TO_FULLWIDTH = (chtype)MAX_UNICODE;
-#define IS_SUPPLEMENTAL_MULTILINGUAL_PLANE( c) ((c) & 0x1f0000)
 
-static void _show_run_of_ansi_characters( const attr_t attr,
-                           const int fore, const int back, const bool blink,
-                           const int lineno, const int x, const chtype *srcp, const int len)
+#define IS_SUPPLEMENTAL_MULTILINGUAL_PLANE(c)  ((c) & 0x1f0000)
+
+static void _show_run_of_ansi_characters (const attr_t attr,
+                                          const int fore, const int back, const bool blink,
+                                          const int lineno, const int x, const chtype *srcp, const int len)
 {
     WCHAR buffer[MAX_PACKET_LEN];
     int j, n_out;
@@ -172,22 +166,23 @@ static void _show_run_of_ansi_characters( const attr_t attr,
         {
             if( IS_SUPPLEMENTAL_MULTILINGUAL_PLANE( ch))
             {
-                buffer[n_out++] = (WCHAR)((ch - 0x10000) >> 10 | 0xD800); /* first UTF-16 unit */
-                buffer[n_out++] = (WCHAR)(ch & 0x3FF) | 0xDC00;   /* second UTF-16 unit */
+                buffer[n_out++] = (WCHAR)((ch - 0x10000) >> 10 | PDC_HIGH_SURROGATE_START); /* first UTF-16 unit */
+                buffer[n_out++] = (WCHAR)(ch & 0x3FF) | PDC_LOW_SURROGATE_START;            /* second UTF-16 unit */
             }
             else
                 buffer[n_out++] = (WCHAR)ch;
         }
     }
 
-    PDC_gotoyx(lineno, x);
-    _set_ansi_color( (short)fore, (short)back, attr);
-    WriteConsoleW(pdc_con_out, buffer, n_out, NULL, NULL);
+    PDC_gotoyx (lineno, x);
+    _set_ansi_color ((short)fore, (short)back, attr);
+    WriteConsoleW (pdc_con_out, buffer, n_out, NULL, NULL);
 }
 
-static void _show_run_of_nonansi_characters( attr_t attr,
-                           int fore, int back, const bool blink,
-                           const int lineno, const int x, const chtype *srcp, const int len)
+static void _show_run_of_nonansi_characters (attr_t attr,
+                                             int fore, int back, const bool blink,
+                                             const int lineno, const int x,
+                                             const chtype *srcp, const int len)
 {
     CHAR_INFO buffer[MAX_PACKET_LEN];
     COORD bufSize, bufPos;
@@ -241,8 +236,8 @@ static void _show_run_of_nonansi_characters( attr_t attr,
         {
             if( IS_SUPPLEMENTAL_MULTILINGUAL_PLANE( ch))
             {
-                buffer[n_out++].Char.UnicodeChar = (WCHAR)((ch - 0x10000) >> 10 | 0xD800); /* first UTF-16 unit */
-                buffer[n_out++].Char.UnicodeChar = (WCHAR)(ch & 0x3FF) | 0xDC00;   /* second UTF-16 unit */
+                buffer[n_out++].Char.UnicodeChar = (WCHAR)((ch - 0x10000) >> 10 | PDC_HIGH_SURROGATE_START); /* first UTF-16 unit */
+                buffer[n_out++].Char.UnicodeChar = (WCHAR)(ch & 0x3FF) | PDC_LOW_SURROGATE_START;            /* second UTF-16 unit */
             }
             else
                 buffer[n_out++].Char.UnicodeChar = (WCHAR)ch;
@@ -262,8 +257,8 @@ static void _show_run_of_nonansi_characters( attr_t attr,
     WriteConsoleOutput(pdc_con_out, buffer, bufSize, bufPos, &sr);
 }
 
-static void _new_packet( attr_t attr, const int lineno,
-                                 int x, int len, const chtype *srcp)
+static void _new_packet (attr_t attr, const int lineno,
+                         int x, int len, const chtype *srcp)
 {
     int fore, back;
     bool blink, ansi;
@@ -304,8 +299,8 @@ static void _new_packet( attr_t attr, const int lineno,
 }
 
 /* update the given physical line to look like the corresponding line in
-   curscr */
-
+   curscr
+ */
 void PDC_transform_line(int lineno, int x, int len, const chtype *srcp)
 {
     attr_t old_attr, attr;
@@ -370,7 +365,6 @@ void PDC_blink_text(void)
         cci.bVisible = TRUE;
         SetConsoleCursorInfo(pdc_con_out, &cci);
     }
-
     pdc_last_blink = GetTickCount();
 }
 

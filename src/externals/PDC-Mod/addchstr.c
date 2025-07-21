@@ -1,32 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-addchstr
---------
-
-### Synopsis
-
-    int addchstr(const chtype *ch);
-    int addchnstr(const chtype *ch, int n);
-    int waddchstr(WINDOW *win, const chtype *ch);
-    int waddchnstr(WINDOW *win, const chtype *ch, int n);
-    int mvaddchstr(int y, int x, const chtype *ch);
-    int mvaddchnstr(int y, int x, const chtype *ch, int n);
-    int mvwaddchstr(WINDOW *, int y, int x, const chtype *ch);
-    int mvwaddchnstr(WINDOW *, int y, int x, const chtype *ch, int n);
-
-    int add_wchstr(const cchar_t *wch);
-    int add_wchnstr(const cchar_t *wch, int n);
-    int wadd_wchstr(WINDOW *win, const cchar_t *wch);
-    int wadd_wchnstr(WINDOW *win, const cchar_t *wch, int n);
-    int mvadd_wchstr(int y, int x, const cchar_t *wch);
-    int mvadd_wchnstr(int y, int x, const cchar_t *wch, int n);
-    int mvwadd_wchstr(WINDOW *win, int y, int x, const cchar_t *wch);
-    int mvwadd_wchnstr(WINDOW *win, int y, int x, const cchar_t *wch,
-                       int n);
+/*
 
 ### Description
 
@@ -44,27 +18,7 @@ addchstr
 
    All functions return OK or ERR.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   addchstr              |    Y   |    Y    |   Y
-   waddchstr             |    Y   |    Y    |   Y
-   mvaddchstr            |    Y   |    Y    |   Y
-   mvwaddchstr           |    Y   |    Y    |   Y
-   addchnstr             |    Y   |    Y    |   Y
-   waddchnstr            |    Y   |    Y    |   Y
-   mvaddchnstr           |    Y   |    Y    |   Y
-   mvwaddchnstr          |    Y   |    Y    |   Y
-   add_wchstr            |    Y   |    Y    |   Y
-   wadd_wchstr           |    Y   |    Y    |   Y
-   mvadd_wchstr          |    Y   |    Y    |   Y
-   mvwadd_wchstr         |    Y   |    Y    |   Y
-   add_wchnstr           |    Y   |    Y    |   Y
-   wadd_wchnstr          |    Y   |    Y    |   Y
-   mvadd_wchnstr         |    Y   |    Y    |   Y
-   mvwadd_wchnstr        |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+*/
 
 int waddchnstr(WINDOW *win, const chtype *ch, int n)
 {

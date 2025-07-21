@@ -1,20 +1,17 @@
-/* PDCurses */
-
-/* Palette management code used by VT,  WinGUI,  SDL1/2,  and X11 for
-'full color' (24-bit).  It may eventually be used by DOSVGA,  WinCon,
-and/or the Plan9 platform,  all of which have full color capability.
-It will presumably never be useful for the DOS or OS/2 platforms.
-See 'pdccolor.txt' for a rationale of how this works. */
-
-#include <stdlib.h>
-#include <assert.h>
+/*
+  Palette management code used by VT,  WinGUI,  SDL1/2,  and X11 for
+  'full color' (24-bit).  It may eventually be used by DOSVGA,  WinCon,
+  and/or the Plan9 platform,  all of which have full color capability.
+  It will presumably never be useful for the DOS or OS/2 platforms.
+  See 'pdccolor.txt' for a rationale of how this works.
+ */
+#include <curspriv.h>
+#include "pdccolor.h"
 
 #define PACKED_RGB uint32_t
 
 #define PACK_RGB( red, green, blue) ((red) | ((green)<<8) | ((PACKED_RGB)(blue) << 16))
 
-#include <curspriv.h>
-#include "pdccolor.h"
 
 static PACKED_RGB *rgbs;   /* the 'standard' 256-color palette,  plus any allocated */
 static int _palette_size;

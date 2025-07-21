@@ -1,29 +1,7 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 #include <limits.h>
 
-/*man-start**************************************************************
-
-termattr
---------
-
-### Synopsis
-
-    int baudrate(void);
-    char erasechar(void);
-    bool has_ic(void);
-    bool has_il(void);
-    char killchar(void);
-    char *longname(void);
-    chtype termattrs(void);
-    attr_t term_attrs(void);
-    char *termname(void);
-
-    int erasewchar(wchar_t *ch);
-    int killwchar(wchar_t *ch);
-
-    char wordchar(void);
+/*
 
 ### Description
 
@@ -54,23 +32,7 @@ termattr
    functions erasechar() and killchar(), returning the "delete word"
    character, ^W.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   baudrate              |    Y   |    Y    |   Y
-   erasechar             |    Y   |    Y    |   Y
-   has_ic                |    Y   |    Y    |   Y
-   has_il                |    Y   |    Y    |   Y
-   killchar              |    Y   |    Y    |   Y
-   longname              |    Y   |    Y    |   Y
-   termattrs             |    Y   |    Y    |   Y
-   termname              |    Y   |    Y    |   Y
-   erasewchar            |    Y   |    Y    |   Y
-   killwchar             |    Y   |    Y    |   Y
-   term_attrs            |    Y   |    Y    |   Y
-   wordchar              |    -   |    -    |   -
-
-**man-end****************************************************************/
+ */
 
 int baudrate(void)
 {

@@ -1,29 +1,7 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 #include <panel.h>
 
-/*man-start**************************************************************
-
-initscr
--------
-
-### Synopsis
-
-    WINDOW *initscr(void);
-    WINDOW *Xinitscr(int argc, char **argv);
-    int endwin(void);
-    bool isendwin(void);
-    SCREEN *newterm(const char *type, FILE *outfd, FILE *infd);
-    SCREEN *set_term(SCREEN *new);
-    void delscreen(SCREEN *sp);
-
-    int resize_term(int nlines, int ncols);
-    bool is_termresized(void);
-    const char *curses_version(void);
-    void PDC_get_version(PDC_VERSION *ver);
-
-    int set_tabsize(int tabsize);
+/*
 
 ### Description
 
@@ -81,22 +59,7 @@ initscr
 
    All functions return NULL on error, except endwin(), which always
    returns OK, and resize_term(), which returns either OK or ERR.
-
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   initscr               |    Y   |    Y    |   Y
-   endwin                |    Y   |    Y    |   Y
-   isendwin              |    Y   |    Y    |   Y
-   newterm               |    Y   |    Y    |   Y
-   set_term              |    Y   |    Y    |   Y
-   delscreen             |    Y   |    Y    |   Y
-   resize_term           |    -   |    Y    |   Y
-   set_tabsize           |    -   |    Y    |   Y
-   curses_version        |    -   |    Y    |   -
-   is_termresized        |    -   |    -    |   -
-
-**man-end****************************************************************/
+ */
 
 char ttytype[128];
 
@@ -133,22 +96,23 @@ const char *_curses_notice = "PDCursesMod " PDC_VERDOT " - "\
                     PDC_VER_MONTH_STR "-" \
                     PDC_stringize( PDC_VER_DAY);
 
-SCREEN *SP = (SCREEN*)NULL;           /* curses variables */
-WINDOW *curscr = (WINDOW *)NULL;      /* the current screen image */
-WINDOW *stdscr = (WINDOW *)NULL;      /* the default screen window */
+SCREEN *SP     = NULL;      /* curses variables */
+WINDOW *curscr = NULL;      /* the current screen image */
+WINDOW *stdscr = NULL;      /* the default screen window */
 
-int LINES = 0;                        /* current terminal height */
-int COLS = 0;                         /* current terminal width */
+int LINES = 0;              /* current terminal height */
+int COLS = 0;               /* current terminal width */
 int TABSIZE = 8;
 
 MOUSE_STATUS Mouse_status;
 
-/* When the screen is initialized or resized,  we need to figure out
-on which lines the ripped-off lines will go.  If initializing,  we
-have to create the window for each ripped-off line and call its
-corresponding callback function.  If we're just resizing,  we still
-may have to expand the window(s) to include new columns.  */
-
+/*
+  When the screen is initialized or resized,  we need to figure out
+  on which lines the ripped-off lines will go.  If initializing, we
+  have to create the window for each ripped-off line and call its
+  corresponding callback function.  If we're just resizing,  we still
+  may have to expand the window(s) to include new columns.
+ */
 static int _update_ripped_off_lines( SCREEN *sp)
 {
     int i, lines_ripped_off_on_top = 0;
@@ -186,14 +150,9 @@ SCREEN *newterm(const char *type, FILE *outfd, FILE *infd)
 
     if (SP && SP->alive)
         return NULL;
-    SP = (SCREEN *)calloc(1, sizeof(SCREEN));
-    assert( SP);
+    SP = calloc(1, sizeof(SCREEN));
     if (!SP)
         return NULL;
-
-    /* output_fd, input_fd should be initialized before PDC_src_open */
-    SP->output_fd = outfd ? outfd : stdout;
-    SP->input_fd = infd ? infd : stdin;
 
     if (PDC_scr_open() == ERR)
     {
@@ -214,7 +173,7 @@ SCREEN *newterm(const char *type, FILE *outfd, FILE *infd)
     SP->linesrippedoff = 0;
     SP->delaytenths = 0;
     SP->line_color = -1;
-    SP->lastscr = (WINDOW *)NULL;
+    SP->lastscr = NULL;
     SP->dbfp = NULL;
     SP->color_started = FALSE;
     SP->dirty = FALSE;
@@ -258,8 +217,8 @@ SCREEN *newterm(const char *type, FILE *outfd, FILE *infd)
     LINES -= SP->slklines;
 
     /* We have to sort out ripped off lines here, and reduce the height
-       of stdscr by the number of lines ripped off */
-
+       of stdscr by the number of lines ripped off
+     */
     ripoffline( 0, NULL);   /* copy stored ripped-line data into SP */
     lines_ripped_off_on_top = _update_ripped_off_lines( SP);
 
@@ -297,13 +256,13 @@ SCREEN *newterm(const char *type, FILE *outfd, FILE *infd)
 
     longname( );
 
-    SP->c_buffer = (int *)malloc(_INBUFSIZ * sizeof(int));
+    SP->c_buffer = malloc(_INBUFSIZ * sizeof(int));
     if (!SP->c_buffer)
         return NULL;
     SP->c_pindex = 0;
     SP->c_gindex = 1;
 
-    SP->c_ungch = (int *)malloc(NUNGETCH * sizeof(int));
+    SP->c_ungch = malloc(NUNGETCH * sizeof(int));
     if (!SP->c_ungch)
         return NULL;
     SP->c_ungind = 0;
@@ -359,21 +318,24 @@ void delscreen(SCREEN *sp)
 
     PDC_slk_free();     /* free the soft label keys, if needed */
 
-         /* Mark all windows as 'parentless'.  That way,  we can */
-         /* delete all windows associated with SP.               */
+    /* Mark all windows as 'parentless'.  That way,  we can
+     * delete all windows associated with SP.
+     */
     for( i = 0; i < SP->n_windows; i++)
         SP->window_list[i]->_parent = NULL;
     while( SP->n_windows)
         delwin( SP->window_list[0]);
-                    /* With all windows deleted,  the window  */
-                    /* list should be empty. */
+
+    /* With all windows deleted,  the window
+     * list should be empty.
+     */
     assert( !SP->window_list);
     if( SP->linesripped)
         free( SP->linesripped);
 
     PDC_free_atrtab( );
-    stdscr = (WINDOW *)NULL;
-    curscr = (WINDOW *)NULL;
+    stdscr = NULL;
+    curscr = NULL;
     SP->lastscr = (WINDOW *)NULL;
 
     SP->alive = FALSE;
@@ -381,7 +343,7 @@ void delscreen(SCREEN *sp)
     PDC_scr_free();
 
     free(SP);
-    SP = (SCREEN *)NULL;
+    SP = NULL;
 }
 
 int resize_term(int nlines, int ncols)

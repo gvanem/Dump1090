@@ -1,14 +1,18 @@
 /*
  * This file is an amalgamation of the needed sources files
- * in PDCurses-MOD. By combining all the individual C code files into
- * this single file, the entire code can be compiled as a single
- * translation unit.
+ * in PDCurses-MOD.
  */
-#include <windows.h>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 
-#define PDC_99 1
-#undef  PDC_NCMOUSE
-#undef  MOUSE_MOVED
+#include <windows.h>
+#include <winsock2.h> /* struct timeval */
+#undef MOUSE_MOVED
+
+#ifdef _INC_CONIO
+#error "<conio.h> must not be included"
+#endif
 
 #include "addch.c"
 #include "addstr.c"

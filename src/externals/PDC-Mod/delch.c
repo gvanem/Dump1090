@@ -1,18 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-delch
------
-
-### Synopsis
-
-    int delch(void);
-    int wdelch(WINDOW *win);
-    int mvdelch(int y, int x);
-    int mvwdelch(WINDOW *win, int y, int x);
+/*
 
 ### Description
 
@@ -26,15 +14,7 @@ delch
 
    All functions return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   delch                 |    Y   |    Y    |   Y
-   wdelch                |    Y   |    Y    |   Y
-   mvdelch               |    Y   |    Y    |   Y
-   mvwdelch              |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 int wdelch(WINDOW *win)
 {

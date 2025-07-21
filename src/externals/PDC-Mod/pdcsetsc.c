@@ -1,17 +1,6 @@
-/* PDCurses */
+#include <curspriv.h>
 
-#include "pdcwin.h"
-
-/*man-start**************************************************************
-
-pdcsetsc
---------
-
-### Synopsis
-
-    int PDC_set_blink(bool blinkon);
-    int PDC_set_bold(bool boldon);
-    void PDC_set_title(const char *title);
+/*
 
 ### Description
 
@@ -30,12 +19,7 @@ pdcsetsc
    program is running. This function may not do anything on some
    platforms.
 
-### Portability
-                             X/Open  ncurses  NetBSD
-    PDC_set_blink               -       -       -
-    PDC_set_title               -       -       -
-
-**man-end****************************************************************/
+ */
 
 int PDC_curs_set(int visibility)
 {

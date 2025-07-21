@@ -1,33 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
-#include <assert.h>
 
-/*man-start**************************************************************
-
-outopts
--------
-
-### Synopsis
-
-    int clearok(WINDOW *win, bool bf);
-    int idlok(WINDOW *win, bool bf);
-    void idcok(WINDOW *win, bool bf);
-    void immedok(WINDOW *win, bool bf);
-    int leaveok(WINDOW *win, bool bf);
-    int setscrreg(int top, int bot);
-    int wsetscrreg(WINDOW *win, int top, int bot);
-    int wgetscrreg(const WINDOW *win, int *top, int *bot);
-    int scrollok(WINDOW *win, bool bf);
-
-    int raw_output(bool bf);
-
-    bool is_cleared(const WINDOW *win);
-    bool is_idlok(const WINDOW *win);
-    bool is_idcok(const WINDOW *win);
-    bool is_immedok(const WINDOW *win);
-    bool is_leaveok(const WINDOW *win);
-    bool is_scrollok(const WINDOW *win);
+/*
 
 ### Description
 
@@ -79,27 +52,7 @@ outopts
    curses implementations.  They have no real meaning in PDCursesMod and
    will always return FALSE.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   clearok               |    Y   |    Y    |   Y
-   idlok                 |    Y   |    Y    |   Y
-   idcok                 |    Y   |    Y    |   Y
-   immedok               |    Y   |    Y    |   Y
-   leaveok               |    Y   |    Y    |   Y
-   setscrreg             |    Y   |    Y    |   Y
-   wsetscrreg            |    Y   |    Y    |   Y
-   wgetscrreg            |    -   |    Y    |   -
-   scrollok              |    Y   |    Y    |   Y
-   is_cleared            |    -   |    Y    |   -
-   is_idlok              |    -   |    Y    |   -
-   is_idcok              |    -   |    Y    |   -
-   is_immedok            |    -   |    Y    |   -
-   is_leaveok            |    -   |    Y    |   Y
-   is_scrollok           |    -   |    Y    |   -
-   raw_output            |    -   |    -    |   -
-
-**man-end****************************************************************/
+ */
 
 int clearok(WINDOW *win, bool bf)
 {

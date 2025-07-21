@@ -1,30 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-getyx
------
-
-### Synopsis
-
-    void getyx(WINDOW *win, int y, int x);
-    void getparyx(WINDOW *win, int y, int x);
-    void getbegyx(WINDOW *win, int y, int x);
-    void getmaxyx(WINDOW *win, int y, int x);
-
-    void getsyx(int y, int x);
-    void setsyx(int y, int x);
-
-    int getbegy(const WINDOW *win);
-    int getbegx(const WINDOW *win);
-    int getcury(const WINDOW *win);
-    int getcurx(const WINDOW *win);
-    int getpary(const WINDOW *win);
-    int getparx(const WINDOW *win);
-    int getmaxy(const WINDOW *win);
-    int getmaxx(const WINDOW *win);
+/*
 
 ### Description
 
@@ -53,25 +29,7 @@ getyx
    getpary(), and getparx() return the appropriate coordinate or size
    values, or ERR in the case of a NULL window.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   getyx                 |    Y   |    Y    |   Y
-   getparyx              |    Y   |    Y    |   Y
-   getbegyx              |    Y   |    Y    |   Y
-   getmaxyx              |    Y   |    Y    |   Y
-   getsyx                |    -   |    Y    |   Y
-   setsyx                |    -   |    Y    |   Y
-   getbegy               |    -   |    Y    |   Y
-   getbegx               |    -   |    Y    |   Y
-   getcury               |    -   |    Y    |   Y
-   getcurx               |    -   |    Y    |   Y
-   getpary               |    -   |    Y    |   Y
-   getparx               |    -   |    Y    |   Y
-   getmaxy               |    -   |    Y    |   Y
-   getmaxx               |    -   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 int getbegy(const WINDOW *win)
 {

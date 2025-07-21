@@ -1,22 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
-#include <assert.h>
-#include <stdlib.h>
 
-/*man-start**************************************************************
-
-printw
-------
-
-### Synopsis
-
-    int printw(const char *fmt, ...);
-    int wprintw(WINDOW *win, const char *fmt, ...);
-    int mvprintw(int y, int x, const char *fmt, ...);
-    int mvwprintw(WINDOW *win, int y, int x, const char *fmt,...);
-    int vwprintw(WINDOW *win, const char *fmt, va_list varglist);
-    int vw_printw(WINDOW *win, const char *fmt, va_list varglist);
+/*
 
 ### Description
 
@@ -33,26 +17,15 @@ printw
    All functions return the number of characters printed, or ERR on
    error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   printw                |    Y   |    Y    |   Y
-   wprintw               |    Y   |    Y    |   Y
-   mvprintw              |    Y   |    Y    |   Y
-   mvwprintw             |    Y   |    Y    |   Y
-   vwprintw              |    Y   |    Y    |   Y
-   vw_printw             |    Y   |    Y    |   Y
+ */
 
-**man-end****************************************************************/
-
-#include <string.h>
-
-/* _vsnprintf() and earlier vsnprintf() return -1 if the output doesn't
-fit in the buffer.  When that happens,  we try again with a
-larger buffer, doubling its size until it fits.  C99-compliant
-vsnprintf() returns the number of bytes actually needed (minus the
-trailing zero). */
-
+/*
+ * _vsnprintf() and earlier vsnprintf() return -1 if the output doesn't
+ * fit in the buffer.  When that happens,  we try again with a
+ * larger buffer, doubling its size until it fits.  C99-compliant
+ * vsnprintf() returns the number of bytes actually needed (minus the
+ * trailing zero).
+ */
 int vwprintw(WINDOW *win, const char *fmt, va_list varglist)
 {
     char printbuf[513];
@@ -69,9 +42,10 @@ int vwprintw(WINDOW *win, const char *fmt, va_list varglist)
             buffsize <<= 1;
         else                 /* glibc 2.0.6 & later (C99 behavior) */
             buffsize = len + 1;
+
         if( buf != printbuf)
             free( buf);
-        buf = (char *)malloc( buffsize + 1);
+        buf = malloc( buffsize + 1);
         va_copy( varglist_copy, varglist);
         len = _vsnprintf( buf, buffsize, fmt, varglist_copy);
     }

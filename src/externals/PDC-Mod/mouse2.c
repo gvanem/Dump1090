@@ -1,29 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-mouse
------
-
-### Synopsis
-
-    int mouse_set(mmask_t mbe);
-    int mouse_on(mmask_t mbe);
-    int mouse_off(mmask_t mbe);
-    int request_mouse_pos(void);
-    void wmouse_position(WINDOW *win, int *y, int *x);
-    mmask_t getmouse(void);
-
-    int mouseinterval(int wait);
-    bool wenclose(const WINDOW *win, int y, int x);
-    bool wmouse_trafo(const WINDOW *win, int *y, int *x, bool to_screen);
-    bool mouse_trafo(int *y, int *x, bool to_screen);
-    mmask_t mousemask(mmask_t mask, mmask_t *oldmask);
-    int nc_getmouse(MEVENT *event);
-    int ungetmouse(MEVENT *event);
-    bool has_mouse(void);
+/*
 
 ### Description
 
@@ -116,28 +93,7 @@ mouse
 
    has_mouse() reports whether the mouse is available at all on the
    current platform.
-
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   mouse_set             |    -   |    -    |   -
-   mouse_on              |    -   |    -    |   -
-   mouse_off             |    -   |    -    |   -
-   request_mouse_pos     |    -   |    -    |   -
-   wmouse_position       |    -   |    -    |   -
-   getmouse              |    -   |    *    |   -
-   mouseinterval         |    -   |    Y    |   -
-   wenclose              |    -   |    Y    |   -
-   wmouse_trafo          |    -   |    Y    |   -
-   mouse_trafo           |    -   |    Y    |   -
-   mousemask             |    -   |    Y    |   -
-   nc_getmouse           |    -   |    *    |   -
-   ungetmouse            |    -   |    Y    |   -
-   has_mouse             |    -   |    Y    |   -
-
-    * See above, under Description
-
-**man-end****************************************************************/
+ */
 
 static bool ungot = FALSE;
 
@@ -295,11 +251,12 @@ mmask_t mousemask(mmask_t mask, mmask_t *oldmask)
     return SP->_trap_mbe;
 }
 
-/* For full compatibility with the ncurses mouse interface,  we need
-to account for the fact that ncurses maps wheel-up to a button4 press
-and wheel-down to a button5 press.  It lacks PDCursesMod's separate
-wheel scroll event flag.        */
-
+/*
+  For full compatibility with the ncurses mouse interface,  we need
+  to account for the fact that ncurses maps wheel-up to a button4 press
+  and wheel-down to a button5 press.  It lacks PDCursesMod's separate
+  wheel scroll event flag.
+ */
 mmask_t nc_mousemask(mmask_t mask, mmask_t *oldmask)
 {
     SP->ncurses_mouse = TRUE;
@@ -365,9 +322,10 @@ int nc_getmouse(MEVENT *event)
 
     event->bstate = bstate & SP->_trap_mbe;
 
-                     /* 'Moves' (i.e.,  button is pressed) and 'position reports' */
-                     /* (mouse moved with no button down) are all reported as     */
-                     /* 'position reports' in NCurses,  which lacks 'move' events. */
+    /* 'Moves' (i.e.,  button is pressed) and 'position reports'
+     * (mouse moved with no button down) are all reported as
+     * 'position reports' in NCurses,  which lacks 'move' events.
+     */
     if( MOUSE_MOVED && (SP->_trap_mbe & ALL_MOVE_EVENTS))
        event->bstate |= REPORT_MOUSE_POSITION;
 

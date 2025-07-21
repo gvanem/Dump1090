@@ -1,36 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
-#include <assert.h>
 
-/*man-start**************************************************************
-
-slk
----
-
-### Synopsis
-
-    int slk_init(int fmt);
-    int slk_set(int labnum, const char *label, int justify);
-    int slk_refresh(void);
-    int slk_noutrefresh(void);
-    char *slk_label(int labnum);
-    int slk_clear(void);
-    int slk_restore(void);
-    int slk_touch(void);
-    int slk_attron(const chtype attrs);
-    int slk_attr_on(const attr_t attrs, void *opts);
-    int slk_attrset(const chtype attrs);
-    int slk_attr_set(const attr_t attrs, short color_pair, void *opts);
-    int slk_attroff(const chtype attrs);
-    int slk_attr_off(const attr_t attrs, void *opts);
-    int slk_color(short color_pair);
-
-    int slk_wset(int labnum, const wchar_t *label, int justify);
-
-    wchar_t *slk_wlabel(int labnum);
-    attr_t slk_attr( void);            (ncurses extension)
-    int extended_slk_color( int pair); (ncurses extension)
+/*
 
 ### Description
 
@@ -77,31 +47,7 @@ slk
 
    All functions return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   slk_init              |    Y   |    Y    |   Y
-   slk_set               |    Y   |    Y    |   Y
-   slk_refresh           |    Y   |    Y    |   Y
-   slk_noutrefresh       |    Y   |    Y    |   Y
-   slk_label             |    Y   |    Y    |   Y
-   slk_clear             |    Y   |    Y    |   Y
-   slk_restore           |    Y   |    Y    |   Y
-   slk_touch             |    Y   |    Y    |   Y
-   slk_attron            |    Y   |    Y    |   Y
-   slk_attrset           |    Y   |    Y    |   Y
-   slk_attroff           |    Y   |    Y    |   Y
-   slk_attr_on           |    Y   |    Y    |   Y
-   slk_attr_set          |    Y   |    Y    |   Y
-   slk_attr_off          |    Y   |    Y    |   Y
-   slk_attr              |    -   |    Y    |   -
-   slk_wset              |    Y   |    Y    |   Y
-   slk_wlabel            |    -   |    -    |   -
-   extended_slk_color    |    -   |    Y    |   -
-
-**man-end****************************************************************/
-
-#include <stdlib.h>
+ */
 
 static int label_length = 0;
 static int labels = 0;
@@ -190,7 +136,6 @@ static void _drawone(int num)
 
     case 1:  /* CENTER */
         col = (label_length - slen) / 2;
-
         if (col + slen > label_length)
             --col;
         break;
@@ -238,8 +183,8 @@ static void _redraw(void)
 
    labnum  = 1 - 8 (or 10) (number of the label)
    label   = string (8 or 7 bytes total), or NULL
-   justify = 0 : left, 1 : center, 2 : right  */
-
+   justify = 0 : left, 1 : center, 2 : right
+ */
 int slk_set(int labnum, const char *label, int justify)
 {
     wchar_t wlabel[MAX_LABEL_LENGTH];
@@ -483,8 +428,8 @@ int PDC_mouse_in_slk(int y, int x)
     int i;
 
     /* If the line on which the mouse was clicked is NOT the last line
-       of the screen, or the SLKs are hidden,  we are not interested in it. */
-
+       of the screen, or the SLKs are hidden,  we are not interested in it.
+     */
     assert( SP);
     if (!slk || hidden || !SP->slk_winptr
                         || (y != SP->slk_winptr->_begy + label_line))
@@ -554,7 +499,6 @@ wchar_t *slk_wlabel(int labnum)
         temp[i] = (wchar_t)*p++;
 
     temp[i] = '\0';
-
     return temp;
 }
 

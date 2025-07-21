@@ -1,19 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
-#include <stdlib.h>
 
-/*man-start**************************************************************
-
-clipboard
----------
-
-### Synopsis
-
-    int PDC_getclipboard(char **contents, long *length);
-    int PDC_setclipboard(const char *contents, long length);
-    int PDC_freeclipboard(char *contents);
-    int PDC_clearclipboard(void);
+/*
 
 ### Description
 
@@ -37,19 +24,14 @@ clipboard
     PDC_CLIP_EMPTY          the clipboard contains no text
     PDC_CLIP_ACCESS_ERROR   no clipboard support
 
-### Portability
-                             X/Open  ncurses  NetBSD
-    PDC_getclipboard            -       -       -
-    PDC_setclipboard            -       -       -
-    PDC_freeclipboard           -       -       -
-    PDC_clearclipboard          -       -       -
+*/
 
-**man-end****************************************************************/
-
-/* This version is used (at present) in the VT,  framebuffer,  DOS,
-and DOSVGA ports,  and could be used for the Plan9 one as well.  These
-platforms lack system clipboards,  so we just store the clipboard text
-in a malloced buffer.   */
+/*
+  This version is used (at present) in the VT,  framebuffer,  DOS,
+  and DOSVGA ports,  and could be used for the Plan9 one as well.  These
+  platforms lack system clipboards,  so we just store the clipboard text
+  in a malloced buffer.
+ */
 
 /* global clipboard contents, should be NULL if none set */
 

@@ -1,19 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-overlay
--------
-
-### Synopsis
-
-    int overlay(const WINDOW *src_w, WINDOW *dst_w)
-    int overwrite(const WINDOW *src_w, WINDOW *dst_w)
-    int copywin(const WINDOW *src_w, WINDOW *dst_w, int src_tr,
-                int src_tc, int dst_tr, int dst_tc, int dst_br,
-                int dst_bc, int _overlay)
+/*
 
 ### Description
 
@@ -38,17 +25,11 @@ overlay
 
    All functions return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   overlay               |    Y   |    Y    |   Y
-   overwrite             |    Y   |    Y    |   Y
-   copywin               |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 /* Thanks to Andreas Otte <venn@@uni-paderborn.de> for the
-   corrected overlay()/overwrite() behavior. */
+   corrected overlay()/overwrite() behavior.
+ */
 
 static int _copy_win (const WINDOW *src_w, WINDOW *dst_w, int src_tr,
                       int src_tc, int src_br, int src_bc, int dst_tr,

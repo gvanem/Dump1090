@@ -1,30 +1,7 @@
-/* PDCursesMod */
 
 #include <curspriv.h>
-#include <string.h>
-#include <stdlib.h>
 
-/*man-start**************************************************************
-
-util
-----
-
-### Synopsis
-
-    char *unctrl(chtype c);
-    void filter(void);
-    void use_env(bool x);
-    int delay_output(int ms);
-
-    int getcchar(const cchar_t *wcval, wchar_t *wch, attr_t *attrs,
-                 short *color_pair, void *opts);
-    int setcchar(cchar_t *wcval, const wchar_t *wch, const attr_t attrs,
-                 short color_pair, const void *opts);
-    wchar_t *wunctrl(cchar_t *wc);
-
-    int PDC_mbtowc(wchar_t *pwc, const char *s, size_t n);
-    size_t PDC_mbstowcs(wchar_t *dest, const char *src, size_t n);
-    size_t PDC_wcstombs(char *dest, const wchar_t *src, size_t n);
+/*
 
 ### Description
 
@@ -66,22 +43,7 @@ util
 
    setcchar() returns OK or ERR.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   unctrl                |    Y   |    Y    |   Y
-   filter                |    Y   |    Y    |   Y
-   use_env               |    Y   |    Y    |   Y
-   delay_output          |    Y   |    Y    |   Y
-   getcchar              |    Y   |    Y    |   Y
-   setcchar              |    Y   |    Y    |   Y
-   wunctrl               |    Y   |    Y    |   Y
-   PDC_mbtowc            |    -   |    -    |   -
-   PDC_mbstowcs          |    -   |    -    |   -
-   PDC_wcstombs          |    -   |    -    |   -
-
-**man-end****************************************************************/
-
+*/
 char *unctrl(chtype c)
 {
     static char strbuf[3] = {0, 0, 0};
@@ -169,33 +131,23 @@ int PDC_wc_to_utf8( char *dest, const int32_t code)
    return( n_bytes_out);
 }
 
-/* I think that only under Windows is wchar_t 16 bits. */
-#define WCHAR_T_IS_16_BITS
-
-   /* This expands a string of wchar_t values,  possibly including surrogate
+/* This expands a string of wchar_t values,  possibly including surrogate
    pairs,  into an array of int32_t Unicode points.  The output array will
    contain exactly as many values as the input array,  _unless_ the input
    has Unicode surrogate pairs in it.  In that case,  each input pair will
-   result in only one output value. */
-
-#undef  IS_HIGH_SURROGATE
-#undef  IS_LOW_SURROGATE
-
-#define IS_HIGH_SURROGATE( x)  ((x) >= 0xd800 && (x) < 0xdc00)
-#define IS_LOW_SURROGATE( x)   ((x) >= 0xdc00 && (x) < 0xe000)
-#define IS_SURROGATE( x)       ((x) >= 0xd800 && (x) < 0xe000)
-
+   result in only one output value.
+ */
 static int _wchar_to_int32_array( int32_t *obuff, const int obuffsize, const wchar_t *wch)
 {
     int i;
 
     for( i = 0; i < obuffsize && *wch; i++)
     {
-        if( IS_SURROGATE( wch[0]))
+        if( PDC_IS_SURROGATE( wch[0]))
         {
-            if( IS_LOW_SURROGATE( wch[1]) && IS_HIGH_SURROGATE( wch[0]))
-                obuff[i] = (((int32_t)wch[0] - 0xd800) << 10) + 0x10000
-                       + (int32_t)wch[1] - 0xdc00;
+            if( PDC_IS_LOW_SURROGATE( wch[1]) && PDC_IS_HIGH_SURROGATE( wch[0]))
+                obuff[i] = (((int32_t)wch[0] - PDC_HIGH_SURROGATE_START) << 10) + 0x10000
+                       + (int32_t)wch[1] - PDC_LOW_SURROGATE_START;
             else         /* malformed surrogate pair */
                 return( -1);
             wch++;
@@ -212,12 +164,12 @@ static int _wchar_to_int32_array( int32_t *obuff, const int obuffsize, const wch
 }
 
 /* Inverse of the above function : given a null-terminated array of Unicode
-points,  encode them as a null-terminated array of wchar_t values.  On
-strange systems where wchar_t does not handle all of Unicode (is 16 bits),
-such as Microsoft Windows,  input values in the SMP will be converted to
-a surrogate pair of wchar_t values.  On more modern systems,  the output
-will essentially equal the input.  */
-
+   points,  encode them as a null-terminated array of wchar_t values.  On
+   strange systems where wchar_t does not handle all of Unicode (is 16 bits),
+   such as Microsoft Windows,  input values in the SMP will be converted to
+   a surrogate pair of wchar_t values.  On more modern systems,  the output
+   will essentially equal the input.
+ */
 static int _int32_to_wchar_array( wchar_t *obuff, const int obuffsize, const int32_t *wint)
 {
     int i = 0;
@@ -232,9 +184,9 @@ static int _int32_to_wchar_array( wchar_t *obuff, const int obuffsize, const int
     {
         if( *wint >= 0x10000)    /* make surrogate pair */
         {
-            obuff[i++] = (wchar_t)( 0xd800 + (*wint >> 10));
+            obuff[i++] = (wchar_t)( PDC_HIGH_SURROGATE_START + (*wint >> 10));
             if( i < obuffsize)
-                obuff[i++] = (wchar_t)( 0xdc00 + (*wint & 0x3ff));
+                obuff[i++] = (wchar_t)( PDC_LOW_SURROGATE_START + (*wint & 0x3ff));
             wint++;
         }
         else
@@ -247,10 +199,7 @@ static int _int32_to_wchar_array( wchar_t *obuff, const int obuffsize, const int
     return( i);
 }
 
-int PDC_expand_combined_characters( const cchar_t c, cchar_t *added);
-int PDC_find_combined_char_idx( const cchar_t root, const cchar_t added);
-
-#define COMBINED_CHAR_START          (MAX_UNICODE + 1)
+#define COMBINED_CHAR_START     (MAX_UNICODE + 1)
 
 int getcchar(const cchar_t *wcval, wchar_t *wch, attr_t *attrs,
              short *color_pair, void *opts)
@@ -308,8 +257,8 @@ int setcchar(cchar_t *wcval, const wchar_t *wch, const attr_t attrs,
 {
     int32_t ochar[20], rval;
     int i;
+    int integer_color_pair = (opts ? *(int *)opts : (int)color_pair);
 
-    const int integer_color_pair = (opts ? *(int *)opts : (int)color_pair);
     assert( wcval);
     assert( wch);
     if (!wcval || !wch)

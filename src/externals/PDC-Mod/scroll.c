@@ -1,17 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-scroll
-------
-
-### Synopsis
-
-    int scroll(WINDOW *win);
-    int scrl(int n);
-    int wscrl(WINDOW *win, int n);
+/*
 
 ### Description
 
@@ -30,14 +19,7 @@ scroll
 
    All functions return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   scroll                |    Y   |    Y    |   Y
-   scrl                  |    Y   |    Y    |   Y
-   wscrl                 |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 int PDC_wscrl(WINDOW *win, const int top, const int bottom, int n)
 {

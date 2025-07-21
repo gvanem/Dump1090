@@ -1,26 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-bkgd
-----
-
-### Synopsis
-
-    int bkgd(chtype ch);
-    void bkgdset(chtype ch);
-    chtype getbkgd(WINDOW *win);
-    int wbkgd(WINDOW *win, chtype ch);
-    void wbkgdset(WINDOW *win, chtype ch);
-
-    int bkgrnd(const cchar_t *wch);
-    void bkgrndset(const cchar_t *wch);
-    int getbkgrnd(cchar_t *wch);
-    int wbkgrnd(WINDOW *win, const cchar_t *wch);
-    void wbkgrndset(WINDOW *win, const cchar_t *wch);
-    int wgetbkgrnd(WINDOW *win, cchar_t *wch);
+/*
 
 ### Description
 
@@ -47,22 +27,7 @@ bkgd
    bkgd() and wbkgd() return OK, unless the window is NULL, in which
    case they return ERR.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   bkgd                  |    Y   |    Y    |   Y
-   bkgdset               |    Y   |    Y    |   Y
-   getbkgd               |    Y   |    Y    |   Y
-   wbkgd                 |    Y   |    Y    |   Y
-   wbkgdset              |    Y   |    Y    |   Y
-   bkgrnd                |    Y   |    Y    |   Y
-   bkgrndset             |    Y   |    Y    |   Y
-   getbkgrnd             |    Y   |    Y    |   Y
-   wbkgrnd               |    Y   |    Y    |   Y
-   wbkgrndset            |    Y   |    Y    |   Y
-   wgetbkgrnd            |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 int wbkgd(WINDOW *win, chtype ch)
 {

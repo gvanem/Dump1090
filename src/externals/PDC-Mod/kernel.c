@@ -1,28 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-kernel
-------
-
-### Synopsis
-
-    int def_prog_mode(void);
-    int def_shell_mode(void);
-    int reset_prog_mode(void);
-    int reset_shell_mode(void);
-    int resetty(void);
-    int savetty(void);
-    int ripoffline(int line, int (*init)(WINDOW *, int));
-    int curs_set(int visibility);
-    int napms(int ms);
-
-    int draino(int ms);
-    int resetterm(void);
-    int fixterm(void);
-    int saveterm(void);
+/*
 
 ### Description
 
@@ -69,33 +47,17 @@ kernel
 
    All functions return OK on success and ERR on error, except
    curs_set(), which returns the previous visibility.
+ */
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   def_prog_mode         |    Y   |    Y    |   Y
-   def_shell_mode        |    Y   |    Y    |   Y
-   reset_prog_mode       |    Y   |    Y    |   Y
-   reset_shell_mode      |    Y   |    Y    |   Y
-   resetty               |    Y   |    Y    |   Y
-   savetty               |    Y   |    Y    |   Y
-   ripoffline            |    Y   |    Y    |   Y
-   curs_set              |    Y   |    Y    |   Y
-   napms                 |    Y   |    Y    |   Y
-   fixterm               |    -   |    Y    |   -
-   resetterm             |    -   |    Y    |   -
-   saveterm              |    -   |    Y    |   -
-   draino                |    -   |    -    |   -
-
-**man-end****************************************************************/
-
-static struct cttyset
-{
+static struct cttyset {
     bool been_set;
     SCREEN saved;
-} ctty[3];
+  } ctty[3];
 
-enum { PDC_SH_TTY, PDC_PR_TTY, PDC_SAVE_TTY };
+enum { PDC_SH_TTY,
+       PDC_PR_TTY,
+       PDC_SAVE_TTY
+     };
 
 static void _save_mode(int i)
 {
@@ -222,17 +184,18 @@ int curs_set(int visibility)
     ret_vis = PDC_curs_set(visibility);
 
     /* If the cursor is changing from invisible to visible, update
-       its position */
-
+       its position
+     */
     if (visibility && !ret_vis)
         PDC_gotoyx(SP->cursrow, SP->curscol);
 
     return ret_vis;
 }
 
-/* TODO : must initscr() be called for napms to work?  Certainly not
-on some platforms,  but is it true for all?  */
-
+/*
+ TODO : must initscr() be called for napms to work?  Certainly not
+ on some platforms,  but is it true for all?
+ */
 int napms(int ms)
 {
     assert( SP);

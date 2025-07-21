@@ -1,31 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-instr
------
-
-### Synopsis
-
-    int instr(char *str);
-    int innstr(char *str, int n);
-    int winstr(WINDOW *win, char *str);
-    int winnstr(WINDOW *win, char *str, int n);
-    int mvinstr(int y, int x, char *str);
-    int mvinnstr(int y, int x, char *str, int n);
-    int mvwinstr(WINDOW *win, int y, int x, char *str);
-    int mvwinnstr(WINDOW *win, int y, int x, char *str, int n);
-
-    int inwstr(wchar_t *wstr);
-    int innwstr(wchar_t *wstr, int n);
-    int winwstr(WINDOW *win, wchar_t *wstr);
-    int winnwstr(WINDOW *win, wchar_t *wstr, int n);
-    int mvinwstr(int y, int x, wchar_t *wstr);
-    int mvinnwstr(int y, int x, wchar_t *wstr, int n);
-    int mvwinwstr(WINDOW *win, int y, int x, wchar_t *wstr);
-    int mvwinnwstr(WINDOW *win, int y, int x, wchar_t *wstr, int n);
+/*
 
 ### Description
 
@@ -40,28 +15,7 @@ instr
    winnstr() return the number of characters actually read into the
    string; instr(), mvinstr(), mvwinstr() and winstr() return OK.
    Otherwise, all these functions return ERR.
-
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   instr                 |    Y   |    Y    |   Y
-   winstr                |    Y   |    Y    |   Y
-   mvinstr               |    Y   |    Y    |   Y
-   mvwinstr              |    Y   |    Y    |   Y
-   innstr                |    Y   |    Y    |   Y
-   winnstr               |    Y   |    Y    |   Y
-   mvinnstr              |    Y   |    Y    |   Y
-   mvwinnstr             |    Y   |    Y    |   Y
-   inwstr                |    Y   |    Y    |   Y
-   winwstr               |    Y   |    Y    |   Y
-   mvinwstr              |    Y   |    Y    |   Y
-   mvwinwstr             |    Y   |    Y    |   Y
-   innwstr               |    Y   |    Y    |   Y
-   winnwstr              |    Y   |    Y    |   Y
-   mvinnwstr             |    Y   |    Y    |   Y
-   mvwinnwstr            |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 int winnstr(WINDOW *win, char *str, int n)
 {

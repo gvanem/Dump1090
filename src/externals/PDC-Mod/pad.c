@@ -1,26 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
-#include <assert.h>
 
-/*man-start**************************************************************
-
-pad
----
-
-### Synopsis
-
-    WINDOW *newpad(int nlines, int ncols);
-    WINDOW *subpad(WINDOW *orig, int nlines, int ncols,
-                   int begy, int begx);
-    int prefresh(WINDOW *win, int py, int px, int sy1, int sx1,
-                 int sy2, int sx2);
-    int pnoutrefresh(WINDOW *w, int py, int px, int sy1, int sx1,
-                     int sy2, int sx2);
-    int pechochar(WINDOW *pad, chtype ch);
-    int pecho_wchar(WINDOW *pad, const cchar_t *wch);
-
-    bool is_pad(const WINDOW *pad);
+/*
 
 ### Description
 
@@ -62,22 +42,7 @@ pad
 
    All functions except is_pad() return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   newpad                |    Y   |    Y    |   Y
-   subpad                |    Y   |    Y    |   Y
-   prefresh              |    Y   |    Y    |   Y
-   pnoutrefresh          |    Y   |    Y    |   Y
-   pechochar             |    Y   |    Y    |   Y
-   pecho_wchar           |    Y   |    Y    |   Y
-   is_pad                |    -   |    Y    |   Y
-
-**man-end****************************************************************/
-
-void PDC_add_window_to_list( WINDOW *win);
-
-#include <string.h>
+*/
 
 /* save values for pechochar() */
 

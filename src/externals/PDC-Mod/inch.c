@@ -1,23 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-inch
-----
-
-### Synopsis
-
-    chtype inch(void);
-    chtype winch(WINDOW *win);
-    chtype mvinch(int y, int x);
-    chtype mvwinch(WINDOW *win, int y, int x);
-
-    int in_wch(cchar_t *wcval);
-    int win_wch(WINDOW *win, cchar_t *wcval);
-    int mvin_wch(int y, int x, cchar_t *wcval);
-    int mvwin_wch(WINDOW *win, int y, int x, cchar_t *wcval);
+/*
 
 ### Description
 
@@ -30,19 +13,7 @@ inch
    wcval, and return OK or ERR. (No value is stored when ERR is
    returned.) Note that in PDCurses, chtype and cchar_t are the same.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   inch                  |    Y   |    Y    |   Y
-   winch                 |    Y   |    Y    |   Y
-   mvinch                |    Y   |    Y    |   Y
-   mvwinch               |    Y   |    Y    |   Y
-   in_wch                |    Y   |    Y    |   Y
-   win_wch               |    Y   |    Y    |   Y
-   mvin_wch              |    Y   |    Y    |   Y
-   mvwin_wch             |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 chtype winch(WINDOW *win)
 {

@@ -1,28 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-insch
------
-
-### Synopsis
-
-    int insch(chtype ch);
-    int winsch(WINDOW *win, chtype ch);
-    int mvinsch(int y, int x, chtype ch);
-    int mvwinsch(WINDOW *win, int y, int x, chtype ch);
-
-    int insrawch(chtype ch);
-    int winsrawch(WINDOW *win, chtype ch);
-    int mvinsrawch(int y, int x, chtype ch);
-    int mvwinsrawch(WINDOW *win, int y, int x, chtype ch);
-
-    int ins_wch(const cchar_t *wch);
-    int wins_wch(WINDOW *win, const cchar_t *wch);
-    int mvins_wch(int y, int x, const cchar_t *wch);
-    int mvwins_wch(WINDOW *win, int y, int x, const cchar_t *wch);
+/*
 
 ### Description
 
@@ -45,21 +23,7 @@ insch
 
    All functions return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   insch                 |    Y   |    Y    |   Y
-   winsch                |    Y   |    Y    |   Y
-   mvinsch               |    Y   |    Y    |   Y
-   mvwinsch              |    Y   |    Y    |   Y
-   ins_wch               |    Y   |    Y    |   Y
-   wins_wch              |    Y   |    Y    |   Y
-   mvins_wch             |    Y   |    Y    |   Y
-   mvwins_wch            |    Y   |    Y    |   Y
-   insrawch              |    -   |    -    |   -
-   winsrawch             |    -   |    -    |   -
-
-**man-end****************************************************************/
+*/
 
 int winsch(WINDOW *win, chtype ch)
 {
@@ -125,16 +89,16 @@ int winsch(WINDOW *win, chtype ch)
            attributes but not a color component, OR the attributes to
            the current attributes for the window. If it has a color
            component, use the attributes solely from the incoming
-           character. */
-
+           character.
+         */
         if (!(attr & A_COLOR))
             attr |= win->_attrs;
 
         /* wrs (4/10/93): Apply the same sort of logic for the window
            background, in that it only takes precedence if other color
            attributes are not there and that the background character
-           will only print if the printing character is blank. */
-
+           will only print if the printing character is blank.
+         */
         if (!(attr & A_COLOR))
             attr |= win->_bkgd & A_ATTRIBUTES;
         else

@@ -1,29 +1,4 @@
-/* PDCurses */
-
-/*man-start**************************************************************
-
-panel
------
-
-### Synopsis
-
-    int bottom_panel(PANEL *pan);
-    int del_panel(PANEL *pan);
-    int hide_panel(PANEL *pan);
-    int move_panel(PANEL *pan, int starty, int startx);
-    PANEL *new_panel(WINDOW *win);
-    PANEL *panel_above(const PANEL *pan);
-    PANEL *panel_below(const PANEL *pan);
-    PANEL *ground_panel(SCREEN *sp);
-    PANEL *ceiling_panel(SCREEN *sp);
-    int panel_hidden(const PANEL *pan);
-    const void *panel_userptr(const PANEL *pan);
-    WINDOW *panel_window(const PANEL *pan);
-    int replace_panel(PANEL *pan, WINDOW *win);
-    int set_panel_userptr(PANEL *pan, const void *uptr);
-    int show_panel(PANEL *pan);
-    int top_panel(PANEL *pan);
-    void update_panels(void);
+/*
 
 ### Description
 
@@ -101,40 +76,15 @@ panel
    if it executes successfully and ERR if it does not, with the exception
    of panel_hidden returning TRUE/FALSE/ERR.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   bottom_panel          |    -   |    Y    |   Y
-   del_panel             |    -   |    Y    |   Y
-   hide_panel            |    -   |    Y    |   Y
-   move_panel            |    -   |    Y    |   Y
-   new_panel             |    -   |    Y    |   Y
-   panel_above           |    -   |    Y    |   Y
-   panel_below           |    -   |    Y    |   Y
-   ground_panel          |    -   |    Y    |   N
-   ceiling_panel         |    -   |    Y    |   N
-   panel_hidden          |    -   |    Y    |   Y
-   panel_userptr         |    -   |    Y    |   Y
-   panel_window          |    -   |    Y    |   Y
-   replace_panel         |    -   |    Y    |   Y
-   set_panel_userptr     |    -   |    Y    |   Y
-   show_panel            |    -   |    Y    |   Y
-   top_panel             |    -   |    Y    |   Y
-   update_panels         |    -   |    Y    |   Y
-
-  Note: Before PDC_BUILD 4500 panel_hidden did not return the expected
-        values TRUE (1) and FALSE (0), but OK (0) and ERR (-1).
-
   Credits:
     Original Author - Warren Tucker <wht@n4hgf.mt-park.ga.us>
 
-**man-end****************************************************************/
+ */
 
 #include <curspriv.h>
 #include <panel.h>
 
-struct panel
-{
+struct panel {
     WINDOW *win;
     struct panel *below;
     struct panel *above;
@@ -143,14 +93,16 @@ struct panel
 
 static PANEL _stdscr_pseudo_panel;
 
-/* The 'deck' of panels is maintained as a circularly linked list,
-with the stdscr pseudo-panel always in the list.  Thus,  the bottom
-panel is the one above the stdscr pseudo-panel,  and the top panel
-is the one below the stdscr pseudo-panel.  The advantage of this is
-that the list always has at least one element and the links are
-never NULLs.  So there are no edge cases to check.  The bit about
-the top panel being below stdscr can be a little disorienting,
-though. */
+/*
+  The 'deck' of panels is maintained as a circularly linked list,
+  with the stdscr pseudo-panel always in the list.  Thus,  the bottom
+  panel is the one above the stdscr pseudo-panel,  and the top panel
+  is the one below the stdscr pseudo-panel.  The advantage of this is
+  that the list always has at least one element and the links are
+  never NULLs.  So there are no edge cases to check.  The bit about
+  the top panel being below stdscr can be a little disorienting,
+  though.
+ */
 
 #define _bottom_panel  _stdscr_pseudo_panel.above
 #define _top_panel     _stdscr_pseudo_panel.below
@@ -174,11 +126,12 @@ static bool _windows_overlapped( const WINDOW *win1, const WINDOW *win2)
     }
 }
 
-/* If parts of win that overlap win2 have been touched,
-'handle_overlap()' will touch the corresponding parts of win2.  This
-closely resembles the touchoverlap() function,  except that only the
-touched parts of 'win' will result in touching of 'win2'. */
-
+/*
+  If parts of win that overlap win2 have been touched,
+  'handle_overlap()' will touch the corresponding parts of win2.  This
+  closely resembles the touchoverlap() function,  except that only the
+  touched parts of 'win' will result in touching of 'win2'.
+ */
 static void _handle_overlap( const WINDOW *win, WINDOW *win2)
 {
     if( _windows_overlapped( win, win2))
@@ -212,21 +165,23 @@ static void _handle_overlap( const WINDOW *win, WINDOW *win2)
     }
 }
 
-/* When a panel is hidden or deleted,  we need to update any
-parts of panels that intersect that rectangle.  So we call
-_override( pan, ALL_PANELS_IN_DECK).
+/*
+  When a panel is hidden or deleted,  we need to update any
+  parts of panels that intersect that rectangle.  So we call
+  _override( pan, ALL_PANELS_IN_DECK).
 
-When a panel is added or moved to the top,  we just have to make
-sure that that panel is touched.  update_panels() will ensure that
-panels above it get touched.
+  When a panel is added or moved to the top,  we just have to make
+  sure that that panel is touched.  update_panels() will ensure that
+  panels above it get touched.
 
-Replacing or moving a panel combined both of the above : first,
-we 'hide'/'delete' it from its current location,  then add it at
-its new location,  touched so it'll get updated at that location.
+  Replacing or moving a panel combined both of the above : first,
+  we 'hide'/'delete' it from its current location,  then add it at
+  its new location,  touched so it'll get updated at that location.
 
-When a panel is added at the bottom,  any parts of panels above
-it need to be redrawn.  So we call _override( pan, PANELS_ABOVE)
-to ensure the overlapping regions are touched. */
+  When a panel is added at the bottom,  any parts of panels above
+  it need to be redrawn.  So we call _override( pan, PANELS_ABOVE)
+  to ensure the overlapping regions are touched.
+ */
 
 #define PANELS_ABOVE 1
 #define PANELS_BELOW 2
@@ -295,10 +250,9 @@ static void _panel_unlink(PANEL *pan)
     assert( _bottom_panel);
 }
 
-/************************************************************************
- *   The following are the public functions for the panels library.     *
- ************************************************************************/
-
+/*
+ * The following are the public functions for the panels library.
+ */
 int bottom_panel(PANEL *pan)
 {
     assert( pan);
@@ -509,13 +463,14 @@ int top_panel(PANEL *pan)
     return show_panel(pan);
 }
 
-/* When we call update_panels(),  we have to look at every panel,
-starting from _stdscr_pseudo_panel and going up.  If a panel
-has been touched,  and the touched region corresponds to an
-overlapping panel,  then the overlapping parts need to be touched
-as well.  This boils down to looping through the linked list of
-panels and calling _override( PANELS_ABOVE) for each one.  */
-
+/*
+  When we call update_panels(),  we have to look at every panel,
+  starting from _stdscr_pseudo_panel and going up.  If a panel
+  has been touched,  and the touched region corresponds to an
+  overlapping panel,  then the overlapping parts need to be touched
+  as well.  This boils down to looping through the linked list of
+  panels and calling _override( PANELS_ABOVE) for each one.
+ */
 void update_panels(void)
 {
     PANEL *pan = _bottom_panel;

@@ -1,27 +1,22 @@
-/* PDCurses */
-
-#include "pdcwin.h"
+#include <curspriv.h>
 
 /* Color component table */
 
-PDCCOLOR pdc_color[PDC_MAXCOL];
+PDCCOLOR pdc_color [PDC_MAXCOL];
 
 HANDLE std_con_out = INVALID_HANDLE_VALUE;
 HANDLE pdc_con_out = INVALID_HANDLE_VALUE;
-HANDLE pdc_con_in = INVALID_HANDLE_VALUE;
+HANDLE pdc_con_in  = INVALID_HANDLE_VALUE;
+DWORD  pdc_quick_edit;
 
-DWORD pdc_quick_edit;
-
-static short realtocurs[16] =
-{
+static short realtocurs [16] = {
     COLOR_BLACK, COLOR_BLUE, COLOR_GREEN, COLOR_CYAN, COLOR_RED,
     COLOR_MAGENTA, COLOR_YELLOW, COLOR_WHITE, COLOR_BLACK + 8,
     COLOR_BLUE + 8, COLOR_GREEN + 8, COLOR_CYAN + 8, COLOR_RED + 8,
     COLOR_MAGENTA + 8, COLOR_YELLOW + 8, COLOR_WHITE + 8
 };
 
-static short ansitocurs[16] =
-{
+static short ansitocurs [16] = {
     COLOR_BLACK, COLOR_RED, COLOR_GREEN, COLOR_YELLOW, COLOR_BLUE,
     COLOR_MAGENTA, COLOR_CYAN, COLOR_WHITE, COLOR_BLACK + 8,
     COLOR_RED + 8, COLOR_GREEN + 8, COLOR_YELLOW + 8, COLOR_BLUE + 8,
@@ -30,13 +25,14 @@ static short ansitocurs[16] =
 
 short pdc_curstoreal[16], pdc_curstoansi[16];
 short pdc_oldf, pdc_oldb, pdc_oldu;
-bool pdc_conemu, pdc_wt, pdc_ansi;
+bool  pdc_conemu, pdc_wt, pdc_ansi;
 
 enum { PDC_RESTORE_NONE, PDC_RESTORE_BUFFER };
 
 /* Struct for storing console registry keys, and for use with the
    undocumented WM_SETCONSOLEINFO message. Originally by James Brown,
-   www.catch22.net. */
+   www.catch22.net.
+ */
 
 static struct
 {
@@ -77,7 +73,7 @@ typedef BOOL (WINAPI *GetConsoleScreenBufferInfoExFn) (HANDLE, CONSOLE_SCREEN_BU
 static SetConsoleScreenBufferInfoExFn pSetConsoleScreenBufferInfoEx = NULL;
 static GetConsoleScreenBufferInfoExFn pGetConsoleScreenBufferInfoEx = NULL;
 
-static CONSOLE_SCREEN_BUFFER_INFO orig_scr;
+static CONSOLE_SCREEN_BUFFER_INFO   orig_scr;
 static CONSOLE_SCREEN_BUFFER_INFOEX console_infoex;
 
 static LPTOP_LEVEL_EXCEPTION_FILTER xcpt_filter;
@@ -122,7 +118,8 @@ static HWND _find_console_handle(void)
 
 /* Wrapper around WM_SETCONSOLEINFO. We need to create the necessary
    section (file-mapping) object in the context of the process which
-   owns the console, before posting the message. Originally by JB. */
+   owns the console, before posting the message. Originally by JB.
+ */
 
 static void _set_console_info(void)
 {
@@ -205,8 +202,8 @@ static int _set_colors(void)
 }
 
 /* One-time initialization for console_info -- color table and font info
-   from the registry; other values from functions. */
-
+   from the registry; other values from functions.
+ */
 static void _init_console_info(void)
 {
     DWORD scrnmode, len;
@@ -294,8 +291,8 @@ static COLORREF *_get_colors(void)
     }
 }
 
-/* restore the original console buffer in the event of a crash */
-
+/* restore the original console buffer in the event of a crash
+ */
 static LONG WINAPI _restore_console(LPEXCEPTION_POINTERS ep)
 {
     PDC_scr_close();
@@ -305,8 +302,8 @@ static LONG WINAPI _restore_console(LPEXCEPTION_POINTERS ep)
 }
 
 /* restore the original console buffer on Ctrl+Break (or Ctrl+C,
-   if it gets re-enabled) */
-
+   if it gets re-enabled)
+ */
 static BOOL WINAPI _ctrl_break(DWORD dwCtrlType)
 {
     if (dwCtrlType == CTRL_BREAK_EVENT || dwCtrlType == CTRL_C_EVENT)
@@ -316,8 +313,8 @@ static BOOL WINAPI _ctrl_break(DWORD dwCtrlType)
 }
 
 /* close the physical screen -- may restore the screen to its state
-   before PDC_scr_open(); miscellaneous cleanup */
-
+   before PDC_scr_open(); miscellaneous cleanup
+ */
 void PDC_scr_close(void)
 {
     if (SP->visibility != 1)
@@ -325,8 +322,8 @@ void PDC_scr_close(void)
 
     PDC_reset_shell_mode();
 
-    /* Position cursor to the bottom left of the screen. */
-
+    /* Position cursor to the bottom left of the screen.
+     */
     if (SP->_restore == PDC_RESTORE_NONE)
     {
         SMALL_RECT win;
@@ -352,14 +349,15 @@ void PDC_scr_free(void)
     SetConsoleCtrlHandler(_ctrl_break, FALSE);
 }
 
-/* In casting function pointers,  we first cast them through a void function pointer.
-This suppresses cast-function-type warnings on gcc and MinGW.   */
-
+/*
+  In casting function pointers,  we first cast them through a void function pointer.
+  This suppresses cast-function-type warnings on gcc and MinGW.
+ */
 #define VOID_FN_PTR (void(*)(void))
 
 /* open the physical screen -- miscellaneous initialization, may save
-   the existing screen for later restoration */
-
+   the existing screen for later restoration
+ */
 int PDC_scr_open(void)
 {
     const char *str;
@@ -377,7 +375,7 @@ int PDC_scr_open(void)
 
     std_con_out =
     pdc_con_out = GetStdHandle(STD_OUTPUT_HANDLE);
-    pdc_con_in = GetStdHandle(STD_INPUT_HANDLE);
+    pdc_con_in  = GetStdHandle(STD_INPUT_HANDLE);
 
     if (GetFileType(pdc_con_in) != FILE_TYPE_CHAR)
     {
@@ -396,8 +394,8 @@ int PDC_scr_open(void)
 
     /* preserve QuickEdit Mode setting for use in PDC_mouse_set() when
        the mouse is not enabled -- other console input settings are
-       cleared */
-
+       cleared
+     */
     pdc_quick_edit = old_console_mode & 0x0040;
 
     SP->mouse_wait = PDC_CLICK_PERIOD;
@@ -414,10 +412,11 @@ int PDC_scr_open(void)
 
     SP->_restore = PDC_RESTORE_NONE;
 
-    if ((str = getenv("PDC_RESTORE_SCREEN")) == NULL || *str != '0')
+    str = getenv("PDC_RESTORE_SCREEN");
+    if (!str || *str != '0')
     {
-        /* Create a new console buffer */
-
+        /* Create a new console buffer
+         */
         pdc_con_out =
             CreateConsoleScreenBuffer(GENERIC_READ | GENERIC_WRITE,
                                       FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -442,7 +441,7 @@ int PDC_scr_open(void)
         SP->termattrs |= A_UNDERLINE | A_LEFT | A_RIGHT;
 
     PDC_reset_prog_mode();
-    PDC_set_function_key( FUNCTION_KEY_COPY, 0);
+    PDC_set_function_key(FUNCTION_KEY_COPY, 0);
 
     SP->mono = FALSE;
 
@@ -457,10 +456,10 @@ int PDC_scr_open(void)
     return OK;
 }
 
- /* Calls SetConsoleWindowInfo with the given parameters, but fits them
-    if a scoll bar shrinks the maximum possible value. The rectangle
-    must at least fit in a half-sized window. */
-
+/* Calls SetConsoleWindowInfo with the given parameters, but fits them
+   if a scoll bar shrinks the maximum possible value. The rectangle
+   must at least fit in a half-sized window.
+ */
 static BOOL _fit_console_window(HANDLE con_out, CONST SMALL_RECT *rect)
 {
     SMALL_RECT run;
@@ -612,9 +611,9 @@ int PDC_color_content(int color, int *red, int *green, int *blue)
         {
             DWORD col = color_table[pdc_curstoreal[color]];
 
-            *red = DIVROUND(GetRValue(col) * 1000, 255);
+            *red   = DIVROUND(GetRValue(col) * 1000, 255);
             *green = DIVROUND(GetGValue(col) * 1000, 255);
-            *blue = DIVROUND(GetBValue(col) * 1000, 255);
+            *blue  = DIVROUND(GetBValue(col) * 1000, 255);
         }
         else
             return ERR;
@@ -627,9 +626,9 @@ int PDC_color_content(int color, int *red, int *green, int *blue)
             return ERR;
         }
 
-        *red = pdc_color[color].r;
+        *red   = pdc_color[color].r;
         *green = pdc_color[color].g;
-        *blue = pdc_color[color].b;
+        *blue  = pdc_color[color].b;
     }
 
     return OK;
@@ -670,9 +669,10 @@ int PDC_init_color(int color, int red, int green, int blue)
     return OK;
 }
 
-/* Does nothing in the Win32 flavor of PDCurses.  Included solely because
-without this,  we get an unresolved external... */
-
+/*
+  Does nothing in the Win32 flavor of PDCurses.  Included solely because
+  without this,  we get an unresolved external...
+ */
 void PDC_set_resize_limits (const int new_min_lines, const int new_max_lines,
                             const int new_min_cols, const int new_max_cols)
 {

@@ -1,53 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-attr
-----
-
-### Synopsis
-
-    int attroff(chtype attrs);
-    int wattroff(WINDOW *win, chtype attrs);
-    int attron(chtype attrs);
-    int wattron(WINDOW *win, chtype attrs);
-    int attrset(chtype attrs);
-    int wattrset(WINDOW *win, chtype attrs);
-    int standend(void);
-    int wstandend(WINDOW *win);
-    int standout(void);
-    int wstandout(WINDOW *win);
-
-    int color_set(short color_pair, void *opts);
-    int wcolor_set(WINDOW *win, short color_pair, void *opts);
-
-    int attr_get(attr_t *attrs, short *color_pair, void *opts);
-    int attr_off(attr_t attrs, void *opts);
-    int attr_on(attr_t attrs, void *opts);
-    int attr_set(attr_t attrs, short color_pair, void *opts);
-    int wattr_get(WINDOW *win, attr_t *attrs, short *color_pair,
-                  void *opts);
-    int wattr_off(WINDOW *win, attr_t attrs, void *opts);
-    int wattr_on(WINDOW *win, attr_t attrs, void *opts);
-    int wattr_set(WINDOW *win, attr_t attrs, short color_pair,
-                  void *opts);
-
-    int chgat(int n, attr_t attr, short color, const void *opts);
-    int mvchgat(int y, int x, int n, attr_t attr, short color,
-                const void *opts);
-    int mvwchgat(WINDOW *win, int y, int x, int n, attr_t attr,
-                 short color, const void *opts);
-    int wchgat(WINDOW *win, int n, attr_t attr, short color,
-               const void *opts);
-
-    chtype getattrs(const WINDOW *win);
-
-    int underend(void);
-    int wunderend(WINDOW *win);
-    int underscore(void);
-    int wunderscore(WINDOW *win);
+/*
 
 ### Description
 
@@ -100,40 +53,7 @@ attr
 
    All functions return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   attroff               |    Y   |    Y    |   Y
-   wattroff              |    Y   |    Y    |   Y
-   attron                |    Y   |    Y    |   Y
-   wattron               |    Y   |    Y    |   Y
-   attrset               |    Y   |    Y    |   Y
-   wattrset              |    Y   |    Y    |   Y
-   standend              |    Y   |    Y    |   Y
-   wstandend             |    Y   |    Y    |   Y
-   standout              |    Y   |    Y    |   Y
-   wstandout             |    Y   |    Y    |   Y
-   color_set             |    Y   |    Y    |   Y
-   wcolor_set            |    Y   |    Y    |   Y
-   attr_get              |    Y   |    Y    |   Y
-   wattr_get             |    Y   |    Y    |   Y
-   attr_on               |    Y   |    Y    |   Y
-   wattr_on              |    Y   |    Y    |   Y
-   attr_off              |    Y   |    Y    |   Y
-   wattr_off             |    Y   |    Y    |   Y
-   attr_set              |    Y   |    Y    |   Y
-   wattr_set             |    Y   |    Y    |   Y
-   chgat                 |    Y   |    Y    |   Y
-   wchgat                |    Y   |    Y    |   Y
-   mvchgat               |    Y   |    Y    |   Y
-   mvwchgat              |    Y   |    Y    |   Y
-   getattrs              |    -   |    Y    |   Y
-   underend              |    -   |    -    |   Y
-   wunderend             |    -   |    -    |   Y
-   underscore            |    -   |    -    |   Y
-   wunderscore           |    -   |    -    |   Y
-
-**man-end****************************************************************/
+ */
 
 int wattroff(WINDOW *win, chtype attrs)
 {

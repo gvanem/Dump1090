@@ -1,47 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-inopts
-------
-
-### Synopsis
-
-    int cbreak(void);
-    int nocbreak(void);
-    int echo(void);
-    int noecho(void);
-    int halfdelay(int tenths);
-    int intrflush(WINDOW *win, bool bf);
-    int keypad(WINDOW *win, bool bf);
-    int meta(WINDOW *win, bool bf);
-    int nl(void);
-    int nonl(void);
-    int nodelay(WINDOW *win, bool bf);
-    int notimeout(WINDOW *win, bool bf);
-    int raw(void);
-    int noraw(void);
-    void noqiflush(void);
-    void qiflush(void);
-    void timeout(int delay);
-    void wtimeout(WINDOW *win, int delay);
-    int wgetdelay(const WINDOW *win);
-    int typeahead(int fildes);
-    int is_cbreak( void);
-    int is_echo( void);
-    int is_nl( void);
-    int is_raw( void);
-    bool PDC_getcbreak(void);       deprecated;  use is_cbreak()
-    bool PDC_getecho(void);         deprecated;  use is_echo()
-
-    int crmode(void);
-    int nocrmode(void);
-
-    bool is_keypad(const WINDOW *win);
-    bool is_nodelay(const WINDOW *win);
-    bool is_notimeout(const WINDOW *win);
+/*
 
 ### Description
 
@@ -123,42 +82,7 @@ inopts
    implementations.  It has no real meaning in PDCursesMod and will
    always return FALSE.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   cbreak                |    Y   |    Y    |   Y
-   nocbreak              |    Y   |    Y    |   Y
-   echo                  |    Y   |    Y    |   Y
-   noecho                |    Y   |    Y    |   Y
-   is_cbreak             |    -   |    Y    |   -
-   is_echo               |    -   |    Y    |   -
-   is_nl                 |    -   |    Y    |   -
-   is_raw                |    -   |    Y    |   -
-   PDC_getcbreak         |    -   |    -    |   -
-   PDC_getecho           |    -   |    -    |   -
-   halfdelay             |    Y   |    Y    |   Y
-   intrflush             |    Y   |    Y    |   Y
-   keypad                |    Y   |    Y    |   Y
-   meta                  |    Y   |    Y    |   Y
-   nl                    |    Y   |    Y    |   Y
-   nonl                  |    Y   |    Y    |   Y
-   nodelay               |    Y   |    Y    |   Y
-   notimeout             |    Y   |    Y    |   Y
-   raw                   |    Y   |    Y    |   Y
-   noraw                 |    Y   |    Y    |   Y
-   noqiflush             |    Y   |    Y    |   Y
-   qiflush               |    Y   |    Y    |   Y
-   timeout               |    Y   |    Y    |   Y
-   wtimeout              |    Y   |    Y    |   Y
-   wgetdelay             |    -   |    Y    |   -
-   typeahead             |    Y   |    Y    |   Y
-   crmode                |    Y   |    Y    |   Y
-   nocrmode              |    Y   |    Y    |   Y
-   is_keypad             |    -   |    Y    |   Y
-   is_nodelay            |    -   |    Y    |   -
-   is_notimeout          |    -   |    Y    |   -
-
-**man-end****************************************************************/
+ */
 
 int cbreak(void)
 {

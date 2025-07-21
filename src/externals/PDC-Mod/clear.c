@@ -1,22 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-clear
------
-
-### Synopsis
-
-    int clear(void);
-    int wclear(WINDOW *win);
-    int erase(void);
-    int werase(WINDOW *win);
-    int clrtobot(void);
-    int wclrtobot(WINDOW *win);
-    int clrtoeol(void);
-    int wclrtoeol(WINDOW *win);
+/*
 
 ### Description
 
@@ -37,19 +21,7 @@ clear
 
    All functions return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   clear                 |    Y   |    Y    |   Y
-   wclear                |    Y   |    Y    |   Y
-   erase                 |    Y   |    Y    |   Y
-   werase                |    Y   |    Y    |   Y
-   clrtobot              |    Y   |    Y    |   Y
-   wclrtobot             |    Y   |    Y    |   Y
-   clrtoeol              |    Y   |    Y    |   Y
-   wclrtoeol             |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+*/
 
 int wclrtoeol(WINDOW *win)
 {

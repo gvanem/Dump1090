@@ -1,20 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-scanw
------
-
-### Synopsis
-
-    int scanw(const char *fmt, ...);
-    int wscanw(WINDOW *win, const char *fmt, ...);
-    int mvscanw(int y, int x, const char *fmt, ...);
-    int mvwscanw(WINDOW *win, int y, int x, const char *fmt, ...);
-    int vwscanw(WINDOW *win, const char *fmt, va_list varglist);
-    int vw_scanw(WINDOW *win, const char *fmt, va_list varglist);
+/*
 
 ### Description
 
@@ -30,17 +16,7 @@ scanw
    On successful completion, these functions return the number of items
    successfully matched. Otherwise they return ERR.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   scanw                 |    Y   |    Y    |   Y
-   wscanw                |    Y   |    Y    |   Y
-   mvscanw               |    Y   |    Y    |   Y
-   mvwscanw              |    Y   |    Y    |   Y
-   vwscanw               |    Y   |    Y    |   Y
-   vw_scanw              |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 int vwscanw(WINDOW *win, const char *fmt, va_list varglist)
 {

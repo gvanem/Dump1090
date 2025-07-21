@@ -1,31 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-insstr
-------
-
-### Synopsis
-
-    int insstr(const char *str);
-    int insnstr(const char *str, int n);
-    int winsstr(WINDOW *win, const char *str);
-    int winsnstr(WINDOW *win, const char *str, int n);
-    int mvinsstr(int y, int x, const char *str);
-    int mvinsnstr(int y, int x, const char *str, int n);
-    int mvwinsstr(WINDOW *win, int y, int x, const char *str);
-    int mvwinsnstr(WINDOW *win, int y, int x, const char *str, int n);
-
-    int ins_wstr(const wchar_t *wstr);
-    int ins_nwstr(const wchar_t *wstr, int n);
-    int wins_wstr(WINDOW *win, const wchar_t *wstr);
-    int wins_nwstr(WINDOW *win, const wchar_t *wstr, int n);
-    int mvins_wstr(int y, int x, const wchar_t *wstr);
-    int mvins_nwstr(int y, int x, const wchar_t *wstr, int n);
-    int mvwins_wstr(WINDOW *win, int y, int x, const wchar_t *wstr);
-    int mvwins_nwstr(WINDOW *win, int y, int x, const wchar_t *wstr, int n);
+/*
 
 ### Description
 
@@ -44,27 +19,7 @@ insstr
 
    All functions return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   insstr                |    Y   |    Y    |   Y
-   winsstr               |    Y   |    Y    |   Y
-   mvinsstr              |    Y   |    Y    |   Y
-   mvwinsstr             |    Y   |    Y    |   Y
-   insnstr               |    Y   |    Y    |   Y
-   winsnstr              |    Y   |    Y    |   Y
-   mvinsnstr             |    Y   |    Y    |   Y
-   mvwinsnstr            |    Y   |    Y    |   Y
-   ins_wstr              |    Y   |    Y    |   Y
-   wins_wstr             |    Y   |    Y    |   Y
-   mvins_wstr            |    Y   |    Y    |   Y
-   mvwins_wstr           |    Y   |    Y    |   Y
-   ins_nwstr             |    Y   |    Y    |   Y
-   wins_nwstr            |    Y   |    Y    |   Y
-   mvins_nwstr           |    Y   |    Y    |   Y
-   mvwins_nwstr          |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 #define MAX_WSTR 80
 

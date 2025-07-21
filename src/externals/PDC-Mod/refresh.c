@@ -1,21 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
-#include <assert.h>
 
-/*man-start**************************************************************
-
-refresh
--------
-
-### Synopsis
-
-    int refresh(void);
-    int wrefresh(WINDOW *win);
-    int wnoutrefresh(WINDOW *win);
-    int doupdate(void);
-    int redrawwin(WINDOW *win);
-    int wredrawln(WINDOW *win, int beg_line, int num_lines);
+/*
 
 ### Description
 
@@ -45,19 +30,7 @@ refresh
 
    All functions return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   refresh               |    Y   |    Y    |   Y
-   wrefresh              |    Y   |    Y    |   Y
-   wnoutrefresh          |    Y   |    Y    |   Y
-   doupdate              |    Y   |    Y    |   Y
-   redrawwin             |    Y   |    Y    |   Y
-   wredrawln             |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
-
-#include <string.h>
+*/
 
 static void _normalize_cursor( WINDOW *win)
 {
@@ -70,8 +43,6 @@ static void _normalize_cursor( WINDOW *win)
     if( win->_curx >= win->_maxx)
         win->_curx = win->_maxx - 1;
 }
-
-int PDC_pnoutrefresh_with_stored_params( WINDOW *pad);       /* pad.c */
 
 int wnoutrefresh(WINDOW *win)
 {
@@ -145,12 +116,13 @@ int wnoutrefresh(WINDOW *win)
     return OK;
 }
 
-/* The following ensures that PDC_transform_line() is fed a maximum of
-MAX_PACKET_LEN at a time;  'dummy' characters in cells next to fullwidth
-characters are not sent;  and we break packets after combining characters
-and fullwidth characters,  avoiding some possible mis-alignment issues. */
-
-void PDC_transform_line_sliced( int lineno, int x, int len, const chtype *srcp)
+/*
+  The following ensures that PDC_transform_line() is fed a maximum of
+  MAX_PACKET_LEN at a time;  'dummy' characters in cells next to fullwidth
+  characters are not sent;  and we break packets after combining characters
+  and fullwidth characters,  avoiding some possible mis-alignment issues.
+ */
+void PDC_transform_line_sliced(int lineno, int x, int len, const chtype *srcp)
 {
     assert( x >= 0);
     assert( len > 0);
@@ -169,8 +141,7 @@ void PDC_transform_line_sliced( int lineno, int x, int len, const chtype *srcp)
         if( i == 1 && ch == MAX_UNICODE)
             fprintf( stderr, "line %d, x=%d, len=%d\n", lineno, x, len);
         assert( i > 1 || ch != MAX_UNICODE);
-        PDC_transform_line( lineno, x,
-                          i - ((ch == MAX_UNICODE) ? 1 : 0), srcp);
+        PDC_transform_line (lineno, x, i - ((ch == MAX_UNICODE) ? 1 : 0), srcp);
         x += i;
         len -= i;
         srcp += i;

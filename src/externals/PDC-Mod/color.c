@@ -1,35 +1,7 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 #include <limits.h>
 
-/*man-start**************************************************************
-
-color
------
-
-### Synopsis
-
-    bool has_colors(void);
-    int start_color(void);
-    int init_pair(short pair, short fg, short bg);
-    int pair_content(short pair, short *fg, short *bg);
-    int init_extended_pair(int pair, int fg, int bg);
-    int extended_pair_content(int pair, int *fg, int *bg);
-    bool can_change_color(void);
-    int init_color(short color, short red, short green, short blue);
-    int color_content(short color, short *red, short *green, short *blue);
-    int init_extended_color(int color, int red, int green, int blue);
-    int extended_color_content(int color, int *red, int *green, int *blue);
-
-    int alloc_pair( int fg, int bg);
-    int assume_default_colors(int f, int b);
-    int find_pair( int fg, int bg);
-    int free_pair( int pair);
-    int use_default_colors(void);
-    void reset_color_pairs(void);
-
-    int PDC_set_line_color(short color);
+/*
 
 ### Description
 
@@ -115,25 +87,7 @@ color
    and can_change_colors() return TRUE or FALSE. alloc_pair() and
    find_pair() return a pair number, or -1 on error.
 
-
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   has_colors            |    Y   |    Y    |   Y
-   start_color           |    Y   |    Y    |   Y
-   init_pair             |    Y   |    Y    |   Y
-   pair_content          |    Y   |    Y    |   Y
-   can_change_color      |    Y   |    Y    |   Y
-   init_color            |    Y   |    Y    |   Y
-   color_content         |    Y   |    Y    |   Y
-   alloc_pair            |    -   |    Y    |   -
-   assume_default_colors |    -   |    Y    |   Y
-   find_pair             |    -   |    Y    |   -
-   free_pair             |    -   |    Y    |   -
-   use_default_colors    |    -   |    Y    |   Y
-   PDC_set_line_color    |    -   |    -    |   -
-
-**man-end****************************************************************/
+ */
 
 /* Color pair structure */
 
@@ -151,7 +105,7 @@ static void _init_pair_core(int pair, int fg, int bg);
 
 #define UNSET_COLOR_PAIR      -2
 
-static void _unlink_color_pair( const int pair_no)
+static void _unlink_color_pair(int pair_no)
 {
     PDC_PAIR *p = SP->pairs;
     PDC_PAIR *curr = p + pair_no;
@@ -160,7 +114,7 @@ static void _unlink_color_pair( const int pair_no)
     p[curr->prev].next = curr->next;
 }
 
-static void _link_color_pair( const int pair_no, const int head)
+static void _link_color_pair(int pair_no, int head)
 {
     PDC_PAIR *p = SP->pairs;
     PDC_PAIR *curr = p + pair_no;
@@ -170,7 +124,7 @@ static void _link_color_pair( const int pair_no, const int head)
     p[head].next = p[curr->next].prev = pair_no;
 }
 
-static int _hash_color_pair( const int fg, const int bg)
+static int _hash_color_pair(int fg, int bg)
 {
     int rval = (fg * 31469 + bg * 19583);
 
@@ -181,8 +135,10 @@ static int _hash_color_pair( const int fg, const int bg)
     return( rval);
 }
 
-/* Linear/triangular-number hybrid hash table probing sequence.  See
-https://www.projectpluto.com/hashing.htm for details.    */
+/*
+  Linear/triangular-number hybrid hash table probing sequence.
+  See https://www.projectpluto.com/hashing.htm for details.
+ */
 
 #define GROUP_SIZE  4
 #define ADVANCE_HASH_PROBE( idx, iter) \
@@ -250,7 +206,7 @@ int start_color(void)
     return OK;
 }
 
-void PDC_set_default_colors( const int fg_idx, const int bg_idx)
+void PDC_set_default_colors(int fg_idx, int bg_idx)
 {
    SP->default_foreground_idx = fg_idx;
    SP->default_background_idx = bg_idx;
@@ -258,7 +214,7 @@ void PDC_set_default_colors( const int fg_idx, const int bg_idx)
 
 static void _normalize(int *fg, int *bg)
 {
-    const bool using_defaults = (SP->orig_attr && (SP->default_colors || !SP->color_started));
+    bool using_defaults = (SP->orig_attr && (SP->default_colors || !SP->color_started));
 
     if (*fg == -1 || *fg == UNSET_COLOR_PAIR)
         *fg = using_defaults ? SP->orig_fore : SP->default_foreground_idx;
@@ -267,18 +223,20 @@ static void _normalize(int *fg, int *bg)
         *bg = using_defaults ? SP->orig_back : SP->default_background_idx;
 }
 
-/* When a color pair is reset,  all cells of that color should be
-redrawn. refresh() and doupdate() don't redraw for color pair changes,
-so we have to redraw that text specifically.  The following test is
-equivalent to 'if( pair == (int)PAIR_NUMBER( *line))',  but saves a
-few cycles by not shifting.  */
+/*
+  When a color pair is reset,  all cells of that color should be
+  redrawn. refresh() and doupdate() don't redraw for color pair changes,
+  so we have to redraw that text specifically.  The following test is
+  equivalent to 'if( pair == (int)PAIR_NUMBER( *line))',  but saves a
+  few cycles by not shifting.
+ */
 
 #define USES_TARGET_PAIR( ch)  (!(((ch) ^ mask) & A_COLOR))
 
-static void _set_cells_to_refresh_for_pair_change( const int pair)
+static void _set_cells_to_refresh_for_pair_change(int pair)
 {
     int x, y;
-    const chtype mask = ((chtype)pair << PDC_COLOR_SHIFT);
+    chtype mask = ((chtype)pair << PDC_COLOR_SHIFT);
 
     assert( SP->lines);
     assert( curscr && curscr->_y);
@@ -291,7 +249,7 @@ static void _set_cells_to_refresh_for_pair_change( const int pair)
             for( x = 0; x < SP->cols; x++)
                 if( USES_TARGET_PAIR( line[x]))
                 {
-                    const int start_x = x++;
+                    int start_x = x++;
 
                     while( x < SP->cols && USES_TARGET_PAIR( line[x]))
                         x++;
@@ -300,12 +258,13 @@ static void _set_cells_to_refresh_for_pair_change( const int pair)
         }
 }
 
-/* Similarly,  if PDC_set_bold(),  PDC_set_blink(),  or
-PDC_set_line_color() is called (and changes the way in which text
-with those attributes is drawn),  the corresponding text should be
-redrawn.    */
-
-static void _set_cells_to_refresh_for_attr_change( const chtype attr)
+/*
+  Similarly,  if PDC_set_bold(),  PDC_set_blink(), or
+  PDC_set_line_color() is called (and changes the way in which text
+  with those attributes is drawn),  the corresponding text should be
+  redrawn.
+ */
+static void _set_cells_to_refresh_for_attr_change(chtype attr)
 {
     int x, y;
 
@@ -320,7 +279,7 @@ static void _set_cells_to_refresh_for_attr_change( const chtype attr)
             for( x = 0; x < SP->cols; x++)
                 if( line[x] & attr)
                 {
-                    const int start_x = x++;
+                    int start_x = x++;
 
                     while( x < SP->cols && (line[x] & attr))
                         x++;
@@ -359,8 +318,8 @@ static void _init_pair_core(int pair, int fg, int bg)
 
     /* To allow the PDC_PRESERVE_SCREEN option to work, we only reset
        curscr if this call to init_pair() alters a color pair created by
-       the user. */
-
+       the user.
+     */
     _normalize(&fg, &bg);
 
     refresh_pair = (p->f != UNSET_COLOR_PAIR && (p->f != fg || p->b != bg));
@@ -437,8 +396,8 @@ int extended_color_content(int color, int *red, int *green, int *blue)
     else
     {
         /* Simulated values for platforms that don't support palette
-           changing */
-
+           changing
+         */
         int maxval = (color & 8) ? 1000 : 680;
 
         *red = (color & COLOR_RED) ? maxval : 0;
@@ -558,7 +517,7 @@ int init_pair( short pair, short fg, short bg)
 int pair_content( short pair, short *fg, short *bg)
 {
     int i_fg, i_bg;
-    const int rval = extended_pair_content( (int)pair, &i_fg, &i_bg);
+    int rval = extended_pair_content( (int)pair, &i_fg, &i_bg);
 
     if( rval != ERR)
     {
@@ -576,7 +535,7 @@ int init_color( short color, short red, short green, short blue)
 int color_content( short color, short *red, short *green, short *blue)
 {
     int i_red, i_green, i_blue;
-    const int rval = extended_color_content( (int)color, &i_red, &i_green, &i_blue);
+    int rval = extended_color_content( (int)color, &i_red, &i_green, &i_blue);
 
     if( rval != ERR)
     {
@@ -605,7 +564,7 @@ int find_pair( int fg, int bg)
             {
                 _unlink_color_pair( i);   /* unlink it and relink it */
                 _link_color_pair( i, 0);  /* to make it the 'head' node */
-                return( i);         /* we found the color */
+                return( i);               /* we found the color */
             }
         }
         ADVANCE_HASH_PROBE( idx, iter);
@@ -613,21 +572,21 @@ int find_pair( int fg, int bg)
     return( -1);
 }
 
-/* alloc_pair() first simply looks to see if the desired pair is
-already allocated.  If it has been,  we're done.
+/*
+  alloc_pair() first simply looks to see if the desired pair is
+  already allocated.  If it has been,  we're done.
 
-   If it hasn't been,  the doubly-linked list of free color
-pairs (see 'pairs.txt') will indicate an available node.  If
-we've actually run out of free color pairs,  the doubly-linked
-list of used color pairs will link to the oldest inserted node.
-*/
-
+  If it hasn't been,  the doubly-linked list of free color
+  pairs (see 'pairs.txt') will indicate an available node.  If
+  we've actually run out of free color pairs,  the doubly-linked
+  list of used color pairs will link to the oldest inserted node.
+ */
 int alloc_pair( int fg, int bg)
 {
     int rval = find_pair( fg, bg);
 
-    if( -1 == rval)        /* pair isn't already allocated.  First,  look */
-    {                      /* for an unset color pair. */
+    if( -1 == rval)    /* pair isn't already allocated. */
+    {                  /* First, look for an unset color pair. */
         PDC_PAIR *p = SP->pairs;
 
         rval = p[SP->pairs_allocated].prev;

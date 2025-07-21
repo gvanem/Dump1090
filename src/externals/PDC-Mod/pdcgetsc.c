@@ -1,6 +1,4 @@
-/* PDCurses */
-
-#include "pdcwin.h"
+#include <curspriv.h>
 
 /* get the cursor size/shape */
 

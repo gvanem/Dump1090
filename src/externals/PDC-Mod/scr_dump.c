@@ -1,21 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
-#include <stdlib.h>
 
-/*man-start**************************************************************
-
-scr_dump
---------
-
-### Synopsis
-
-    int putwin(WINDOW *win, FILE *filep);
-    WINDOW *getwin(FILE *filep);
-    int scr_dump(const char *filename);
-    int scr_init(const char *filename);
-    int scr_restore(const char *filename);
-    int scr_set(const char *filename);
+/*
 
 ### Description
 
@@ -47,17 +32,7 @@ scr_dump
    created. Otherwise, it returns a null pointer. Other functions return
    OK or ERR.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   putwin                |    Y   |    Y    |   Y
-   getwin                |    Y   |    Y    |   Y
-   scr_dump              |    Y   |    Y    |   -
-   scr_init              |    Y   |    Y    |   -
-   scr_restore           |    Y   |    Y    |   -
-   scr_set               |    Y   |    Y    |   -
-
-**man-end****************************************************************/
+*/
 
 #define DUMPVER 2   /* Should be updated whenever the WINDOW struct is
                        changed */
@@ -90,24 +65,26 @@ static chtype _get_chtype_from_eight_bytes( const char *buff)
    return( (chtype)c);
 }
 
-/* In PDCursesMod 4.3.3 and earlier,  the on-disk representation of a
-window was entirely binary.  A WINDOW struct was written out,  and the
-window's chtype data was written out.  Portability of these files was
-nearly zero.  Alignment and structure packing differences, differences
-in the sizes of ints,  bools,  and pointers,  32-bit vs. 64-bit
-chtypes and endianness would usually ensure that a file written by one
-program couldn't be read by another.
+/*
+  In PDCursesMod 4.3.3 and earlier,  the on-disk representation of a
+  window was entirely binary.  A WINDOW struct was written out,  and the
+  window's chtype data was written out.  Portability of these files was
+  nearly zero.  Alignment and structure packing differences, differences
+  in the sizes of ints,  bools,  and pointers,  32-bit vs. 64-bit
+  chtypes and endianness would usually ensure that a file written by one
+  program couldn't be read by another.
 
-Adding grief to this is the fact that the window structure changed in
-4.3.1.  Files written with 4.3.0 and earlier could not be read in
-4.3.1 and later.
+  Adding grief to this is the fact that the window structure changed in
+  4.3.1.  Files written with 4.3.0 and earlier could not be read in
+  4.3.1 and later.
 
-The window structure is now written out in ASCII,  which should help
-with cross-compiler and cross-OS compatibility.  chtypes are expanded
-to the 64-bit form on writing and compacted back upon reading.  You
-will get scrambled colors and/or attributes if you make a file with
-one program that uses attributes or color pairs beyond the reach of
-the program reading the file.  Error checks for this may be added. */
+  The window structure is now written out in ASCII,  which should help
+  with cross-compiler and cross-OS compatibility.  chtypes are expanded
+  to the 64-bit form on writing and compacted back upon reading.  You
+  will get scrambled colors and/or attributes if you make a file with
+  one program that uses attributes or color pairs beyond the reach of
+  the program reading the file.  Error checks for this may be added.
+ */
 
 static const char *_format_nine_ints = "%d %d %d %d %d %d %d %d %d\n";
 static const char *_format_three_ints = "%d %d %d\n";
@@ -151,8 +128,6 @@ int putwin(WINDOW *win, FILE *filep)
          }
     return OK;
 }
-
-void PDC_add_window_to_list( WINDOW *win);
 
 WINDOW *getwin(FILE *filep)
 {
@@ -260,7 +235,6 @@ int scr_dump(const char *filename)
         fclose(filep);
         return result;
     }
-
     return ERR;
 }
 
@@ -286,7 +260,6 @@ int scr_restore(const char *filename)
             return result;
         }
     }
-
     return ERR;
 }
 

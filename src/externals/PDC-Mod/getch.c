@@ -1,29 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-getch
------
-
-### Synopsis
-
-    int getch(void);
-    int wgetch(WINDOW *win);
-    int mvgetch(int y, int x);
-    int mvwgetch(WINDOW *win, int y, int x);
-    int ungetch(int ch);
-    int flushinp(void);
-
-    int get_wch(wint_t *wch);
-    int wget_wch(WINDOW *win, wint_t *wch);
-    int mvget_wch(int y, int x, wint_t *wch);
-    int mvwget_wch(WINDOW *win, int y, int x, wint_t *wch);
-    int unget_wch(const wchar_t wch);
-
-    unsigned long PDC_get_key_modifiers(void);
-    int PDC_return_key_modifiers(bool flag);
+/*
 
 ### Description
 
@@ -75,23 +52,7 @@ getch
    These functions return ERR or the value of the character, meta
    character or function key token.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   getch                 |    Y   |    Y    |   Y
-   wgetch                |    Y   |    Y    |   Y
-   mvgetch               |    Y   |    Y    |   Y
-   mvwgetch              |    Y   |    Y    |   Y
-   ungetch               |    Y   |    Y    |   Y
-   flushinp              |    Y   |    Y    |   Y
-   get_wch               |    Y   |    Y    |   Y
-   wget_wch              |    Y   |    Y    |   Y
-   mvget_wch             |    Y   |    Y    |   Y
-   mvwget_wch            |    Y   |    Y    |   Y
-   unget_wch             |    Y   |    Y    |   Y
-   PDC_get_key_modifiers |    -   |    -    |   -
-
-**man-end****************************************************************/
+ */
 
 /* By default,  the PDC_function_key[] array contains 0
  * (i.e., there's no key that's supposed to be returned for
@@ -102,15 +63,7 @@ getch
  */
 static int PDC_function_key[PDC_MAX_FUNCTION_KEYS] = { 0, 22, 0, 0, 0, 0, 3 };
 
-/*man-start**************************************************************
-
-Function keys
--------------
-
-### Synopsis
-
-   int PDC_set_function_key( const unsigned function, const int new_key);
-   int PDC_get_function_key( const unsigned function);
+/*
 
 ### Description
 
@@ -138,11 +91,7 @@ Function keys
    Returns key code previously set for that function,  or -1 if the
    function does not actually exist.
 
-### Portability
-
-   PDCursesMod-only function.
-
-**man-end****************************************************************/
+ */
 
 int PDC_set_function_key( const unsigned function, const int new_key)
 {
@@ -380,13 +329,14 @@ static int _mouse_key(void)
     return key;
 }
 
-/* ftime() is consided obsolete.  But it's all we have for
-millisecond precision on older compilers/systems.  We'll
-use clock_gettime() or gettimeofday() when available. */
-
+/*
+  ftime() is consided obsolete.  But it's all we have for
+  millisecond precision on older compilers/systems.  We'll
+  use clock_gettime() or gettimeofday() when available.
+ */
 extern int _gettimeofday (struct timeval *tv, void *timezone);
 
-long PDC_millisecs( void)
+long PDC_millisecs(void)
 {
     struct timeval t;
 
@@ -394,28 +344,28 @@ long PDC_millisecs( void)
     return( t.tv_sec * 1000 + t.tv_usec / 1000);
 }
 
-/* On many systems,  checking for a key hit is quite slow.  If
-PDC_check_key( ) returns FALSE,  we can safely stop checking for
-a key hit for a millisecond.  This ensures we won't call it more
-than 1000 times per second.
+/*
+  On many systems,  checking for a key hit is quite slow.  If
+  PDC_check_key() returns FALSE,  we can safely stop checking for
+  a key hit for a millisecond.  This ensures we won't call it more
+  than 1000 times per second.
 
-On DOS,  it appears that checking the time is so slow that we're
-better off (by a small margin) not using this scheme.  */
-
-static bool _fast_check_key( void)
+  On DOS,  it appears that checking the time is so slow that we're
+  better off (by a small margin) not using this scheme.
+ */
+static bool _fast_check_key(void)
 {
     static long prev_millisecond;
-    const long curr_ms = PDC_millisecs( );
+    const long curr_ms = PDC_millisecs();
     bool rval;
 
     if( prev_millisecond == curr_ms)
         return( FALSE);
-    rval = PDC_check_key( );
+    rval = PDC_check_key();
     if( !rval)
         prev_millisecond = curr_ms;
     return( rval);
 }
-
 
 bool PDC_is_function_key( const int key)
 {
@@ -581,19 +531,16 @@ static int _raw_wgetch_no_surrogate_pairs( WINDOW *win)
     }
 }
 
-#define IS_HIGH_SURROGATE( x)  ((x) >= 0xd800 && (x) < 0xdc00)
-#define IS_LOW_SURROGATE( x)   ((x) >= 0xdc00 && (x) < 0xe000)
-
 static int _raw_wgetch (WINDOW *win)
 {
    int rval = _raw_wgetch_no_surrogate_pairs( win);
 
-   if( IS_HIGH_SURROGATE( rval))
+   if( PDC_IS_HIGH_SURROGATE( rval))
       {
       const int c = _raw_wgetch_no_surrogate_pairs( win);
 
-      if( IS_LOW_SURROGATE( c))
-         rval = ((rval - 0xd800) << 10) + 0x10000 + c - 0xdc00;
+      if( PDC_IS_LOW_SURROGATE( c))
+         rval = ((rval - PDC_HIGH_SURROGATE_START) << 10) + 0x10000 + c - PDC_LOW_SURROGATE_START;
       }
    return( rval);
 }

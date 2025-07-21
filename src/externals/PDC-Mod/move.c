@@ -1,17 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-move
-----
-
-### Synopsis
-
-    int move(int y, int x);
-    int mvcur(int oldrow, int oldcol, int newrow, int newcol);
-    int wmove(WINDOW *win, int y, int x);
+/*
 
 ### Description
 
@@ -26,15 +15,7 @@ move
 ### Return Value
 
    All functions return OK on success and ERR on error.
-
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   move                  |    Y   |    Y    |   Y
-   mvcur                 |    Y   |    Y    |   Y
-   wmove                 |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 int move(int y, int x)
 {

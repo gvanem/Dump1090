@@ -1,31 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-addstr
-------
-
-### Synopsis
-
-    int addstr(const char *str);
-    int addnstr(const char *str, int n);
-    int waddstr(WINDOW *win, const char *str);
-    int waddnstr(WINDOW *win, const char *str, int n);
-    int mvaddstr(int y, int x, const char *str);
-    int mvaddnstr(int y, int x, const char *str, int n);
-    int mvwaddstr(WINDOW *win, int y, int x, const char *str);
-    int mvwaddnstr(WINDOW *win, int y, int x, const char *str, int n);
-
-    int addwstr(const wchar_t *wstr);
-    int addnwstr(const wchar_t *wstr, int n);
-    int waddwstr(WINDOW *win, const wchar_t *wstr);
-    int waddnwstr(WINDOW *win, const wchar_t *wstr, int n);
-    int mvaddwstr(int y, int x, const wchar_t *wstr);
-    int mvaddnwstr(int y, int x, const wchar_t *wstr, int n);
-    int mvwaddwstr(WINDOW *win, int y, int x, const wchar_t *wstr);
-    int mvwaddnwstr(WINDOW *win, int y, int x, const wchar_t *wstr, int n);
+/*
 
 ### Description
 
@@ -41,28 +16,7 @@ addstr
 ### Return Value
 
    All functions return OK or ERR.
-
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   addstr                |    Y   |    Y    |   Y
-   waddstr               |    Y   |    Y    |   Y
-   mvaddstr              |    Y   |    Y    |   Y
-   mvwaddstr             |    Y   |    Y    |   Y
-   addnstr               |    Y   |    Y    |   Y
-   waddnstr              |    Y   |    Y    |   Y
-   mvaddnstr             |    Y   |    Y    |   Y
-   mvwaddnstr            |    Y   |    Y    |   Y
-   addwstr               |    Y   |    Y    |   Y
-   waddwstr              |    Y   |    Y    |   Y
-   mvaddwstr             |    Y   |    Y    |   Y
-   mvwaddwstr            |    Y   |    Y    |   Y
-   addnwstr              |    Y   |    Y    |   Y
-   waddnwstr             |    Y   |    Y    |   Y
-   mvaddnwstr            |    Y   |    Y    |   Y
-   mvwaddnwstr           |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 int waddnstr(WINDOW *win, const char *str, int n)
 {

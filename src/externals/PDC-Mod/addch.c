@@ -1,32 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-addch
------
-
-### Synopsis
-
-    int addch(const chtype ch);
-    int waddch(WINDOW *win, const chtype ch);
-    int mvaddch(int y, int x, const chtype ch);
-    int mvwaddch(WINDOW *win, int y, int x, const chtype ch);
-    int echochar(const chtype ch);
-    int wechochar(WINDOW *win, const chtype ch);
-
-    int addrawch(chtype ch);
-    int waddrawch(WINDOW *win, chtype ch);
-    int mvaddrawch(int y, int x, chtype ch);
-    int mvwaddrawch(WINDOW *win, int y, int x, chtype ch);
-
-    int add_wch(const cchar_t *wch);
-    int wadd_wch(WINDOW *win, const cchar_t *wch);
-    int mvadd_wch(int y, int x, const cchar_t *wch);
-    int mvwadd_wch(WINDOW *win, int y, int x, const cchar_t *wch);
-    int echo_wchar(const cchar_t *wch);
-    int wecho_wchar(WINDOW *win, const cchar_t *wch);
+/*
 
 ### Description
 
@@ -88,42 +62,21 @@ addch
 ### Return Value
 
    All functions return OK on success and ERR on error.
-
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   addch                 |    Y   |    Y    |   Y
-   waddch                |    Y   |    Y    |   Y
-   mvaddch               |    Y   |    Y    |   Y
-   mvwaddch              |    Y   |    Y    |   Y
-   echochar              |    Y   |    Y    |   Y
-   wechochar             |    Y   |    Y    |   Y
-   add_wch               |    Y   |    Y    |   Y
-   wadd_wch              |    Y   |    Y    |   Y
-   mvadd_wch             |    Y   |    Y    |   Y
-   mvwadd_wch            |    Y   |    Y    |   Y
-   echo_wchar            |    Y   |    Y    |   Y
-   wecho_wchar           |    Y   |    Y    |   Y
-   addrawch              |    -   |    -    |   -
-   waddrawch             |    -   |    -    |   -
-   mvaddrawch            |    -   |    -    |   -
-   mvwaddrawch           |    -   |    -    |   -
-
-**man-end****************************************************************/
+*/
 
 /* As will be described below,  the method used here for combining
    characters requires going beyond the usual 17*2^16 limit for Unicode.
    That can only happen with 64-bit chtype / cchar_t,  and it's only
    worth doing if we're going past 8-byte characters in the first place.
    So if PDC_WIDE is defined _and_ we're using 64-bit chtypes,  we're
-   using the combining character scheme.  See curses.h. */
-
+   using the combining character scheme.  See curses.h.
+ */
 
 /* A greatly modified version of Markus Kuhn's excellent
    wcwidth implementation.  For his latest version and many
    comments,  see http://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c
    For PDCursesMod,  only PDC_wcwidth is used,  modified to take an
-   int argument instead of wchar_t,  because in MS-land, wchar_t
+   int32_t argument instead of wchar_t,  because in MS-land, wchar_t
    is 16 bits;  getting the full Unicode range requires 21 bits.
    Also modified format/indenting to conform to PDCurses norms,
    and (December 2024) updated from Unicode 5.0 to 16.0.0.  See
@@ -135,14 +88,14 @@ addch
 
 static bool _uniset_test (uint16_t const set[][2], uint32_t c)
 {
-    const unsigned int p = c >> 16;
+    unsigned int p = c >> 16;
     unsigned int l = set[p][0] + 17, r = set[p][1] + 17;
 
     assert( p <= 16);      /* i.e.,  0 <= c <= 0x10ffff => c is in Unicode's range */
     c &= 0xffff;
     while (l < r)
     {
-        const unsigned int m = (l + r) / 2;
+        unsigned int m = (l + r) / 2;
 
         if( c < set[m][0])
             r = m;
@@ -388,46 +341,48 @@ const uint16_t tbl_for_fullwidth_chars[][2] = {
        return 1;
 }
 
-/* The handling of "fullwidth" characters (those consuming two "normal"
-columns) and combining characters (characters that can add accents to a
-preceding character) in PDCursesMod is,  of necessity,  complex.
+/*
+  The handling of "fullwidth" characters (those consuming two "normal"
+  columns) and combining characters (characters that can add accents to a
+  preceding character) in PDCursesMod is,  of necessity,  complex.
 
-Unicode is defined to have 17 planes of 2^16 characters each,  so that
-the maximum Unicode code point is U+10FFFF.  When addch() is given a
-fullwidth character,  it handles that character "normally",  and then
-stores the non-Unicode character DUMMY_CHAR_NEXT_TO_FULLWIDTH
-(U+110000) next to it,  just as a placeholder.  (That part is actually
-rather simple.)
+  Unicode is defined to have 17 planes of 2^16 characters each,  so that
+  the maximum Unicode code point is U+10FFFF.  When addch() is given a
+  fullwidth character,  it handles that character "normally",  and then
+  stores the non-Unicode character DUMMY_CHAR_NEXT_TO_FULLWIDTH
+  (U+110000) next to it,  just as a placeholder.  (That part is actually
+  rather simple.)
 
-PDCursesMod handles combining characters by creating entirely new "Unicode"
-(let's call them "post-Unicode") characters,  at code point U+110001
-(COMBINED_CHAR_START) and beyond. The 'combos' table keeps track of
-these newly-created characters,  essentially saying:  "This post-Unicode
-character consists of the following 'root' character,  plus an
-added combining character."  The 'root' character in question may itself
-be a post-Unicode character;  this allows us to add more than one
-combining character.
+  PDCursesMod handles combining characters by creating entirely new "Unicode"
+  (let's call them "post-Unicode") characters,  at code point U+110001
+  (COMBINED_CHAR_START) and beyond. The 'combos' table keeps track of
+  these newly-created characters,  essentially saying:  "This post-Unicode
+  character consists of the following 'root' character,  plus an
+  added combining character."  The 'root' character in question may itself
+  be a post-Unicode character;  this allows us to add more than one
+  combining character.
 
-For example,  if one calls wchar() with,  in succession, 'r' (U+72),
-a circumflex (U+0302),  and an acute accent below (U+317),  the call
-with the circumflex would cause 'combo' to be allocated,  with
-combo[0].root = 'r' and combo[0].added = 0x302.  Code point U+110001
-would correspond to this character ('r' plus circumflex).  The call
-with the acute accent below would create code point U+110002,
-combo[1].root = 0x110001 and combo[1].added = 0x317.  Thus,  a character
-with multiple combining characters simply resolves itself as a series
-of "post-Unicode" characters.  When the display function in pdcdisp.c
-is asked to show character 0x110001 or 0x110002,  it can use
-PDC_expand_combined_characters() to convert that code point to the
-actual series of characters.
+  For example,  if one calls wchar() with,  in succession, 'r' (U+72),
+  a circumflex (U+0302),  and an acute accent below (U+317),  the call
+  with the circumflex would cause 'combo' to be allocated,  with
+  combo[0].root = 'r' and combo[0].added = 0x302.  Code point U+110001
+  would correspond to this character ('r' plus circumflex).  The call
+  with the acute accent below would create code point U+110002,
+  combo[1].root = 0x110001 and combo[1].added = 0x317.  Thus,  a character
+  with multiple combining characters simply resolves itself as a series
+  of "post-Unicode" characters.  When the display function in pdcdisp.c
+  is asked to show character 0x110001 or 0x110002,  it can use
+  PDC_expand_combined_characters() to convert that code point to the
+  actual series of characters.
 
-'ncurses' handles combined characters in a very different manner:  a
-'cchar' is defined as an array of five characters,  so that you can
-add up to four combining characters in any given cell.  I had to reject
-that solution because backward compatibility within PDCurseMod would be
-broken.  Quite aside from that,  this is a simpler solution,  and allows
-for any number of combining characters (though four ought to be enough
-for anybody).      */
+  'ncurses' handles combined characters in a very different manner:  a
+  'cchar' is defined as an array of five characters,  so that you can
+  add up to four combining characters in any given cell.  I had to reject
+  that solution because backward compatibility within PDCurseMod would be
+  broken.  Quite aside from that,  this is a simpler solution,  and allows
+  for any number of combining characters (though four ought to be enough
+  for anybody).
+ */
 
 #define DUMMY_CHAR_NEXT_TO_FULLWIDTH  MAX_UNICODE
 #define COMBINED_CHAR_START          (MAX_UNICODE + 1)
@@ -435,10 +390,11 @@ for anybody).      */
 /* "non-standard" 64-bit chtypes
  */
 static int n_combos = 0, n_combos_allocated = 0;
-static struct combined_char
-{
-    int32_t root, added;
-} *combos = NULL;
+
+static struct combined_char {
+       int32_t root;
+       int32_t added;
+    } *combos = NULL;
 
 int PDC_find_combined_char_idx( const cchar_t root, const cchar_t added)
 {
@@ -447,13 +403,14 @@ int PDC_find_combined_char_idx( const cchar_t root, const cchar_t added)
     for( i = 0; i < n_combos; i++)
         if( (int32_t)root == combos[i].root && (int32_t)added == combos[i].added)
             return( i);
-                            /* Didn't find this pair among existing combos; */
-                            /* create a new one */
+
+   /* Didn't find this pair among existing combos;
+    * create a new one
+    */
     if( i == n_combos_allocated)
     {
         n_combos_allocated += 30 + n_combos_allocated / 2;
-        combos = (struct combined_char *)realloc( combos,
-                     n_combos_allocated * sizeof( struct combined_char));
+        combos = realloc (combos, n_combos_allocated * sizeof(*combos));
     }
     combos[i].root = (int32_t)root;
     combos[i].added = (int32_t)added;
@@ -461,21 +418,14 @@ int PDC_find_combined_char_idx( const cchar_t root, const cchar_t added)
     return( i);
 }
 
-#undef  IS_HIGH_SURROGATE
-#undef  IS_LOW_SURROGATE
-
-#define IS_LOW_SURROGATE( c) ((c) >= 0xdc00 && (c) < 0xe000)
-#define IS_HIGH_SURROGATE( c) ((c) >= 0xd800 && (c) < 0xdc00)
-
 int PDC_expand_combined_characters( const cchar_t c, cchar_t *added)
 {
     if( !c)    /* flag to free up memory */
     {
         n_combos = n_combos_allocated = 0;
-        if( combos)
-            free( combos);
+        free (combos);
         combos = NULL;
-        return( 0);
+        return (0);
     }
     assert( (int)c >= COMBINED_CHAR_START && (int)c < COMBINED_CHAR_START + n_combos);
     *added = combos[c - COMBINED_CHAR_START].added;
@@ -508,7 +458,7 @@ int waddch( WINDOW *win, const chtype ch)
     if( x || y)
     {
         const bool is_combining = (text && !text_width);
-        const bool is_low_surrogate = IS_LOW_SURROGATE( text);
+        const bool is_low_surrogate = PDC_IS_LOW_SURROGATE( text);
 
         if( is_combining || is_low_surrogate)
         {
@@ -525,8 +475,8 @@ int waddch( WINDOW *win, const chtype ch)
             if( is_combining)
                 text = COMBINED_CHAR_START
                          + PDC_find_combined_char_idx( prev_char, text);
-            else if( IS_HIGH_SURROGATE( prev_char))
-                text = 0x10000 + ((prev_char - 0xd800) << 10) + (text - 0xdc00);
+            else if(PDC_IS_HIGH_SURROGATE( prev_char))
+                text = 0x10000 + ((prev_char - PDC_HIGH_SURROGATE_START) << 10) + (text - PDC_LOW_SURROGATE_START);
             else     /* low surrogate after a non-high surrogate;  not */
                 text = prev_char;   /* supposed to happen */
         }
@@ -568,16 +518,16 @@ int waddch( WINDOW *win, const chtype ch)
                 if (wscrl(win, 1) == ERR)
                     return ERR;
             }
-
             break;
 
         case '\b':
             /* don't back over left margin */
-
             if (--x < 0)
-        case '\r':
-                x = 0;
+               x = 0;
+            break;
 
+        case '\r':
+            x = 0;
             break;
 
         case 0x7f:
@@ -602,16 +552,16 @@ int waddch( WINDOW *win, const chtype ch)
            attributes but not a color component, OR the attributes to
            the current attributes for the window. If it has a color
            component, use the attributes solely from the incoming
-           character. */
-
+           character.
+         */
         if (!(attr & A_COLOR))
             attr |= win->_attrs;
 
         /* wrs (4/10/93): Apply the same sort of logic for the window
            background, in that it only takes precedence if other color
            attributes are not there and that the background character
-           will only print if the printing character is blank. */
-
+           will only print if the printing character is blank.
+         */
         if (!(attr & A_COLOR))
             attr |= win->_bkgd & A_ATTRIBUTES;
         else
@@ -626,8 +576,8 @@ int waddch( WINDOW *win, const chtype ch)
 
         /* Only change 'dirty' cells if the character to be added is
            different from the character/attribute that is already in
-           that position in the window. */
-
+           that position in the window.
+         */
         if (win->_y[y][x] != text)
         {
             PDC_mark_cell_as_changed( win, y, x);
@@ -637,7 +587,6 @@ int waddch( WINDOW *win, const chtype ch)
         if (++x >= win->_maxx)
         {
             /* wrap around test */
-
             x = 0;
 
             if (++y > win->_bmarg)

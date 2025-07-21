@@ -1,13 +1,15 @@
-/* Many of the following #defines are completely unused for the
-nonce.  For each character,  its code point in code page 437,
-Unicode,  and page 8859-1 are given.  The first is used for
-non-wide builds in Win32 console,  DOS,  SDL,  and OS/2.
-Unicode is used for all wide builds,  and for the non-wide
-build of WinGUI.  Code page 8859-1 is used for non-wide X11.
+/*
+  Many of the following #defines are completely unused for the
+  nonce.  For each character,  its code point in code page 437,
+  Unicode,  and page 8859-1 are given.  The first is used for
+  non-wide builds in Win32 console,  DOS,  SDL,  and OS/2.
+  Unicode is used for all wide builds,  and for the non-wide
+  build of WinGUI.  Code page 8859-1 is used for non-wide X11.
 
-   All of these characters exist in CP437 and Unicode.  Some
-don't exist in 8859-1,  in which case the last column is 'TBD'.
-Only 32 are used in ncurses.  So caution is advised. */
+  All of these characters exist in CP437 and Unicode.  Some
+  don't exist in 8859-1,  in which case the last column is 'TBD'.
+  Only 32 are used in ncurses.  So caution is advised.
+ */
 
 #ifdef USE_ISO8859_CHARSET
    #define CHOOSE( A, B, C)   (C)
@@ -16,8 +18,8 @@ Only 32 are used in ncurses.  So caution is advised. */
    #define CHOOSE( A, B, C) (USE_UNICODE_ACS_CHARS ? B : A)
 #endif
 
-/* Codes found from https://en.wikipedia.org/wiki/Code_page_437 */
-
+/* Codes found from https://en.wikipedia.org/wiki/Code_page_437
+ */
 #define SMILE                             CHOOSE( 0x01,  0x263a,  'O')
 #define REV_SMILE                         CHOOSE( 0x02,  0x263b,  'O')
 #define HEART                             CHOOSE( 0x03,  0x2665,  'H')
@@ -187,15 +189,17 @@ Only 32 are used in ncurses.  So caution is advised. */
 #define NON_BREAKING_SPACE                CHOOSE( 0xff,  0x00a0, 0xa0)
 
 #ifdef NOT_CURRENTLY_IMPLEMENTED
-/* The following four characters are not currently implemented. However,
-they would enable rounded box corners when Unicode is available.
-(Otherwise,  the 'traditional' unrounded corner character is used.) */
+  /*
+   * The following four characters are not currently implemented. However,
+   * they would enable rounded box corners when Unicode is available.
+   * (Otherwise,  the 'traditional' unrounded corner character is used.)
+   */
 
-#define BOX_URROUNDED                     CHOOSE( 0xbf,  0x256e,   12)
-#define BOX_LLROUNDED                     CHOOSE( 0xc0,  0x2570,   14)
-#define BOX_LRROUNDED                     CHOOSE( 0xd9,  0x256f,   11)
-#define BOX_ULROUNDED                     CHOOSE( 0xda,  0x256d,   13)
-#endif         /* #ifdef NOT_CURRENTLY_IMPLEMENTED */
+  #define BOX_URROUNDED                   CHOOSE( 0xbf,  0x256e,   12)
+  #define BOX_LLROUNDED                   CHOOSE( 0xc0,  0x2570,   14)
+  #define BOX_LRROUNDED                   CHOOSE( 0xd9,  0x256f,   11)
+  #define BOX_ULROUNDED                   CHOOSE( 0xda,  0x256d,   13)
+#endif
 
 #define BOX_T_URCORNER                    CHOOSE( 0xbf,  0x2513,   12)
 #define BOX_T_LRCORNER                    CHOOSE( 0xd9,  0x251b,   11)
@@ -209,32 +213,35 @@ they would enable rounded box corners when Unicode is available.
 #define BOX_T_VLINE                       CHOOSE( 0xb3,  0x2503,   25)
 #define BOX_T_PLUS                        CHOOSE( 0xc5,  0x254b,   15)
 
-      /* It says at http://unicode.org/charts/PDF/U2300.pdf */
-      /* that '...the scan line numbers here refer to old,  */
-      /* low-resolution technology for terminals, with only */
-      /* nine scan lines per fixed-size character glyph.    */
-      /* Even-numbered scan lines are unified with box      */
-      /* drawing graphics."                                 */
-      /*  The utility of these is questionable;  they       */
-      /* work Just Fine in wide-character builds if the     */
-      /* glyphs are available,  but not elsewhere.          */
+/*
+ * It says at http://unicode.org/charts/PDF/U2300.pdf
+ * that '...the scan line numbers here refer to old,
+ * low-resolution technology for terminals, with only
+ * nine scan lines per fixed-size character glyph.
+ * Even-numbered scan lines are unified with box
+ * drawing graphics."
+ *
+ * The utility of these is questionable;  they
+ * work Just Fine in wide-character builds if the
+ * glyphs are available,  but not elsewhere.
+*/
 #define HORIZ_SCAN_LINE_1                 CHOOSE( 0x2d,  0x23ba,   16)
 #define HORIZ_SCAN_LINE_3                 CHOOSE( 0x2d,  0x23bb,   17)
 #define HORIZ_SCAN_LINE_7                 CHOOSE( 0x2d,  0x23bc,   19)
 #define HORIZ_SCAN_LINE_9                 CHOOSE(  '_',  0x23bd,   20)
 
-      /* Code page 437 lacks a 'for real' not-equals,  so for that, */
-      /* we use the double-horizontal single-vertical box drawing : */
+/* Code page 437 lacks a 'for real' not-equals,  so for that,
+ * we use the double-horizontal single-vertical box drawing:
+ */
 #define NOT_EQUALS_SIGN                   CHOOSE( 0xd8, 0x2260,    29)
 
-# define A(x) ((chtype)x | A_ALTCHARSET)
+#define A(x) ((chtype)x | A_ALTCHARSET)
 
-chtype acs_map[128] =
-{
-   BOX_T_LRCORNER, BOX_T_URCORNER, BOX_T_ULCORNER,             /* 0 1 2 */
-   BOX_T_LLCORNER, BOX_T_PLUS,                                 /* 3 4 */
-   BOX_T_LTEE, BOX_T_RTEE, BOX_T_BTEE, BOX_T_TTEE,             /* 5 6 7 8 */
-   BOX_T_HLINE, BOX_T_VLINE,                                   /* 9 10 */
+chtype acs_map[128] = {
+   BOX_T_LRCORNER, BOX_T_URCORNER, BOX_T_ULCORNER,            /* 0 1 2 */
+   BOX_T_LLCORNER, BOX_T_PLUS,                                /* 3 4 */
+   BOX_T_LTEE, BOX_T_RTEE, BOX_T_BTEE, BOX_T_TTEE,            /* 5 6 7 8 */
+   BOX_T_HLINE, BOX_T_VLINE,                                  /* 9 10 */
    CLUB, HEART, SPADE, SMILE, REV_SMILE,                      /* 11 12 13 14 15 */
    MEDIUM_BULLET, WHITE_BULLET, PILCROW, SECTION_SIGN,        /* 16 17 18 19 */
    A_ORDINAL, O_ORDINAL, LOWERCASE_PHI,                       /* 20 21 22 */
@@ -257,32 +264,33 @@ chtype acs_map[128] =
    BOX_SD_LLCORNER, BOX_SD_PLUS,                              /* >? */
    BOX_SD_LTEE, BOX_SD_RTEE, BOX_SD_BTEE, BOX_SD_TTEE,        /* @ABC */
 
-   BOX_D_LRCORNER, BOX_D_URCORNER, BOX_D_ULCORNER,             /* DEF */
-   BOX_D_LLCORNER, BOX_D_PLUS,                                 /* GH */
-   BOX_D_LTEE, BOX_D_RTEE, BOX_D_BTEE, BOX_D_TTEE,             /* IJKL */
+   BOX_D_LRCORNER, BOX_D_URCORNER, BOX_D_ULCORNER,            /* DEF */
+   BOX_D_LLCORNER, BOX_D_PLUS,                                /* GH */
+   BOX_D_LTEE, BOX_D_RTEE, BOX_D_BTEE, BOX_D_TTEE,            /* IJKL */
 
-   BOX_DS_LRCORNER, BOX_DS_URCORNER, BOX_DS_ULCORNER,          /* MNO */
-   BOX_DS_LLCORNER, BOX_DS_PLUS,                               /* PQ */
-   BOX_DS_LTEE, BOX_DS_RTEE, BOX_DS_BTEE, BOX_DS_TTEE,         /* RSTU */
+   BOX_DS_LRCORNER, BOX_DS_URCORNER, BOX_DS_ULCORNER,         /* MNO */
+   BOX_DS_LLCORNER, BOX_DS_PLUS,                              /* PQ */
+   BOX_DS_LTEE, BOX_DS_RTEE, BOX_DS_BTEE, BOX_DS_TTEE,        /* RSTU */
 
-   BOX_LRCORNER, BOX_URCORNER, BOX_ULCORNER,                   /* VWX */
-   BOX_LLCORNER, BOX_PLUS,                                     /* YZ */
-   BOX_LTEE, BOX_RTEE, BOX_BTEE, BOX_TTEE,                     /* [\]^ */
+   BOX_LRCORNER, BOX_URCORNER, BOX_ULCORNER,                  /* VWX */
+   BOX_LLCORNER, BOX_PLUS,                                    /* YZ */
+   BOX_LTEE, BOX_RTEE, BOX_BTEE, BOX_TTEE,                    /* [\]^ */
 
-   BOX_HLINE, BOX_VLINE, BOX_D_HLINE, BOX_D_VLINE,             /* _`ab */
+   BOX_HLINE, BOX_VLINE, BOX_D_HLINE, BOX_D_VLINE,            /* _`ab */
 
-   DIVISION_SIGN, APPROXIMATELY_EQUALS_SIGN,                   /* cd */
-   INTERSECTION, TRIPLE_BAR,                                   /* ef */
-   SMALL_BULLET, LARGE_BULLET, SQUARE_ROOT,                    /* ghi */
-   DIAMOND, MEDIUM_SHADE,                                      /* jk */
-   HORIZ_SCAN_LINE_1, HORIZ_SCAN_LINE_3,                       /* lm */
-   HORIZ_SCAN_LINE_7, HORIZ_SCAN_LINE_9,                       /* no */
-   UPPER_HALF_BLOCK, LOWER_HALF_BLOCK,                         /* pq */
-   LEFT_HALF_BLOCK, RIGHT_HALF_BLOCK, FULL_BLOCK,              /* rst */
-   LESSER_THAN_OR_EQUAL_TO, GREATER_THAN_OR_EQUAL_TO,          /* uv */
-   DEGREE_SIGN, PLUS_OR_MINUS, LIGHT_SHADE, SPLAT,             /* wxyz */
-   CENT_SIGN, YEN_SIGN, PESETA_SIGN, STERLING_SIGN,            /* {|}~ */
-    A(127)
+   DIVISION_SIGN, APPROXIMATELY_EQUALS_SIGN,                  /* cd */
+   INTERSECTION, TRIPLE_BAR,                                  /* ef */
+   SMALL_BULLET, LARGE_BULLET, SQUARE_ROOT,                   /* ghi */
+   DIAMOND, MEDIUM_SHADE,                                     /* jk */
+   HORIZ_SCAN_LINE_1, HORIZ_SCAN_LINE_3,                      /* lm */
+   HORIZ_SCAN_LINE_7, HORIZ_SCAN_LINE_9,                      /* no */
+   UPPER_HALF_BLOCK, LOWER_HALF_BLOCK,                        /* pq */
+   LEFT_HALF_BLOCK, RIGHT_HALF_BLOCK, FULL_BLOCK,             /* rst */
+   LESSER_THAN_OR_EQUAL_TO, GREATER_THAN_OR_EQUAL_TO,         /* uv */
+   DEGREE_SIGN, PLUS_OR_MINUS, LIGHT_SHADE, SPLAT,            /* wxyz */
+   CENT_SIGN, YEN_SIGN, PESETA_SIGN, STERLING_SIGN,           /* {|}~ */
+   A(127)
 };
 
-# undef A
+#undef A
+

@@ -1,6 +1,4 @@
-/* PDCurses */
-
-#include "pdcwin.h"
+#include <curspriv.h>
 #include <mmsystem.h>
 #include <process.h>
 

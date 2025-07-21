@@ -1,19 +1,6 @@
-/* PDCurses */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-keyname
--------
-
-### Synopsis
-
-    char *keyname(int key);
-
-    char *key_name(wchar_t c);
-
-    bool has_key(int key);
+/*
 
 ### Description
 
@@ -26,14 +13,7 @@ keyname
    has_key() returns TRUE for recognized keys, FALSE otherwise. This
    function is an ncurses extension.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   keyname               |    Y   |    Y    |   Y
-   key_name              |    Y   |    Y    |   Y
-   has_key               |    -   |    Y    |   Y
-
-**man-end****************************************************************/
+ */
 
 char *keyname(int key)
 {

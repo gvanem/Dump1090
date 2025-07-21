@@ -1,35 +1,6 @@
-/* PDCursesMod */
-
-#include <stdlib.h>
 #include <curspriv.h>
-#include <assert.h>
 
-/*man-start**************************************************************
-
-window
-------
-
-### Synopsis
-
-    WINDOW *newwin(int nlines, int ncols, int begy, int begx);
-    WINDOW *derwin(WINDOW* orig, int nlines, int ncols,
-                   int begy, int begx);
-    WINDOW *subwin(WINDOW* orig, int nlines, int ncols,
-                   int begy, int begx);
-    WINDOW *dupwin(WINDOW *win);
-    WINDOW *wgetparent(const WINDOW *win);
-    int delwin(WINDOW *win);
-    int mvwin(WINDOW *win, int y, int x);
-    int mvderwin(WINDOW *win, int pary, int parx);
-    int syncok(WINDOW *win, bool bf);
-    bool is_subwin(const WINDOW *win);
-    bool is_syncok(const WINDOW *win);
-    void wsyncup(WINDOW *win);
-    void wcursyncup(WINDOW *win);
-    void wsyncdown(WINDOW *win);
-
-    WINDOW *resize_window(WINDOW *win, int nlines, int ncols);
-    int wresize(WINDOW *win, int nlines, int ncols);
+/*
 
 ### Description
 
@@ -109,27 +80,7 @@ window
    successfully allocated windows are left alone; i.e., the resize is
    NOT cancelled for those windows.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   newwin                |    Y   |    Y    |   Y
-   delwin                |    Y   |    Y    |   Y
-   mvwin                 |    Y   |    Y    |   Y
-   subwin                |    Y   |    Y    |   Y
-   derwin                |    Y   |    Y    |   Y
-   mvderwin              |    Y   |    Y    |   Y
-   dupwin                |    Y   |    Y    |   Y
-   wgetparent            |    -   |    Y    |   -
-   wsyncup               |    Y   |    Y    |   Y
-   syncok                |    Y   |    Y    |   Y
-   is_subwin             |    -   |    Y    |   -
-   is_syncok             |    -   |    Y    |   -
-   wcursyncup            |    Y   |    Y    |   Y
-   wsyncdown             |    Y   |    Y    |   Y
-   wresize               |    -   |    Y    |   Y
-   resize_window         |    -   |    -    |   -
-
-**man-end****************************************************************/
+*/
 
 /*library-internals-begin************************************************
 
@@ -169,7 +120,7 @@ WINDOW *PDC_makenew(int nlines, int ncols, int begy, int begx)
     if (!win->_firstch || !win->_y)
     {
         delwin( win);
-        return (WINDOW *)NULL;
+        return (NULL);
     }
 
     win->_lastch = win->_firstch + nlines;
@@ -213,7 +164,7 @@ WINDOW *PDC_makelines(WINDOW *win)
         /* if error, free all the data */
 
         delwin( win);
-        return (WINDOW *)NULL;
+        return (NULL);
     }
     for (i = 1; i < nlines; i++)
         win->_y[i] = win->_y[i - 1] + ncols;
@@ -229,11 +180,12 @@ void PDC_sync(WINDOW *win)
         wsyncup(win);
 }
 
-/* See the OpenBSD and FreeBSD reallocarray() extension.  This is similar,  but
-exists for all platforms,  and always frees the pointer and returns NULL for a
-zero-byte allocation.  realloc() does this on most platforms, but not FreeBSD,
-and it's not guaranteed in the C specifications. */
-
+/*
+  See the OpenBSD and FreeBSD reallocarray() extension.  This is similar,  but
+  exists for all platforms,  and always frees the pointer and returns NULL for a
+  zero-byte allocation.  realloc() does this on most platforms, but not FreeBSD,
+  and it's not guaranteed in the C specifications.
+ */
 void *PDC_realloc_array( void *ptr, const size_t nmemb, const size_t size)
 {
     if( !nmemb || !size)
@@ -280,21 +232,21 @@ WINDOW *newwin(int nlines, int ncols, int begy, int begx)
 
     assert( nlines > 0 && ncols > 0);
     if( nlines <= 0 || ncols <= 0)
-        return (WINDOW *)NULL;
+        return (NULL);
 
     assert( SP);
     if( !SP)
-        return (WINDOW *)NULL;
+        return (NULL);
     if( !(SP->off_screen_windows & OFF_SCREEN_WINDOWS_TO_RIGHT_AND_BOTTOM))
     {
         if( begy + nlines > SP->lines || begx + ncols > SP->cols)
-            return (WINDOW *)NULL;
+            return (NULL);
     }
 
     if( !(SP->off_screen_windows & OFF_SCREEN_WINDOWS_TO_LEFT_AND_TOP))
     {
     if( begy < 0 || begx < 0)
-        return (WINDOW *)NULL;
+        return (NULL);
     }
 
     win = PDC_makenew(nlines, ncols, begy, begx);
@@ -389,7 +341,7 @@ WINDOW *subwin(WINDOW *orig, int nlines, int ncols, int begy, int begx)
     if (!orig || (begy < orig->_begy) || (begx < orig->_begx) ||
         (begy + nlines) > (orig->_begy + orig->_maxy) ||
         (begx + ncols) > (orig->_begx + orig->_maxx))
-        return (WINDOW *)NULL;
+        return (NULL);
 
     j = begy - orig->_begy;
     k = begx - orig->_begx;
@@ -401,10 +353,10 @@ WINDOW *subwin(WINDOW *orig, int nlines, int ncols, int begy, int begx)
 
     assert( nlines > 0 && ncols > 0);
     if( nlines <= 0 || ncols <= 0)
-        return (WINDOW *)NULL;
+        return (NULL);
     win = PDC_makenew(nlines, ncols, begy, begx);
     if (!win)
-        return (WINDOW *)NULL;
+        return (NULL);
 
     /* initialize window variables */
 
@@ -469,7 +421,7 @@ WINDOW *dupwin(WINDOW *win)
 
     assert( win);
     if (!win)
-        return (WINDOW *)NULL;
+        return (NULL);
 
     nlines = win->_maxy;
     ncols = win->_maxx;
@@ -481,7 +433,7 @@ WINDOW *dupwin(WINDOW *win)
         new_win = PDC_makelines(new_win);
 
     if (!new_win)
-        return (WINDOW *)NULL;
+        return (NULL);
 
     /* copy the contents of win into new_win */
 
@@ -524,7 +476,7 @@ WINDOW *wgetparent(const WINDOW *win)
 {
     assert( win);
     if (!win)
-        return NULL;
+        return (NULL);
 
     return win->_parent;
 }
@@ -538,19 +490,19 @@ WINDOW *resize_window(WINDOW *win, int nlines, int ncols)
     assert( win);
     assert( nlines >= 0 && ncols >= 0);
     if (!win || !SP || nlines < 0 || ncols < 0)
-        return (WINDOW *)NULL;
+        return (NULL);
 
     if (win->_flags & _SUBPAD)
     {
         new_win = subpad(win->_parent, nlines, ncols, win->_begy, win->_begx);
         if (!new_win)
-            return (WINDOW *)NULL;
+            return (NULL);
     }
     else if (win->_flags & _SUBWIN)
     {
         new_win = subwin(win->_parent, nlines, ncols, win->_begy, win->_begx);
         if (!new_win)
-            return (WINDOW *)NULL;
+            return (NULL);
     }
     else
     {
@@ -567,7 +519,7 @@ WINDOW *resize_window(WINDOW *win, int nlines, int ncols)
 
         new_win = PDC_makenew(nlines, ncols, new_begy, new_begx);
         if (!new_win)
-            return (WINDOW *)NULL;
+            return (NULL);
     }
     save_curx = min(win->_curx, (new_win->_maxx - 1));
     save_cury = min(win->_cury, (new_win->_maxy - 1));
@@ -576,7 +528,7 @@ WINDOW *resize_window(WINDOW *win, int nlines, int ncols)
     {
         new_win = PDC_makelines(new_win);
         if (!new_win)
-            return (WINDOW *)NULL;
+            return (NULL);
 
         new_win->_bkgd = win->_bkgd;
         werase(new_win);

@@ -1,45 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-border
-------
-
-### Synopsis
-
-    int border(chtype ls, chtype rs, chtype ts, chtype bs, chtype tl,
-               chtype tr, chtype bl, chtype br);
-    int wborder(WINDOW *win, chtype ls, chtype rs, chtype ts,
-                chtype bs, chtype tl, chtype tr, chtype bl, chtype br);
-    int box(WINDOW *win, chtype verch, chtype horch);
-    int hline(chtype ch, int n);
-    int vline(chtype ch, int n);
-    int whline(WINDOW *win, chtype ch, int n);
-    int wvline(WINDOW *win, chtype ch, int n);
-    int mvhline(int y, int x, chtype ch, int n);
-    int mvvline(int y, int x, chtype ch, int n);
-    int mvwhline(WINDOW *win, int y, int x, chtype ch, int n);
-    int mvwvline(WINDOW *win, int y, int x, chtype ch, int n);
-
-    int border_set(const cchar_t *ls, const cchar_t *rs,
-                   const cchar_t *ts, const cchar_t *bs,
-                   const cchar_t *tl, const cchar_t *tr,
-                const cchar_t *bl, const cchar_t *br);
-    int wborder_set(WINDOW *win, const cchar_t *ls, const cchar_t *rs,
-                    const cchar_t *ts, const cchar_t *bs,
-                    const cchar_t *tl, const cchar_t *tr,
-                    const cchar_t *bl, const cchar_t *br);
-    int box_set(WINDOW *win, const cchar_t *verch, const cchar_t *horch);
-    int hline_set(const cchar_t *wch, int n);
-    int vline_set(const cchar_t *wch, int n);
-    int whline_set(WINDOW *win, const cchar_t *wch, int n);
-    int wvline_set(WINDOW *win, const cchar_t *wch, int n);
-    int mvhline_set(int y, int x, const cchar_t *wch, int n);
-    int mvvline_set(int y, int x, const cchar_t *wch, int n);
-    int mvwhline_set(WINDOW *win, int y, int x, const cchar_t *wch, int n);
-    int mvwvline_set(WINDOW *win, int y, int x, const cchar_t *wch, int n);
+/*
 
 ### Description
 
@@ -73,39 +34,13 @@ border
 
    These functions return OK on success and ERR on error.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   border                |    Y   |    Y    |   Y
-   wborder               |    Y   |    Y    |   Y
-   box                   |    Y   |    Y    |   Y
-   hline                 |    Y   |    Y    |   Y
-   vline                 |    Y   |    Y    |   Y
-   whline                |    Y   |    Y    |   Y
-   wvline                |    Y   |    Y    |   Y
-   mvhline               |    Y   |    Y    |   Y
-   mvvline               |    Y   |    Y    |   Y
-   mvwhline              |    Y   |    Y    |   Y
-   mvwvline              |    Y   |    Y    |   Y
-   border_set            |    Y   |    Y    |   Y
-   wborder_set           |    Y   |    Y    |   Y
-   box_set               |    Y   |    Y    |   Y
-   hline_set             |    Y   |    Y    |   Y
-   vline_set             |    Y   |    Y    |   Y
-   whline_set            |    Y   |    Y    |   Y
-   wvline_set            |    Y   |    Y    |   Y
-   mvhline_set           |    Y   |    Y    |   Y
-   mvvline_set           |    Y   |    Y    |   Y
-   mvwhline_set          |    Y   |    Y    |   Y
-   mvwvline_set          |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+*/
 
 /* _attr_passthru() -- Takes a single chtype 'ch' and checks if the
    current attribute of window 'win', as set by wattrset(), and/or the
    current background of win, as set by wbkgd(), should by combined with
-   it. Attributes set explicitly in ch take precedence. */
-
+   it. Attributes set explicitly in ch take precedence.
+ */
 static chtype _attr_passthru(WINDOW *win, chtype ch)
 {
     chtype attr;
@@ -115,8 +50,8 @@ static chtype _attr_passthru(WINDOW *win, chtype ch)
        character has attributes, but not a color component, OR the
        attributes to the current attributes for the window. If the
        incoming character has a color component, use only the attributes
-       from the incoming character. */
-
+       from the incoming character.
+     */
     attr = ch & A_ATTRIBUTES;
     if (!(attr & A_COLOR))
         attr |= win->_attrs;

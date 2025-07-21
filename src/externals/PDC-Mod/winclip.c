@@ -1,17 +1,9 @@
-/* Windows clipboard code shared by WinCon,  WinGUI,  Windows
-builds for VT and (at some point) SDL1.    */
+/*
+  Windows clipboard code shared by WinCon,  WinGUI,  Windows
+  builds for VT and (at some point) SDL1.
+ */
 
-/*man-start**************************************************************
-
-clipboard
----------
-
-### Synopsis
-
-    int PDC_getclipboard(char **contents, long *length);
-    int PDC_setclipboard(const char *contents, long length);
-    int PDC_freeclipboard(char *contents);
-    int PDC_clearclipboard(void);
+/*
 
 ### Description
 
@@ -34,14 +26,7 @@ clipboard
     PDC_CLIP_EMPTY          the clipboard contains no text
     PDC_CLIP_ACCESS_ERROR   no clipboard support
 
-### Portability
-                             X/Open  ncurses  NetBSD
-    PDC_getclipboard            -       -       -
-    PDC_setclipboard            -       -       -
-    PDC_freeclipboard           -       -       -
-    PDC_clearclipboard          -       -       -
-
-**man-end****************************************************************/
+ */
 
 #define PDC_TEXT CF_UNICODETEXT
 

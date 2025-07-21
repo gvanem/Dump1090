@@ -1,31 +1,6 @@
-/* PDCursesMod */
-
 #include <curspriv.h>
 
-/*man-start**************************************************************
-
-getstr
-------
-
-### Synopsis
-
-    int getstr(char *str);
-    int wgetstr(WINDOW *win, char *str);
-    int mvgetstr(int y, int x, char *str);
-    int mvwgetstr(WINDOW *win, int y, int x, char *str);
-    int getnstr(char *str, int n);
-    int wgetnstr(WINDOW *win, char *str, int n);
-    int mvgetnstr(int y, int x, char *str, int n);
-    int mvwgetnstr(WINDOW *win, int y, int x, char *str, int n);
-
-    int get_wstr(wint_t *wstr);
-    int wget_wstr(WINDOW *win, wint_t *wstr);
-    int mvget_wstr(int y, int x, wint_t *wstr);
-    int mvwget_wstr(WINDOW *win, int, int, wint_t *wstr);
-    int getn_wstr(wint_t *wstr, int n);
-    int wgetn_wstr(WINDOW *win, wint_t *wstr, int n);
-    int mvgetn_wstr(int y, int x, wint_t *wstr, int n);
-    int mvwgetn_wstr(WINDOW *win, int y, int x, wint_t *wstr, int n);
+/*
 
 ### Description
 
@@ -46,27 +21,7 @@ getstr
 
    These functions return ERR on failure or any other value on success.
 
-### Portability
-   Function              | X/Open | ncurses | NetBSD
-   :---------------------|:------:|:-------:|:------:
-   getstr                |    Y   |    Y    |   Y
-   wgetstr               |    Y   |    Y    |   Y
-   mvgetstr              |    Y   |    Y    |   Y
-   mvwgetstr             |    Y   |    Y    |   Y
-   getnstr               |    Y   |    Y    |   Y
-   wgetnstr              |    Y   |    Y    |   Y
-   mvgetnstr             |    Y   |    Y    |   Y
-   mvwgetnstr            |    Y   |    Y    |   Y
-   get_wstr              |    Y   |    Y    |   Y
-   wget_wstr             |    Y   |    Y    |   Y
-   mvget_wstr            |    Y   |    Y    |   Y
-   mvwget_wstr           |    Y   |    Y    |   Y
-   getn_wstr             |    Y   |    Y    |   Y
-   wgetn_wstr            |    Y   |    Y    |   Y
-   mvgetn_wstr           |    Y   |    Y    |   Y
-   mvwgetn_wstr          |    Y   |    Y    |   Y
-
-**man-end****************************************************************/
+*/
 
 #define MAXLINE 255
 

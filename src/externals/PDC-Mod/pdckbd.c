@@ -1,10 +1,8 @@
-/* PDCurses */
-
-#include <assert.h>
-#include "pdcwin.h"
+#include <curspriv.h>
 
 /* These variables are used to store information about the next
-   Input Event. */
+   Input Event.
+ */
 
 static INPUT_RECORD save_ip;
 static DWORD event_count = 0;
@@ -16,22 +14,19 @@ static int save_press = 0;
 #define MEV save_ip.Event.MouseEvent
 #define REV save_ip.Event.WindowBufferSizeEvent
 
-/************************************************************************
- *    Table for key code translation of function keys in keypad mode    *
- *    These values are for strict IBM keyboard compatibles only         *
- ************************************************************************/
+/*
+ * Table for key code translation of function keys in keypad mode
+ * These values are for strict IBM keyboard compatibles only
+ */
+typedef struct {
+        unsigned short normal;
+        unsigned short shift;
+        unsigned short control;
+        unsigned short alt;
+        unsigned short extended;
+      } KPTAB;
 
-typedef struct
-{
-    unsigned short normal;
-    unsigned short shift;
-    unsigned short control;
-    unsigned short alt;
-    unsigned short extended;
-} KPTAB;
-
-static KPTAB kptab[] =
-{
+static KPTAB kptab[] = {
    {0,          0,         0,           0,          0   }, /* 0  */
    {0,          0,         0,           0,          0   }, /* 1   VK_LBUTTON */
    {0,          0,         0,           0,          0   }, /* 2   VK_RBUTTON */
@@ -340,8 +335,8 @@ void PDC_set_keyboard_binary(bool on)
                                     (mode & ~ENABLE_PROCESSED_INPUT));
 }
 
-/* check if a key or mouse event is waiting */
-
+/* check if a key or mouse event is waiting
+ */
 bool PDC_check_key(void)
 {
     if (key_count > 0)
@@ -368,8 +363,7 @@ bool PDC_check_key(void)
    Normal keys are returned on keydown only. The number of repetitions
    are returned. Dead keys (diacritics) are omitted. See below for a
    description.
-*/
-
+ */
 static int _get_key_count(void)
 {
     int num_keys = 0, vk;
@@ -410,8 +404,8 @@ static int _get_key_count(void)
                with two dots on it. In some locales you have to press a
                special key (the dead key) immediately followed by the
                "a" to get a composed umlaut-a. The special key may have
-               a normal meaning with different modifiers. */
-
+               a normal meaning with different modifiers.
+             */
             if (KEV.uChar.UnicodeChar || !(MapVirtualKey(vk, 2) & 0x80000000))
                 num_keys = KEV.wRepeatCount;
         }
@@ -452,12 +446,13 @@ static bool running_under_wine( void)
     return( (bool)rval);
 }
 
-/* _process_key_event returns -1 if the key in save_ip should be
-   ignored. Otherwise it returns the keycode which should be returned
-   by PDC_get_key(). save_ip must be a key event.
+/*
+  _process_key_event returns -1 if the key in save_ip should be
+  ignored. Otherwise it returns the keycode which should be returned
+  by PDC_get_key(). save_ip must be a key event.
 
-   CTRL-ALT support has been disabled, when is it emitted plainly?  */
-
+  CTRL-ALT support has been disabled, when is it emitted plainly?
+ */
 static int _process_key_event(void)
 {
     int key = KEV.uChar.UnicodeChar;
@@ -637,27 +632,27 @@ static void _process_mouse_event(void)
         incomplete_event = _add_raw_mouse_event( button, event, modifiers, x, y);
         while( incomplete_event)
          {
-             event_count = 0;
+             DWORD n_mouse_events = 0;
              int remaining_ms = SP->mouse_wait;
 
-             while( !event_count && remaining_ms)
+             while( !n_mouse_events && remaining_ms)
              {
                  const int nap_len = (remaining_ms > 20 ? 20 : remaining_ms);
 
                  napms( nap_len);
                  remaining_ms -= nap_len;
-                 GetNumberOfConsoleInputEvents(pdc_con_in, &event_count);
+                 GetNumberOfConsoleInputEvents(pdc_con_in, &n_mouse_events);
              }
              incomplete_event = FALSE;
-             if( event_count)
+             if( n_mouse_events)
              {
                  INPUT_RECORD ip;
 
-                 PeekConsoleInput(pdc_con_in, &ip, 1, &event_count);
+                 PeekConsoleInput(pdc_con_in, &ip, 1, &n_mouse_events);
                  if( (prev_state ^ button_mask[button])
                                      == ip.Event.MouseEvent.dwButtonState)
                      {
-                     ReadConsoleInput(pdc_con_in, &ip, 1, &event_count);
+                     ReadConsoleInput(pdc_con_in, &ip, 1, &n_mouse_events);
                      prev_state ^= button_mask[button];
                      event = (prev_state & button_mask[button]) ?
                                   BUTTON_PRESSED : BUTTON_RELEASED;
@@ -668,8 +663,8 @@ static void _process_mouse_event(void)
     }
 }
 
-/* return the next available key or mouse event */
-
+/* return the next available key or mouse event
+ */
 int PDC_get_key(void)
 {
     if( _get_mouse_event( &SP->mouse_status))
@@ -720,8 +715,8 @@ int PDC_get_key(void)
 }
 
 /* discard any pending keyboard or mouse input -- this is the core
-   routine for flushinp() */
-
+   routine for flushinp()
+ */
 void PDC_flushinp(void)
 {
     FlushConsoleInputBuffer(pdc_con_in);

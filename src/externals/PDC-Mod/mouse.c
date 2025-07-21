@@ -1,148 +1,152 @@
-/* Platform-independent parts of mouse handling.  This is surprisingly
-hard to get right.
+/*
+  Platform-independent parts of mouse handling.  This is surprisingly
+  hard to get right.
 
-   The idea here is that the various platforms detect "raw" mouse
-events.  The actual methods are,  of course,  platform-dependent,
-but the "raw" events will consist of
+  The idea here is that the various platforms detect "raw" mouse
+  events.  The actual methods are,  of course,  platform-dependent,
+  but the "raw" events will consist of
 
-- button N pressed
-- button N released
-- mouse moved
-- wheel up/down/left/right
+   - button N pressed
+   - button N released
+   - mouse moved
+   - wheel up/down/left/right
 
-   The actual events returned by the PDCursesMod library,  however,
-will be the above plus "cooked" events made from presses and releases :
+  The actual events returned by the PDCursesMod library,  however,
+  will be the above plus "cooked" events made from presses and releases :
 
-- button N clicked
-- button N double-clicked
-- button N triple-clicked
+   - button N clicked
+   - button N double-clicked
+   - button N triple-clicked
 
-   Some of these will be filtered,  according to the bits set in
-SP->_trap_mbe.  This code contains the (platform-independent) logic
-used to turn "raw" mouse events from the platform into "cooked"
-events returned by the library,  with unwanted events filtered out.
+  Some of these will be filtered,  according to the bits set in
+  SP->_trap_mbe.  This code contains the (platform-independent) logic
+  used to turn "raw" mouse events from the platform into "cooked"
+  events returned by the library,  with unwanted events filtered out.
 
-   Presses and releases will be combined into clicks _if_ we're actually
-looking for clicks from that button.  (If not,  PDCursesMod may return a
-press and a click... if,  again,  corresponding bits are turned on.)  Two
-clicks will be combined into a double-click, _if_ we're actually looking
-for double-clicks.  And so on.
+  Presses and releases will be combined into clicks _if_ we're actually
+  looking for clicks from that button.  (If not,  PDCursesMod may return a
+  press and a click... if,  again,  corresponding bits are turned on.)  Two
+  clicks will be combined into a double-click, _if_ we're actually looking
+  for double-clicks.  And so on.
 
-   In some cases,  the raw event may leave us in an "incomplete" state.
-Let's say a mouse button is pressed, and we're looking for clicks on that
-button (i.e.,  the BUTTONn_CLICKED bit is set in SP->_trap_mbe).  If so,
-we need to wait up to SP->mouse_wait milliseconds for a release of that
-button.  If that happens,  the button is clicked.  If not,  the button is
-pressed (and presumably held,  and sometime later,  we should get a
-'release' event for that button... should note that there's not actually
-any guarantee that we won't get two presses or two releases in a row from
-the same button.)
+  In some cases,  the raw event may leave us in an "incomplete" state.
+  Let's say a mouse button is pressed, and we're looking for clicks on that
+  button (i.e.,  the BUTTONn_CLICKED bit is set in SP->_trap_mbe).  If so,
+  we need to wait up to SP->mouse_wait milliseconds for a release of that
+  button.  If that happens,  the button is clicked.  If not,  the button is
+  pressed (and presumably held,  and sometime later,  we should get a
+  'release' event for that button... should note that there's not actually
+  any guarantee that we won't get two presses or two releases in a row from
+  the same button.)
 
-   If we're looking for double-clicks on that button,  we need to wait
-yet another SP->mouse_wait milliseconds for another button press.  If we
-get one,  we have to wait again to see if there's a button release.  So
-a double-click could be returned as
+  If we're looking for double-clicks on that button,  we need to wait
+  yet another SP->mouse_wait milliseconds for another button press.  If we
+  get one,  we have to wait again to see if there's a button release.  So
+  a double-click could be returned as press,  release,  press,  release
+  (if we aren't looking for clicks, _or_ if SP->mouse_wait == 0)
+  click,  click (if we're looking for single-clicks but not double-clicks)
+  double-click (if we're looking for both)
 
-press,  release,  press,  release (if we aren't looking for clicks,
-   _or_ if SP->mouse_wait == 0)
-click,  click (if we're looking for single-clicks but not double-clicks)
-double-click (if we're looking for both)
+  And while these events may get generated,  they may also never be
+  returned by the PDCursesMod library if corresponding bits in SP->_trap_mbe
+  are not set.
 
-   And while these events may get generated,  they may also never be
-returned by the PDCursesMod library if corresponding bits in SP->_trap_mbe
-are not set.
+  From the viewpoint of the platform code,  the logic is :
 
-   From the viewpoint of the platform code,  the logic is :
+    While a "raw" event is pending and _add_raw_mouse_event() == TRUE,  we're
+    in an incomplete state.  Wait for up to SP->mouse_wait milliseconds
+    for another mouse event.  Filter out unwanted events.
 
-While a "raw" event is pending and _add_raw_mouse_event() == TRUE,  we're
-   in an incomplete state.  Wait for up to SP->mouse_wait milliseconds
-   for another mouse event.
-Filter out unwanted events.
-If we have "cooked" mouse events left after this,  queue them.
-Each time a mouse event is returned,  call _get_mouse_event() to retrieve
-   that event,  put it into SP->mouse_status,  and remove it.
+  If we have "cooked" mouse events left after this,  queue them.
+  Each time a mouse event is returned,  call _get_mouse_event() to retrieve
+  that event,  put it into SP->mouse_status,  and remove it.
 
-   Only button presses and releases get "cooked" (and,  as described above,
-even they are not always cooked).  The _add_raw_mouse_event() will collect
-the raw events and synthesize them into cooked ones.  It returns TRUE
-if the platform should wait SP->mouse_wait milliseconds,  or FALSE if
-there is no need to wait (i.e.,  the event cannot be combined with a
-later event to make a click,  double-click,  or triple-click).  The logic
-it uses is :
+  Only button presses and releases get "cooked" (and,  as described above,
+  even they are not always cooked).  The _add_raw_mouse_event() will collect
+  the raw events and synthesize them into cooked ones.  It returns TRUE
+  if the platform should wait SP->mouse_wait milliseconds,  or FALSE if
+  there is no need to wait (i.e.,  the event cannot be combined with a
+  later event to make a click,  double-click,  or triple-click).  The logic
+  it uses is :
 
-Add the event to the queue.
-If it's a mouse movement or wheel event,  return FALSE to tell the
-   platform that it doesn't have to wait SP->mouse_wait milliseconds
-   for more mouse input.
-(If we get this far,  the event must be a press or release.)
-If SP->mouse_wait == 0,  or if BUTTONn_CLICKED isn't set in SP->_trap_mbe,
-   we can again return FALSE.  In such cases,  we're just returning
-   presses and releases without trying to combine them into clicks.
-   Pretty much the same as if it were a wheel event or a move event.
-If it's a button-pressed event :
-   return TRUE (because we need to wait for a possible button release
-   to make a click,  double-click,  or triple)
-Else,  it's a button-release event :
-  If there's a preceding press event for that button,  combine and
-      make it a click.  (If not,  it can't be combined with anything;
-      return FALSE.)
-  If, preceding the click,  there's another click for that button,  combine
-      them into a double-click.  If BUTTONn_TRIPLE_CLICKED is set in
-      SP->_trap_mbe,  return TRUE to indicate that we need to wait to see
-      if a third click happens.
-  If it's preceded by a double-click,  combine them into a triple-click.
-      We don't look for BUTTONn_QUADRUPLE_CLICKED in SP->_trap_mbe,
-      because PDCursesMod doesn't handle quad-clicks.  We return FALSE.
-  If the click can't be combined with previous events,  then our new
-      single-click might be followed by another click.  Check the
-      BUTTONn_DOUBLE_CLICKED flag in SP->_trap_mbe;  if it's set,  return
-      TRUE.
-  The current mouse state cannot be combined with further events to make
-      new "cooked" events,  so there's no point in waiting for them.
-      Return FALSE.
+   Add the event to the queue.
+
+   If it's a mouse movement or wheel event,  return FALSE to tell the
+      platform that it doesn't have to wait SP->mouse_wait milliseconds
+      for more mouse input.
+
+   (If we get this far,  the event must be a press or release.)
+   If SP->mouse_wait == 0,  or if BUTTONn_CLICKED isn't set in SP->_trap_mbe,
+      we can again return FALSE.  In such cases,  we're just returning
+      presses and releases without trying to combine them into clicks.
+      Pretty much the same as if it were a wheel event or a move event.
+
+   If it's a button-pressed event :
+      return TRUE (because we need to wait for a possible button release
+      to make a click,  double-click,  or triple)
+
+   Else,  it's a button-release event :
+     If there's a preceding press event for that button,  combine and
+         make it a click.  (If not,  it can't be combined with anything;
+         return FALSE.)
+     If, preceding the click,  there's another click for that button,  combine
+         them into a double-click.  If BUTTONn_TRIPLE_CLICKED is set in
+         SP->_trap_mbe,  return TRUE to indicate that we need to wait to see
+         if a third click happens.
+     If it's preceded by a double-click,  combine them into a triple-click.
+         We don't look for BUTTONn_QUADRUPLE_CLICKED in SP->_trap_mbe,
+         because PDCursesMod doesn't handle quad-clicks.  We return FALSE.
+     If the click can't be combined with previous events,  then our new
+         single-click might be followed by another click.  Check the
+         BUTTONn_DOUBLE_CLICKED flag in SP->_trap_mbe;  if it's set,  return
+         TRUE.
+     The current mouse state cannot be combined with further events to make
+         new "cooked" events,  so there's no point in waiting for them.
+         Return FALSE.
 
    A few notes :
 
    (1) In the above,  if we're in an incomplete state, we "wait up to
-SP->mouse_wait milliseconds".  Most of the code has traditionally waited
-that long,  even if the completing click or release came immediately.  It's
-better to take small naps over the SP->mouse_wait milliseconds,  checking
-to see if the completing event has come in.  For example :
+       SP->mouse_wait milliseconds".  Most of the code has traditionally waited
+       that long,  even if the completing click or release came immediately.  It's
+       better to take small naps over the SP->mouse_wait milliseconds,  checking
+       to see if the completing event has come in.  For example :
 
-while( the platform has a new mouse event && TRUE == _add_raw_mouse_event( ))
-   {
-   const long t_end = PDC_millisecs( ) + SP->mouse_wait;
-   long ms_remaining;
+       while (the platform has a new mouse event && TRUE == _add_raw_mouse_event())
+       {
+          long t_end = PDC_millisecs() + SP->mouse_wait;
+          long ms_remaining;
 
-   while( (ms_remaining = t_end - PDC_millisecs())  > 0)
-      {
-      napms( ms_remaining > 20 ? 20 : ms_remaining);
-      if( there's a new mouse event pending)
-         break;
-      }
-   }
+          while ((ms_remaining = t_end - PDC_millisecs()) > 0)
+          {
+            napms (ms_remaining > 20 ? 20 : ms_remaining);
+            if (there's a new mouse event pending)
+                break;
+           }
+        }
 
-   (Strictly speaking,  the naps are unnecessary.  Without them,  you
-simply go to 100% CPU usage looking for the next mouse event during those
-SP->mouse_wait milliseconds.  With enough clicking,  those cycles would
-start to add up.)
+       (Strictly speaking,  the naps are unnecessary.  Without them,  you
+        simply go to 100% CPU usage looking for the next mouse event during those
+        SP->mouse_wait milliseconds.  With enough clicking,  those cycles would
+        start to add up.)
 
    (2) In the above logic,  you can't get double-clicks without also getting
-single-clicks,  and you can't get triple-clicks without getting doubles and
-singles.  This may be changed eventually,  though it seems like an unlikely
-use case.
+       single-clicks,  and you can't get triple-clicks without getting doubles and
+       singles.  This may be changed eventually,  though it seems like an unlikely
+       use case.
 
    (3) One _can_ use the PDCurses*-specific BUTTONn_MOVED masks,  and
-thereby get motion events only if the corresponding button(s) are held.
-But for the sake of portability,  you probably should instead use
-REPORT_MOUSE_POSITION to get _all_ mouse events.  Then keep track of which
-buttons are held and filter out the events you aren't interested in.  */
+       thereby get motion events only if the corresponding button(s) are held.
+       But for the sake of portability,  you probably should instead use
+       REPORT_MOUSE_POSITION to get _all_ mouse events.  Then keep track of which
+       buttons are held and filter out the events you aren't interested in.
 
-/* I don't think we can ever have more than three events in the list.
-(For example,  button 2 clicked,  button 2 pressed,  mouse moved.)  But
-some platforms (framebuffer/DRM) can have a temporary fourth event if an
-extra move event hasn't been merged.  And a larger queue paves the way for
-a working ungetmouse() function.                 */
+  I don't think we can ever have more than three events in the list.
+  (For example,  button 2 clicked,  button 2 pressed,  mouse moved.)  But
+  some platforms (framebuffer/DRM) can have a temporary fourth event if an
+  extra move event hasn't been merged.  And a larger queue paves the way for
+  a working ungetmouse() function.
+*/
 
 #define MLIST_SIZE 8
 
