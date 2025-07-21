@@ -1770,7 +1770,7 @@ static void decode_extended_squitter (modeS_message *mm)
              vert_rate--;
              if (msg[8] & 0x08)
                 vert_rate = 0 - vert_rate;
-             mm->vert_rate =  vert_rate * 64;
+             mm->vert_rate =  (vert_rate - 1) * 64;
              mm->AC_flags |= MODES_ACFLAGS_VERTRATE_VALID;
            }
          }
@@ -3253,7 +3253,7 @@ static void modeS_send_SBS_output (const modeS_message *mm)
   }
   else if (mm->msg_type == 17 && mm->ME_type == 19 && mm->ME_subtype == 1)
   {
-    int vr = (mm->vert_rate_sign == 0 ? 1 : -1) * 64 * (mm->vert_rate - 1);
+    int vr = (mm->vert_rate_sign == 0 ? 1 : -1) * mm->vert_rate;
 
     p += sprintf (p, "MSG,4,1,1,%06X,1,%s,,,%d,%d,,,%i,,,,,",
                   mm->addr, date_str, (int)round(mm->velocity), (int)round(mm->heading), vr);
