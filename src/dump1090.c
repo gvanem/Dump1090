@@ -1770,7 +1770,7 @@ static void decode_extended_squitter (modeS_message *mm)
              vert_rate--;
              if (msg[8] & 0x08)
                 vert_rate = 0 - vert_rate;
-             mm->vert_rate =  vert_rate * 64;
+             mm->vert_rate =  (vert_rate - 1) * 64;
              mm->AC_flags |= MODES_ACFLAGS_VERTRATE_VALID;
            }
          }
@@ -3230,37 +3230,37 @@ static void modeS_send_SBS_output (const modeS_message *mm)
   }
   else if (mm->msg_type == 5)
   {
-    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%d,%d,%d,%d,%d",
+    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%04X,%d,%d,%d,%d",
                   mm->addr, date_str, mm->identity, alert, emergency, spi, ground);
   }
   else if (mm->msg_type == 11)
   {
-    p += sprintf (p, "MSG,8,1,1,%06X,1,%s,,,,,,,,,,,,",
-                  mm->addr, date_str);
+    p += sprintf (p, "MSG,8,1,1,%06X,1,%s,,,,,,,,,,,,%d",
+                  mm->addr, date_str, ground);
   }
   else if (mm->msg_type == 17 && mm->ME_type == 4)
   {
-    p += sprintf (p, "MSG,1,1,1,%06X,1,%s,%s,,,,,,,,0,0,0,0",
+    p += sprintf (p, "MSG,1,1,1,%06X,1,%s,%s,,,,,,,,,,,",
                   mm->addr, date_str, mm->flight);
   }
   else if (mm->msg_type == 17 && mm->ME_type >= 9 && mm->ME_type <= 18)
   {
     if (mm->AC_flags & MODES_ACFLAGS_LATLON_VALID)
-         p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0",
-                       mm->addr, date_str, mm->altitude, mm->position.lat, mm->position.lon);
-    else p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,,,,,0,0,0,0",
-                       mm->addr, date_str, mm->altitude);
+         p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,%1.5f,%1.5f,,,%d,%d,%d,%d",
+                       mm->addr, date_str, mm->altitude, mm->position.lat, mm->position.lon, alert, emergency, spi, ground);
+    else p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,,,,,%d,%d,%d,%d",
+                       mm->addr, date_str, mm->altitude, alert, emergency, spi, ground);
   }
   else if (mm->msg_type == 17 && mm->ME_type == 19 && mm->ME_subtype == 1)
   {
-    int vr = (mm->vert_rate_sign == 0 ? 1 : -1) * 64 * (mm->vert_rate - 1);
+    int vr = (mm->vert_rate_sign == 0 ? 1 : -1) * mm->vert_rate;
 
-    p += sprintf (p, "MSG,4,1,1,%06X,1,%s,,,%d,%d,,,%i,,0,0,0,0",
+    p += sprintf (p, "MSG,4,1,1,%06X,1,%s,,,%d,%d,,,%i,,,,,",
                   mm->addr, date_str, (int)round(mm->velocity), (int)round(mm->heading), vr);
   }
   else if (mm->msg_type == 21)
   {
-    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%d,%d,%d,%d,%d",
+    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%04X,%d,%d,%d,%d",
                   mm->addr, date_str, mm->identity, alert, emergency, spi, ground);
   }
   else
