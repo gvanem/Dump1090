@@ -797,8 +797,6 @@ char       *str_trim (char *s);
 char       *str_join (char *const *array, const char *sep);
 char       *str_tokenize (char *ptr, const char *sep, char **end);
 char       *str_sep (char **stringp, const char *delim);
-int         hex_digit_val (int c);
-const char *unescape_hex (const char *value);
 char       *basename (const char *fname);
 char       *dirname (const char *fname);
 char       *slashify (char *fname);
@@ -836,12 +834,15 @@ const char *mz_version (void);                 /* in 'externals/zip.c' */
 void        show_version_info (bool verbose);
 
 /*
- * Functions removed from Mongoose ver 7.15
- * re-added to `misc.c':
+ * Various hex functions.
  */
-uint32_t mg_unhex  (const char *str);
-uint32_t mg_unhexn (const char *str, size_t len);
-char    *mg_hex (const void *buf, size_t len, char *to);
+int         hex_digit_val (int c);
+const char *unescape_hex (const char *value);
+uint32_t    mg_unhex  (const char *str);
+uint32_t    mg_unhexn (const char *str, size_t len);
+char       *mg_hex_lower (const void *buf, size_t len, char *to);
+char       *mg_hex_upper (const void *buf, size_t len, char *to);
+const char *hex_dump (const void *data, size_t len);
 
 /*
  * in `pconsole.c'. Not used yet.

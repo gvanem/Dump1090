@@ -3151,7 +3151,7 @@ static void modeS_send_raw_output (const modeS_message *mm)
      return;
 
   *p++ = '*';
-  mg_hex (&mm->msg, mm->msg_bits/8, p);
+  mg_hex_lower (&mm->msg, mm->msg_bits/8, p);
   p = strchr (p, '\0');
   *p++ = ';';
   *p++ = '\n';

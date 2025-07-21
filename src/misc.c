@@ -2860,7 +2860,7 @@ uint32_t mg_unhex (const char *str)
   return mg_unhexn (str, strlen(str));
 }
 
-char *mg_hex (const void *buf, size_t len, char *to)
+char *mg_hex_lower (const void *buf, size_t len, char *to)
 {
   const uint8_t *p   = (const uint8_t*) buf;
   const char    *hex = "0123456789abcdef";
@@ -2873,4 +2873,46 @@ char *mg_hex (const void *buf, size_t len, char *to)
   }
   to [i] = '\0';
   return (to);
+}
+
+char *mg_hex_upper (const void *buf, size_t len, char *to)
+{
+  const uint8_t *p   = (const uint8_t*) buf;
+  const char    *hex = "0123456789ABCDEF";
+  size_t         i;
+
+  for (i = 0; len--; p++)
+  {
+    to [i++] = hex [p[0] >> 4];
+    to [i++] = hex [p[0] & 0x0f];
+  }
+  to [i] = '\0';
+  return (to);
+}
+
+const char *hex_dump (const void *data, size_t len)
+{
+  static char buf [1000];
+  static char digits[] = "0123456789ABCDEF";
+  char          *to = buf;
+  char          *end = to + sizeof(buf);
+  const uint8_t *p   = (const uint8_t*) data;
+  size_t         i;
+
+  for (i = 0; i < len && to < end - 4; i++)
+  {
+    *to++ = digits [p[i] >> 4];
+    *to++ = digits [p[i] & 0x0F];
+    *to++ = ' ';
+  }
+
+  if (to > buf)
+     to--;
+  if (i < len)
+  {
+    strcpy (to, "..");
+    to += 2;
+  }
+  *to = '\0';
+  return (buf);
 }
