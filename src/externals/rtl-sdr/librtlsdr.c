@@ -2765,7 +2765,7 @@ int rtlsdr_read_sync (rtlsdr_dev_t *dev, void *buf, int len,  int *n_read)
   if (dev->usbHandle == INVALID_HANDLE_VALUE)
   {
     last_error = ERROR_INVALID_HANDLE;
-    RTL_TRACE_WINUSB ("WinUsb_ReadPipe", last_error);
+    RTL_TRACE_WINUSB ("WinUsb_ControlTransfer", last_error);
   }
   else if (!WinUsb_ReadPipe(dev->usbHandle, EP_RX, buf, len, &bytesRead, NULL))
   {
