@@ -64,9 +64,7 @@ if %LOCAL_TEST% == 1 (
 
 if %BUILDER%. == MSVC. (
   %_ECHO% "\e[1;33mBuilding for MSVC/x64:\e[0m"
-  @echo on
   make -f Makefile.Windows CC=cl CPU=x64 USE_PACKED_DLL=0 USE_BIN_FILES=1 USE_MP_COMPILE=1 USE_PDC_MOD=1 clean all
-  @echo off
   goto run_tests
 )
 
@@ -76,9 +74,7 @@ if %BUILDER%. == MSVC. (
 if %BUILDER%. == clang. (
   call :install_clang
   %_ECHO% "\e[1;33mBuilding for clang-cl/x64:\e[0m"
-  @echo on
   make -f Makefile.Windows CC=clang-cl CPU=x64 USE_PACKED_DLL=0 USE_BIN_FILES=1 USE_PDC_MOD=1 clean all
-  @echo off
   goto run_tests
 )
 
@@ -114,7 +110,7 @@ exit /b 1
   %_ECHO% "\e[1;33m\nRunning '..\dump1090 -VV':\e[0m"
   ..\dump1090 -VV
 
-  %_ECHO% "\e[1;33m\nRunning '..\dump1090 --test airport,net':\e[0m"
+  %_ECHO% "\e[1;33m\nRunning '..\dump1090 --test aircraft,airport,net':\e[0m"
   ..\dump1090 --config dump1090.cfg --debug gn --test aircraft,airport,net
 
   %_ECHO% "\e[1;33m\nRunning 'type $(TEMP)/dump1090/reverse-resolve.csv':\e[0m"
