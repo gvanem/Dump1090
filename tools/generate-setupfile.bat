@@ -62,10 +62,10 @@ set "CURDIR=%CD%"
 for %%I in ("%CURDIR%") do set "CURFOLDER=%%~nxI"
 if /I "!CURFOLDER!"=="tools" (
     echo Moving executable to parent directory...
-    move "dist\setup.exe" "..\setup.exe"
+    move /Y "dist\setup.exe" "..\setup.exe"
 ) else (
     echo Moving executable to current directory...
-    move "dist\setup.exe" "setup.exe"
+    move /Y "dist\setup.exe" "setup.exe"
 )
 
 if %errorlevel% neq 0 (
@@ -103,4 +103,8 @@ if exist "dist" (
 echo.
 echo Build completed successfully!
 echo Executable created: setup.exe
-pause
+::
+:: Sleep for 3 sec
+::
+ping.exe -4 -n 3 localhost >nul
+
