@@ -10,6 +10,7 @@
  */
 #include <io.h>
 #include <conio.h>
+#include <locale.h>
 
 #include "interactive.h"
 #include "aircraft.h"
@@ -23,7 +24,8 @@
 #undef MOUSE_MOVED
 #include <curses.h>
 
-extern SCREEN *SP;
+extern SCREEN *SP;       /* in '$(CURSES_ROOT)/initscr.c' */
+extern bool    pdc_wt;   /* in '$(CURSES_ROOT)/pdcscrn.c' */
 
 typedef enum colours {
         COLOUR_DEFAULT = 0,
@@ -41,18 +43,30 @@ typedef struct colour_mapping {
         chtype attrib;
       } colour_mapping;
 
+/**
+ * \note
+ * Using `_Printf_format_string_` or `ATTR_PRINTF()` on
+ * function-pointers have no effect.
+ */
+typedef void (*print_xy_format)  (int x, int y, const char *fmt, ...);
+typedef void (*print_xy_wformat) (int x, int y, const wchar_t *fmt, ...);
+
 typedef struct API_funcs {
-        bool   (*init) (void);
-        void   (*exit) (void);
-        void   (*set_colour) (enum colours colour);
-        void   (*set_cursor) (bool enable);
-        void   (*clr_scr) (void);
-        void   (*clr_eol) (void);
-        void   (*gotoxy) (int x, int y);
-        wint_t (*getch) (void);
-        void   (*print_line) (int x, int y, const char *str);
-        void   (*print_header) (void);
-        void   (*refresh) (int x, int y);
+        bool             (*init) (void);
+        void             (*exit) (void);
+        void             (*set_colour) (enum colours colour);
+        void             (*set_cursor) (bool enable);
+        void             (*clr_scr) (void);
+        void             (*clr_eol) (void);
+        void             (*gotoxy) (int x, int y);
+        wint_t           (*getch) (void);
+        int              (*get_curx) (void);
+        int              (*get_cury) (void);
+        void             (*print_header) (void);
+        void             (*hilight_header) (int x, int field);
+        void             (*refresh) (int x, int y);
+        print_xy_format  print_format;
+        print_xy_wformat print_wformat;
       } API_funcs;
 
 static bool   wincon_init (void);
@@ -61,11 +75,15 @@ static void   wincon_set_colour (enum colours colour);
 static void   wincon_set_cursor (bool enable);
 static void   wincon_gotoxy (int x, int y);
 static wint_t wincon_getch (void);
+static int    wincon_get_curx (void);
+static int    wincon_get_cury (void);
 static void   wincon_clreol (void);
 static void   wincon_clrscr (void);
 static void   wincon_refresh (int x, int y);
 static void   wincon_print_header (void);
-static void   wincon_print_line (int x, int y, const char *str);
+static void   wincon_print_format (int x, int y, const char *fmt, ...);
+static void   wincon_print_wformat (int x, int y, const wchar_t *fmt, ...);
+static void   wincon_hilight_header (int x, int field);
 
 static CONSOLE_SCREEN_BUFFER_INFO  con_info_out;
 static CONSOLE_SCREEN_BUFFER_INFO  con_info_in;
@@ -73,13 +91,11 @@ static colour_mapping              colour_map [COLOUR_MAX];
 
 static HANDLE  con_in  = INVALID_HANDLE_VALUE;
 static HANDLE  con_out = INVALID_HANDLE_VALUE;
-static DWORD   con_in_mode,  con_in_new_mode;
-static DWORD   con_out_mode, con_out_new_mode;
+static DWORD   con_in_mode;
+static DWORD   con_out_mode;
 static bool    vt_out_supported, vt_in_supported, test_mode;
 static int     x_scale, y_scale;
 static HWND    con_wnd;
-static FILE   *out;
-static int     spin_idx = 0;
 static char    spinner[] = "|/-\\";
 
 /*
@@ -100,39 +116,51 @@ static void   curses_set_colour (enum colours colour);
 static void   curses_set_cursor (bool enable);
 static void   curses_gotoxy (int x, int y);
 static wint_t curses_getch (void);
+static int    curses_get_curx (void);
+static int    curses_get_cury (void);
 static void   curses_refresh (int x, int y);
 static void   curses_print_header (void);
-static void   curses_print_line (int x, int y, const char *str);
+static void   curses_print_format (int x, int y, const char *fmt, ...);
+static void   curses_print_wformat (int x, int y, const wchar_t *fmt, ...);
+static void   curses_hilight_header (int x, int field);
 static bool   interactive_test_loop (void);
 static bool   mouse_pos (HWND wnd, POINT *pos);
 static bool   mouse_lclick (void);
 
 static API_funcs curses_api = {
-      .init         = curses_init,
-      .exit         = curses_exit,
-      .set_colour   = curses_set_colour,
-      .set_cursor   = curses_set_cursor,
-      .clr_scr      = (void (*)(void)) clear,
-      .clr_eol      = (void (*)(void)) clrtoeol,
-      .gotoxy       = curses_gotoxy,
-      .getch        = curses_getch,
-      .print_line   = curses_print_line,
-      .print_header = curses_print_header,
-      .refresh      = curses_refresh
+      .init           = curses_init,
+      .exit           = curses_exit,
+      .set_colour     = curses_set_colour,
+      .set_cursor     = curses_set_cursor,
+      .clr_scr        = (void (*)(void)) clear,
+      .clr_eol        = (void (*)(void)) clrtoeol,
+      .gotoxy         = curses_gotoxy,
+      .getch          = curses_getch,
+      .get_curx       = curses_get_curx,
+      .get_cury       = curses_get_cury,
+      .print_header   = curses_print_header,
+      .print_format   = curses_print_format,
+      .print_wformat  = curses_print_wformat,
+      .hilight_header = curses_hilight_header,
+      .refresh        = curses_refresh
      };
 
 static API_funcs wincon_api = {
-      .init         = wincon_init,
-      .exit         = wincon_exit,
-      .set_colour   = wincon_set_colour,
-      .set_cursor   = wincon_set_cursor,
-      .clr_scr      = wincon_clrscr,
-      .clr_eol      = wincon_clreol,
-      .gotoxy       = wincon_gotoxy,
-      .getch        = wincon_getch,
-      .print_line   = wincon_print_line,
-      .print_header = wincon_print_header,
-      .refresh      = wincon_refresh
+      .init           = wincon_init,
+      .exit           = wincon_exit,
+      .set_colour     = wincon_set_colour,
+      .set_cursor     = wincon_set_cursor,
+      .clr_scr        = wincon_clrscr,
+      .clr_eol        = wincon_clreol,
+      .gotoxy         = wincon_gotoxy,
+      .getch          = wincon_getch,
+      .get_curx       = wincon_get_curx,
+      .get_cury       = wincon_get_cury,
+      .print_header   = wincon_print_header,
+      .print_format   = wincon_print_format,
+      .print_wformat  = wincon_print_wformat,
+      .hilight_header = wincon_hilight_header,
+      .refresh        = wincon_refresh
     };
 
 /*
@@ -141,10 +169,21 @@ static API_funcs wincon_api = {
 static bool show_dep_dst = false;
 
 /*
+ * Trace for 'test_mode'
+ */
+#undef  TRACE
+#define TRACE(fmt, ...) do {                                  \
+                          if (test_mode)                      \
+                             fprintf (stderr, "%s(%u): " fmt, \
+                                      __FILE__, __LINE__,     \
+                                      __VA_ARGS__);           \
+                        } while (0)
+
+/*
  * Use this header and `snprintf()` format for both `show_dep_dst == [false | true]`.
  */
 #define HEADER    "ICAO   Callsign  Reg-num  Cntry  %sAltitude  Speed   Lat      Long    Hdg   Dist   Msg Seen %c"
-//                                                  |__ == "DEP  DST  " -- if 'show_dep_dst == true'
+                                                 /* |__ == "DEP  DST  " -- if 'show_dep_dst == true' */
 
 /*
  * Use this format for `show_dep_dst == false`.
@@ -324,9 +363,7 @@ static bool mouse_header_check (const POINT *pos, bool clicked)
   {
     if (pos->x >= x && pos->x <= strlen(headers[field]) + x)
     {
-      if (Modes.tui_interface == TUI_CURSES)
-           curses_hilight_header (x, field);
-      else wincon_hilight_header (x, field);
+      (*api->hilight_header) (x, field);
 
       if (clicked)
       {
@@ -334,7 +371,8 @@ static bool mouse_header_check (const POINT *pos, bool clicked)
         if (Modes.a_sort == s)     /* toggle ascending/descending sort */
            s = -s;
         aircraft_sort (s);
-        LOG_FILEONLY ("field: %d (%s), clicked: 1, Modes.a_sort: %s\n", field, headers[field], aircraft_sort_name(Modes.a_sort));
+        LOG_FILEONLY ("field: %d (%s), clicked: 1, Modes.a_sort: %s\n",
+                      field, headers[field], aircraft_sort_name(Modes.a_sort));
       }
       else
       {
@@ -357,13 +395,9 @@ static bool common_init (void)
   if (airports_num(&num) && num > 0)
      show_dep_dst = true;
 
-  out = stdout;
-
   if (_isatty(STDOUT_FILENO) == 0)
   {
-    if (test_mode)
-       out = stderr;
-    else
+    if (!test_mode)
     {
       LOG_STDERR ("Do not redirect 'stdout' in interactive mode.\n"
                   "Do '%s [options] 2> file` instead.\n", Modes.who_am_I);
@@ -377,25 +411,26 @@ static bool common_init (void)
   if (con_out != INVALID_HANDLE_VALUE)
   {
     CONSOLE_FONT_INFO fi;
-    COORD             xy;
+    COORD             coord;
+    DWORD             con_out_new_mode;
 
     GetConsoleScreenBufferInfo (con_out, &con_info_out);
     GetConsoleMode (con_out, &con_out_mode);
 
     GetCurrentConsoleFont (con_out, FALSE, &fi);
-    xy = GetConsoleFontSize (con_out, fi.nFont);
-    x_scale = xy.X;
-    y_scale = xy.Y;
+    coord = GetConsoleFontSize (con_out, fi.nFont);
+    x_scale = coord.X;
+    y_scale = coord.Y;
 
     con_wnd = GetConsoleWindow();
 
     con_out_new_mode = con_out_mode & ~(ENABLE_ECHO_INPUT | ENABLE_QUICK_EDIT_MODE);
-    con_out_new_mode |= (ENABLE_EXTENDED_FLAGS |
-                         ENABLE_VIRTUAL_TERMINAL_PROCESSING |
+    con_out_new_mode |= (ENABLE_VIRTUAL_TERMINAL_PROCESSING |
                          DISABLE_NEWLINE_AUTO_RETURN);
 
     if (SetConsoleMode(con_out, con_out_new_mode))
-       vt_out_supported = (con_out_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+         vt_out_supported = (con_out_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    else TRACE ("SetConsoleMode(con_out) failed; %s\n", win_strerror(GetLastError()));
   }
 
   /* Do `con_in'
@@ -403,6 +438,8 @@ static bool common_init (void)
   con_in = GetStdHandle (STD_INPUT_HANDLE);
   if (con_in != INVALID_HANDLE_VALUE)
   {
+    DWORD con_in_new_mode;
+
     GetConsoleScreenBufferInfo (con_in, &con_info_in);
 
     GetConsoleMode (con_in, &con_in_mode);
@@ -428,27 +465,80 @@ static bool common_init (void)
                        );
 
     if (SetConsoleMode(con_in, con_in_new_mode))
-       vt_in_supported = (con_in_new_mode & ENABLE_VIRTUAL_TERMINAL_INPUT);
+         vt_in_supported = (con_in_new_mode & ENABLE_VIRTUAL_TERMINAL_INPUT);
+    else TRACE ("SetConsoleMode(con_in) failed; %s\n", win_strerror(GetLastError()));
   }
   return (true);
 }
 
 static void common_exit (void)
 {
+  BOOL rc;
+
   if (con_out != INVALID_HANDLE_VALUE)
-     SetConsoleMode (con_out, con_out_mode);
+  {
+    rc = SetConsoleMode (con_out, con_out_mode);
+    if (!rc)
+       TRACE ("SetConsoleMode(con_out) failed; %s\n", win_strerror(GetLastError()));
+  }
 
   if (con_in != INVALID_HANDLE_VALUE)
-     SetConsoleMode (con_in, con_in_mode | ENABLE_EXTENDED_FLAGS);
-
-  con_out = INVALID_HANDLE_VALUE;
-  con_in  = INVALID_HANDLE_VALUE;
+  {
+    rc = SetConsoleMode (con_in, con_in_mode | ENABLE_EXTENDED_FLAGS);
+    if (!rc)
+       TRACE ("SetConsoleMode(con_in) failed; %s\n", win_strerror(GetLastError()));
+  }
+  con_out = con_in = INVALID_HANDLE_VALUE;
 }
 
 /**
- * Do some `assert()` checks first and if Curses interface was
+ * Check the UTF-8 output of 2 airports.
+ *
+ * "KEF" should translate to "Reykjavik" with an acute 'i'; U+00ED, as hex "C3 AD"
+ * https://www.compart.com/en/unicode/U+00ED
+ *
+ * "ENFL" should translate to "Floro" with stoke across the 'o'; U+00F8, as hex "C3 B8"
+ * https://www.compart.com/en/unicode/U+00F8
+ */
+static void test_utf8 (void)
+{
+  const char    *KEFa =  "Reykjav\xC3\xADk";  /* UTF-8 encoding */
+  const wchar_t *KEFw = L"Reykjav\xEDk";      /* UTF-16 encoding */
+  const char    *FLOa =  "Flor\xC3\xB8";      /* UTF-8 encoding */
+  const wchar_t *FLOw = L"Flor\xF8";          /* UTF-16 encoding */
+  int   y;
+
+  setlocale (LC_ALL, ".utf8");
+
+  y =  (*api->get_cury)();
+
+  (*api->print_format) (0, y++, "Using TUI=%s, locale: %s\n",
+                        Modes.tui_interface == TUI_CURSES ? "Curses" : "WinCon",
+                        setlocale(LC_ALL, NULL));
+
+  (*api->print_format) (0, y++, "KEFa: '%s'\n"
+                                "FLOa: '%s'\n", KEFa, FLOa);
+  y++;
+
+  (*api->print_wformat) (0, y++, L"KEFw: '%s'\n"
+                                  "FLOw: '%s'\n", KEFw, FLOw);
+  y += 2;
+
+  (*api->print_wformat) (0, y++, L"Wide:  %-20.20s: %S", KEFw, hex_dump(KEFw, 2*wcslen(KEFw)));
+  (*api->print_wformat) (0, y++, L"Wide:  %-20.20s: %S", FLOw, hex_dump(FLOw, 2*wcslen(FLOw)));
+
+  y++;
+  (*api->print_format) (0, y++, "ASCII: %-20.20s: %s", KEFa, hex_dump(KEFa, strlen(KEFa)));
+  (*api->print_format) (0, y++, "ASCII: %-20.20s: %s", FLOa, hex_dump(FLOa, strlen(FLOa)));
+  (*api->gotoxy) (0, y+1);
+}
+
+/**
+ * Call `common_init()` and if Curses interface was
  * selected, set `api = &curses_api`.
  * Otherwise set `api = &wincon_api`.
+ *
+ * And call the TUI-specific init.
  */
 bool interactive_init (void)
 {
@@ -458,7 +548,7 @@ bool interactive_init (void)
 
   assert (api == NULL);
 
-  if (Modes.tui_interface == TUI_CURSES && !test_mode)
+  if (Modes.tui_interface == TUI_CURSES)
        api = &curses_api;
   else api = &wincon_api;
 
@@ -466,23 +556,26 @@ bool interactive_init (void)
   rc2 = (*api->init)();
   (*api->set_cursor) (false);
 
-  if (test_mode)
+  if (test_mode && rc2)
+     test_utf8();
+
+  if (!test_mode)
+     (*api->clr_scr)();
+  else
   {
-    fprintf (stderr,
+    (*api->print_format) (0, (*api->get_cury)(),
              "rc1: %d, rc2: %d, TUI: %s, con_in_mode: 0x%08lX, con_out_mode: 0x%08lX\n"
              "con_info_out: Bottom: %4u, Top: %4u, Right: %4u, Left: %4u\n"
              "con_info_in:  Bottom: %4u, Top: %4u, Right: %4u, Left: %4u\n"
-             "vt_out_supported: %d, vt_in_supported: %d\n\n",
+             "con_wnd: 0x%p, vt_out_supported: %d, vt_in_supported: %d\n\n",
              rc1, rc2, Modes.tui_interface == TUI_CURSES ? "Curses" : "WinCon",
              con_in_mode, con_out_mode,
              con_info_out.srWindow.Bottom, con_info_out.srWindow.Top,
              con_info_out.srWindow.Right,  con_info_out.srWindow.Left,
              con_info_in.srWindow.Bottom,  con_info_in.srWindow.Top,
              con_info_in.srWindow.Right,   con_info_in.srWindow.Left,
-             vt_out_supported, vt_in_supported);
+             con_wnd, vt_out_supported, vt_in_supported);
 
-    con_in_new_mode &= ~ENABLE_MOUSE_INPUT;
-    SetConsoleMode (con_in, con_in_new_mode);
     return interactive_test_loop();
   }
 
@@ -796,7 +889,6 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
   char        dep_buf [30]      = " -";
   char        dst_buf [30]      = " -";
   char        dep_dst_buf [30]  = "";
-  char        line_buf [120];
   bool        restore_colour    = false;
   const char *reg_num   = "  -";
   const char *call_sign = "  -";
@@ -895,14 +987,14 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
       {
         /* show full name for DEP only
          */
-        snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%ws",
+        snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%S",
                   u8_format(airport_find_location(dep_buf), 0));
       }
       else if (destination && mouse->x >= min_x2 && mouse->x <= max_x2)
       {
         /* show short name for DEP and full name for DEST
          */
-        snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%-4.4s %ws",
+        snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%-4.4s %S",
                   dep_buf, u8_format(airport_find_location(dst_buf), 0));
         alt_buf[0] = '\0';    /* do not print Altitude now */
       }
@@ -967,25 +1059,19 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
     if (!dep_dst_buf[0])
        snprintf (dep_dst_buf, sizeof(dep_dst_buf), "%-4.4s %-4.4s", dep_buf, dst_buf);
 
-    snprintf (line_buf, sizeof(line_buf), LINE_FMT2_1,
-              a->addr, call_sign, reg_num, country, dep_dst_buf);
+    (*api->print_format) (0, row, LINE_FMT2_1,
+                          a->addr, call_sign, reg_num, country, dep_dst_buf);
 
-    (*api->print_line) (0, row, line_buf);
-
-    snprintf (line_buf, sizeof(line_buf), LINE_FMT2_2,
-              alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
-              distance_buf, a->messages, ms_diff / 1000);
-
-    (*api->print_line) (max_x2 + 5, row, line_buf);
+    (*api->print_format) (max_x2 + 5, row, LINE_FMT2_2,
+                          alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
+                          distance_buf, a->messages, ms_diff / 1000);
   }
   else
   {
-    snprintf (line_buf, sizeof(line_buf), LINE_FMT1,
-              a->addr, call_sign, reg_num, country,
-              alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
-              distance_buf, a->messages, ms_diff / 1000);
-
-    (*api->print_line) (0, row, line_buf);
+    (*api->print_format) (0, row, LINE_FMT1,
+                          a->addr, call_sign, reg_num, country,
+                          alt_buf, speed_buf, lat_buf, lon_buf, heading_buf,
+                          distance_buf, a->messages, ms_diff / 1000);
   }
 
   if (restore_colour)
@@ -1093,13 +1179,38 @@ static wint_t wincon_getch (void)
 static void wincon_gotoxy (int x, int y)
 {
   COORD coord;
+  BOOL  rc;
 
-  if (con_out == INVALID_HANDLE_VALUE)
-     return;
+  if (vt_out_supported)
+  {
+    fprintf (stdout, "\x1B[%d;%dH", y + 1, x + 1);
+    return;
+  }
 
   coord.X = x + con_info_out.srWindow.Left;
   coord.Y = y + con_info_out.srWindow.Top;
-  SetConsoleCursorPosition (con_out, coord);
+  rc = SetConsoleCursorPosition (con_out, coord);
+  if (!rc)
+     TRACE ("SetConsoleCursorPosition (%d,%d) failed; %s\n",
+            x, y, win_strerror(GetLastError()));
+}
+
+/**
+ * Return the cursor X-position relative display window
+ */
+static int wincon_get_curx (void)
+{
+  GetConsoleScreenBufferInfo (con_out, &con_info_out);
+  return (con_info_out.dwCursorPosition.X - con_info_out.srWindow.Left);
+}
+
+/**
+ * Return the cursor Y-position relative display window
+ */
+static int wincon_get_cury (void)
+{
+  GetConsoleScreenBufferInfo (con_out, &con_info_out);
+  return (con_info_out.dwCursorPosition.Y - con_info_out.srWindow.Top);
 }
 
 static void wincon_clrscr (void)
@@ -1176,16 +1287,36 @@ static void wincon_refresh (int x, int y)
   (void) y;
 }
 
-static void wincon_print_line (int x, int y, const char *str)
+static void wincon_print_format (int x, int y, const char *fmt, ...)
 {
+  va_list args;
+  char    buf [1000];
+
+  va_start (args, fmt);
+  vsnprintf (buf, sizeof(buf), fmt, args);
+  va_end (args);
   wincon_gotoxy (x, y);
-  puts (str);
+  fputs (buf, stdout);
+}
+
+static void wincon_print_wformat (int x, int y, const wchar_t *fmt, ...)
+{
+  va_list args;
+  wchar_t buf [1000];
+
+  va_start (args, fmt);
+  _vsnwprintf (buf, DIM(buf), fmt, args);
+  va_end (args);
+  wincon_gotoxy (x, y);
+  fputws (buf, stdout);
 }
 
 static void wincon_print_header (void)
 {
+  static int spin_idx = 0;
+
   wincon_set_colour (COLOUR_HEADER1);
-  printf (HEADER "\n", show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
+  fprintf (stdout, HEADER, show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
   wincon_set_colour (0);
   spin_idx++;
 }
@@ -1195,15 +1326,21 @@ static void wincon_print_header (void)
  */
 static bool curses_init (void)
 {
-  bool slk_ok = (slk_init(1) == OK);
+  bool  slk_ok = false;
+  short pair, fg, bg;
+
+  _putenv ("WT_SESSION=1");
+
+  if (!test_mode)
+     slk_ok = (slk_init(1) == OK);
 
   initscr();
 
-  if (slk_ok)
+  if (!test_mode && slk_ok)
   {
     slk_set (1, "Help", 0);
     slk_set (2, "Quit", 0);
-    slk_attron (A_REVERSE);
+    slk_attron (A_REVERSE | A_BOLD);
   }
 
   Modes.interactive_rows = getmaxy (stdscr);
@@ -1244,17 +1381,21 @@ static bool curses_init (void)
   colour_map [COLOUR_YELLOW ].attrib = A_NORMAL;
 
   colour_map [COLOUR_HEADER1].pair   = COLOUR_HEADER1;
-  colour_map [COLOUR_HEADER1].attrib = A_REVERSE | COLOR_BLUE;
 
-  init_pair (COLOUR_HEADER1, 15, 27);
-  colour_map [COLOUR_HEADER1].attrib = A_BOLD;
+  if (vt_out_supported)
+  {
+    init_pair (COLOUR_HEADER1, 15, 27); /* Needs VT-support */
+    colour_map [COLOUR_HEADER1].attrib = A_BOLD | A_UNDERLINE;
+  }
+  else
+  {
+    init_pair (COLOUR_HEADER1, COLOR_BLACK, COLOR_WHITE);
+  }
 
- /* for curses_hilight_header()
-  */
+  /* For curses_hilight_header()
+   */
   init_pair (COLOUR_HEADER2, 15, 254);
-  colour_map [COLOUR_HEADER2].attrib = A_BOLD | A_UNDERLINE | A_STANDOUT;
-
-  short pair, fg, bg;
+  colour_map [COLOUR_HEADER2].attrib = A_UNDERLINE;
 
   LOG_FILEONLY ("pair_content():\n");
   for (pair = COLOUR_WHITE; pair < COLOUR_MAX; pair++)
@@ -1267,10 +1408,7 @@ static bool curses_init (void)
   noecho();
   mousemask (0, NULL);
 
-  if (!test_mode)
-     clear();
-
-  refresh();
+//refresh();
 
 #if 0   // \todo
   stats_win = subwin (stdscr, 4, COLS, 0, 0);
@@ -1294,7 +1432,6 @@ static void curses_exit (void)
      delwin (flight_win);
 
   endwin();
-
   delscreen (SP);  /* PDCurses does not free this memory */
 }
 
@@ -1308,8 +1445,7 @@ static void curses_set_colour (enum colours colour)
 
   pair = colour_map [colour].pair;
 
-  /* `COLOR_PAIRS == 256` in PDCurses, but a variable
-   * (potentially == `INT_MAX`) in PDCurses-MOD.
+  /* A variable (potentially == `INT_MAX`) in PDCurses-MOD.
    */
   assert (pair < (chtype)COLOR_PAIRS);
 
@@ -1328,7 +1464,6 @@ static void curses_refresh (int x, int y)
   if (stats_win)
      wrefresh (stats_win);
   move (y, x);
-//clrtobot();
   refresh();
 }
 
@@ -1341,24 +1476,47 @@ static wint_t curses_getch (void)
 {
   wint_t c;
 
-#if defined (PDC_WIDE) || defined( PDC_FORCE_UTF8)
   get_wch (&c);
-#else
-  c = getch();
-#endif
-
   if (c == KEY_MOUSE)
      c = 0;
   return (wint_t) c;
 }
 
-static void curses_print_line (int x, int y, const char *str)
+static int curses_get_curx (void)
 {
-  mvaddstr (y, x, str);
+  return getcurx (stdscr);
+}
+
+static int curses_get_cury (void)
+{
+  return getcury (stdscr);
+}
+
+static void curses_print_format (int x, int y, const char *fmt, ...)
+{
+  va_list args;
+
+  move (y, x);
+  va_start (args, fmt);
+  vw_printw (stdscr, fmt, args);
+  va_end (args);
+}
+
+static void curses_print_wformat (int x, int y, const wchar_t *fmt, ...)
+{
+  va_list args;
+  wchar_t buf [1000];
+
+  va_start (args, fmt);
+  _vsnwprintf (buf, DIM(buf), fmt, args);
+  mvaddwstr (y, x, buf);
+  va_end (args);
 }
 
 static void curses_print_header (void)
 {
+  static int spin_idx = 0;
+
   curses_set_colour (COLOUR_HEADER1);
   mvprintw (0, 0, HEADER, show_dep_dst ? DEP_DST_COLUMNS : "", spinner[spin_idx & 3]);
   curses_set_colour (0);
@@ -1369,13 +1527,28 @@ static bool mouse_pos (HWND wnd, POINT *pos)
 {
   pos->x = pos->y = -1;
 
-  if (!con_wnd || !GetCursorPos(pos) || !ScreenToClient(wnd, pos))
+  if (!wnd)
      return (false);
+
+  if (!GetCursorPos(pos))
+  {
+    TRACE ("GetCursorPos() failed; %s\n", win_strerror(GetLastError()));
+    return (false);
+  }
+
+  if (!ScreenToClient(wnd, pos))
+  {
+    TRACE ("ScreenToClient() failed; %s\n", win_strerror(GetLastError()));
+    return (false);
+  }
 
  if (x_scale > 0)
     pos->x /= x_scale;
  if (y_scale > 0)
     pos->y /= y_scale;
+
+ if (test_mode && Modes.tui_interface == TUI_CURSES)
+    LOG_FILEONLY ("pos->x: %ld, pos->y: %ld\n", pos->x, pos->y);
   return (true);
 }
 
@@ -1386,6 +1559,11 @@ static bool mouse_lclick (void)
 
 static bool interactive_test_loop (void)
 {
+  int y = (*api->get_cury)();
+
+  if (Modes.tui_interface == TUI_CURSES)
+     nodelay (stdscr, TRUE);   /* use non-blocking `(*api->getch)()` */
+
   while (!Modes.exit)
   {
     POINT  pos;
@@ -1397,20 +1575,23 @@ static bool interactive_test_loop (void)
     if (pos.x > -1 && pos.y > -1)
     {
       clicked = mouse_lclick();
-      fprintf (out, "pos.x: %ld, pos.y: %ld, %s\r",
-               pos.x, pos.y, clicked ? "clicked" : "       ");
-      mouse_header_check (&pos, clicked);
+      (*api->print_format) (0, y, "pos.x: %ld, pos.y: %ld, %s\r",
+                            pos.x, pos.y, clicked ? "clicked" : "       ");
+      if (!mouse_header_check (&pos, clicked))
+      {
+        (*api->gotoxy) (0, 0);
+        (*api->print_header)();
+      }
     }
 
     ch = (*api->getch)();
     if (ch)
     {
-      fprintf (out, "ch: %d / '%c'               \n", ch, ch);
+      (*api->print_format) (0, y+1, "ch: %d / '%c'", ch, ch);
       if (ch == 'q')
          Modes.exit = true;
     }
-    fflush (out);
-    Sleep (100);
+    Sleep (200);
   }
   return (false);
 }
