@@ -8,13 +8,14 @@
 #if defined(USE_BIN_FILES)
   #include <stdint.h>
   #include <time.h>
+  #include <gen_data.h>
 
   #pragma pack(push, 1)
 
   /*
    * Copied from '$(TMP)/dump1090/standing-data/results/gen_data.h'
    */
-  typedef struct route_record {     /* matching 'routes_format = "<8s20s"' */
+  typedef struct route_record2 {     /* matching 'routes_format = "<8s20s"' */
           char  call_sign [8];
 
           /* this is really `airports[20]`. Like "EGCC-LTBS".
@@ -24,7 +25,7 @@
            */
           char  departure   [10];
           char  destination [10];
-        } route_record;
+        } route_record2;
 
   /*
    * Copied from '$(TMP)/dump1090/standing-data/results/test-routes.c'
@@ -37,5 +38,4 @@
         } BIN_header;
 
   #pragma pack(pop)
-
 #endif

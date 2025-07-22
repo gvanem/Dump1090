@@ -194,7 +194,7 @@ static const char *event_name (int ev)
           ev == MG_EV_MQTT_OPEN  ? "MG_EV_MQTT_OPEN" :  /* Can never occur here */
           ev == MG_EV_SNTP_TIME  ? "MG_EV_SNTP_TIME" :  /* Can never occur here */
           ev == MG_EV_WAKEUP     ? "MG_EV_WAKEUP"       /* Can never occur here */
-                                 : "?");                /* Ref: https://mongoose.ws/documentation/tutorials/core/multi-threaded/ */
+                                 : "?");
 }
 
 /**

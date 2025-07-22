@@ -318,7 +318,7 @@ void wtimeout(WINDOW *win, int delay)
            milliseconds. Also forces the window into non-blocking read
            mode */
 
-        /*win->_nodelay = TRUE;*/
+     /* win->_nodelay = TRUE; */
         win->_delayms = delay;
     }
 }

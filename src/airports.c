@@ -203,8 +203,8 @@ static const char   *usec_fmt;
 static airports_priv g_data;
 
 #if defined(USE_BIN_FILES)
-  static route_record *route_records;
-  static size_t        route_records_num;
+  static route_record2 *route_records;
+  static size_t         route_records_num;
 
   // static airport_record *airports_records;
   // static size_t          airports_records_num;
@@ -614,7 +614,7 @@ static flight_info *routes_find_by_callsign (const char *call_sign)
 {
   static flight_info  f;
   const route_record *r = NULL;
-  route_record        r_copy;
+  route_record2       r_copy;
   char                departure [10];
   char                destination [10];
   char                intermediate1 [10];
@@ -710,7 +710,7 @@ static void routes_find_test (void)
 
     rec_num = (size_t) random_range (0, route_records_num - 1);
     call_sign = route_records [rec_num].call_sign;
-    start     = route_records [rec_num].departure;
+    start = route_records [rec_num].departure;
 
     f = routes_find_by_callsign (call_sign);
 
