@@ -500,7 +500,7 @@ PlaneObject.prototype.updateTrack = function(now, last, serverTrack, stale) {
     if (on_ground)
         stale_timeout = 30;
 
-    if (pTracks) {
+    if (pTracks && !serverTrack) {
         stale = false;
         stale_timeout = 120;
         if (this.dataSource == "adsc")
@@ -537,7 +537,7 @@ PlaneObject.prototype.updateTrack = function(now, last, serverTrack, stale) {
     let since_update = this.prev_time - this.tail_update;
     let distance_traveled = ol.sphere.getDistance(this.tail_position, this.prev_position);
 
-    if (pTracks && since_update < pTracksInterval) {
+    if (pTracks && since_update < pTracksInterval && !serverTrack) {
         return this.updateTrackPrev();
     }
 
@@ -579,12 +579,15 @@ PlaneObject.prototype.updateTrack = function(now, last, serverTrack, stale) {
             lastseg.fixed.appendCoordinate(projPrev);
         }
 
+        let estimatedFill = false;
+
         // draw great circle path for long distances
         if (distance > 30000
             && !(elapsed > 3600 && distance / elapsed * 3.6 < 100) && !modeS
             // don't draw a line if a long time has elapsed but no great distance was traveled
         ) {
-            if (!pTracks) {
+            estimatedFill = true;
+            if (!(pTracks && !serverTrack)) {
                 estimated = true;
             }
             let nPoints = distance / 19000;
@@ -613,6 +616,7 @@ PlaneObject.prototype.updateTrack = function(now, last, serverTrack, stale) {
             this.track_linesegs.push({ fixed: new ol.geom.LineString(points),
                 feature: null,
                 estimated: estimated,
+                estimatedFill: estimatedFill,
                 ground: (this.prev_alt == "ground"),
                 altitude: this.prev_alt_rounded,
                 alt_real: this.prev_alt,
@@ -850,8 +854,13 @@ PlaneObject.prototype.updateIcon = function() {
             callsign =  'reg: ' + this.registration;
         else
             callsign =   'hex: ' + this.icao;
-        if ((useRouteAPI || this.dataSource == "ais") && this.routeString)
-            callsign += ' - ' + this.routeString;
+        if ((useRouteAPI || this.dataSource == "ais") && this.routeString) {
+            if (g.extendedLabels) {
+                callsign += ' - ' + this.routeString;
+            } else {
+                callsign += '\n' + this.routeString;
+            }
+        }
 
         const unknown = NBSP+NBSP+"?"+NBSP+NBSP;
 
@@ -1794,7 +1803,7 @@ function altitudeLines (segment) {
         color = monochromeTracks;
 
     const modeS = (segment.dataSource == 'modeS');
-    const lineKey = color + '_' + debugTracks + '_' + noVanish + '_' + segment.estimated + '_' + newWidth + '_' + modeS;
+    const lineKey = '_' + color + debugTracks + noVanish + segment.estimated + newWidth + modeS + segment.noLabel + segment.estimatedFill;
 
     if (lineStyleCache[lineKey])
         return lineStyleCache[lineKey];
@@ -1856,40 +1865,27 @@ function altitudeLines (segment) {
             });
         }
     } else {
-        if (segment.noLabel || segment.estimated) {
-            lineStyleCache[lineKey] = [
-                new ol.style.Style({
-                    stroke: new ol.style.Stroke({
-                        color: color,
-                        width: 1 * newWidth * multiplier,
-                        lineJoin: join,
-                        lineCap: cap,
+        lineStyleCache[lineKey] = [
+            new ol.style.Style({
+                image: new ol.style.Circle({
+                    radius: (segment.estimatedFill ? 0 : 2) * newWidth,
+                    fill: new ol.style.Fill({
+                        color: color
                     })
                 }),
-            ];
-        } else {
-            lineStyleCache[lineKey] = [
-                new ol.style.Style({
-                    image: new ol.style.Circle({
-                        radius: 2 * newWidth,
-                        fill: new ol.style.Fill({
-                            color: color
-                        })
-                    }),
-                    geometry: function(feature) {
-                        return new ol.geom.MultiPoint(feature.getGeometry().getCoordinates());
-                    }
-                }),
-                new ol.style.Style({
-                    stroke: new ol.style.Stroke({
-                        color: color,
-                        width: 1 * newWidth * multiplier,
-                        lineJoin: join,
-                        lineCap: cap,
-                    })
+                geometry: function(feature) {
+                    return new ol.geom.MultiPoint(feature.getGeometry().getCoordinates());
+                }
+            }),
+            new ol.style.Style({
+                stroke: new ol.style.Stroke({
+                    color: color,
+                    width: ((segment.noLabel || segment.estimated) ? 0.5 : 1) * newWidth * multiplier,
+                    lineJoin: join,
+                    lineCap: cap,
                 })
-            ];
-        }
+            })
+        ];
     }
     return lineStyleCache[lineKey];
 }
@@ -2926,25 +2922,27 @@ function routeDoLookup(currentTime) {
                 for (var route of routes) {
                     if (!route) {
                         console.error(`Route API returned this invalid element in the array ${route}`);
+                        console.log(routes);
                         continue;
                     }
                     // let's log just a little bit of what's happening
+                    let codes = useIataAirportCodes ? route._airport_codes_iata : route.airport_codes;
                     if (debugRoute) {
                         var logText = `result for ${route.callsign}: `;
-                        if (route._airport_codes_iata == 'unknown') {
+                        if (codes == 'unknown') {
                             logText += 'unknown to the API server';
                         } else if (route.plausible == false) {
-                            logText += `${route._airport_codes_iata} considered implausible`;
+                            logText += `${codes} considered implausible`;
                         } else {
-                            logText += `adding ${route._airport_codes_iata}`;
+                            logText += `adding ${codes}`;
                         }
                         //console.log(logText);
                     }
-                    if (route.airport_codes != 'unknown') {
+                    if (codes != 'unknown') {
                         if (route.plausible == true) {
-                            g.route_cache[route.callsign] = route._airport_codes_iata;
+                            g.route_cache[route.callsign] = codes;
                         } else {
-                            g.route_cache[route.callsign] = `?? ${route._airport_codes_iata}`;
+                            g.route_cache[route.callsign] = `?? ${codes}`;
                         }
                     }
                 }

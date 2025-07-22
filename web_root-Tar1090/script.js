@@ -1659,6 +1659,18 @@ jQuery('#selected_altitude_geom1')
                 }
             }
         });
+
+        /*
+        new Toggle({
+            key: "useIataAirportCodes",
+            display: "Show IATA airport codes",
+            container: "#settingsRight",
+            init: useIataAirportCodes,
+            setState: function(state) {
+                useIataAirportCodes = state;
+            }
+        });
+        */
     } else {
         useRouteAPI = false;
     }
@@ -1758,10 +1770,7 @@ jQuery('#selected_altitude_geom1')
 function initLegend(colors) {
     let html = '';
     html += '<div class="legendTitle" style="background-color:' + colors['adsb'] + ';">ADS-B</div>';
-    if (!globeIndex)
-        html += '<div class="legendTitle" style="background-color:' + colors['uat'] + ';">UAT / ADS-R</div>';
-    if (globeIndex)
-        html += '<div class="legendTitle" style="background-color:' + colors['uat'] + ';">ADS-C/R / UAT</div>';
+    html += '<div class="legendTitle" style="background-color:' + colors['uat'] + ';">UAT / ADS-R</div>';
     html += '<div class="legendTitle" style="background-color:' + colors['mlat'] + ';">MLAT</div>';
     html += '<br>';
     html += '<div class="legendTitle" style="background-color:' + colors['tisb'] + ';">TIS-B</div>';
@@ -1771,6 +1780,7 @@ function initLegend(colors) {
         html += '<div class="legendTitle" style="background-color:' + colors['other'] + ';">Other</div>';
     if (aiscatcher_server)
         html += '<div class="legendTitle" style="background-color:' + colors['ais'] + ';">AIS</div>';
+    html += '<div class="legendTitle" style="background-color:' + colors['adsc'] + `;">${jaeroLabel}</div>`;
 
     document.getElementById('legend').innerHTML = html;
 }
@@ -1788,7 +1798,7 @@ function initSourceFilter(colors) {
     html += createFilter(colors['tisb'], 'TIS-B', sources[3]);
     html += createFilter(colors['modeS'], 'Mode-S', sources[4]);
     html += createFilter(colors['other'], 'Other', sources[5]);
-    html += createFilter(colors['uat'], 'ADS-C', sources[6]);
+    html += createFilter(colors['adsc'], jaeroLabel, sources[6]);
 
     if (aiscatcher_server) {
         html += createFilter(colors['ais'], 'AIS', sources[7]);
@@ -6339,7 +6349,7 @@ let updateAddressBarString = "";
 function updateAddressBar() {
     if (!window.history || !window.history.replaceState)
         return;
-    if (heatmap || pTracks || !CenterLat || uuid)
+    if (heatmap || (pTracks && !haveTraces) || !CenterLat || uuid)
         return;
 
     let string = '';
@@ -8280,7 +8290,7 @@ function showReplayBar(){
             value: Math.pow(replay.speed, 1 / slideBase),
             step: 0.07,
             min: Math.pow(1, 1 / slideBase),
-            max: Math.pow(250, 1 / slideBase),
+            max: Math.pow(1000, 1 / slideBase),
             slide: function(event, ui) {
                 replay.speed = Math.pow(ui.value, slideBase).toFixed(1);
                 jQuery('#replaySpeedHint').text('Speed: ' + replay.speed + 'x');

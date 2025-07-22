@@ -324,6 +324,7 @@ HideCols = [
 
 // get flight route from routeApi service default setting (toggle via settings checkbox)
    useRouteAPI = true;
+// useIataAirportCodes = true; // use ICAO when false
 // which routeApi service to use
    routeApiUrl = "https://adsb.im/api/0/routeset";
 // routeApiUrl = "https://api.adsb.lol/api/0/routeset";
@@ -366,6 +367,7 @@ HideCols = [
 //
 //
 //jaeroTimeout = 35 * 60; // in seconds
+//jaeroLabel = "ADS-C"; // relabel the ADS-C data if used for other purposes (i.e. HFDL / acars2pos)
 
 //seenTimeout = 58; // in seconds
 //seenTimeoutMlat = 58; // in seconds
