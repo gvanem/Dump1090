@@ -81,7 +81,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals./externals/Curses;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;./externals./externals/PDC-Mod;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -99,7 +99,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/Curses;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;./externals;./externals/PDC-Mod;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -117,7 +117,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/Curses;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;./externals;./externals/PDC-Mod;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -134,7 +134,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.;./externals;./externals/Curses;</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.;./externals;./externals/PDC-Mod;</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <WarningLevel>Level4</WarningLevel>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -173,7 +173,7 @@
     <ClCompile Include="speech.c" />
     <ClCompile Include="externals\mongoose.c" />
     <ClCompile Include="externals\AirSpy\airspy.c" />
-    <ClCompile Include="externals\Curses\amalgamation.c" />
+    <ClCompile Include="externals\PDC-Mod\amalgamation.c" />
     <ClCompile Include="externals\sqlite3.c" />
     <ClCompile Include="externals\zip.c" />
     <ClCompile Include="externals\rtl-sdr\librtlsdr.c" />

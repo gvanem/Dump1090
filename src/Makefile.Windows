@@ -40,13 +40,6 @@ USE_NET_POLLER ?= WSAPOLL
 USE_PACKED_DLL ?= 0
 
 #
-# Use 'externals/PDC-mod' instead of 'externals/Curses'.
-# The 'externals/PDC-mod/*' files is a minimal WinCon version scraped
-# from https://github.com/Bill-Gray/PDCursesMod.git
-#
-USE_PDC_MOD ?= 1
-
-#
 # Enable "Address Sanitation".
 # This needs an up-to-date version of 'cl'.
 #
@@ -130,18 +123,8 @@ CFLAGS = -nologo -c -Zi -W4        \
          -Fd./$(OBJ_DIR)/vc14x.pdb \
          -I.                       \
          -I./externals             \
+         -I./externals/PDC-Mod     \
          -I./$(OBJ_DIR)
-
-#
-# Showing airport names correctly in `--interactive' mode needs
-# Wide-string and UTF8 in Curses.
-#
-CFLAGS += -DPDC_WIDE -DPDC_FORCE_UTF8
-
-#
-# To enable the Ncurses mouse API.
-#
-CFLAGS += -DPDC_NCMOUSE
 
 #
 # Handling of 'volatile' variables:
@@ -179,15 +162,6 @@ endif
 ifeq ($(USE_BIN_FILES),1)
   CFLAGS += -DUSE_BIN_FILES
 endif
-
-ifeq ($(USE_PDC_MOD),1)
-  CFLAGS     += -DUSE_PDC_MOD
-  CURSES_ROOT = externals/PDC-Mod
-else
-  CURSES_ROOT = externals/Curses
-endif
-
-CFLAGS += -I./$(CURSES_ROOT)
 
 #
 # If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
@@ -316,8 +290,8 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
              tuner_fc2580.c                \
              tuner_r82xx.c)
 
-vpath %.c  $(CURSES_ROOT)
-SOURCES += $(CURSES_ROOT)/amalgamation.c
+vpath %.c  externals/PDC-Mod
+SOURCES += externals/PDC-Mod/amalgamation.c
 
 #
 # For '../web-pages.dll':
@@ -573,7 +547,7 @@ speech_test.i: speech.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 %.i: %.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, $<)
 
-pdc_%.i: $(CURSES_ROOT)/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+pdc_%.i: externals/PDC-Mod/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, $<)
 
 FORCE:
@@ -749,8 +723,8 @@ endef
 #
 # No doxygen tags in these:
 #
-DOXY_SOURCES = $(filter-out externals/sqlite3.c            \
-                            $(CURSES_ROOT)/amalgamation.c, \
+DOXY_SOURCES = $(filter-out externals/sqlite3.c               \
+                            externals/PDC-Mod/amalgamation.c, \
                             $(SOURCES))
 
 DOXY_SOURCES := $(addprefix ../, $(DOXY_SOURCES))
@@ -945,66 +919,60 @@ ifeq ($(USE_BIN_FILES),1)
   $(OBJ_DIR)/aircraft.obj: $(OBJ_DIR)/gen-code-blocks.c $(BIN_DIR)/gen_data.h
 endif
 
-CURSES_SRC = $(addprefix $(CURSES_ROOT)/, \
-               addch.c                    \
-               addchstr.c                 \
-               addstr.c                   \
-               amalgamation.c             \
-               attr.c                     \
-               beep.c                     \
-               bkgd.c                     \
-               border.c                   \
-               clear.c                    \
-               color.c                    \
-               delch.c                    \
-               deleteln.c                 \
-               getch.c                    \
-               getstr.c                   \
-               getyx.c                    \
-               inch.c                     \
-               inchstr.c                  \
-               initscr.c                  \
-               inopts.c                   \
-               insch.c                    \
-               insstr.c                   \
-               instr.c                    \
-               kernel.c                   \
-               keyname.c                  \
-               mouse.c                    \
-               move.c                     \
-               outopts.c                  \
-               overlay.c                  \
-               pad.c                      \
-               panel.c                    \
-               pdcclip.c                  \
-               pdcdisp.c                  \
-               pdcgetsc.c                 \
-               pdckbd.c                   \
-               pdcscrn.c                  \
-               pdcsetsc.c                 \
-               pdcutil.c                  \
-               printw.c                   \
-               refresh.c                  \
-               scanw.c                    \
-               scroll.c                   \
-               scr_dump.c                 \
-               slk.c                      \
-               termattr.c                 \
-               touch.c                    \
-               util.c                     \
+CURSES_SRC = $(addprefix externals/PDC-Mod/, \
+               acs_defs.h                    \
+               addch.c                       \
+               addchstr.c                    \
+               addstr.c                      \
+               amalgamation.c                \
+               attr.c                        \
+               beep.c                        \
+               bkgd.c                        \
+               border.c                      \
+               clear.c                       \
+               color.c                       \
+               delch.c                       \
+               deleteln.c                    \
+               getch.c                       \
+               getstr.c                      \
+               getyx.c                       \
+               inch.c                        \
+               inchstr.c                     \
+               initscr.c                     \
+               inopts.c                      \
+               insch.c                       \
+               insstr.c                      \
+               instr.c                       \
+               kernel.c                      \
+               keyname.c                     \
+               mouse.c                       \
+               mouse2.c                      \
+               move.c                        \
+               outopts.c                     \
+               overlay.c                     \
+               pad.c                         \
+               panel.c                       \
+               panel.h                       \
+               pdccolor.c                    \
+               pdccolor.h                    \
+               pdcclip.c                     \
+               pdcdisp.c                     \
+               pdcgetsc.c                    \
+               pdckbd.c                      \
+               pdcscrn.c                     \
+               pdcsetsc.c                    \
+               pdcutil.c                     \
+               printw.c                      \
+               refresh.c                     \
+               scanw.c                       \
+               scroll.c                      \
+               scr_dump.c                    \
+               slk.c                         \
+               termattr.c                    \
+               touch.c                       \
+               util.c                        \
+               winclip.c                     \
                window.c)
-
-ifeq ($(USE_PDC_MOD),1)
-  CURSES_SRC += $(CURSES_ROOT)/acs_defs.h \
-                $(CURSES_ROOT)/mouse2.c   \
-                $(CURSES_ROOT)/panel.h    \
-                $(CURSES_ROOT)/pdccolor.h \
-                $(CURSES_ROOT)/pdccolor.c \
-                $(CURSES_ROOT)/winclip.c
-else
-  CURSES_SRC += $(CURSES_ROOT)/acs437.h \
-                $(CURSES_ROOT)/acsuni.h
-endif
 
 $(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
 $(OBJ_DIR)/net_io.obj:       client-cert-key.h server-cert-key.h

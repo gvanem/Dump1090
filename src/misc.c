@@ -1847,12 +1847,7 @@ void show_version_info (bool verbose)
     printf ("Mongoose ver: %-7s from https://github.com/cesanta/mongoose\n", MG_VERSION);
     printf ("RTL-SDR ver:  %d.%d.%d.%d from https://%s\n",
             RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, RTL_VER_ID);
-
-#if defined(USE_PDC_MOD)
     printf ("PDC-MOD ver:  %-7s from https://github.com/Bill-Gray/PDCursesMod.git\n", PDC_VERDOT);
-#else
-    printf ("PDCurses ver: %-7s from https://github.com/wmcbrine/PDCurses\n", PDC_VERDOT);
-#endif
     print_SAPI_info();
     print_sql_info();
     print_BIN_files();

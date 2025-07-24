@@ -201,13 +201,11 @@
 #endif
 
 /**
- * Not defined in `Dump1090.vcxproj'
+ * Showing airport names correctly in `--interactive' mode needs
+ * Wide-string and UTF8 in PDCurses.
  */
-#if defined(DOING_MSBUILD)
-  #define PDC_WIDE       1
-  #define PDC_FORCE_UTF8 1
-  #define PDC_NCMOUSE    1
-#endif
+#define PDC_WIDE       1
+#define PDC_FORCE_UTF8 1
 
 /**
  * Options for `externals/sqlite3.c`:
