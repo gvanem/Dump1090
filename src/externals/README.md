@@ -3,7 +3,6 @@
 Keep most externals here. Only in source form:
  * `AirSpy/*.[ch] ---------` : The *AirSpy API** and interface file from **https://github.com/airspy/host**.
  * `attic/* ---------------` : Old stuff no longer used.
- * `Curses/*.[ch] ---------` : The **[PDCurses](https://github.com/wmcbrine/PDCurses)** screen library.
  * `PDC-Mod/*.[ch] --------` : A modified PDCurses library from **[PDCurses-MOD](https://github.com/Bill-Gray/PDCursesMod.git)**.
  * `mongoose.[ch] ---------` : The Web-server code from **[Mongoose](https://github.com/cesanta/mongoose)**.
  * `rtl-sdr/*.[ch] --------` : *RTLSDR* interface; heavily modified from **[old-DAB's](https://github.com/old-dab/rtlsdr)** version.
