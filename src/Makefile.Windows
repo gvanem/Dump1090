@@ -401,7 +401,7 @@ $(OBJ_DIR) doxy-docs:
 	$(call link_EXE, $@, $^ $(OS_LIBS) $(ASAN_LIBS))
 
 ../color_test.exe: $(OBJ_DIR)/color_test.obj
-	$(call link_EXE, $@, $^ $(ASAN_LIBS))
+	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
 
 ../utf8_test.exe: $(OBJ_DIR)/utf8_test.obj
 	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
@@ -427,6 +427,13 @@ ifeq ($(USE_BIN_FILES),1)
 	$(call green_msg, Generating $(BRIGHT_WHITE)$@)
 	$(PYTHON) $< $(gen_data_arg) --gen-c $(OBJ_DIR)/gen-code-blocks.c
 	cp --update $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
+
+  clean_gen_data: ../tools/gen_data.py
+	$(call green_msg, Cleaning generated data)
+	$(PYTHON) $< --clean
+else
+  clean_gen_data:
+	$(call green_msg, Not cleaning generated data)
 endif
 
 ../sqlite3.exe: $(OBJ_DIR)/sqlite3.obj $(OBJ_DIR)/sqlite3-shell.obj
@@ -601,7 +608,7 @@ clean: docs_clean DLL_clean VS_clean
 	rm -f $(OBJ_DIR)/*.obj $(OBJ_DIR)/*.res
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
-realclean vclean: clean
+realclean vclean: clean clean_gen_data
 	rm -f $(TARGETS) ../blocks_test.exe ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
 	rm -fr $(OBJ_DIR)
 
