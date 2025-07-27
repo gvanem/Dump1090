@@ -227,6 +227,11 @@
 #endif
 
 /**
+ * For `interactive.c` and `dump1090.rc`
+ */
+#define IDI_APPICON 100
+
+/**
  * Common stuff for compiling .rc files
  */
 #if defined(RC_INVOKED)

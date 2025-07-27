@@ -1,7 +1,7 @@
 #include <winver.h>
 #include "dump1090_config.h"
 
-APPICON ICON "dump1090.ico"
+IDI_APPICON ICON "dump1090.ico"
 
 VS_VERSION_INFO VERSIONINFO
   FILEVERSION     RC_VERSION

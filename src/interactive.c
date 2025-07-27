@@ -534,6 +534,19 @@ static void test_utf8 (void)
 }
 
 /**
+ * Send a message to the console-window to show our icon.
+ * Thus showing it in the System-Menu and Task-bar.
+ * But it's not showing up in the "Alt-Tab" window !?
+ */
+static void set_console_icon (HWND wnd)
+{
+  HANDLE icon = LoadImage (GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_APPICON), IMAGE_ICON, 0, 0, 0);
+
+  if (icon && IsWindow(wnd))
+     SendMessage (wnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+}
+
+/**
  * Call `common_init()` and if Curses interface was
  * selected, set `api = &curses_api`.
  * Otherwise set `api = &wincon_api`.
@@ -554,6 +567,9 @@ bool interactive_init (void)
 
   rc1 = common_init();
   rc2 = (*api->init)();
+
+  set_console_icon (con_wnd);
+
   (*api->set_cursor) (false);
 
   if (test_mode && rc2)
