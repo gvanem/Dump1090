@@ -921,6 +921,7 @@ static void API_dump_records (void)
  */
 void airports_show_stats (void)
 {
+  LOG_STDOUT ("! \n");
   LOG_STDOUT ("Airports statistics:\n");
   interactive_clreol();
 

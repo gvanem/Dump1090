@@ -2614,7 +2614,6 @@ static void print_unrecognized_ME (void)
          LOG_STDOUT ("!          %2d: %llu (%s)\n", t, sum, sub_types);
     else LOG_STDOUT ("!          %2d: %llu\n", t, sum);
   }
-  LOG_STDOUT ("! \n");
 }
 
 /*
@@ -3807,6 +3806,7 @@ static const char *format_value (double val)
  */
 static void show_decoder_stats (void)
 {
+  LOG_STDOUT ("! \n");
   LOG_STDOUT ("Decoder statistics:\n");
   interactive_clreol();  /* to clear the lines from startup messages */
 

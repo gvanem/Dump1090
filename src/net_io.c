@@ -2177,6 +2177,7 @@ static bool show_raw_common (int s)
 {
   const char *url = net_handler_url (s);
 
+  LOG_STDOUT ("! \n");
   LOG_STDOUT ("  %s (%s):\n", net_handler_descr(s), url ? url : "none");
 
   if (Modes.stat.bytes_recv [s] == 0)
@@ -2224,9 +2225,10 @@ static void show_rtl_tcp_IN_stats (void)
 
 void net_show_stats (void)
 {
-  int s;
+  int s, i = 0;
 
-  LOG_STDOUT ("\nNetwork statistics:\n");
+  LOG_STDOUT ("! \n");
+  LOG_STDOUT ("Network statistics:\n");
 
   for (s = MODES_NET_SERVICE_FIRST; s <= MODES_NET_SERVICE_LAST; s++)
   {
@@ -2238,6 +2240,8 @@ void net_show_stats (void)
         s == MODES_NET_SERVICE_RTL_TCP)
        continue;
 
+    if (i++ > 0)
+       LOG_STDOUT ("! \n");
     LOG_STDOUT ("  %s (%s):\n", net_handler_descr(s), url ? url : "none");
 
     if (Modes.net_active)

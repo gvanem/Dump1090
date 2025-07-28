@@ -2531,6 +2531,7 @@ bool aircraft_set_est_home_distance (aircraft *a, uint64_t now)
  */
 void aircraft_show_stats (void)
 {
+  LOG_STDOUT ("! \n");
   LOG_STDOUT ("Aircrafts statistics:\n");
   interactive_clreol();
 
