@@ -2729,6 +2729,7 @@ int rtlsdr_close (rtlsdr_dev_t *dev)
   softagc_close (dev);
 
   DeleteCriticalSection (&dev->cs_mutex);
+  memset (dev, '\0', sizeof(struct rtlsdr_dev));
   free (dev);
   return (r);
 }
