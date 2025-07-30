@@ -454,7 +454,7 @@ static void dummy_demod (const mag_buf *mag)
 /**
  * Step 1: Initialize the program with default values.
  */
-static void modeS_init_config (void)
+static void modeS_set_defaults (void)
 {
   memset (&Modes, '\0', sizeof(Modes));
   GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
@@ -4480,7 +4480,7 @@ int main (int argc, char **argv)
   crtdbug_init();
 #endif
 
-  modeS_init_config();  /* Set sane defaults */
+  modeS_set_defaults();  /* Set sane defaults */
 
   if (!parse_cmd_line(argc, argv))
      goto quit;
