@@ -8,12 +8,14 @@
 #include <stdbool.h>
 
 typedef enum cfg_tab_types {
-        ARG_ATOB,          /**< convert to bool */
-        ARG_ATOI,          /**< convert to int */
-        ARG_ATO_U8,        /**< convert to 8-bit  'uint8_t' */
-        ARG_ATO_U16,       /**< convert to 16-bit 'uint16_t */
-        ARG_ATO_U32,       /**< convert to 32-bit 'uint32_t */
-        ARG_ATO_U64,       /**< convert to 64-bit 'uint64_t */
+        ARG_ATOB,          /**< convert to `bool` */
+        ARG_ATOI,          /**< convert to `int` */
+        ARG_ATOF,          /**< convert to `double` */
+        ARG_ATOD,          /**< convert to `double` */
+        ARG_ATO_U8,        /**< convert to 8-bit  `uint8_t` */
+        ARG_ATO_U16,       /**< convert to 16-bit `uint16_t` */
+        ARG_ATO_U32,       /**< convert to 32-bit `uint32_t` */
+        ARG_ATO_U64,       /**< convert to 64-bit `uint64_t` */
         ARG_ATO_IP4,       /**< convert to a IPv4 `struct mg_addr` */
         ARG_ATO_IP6,       /**< convert to a IPv6 `struct mg_addr` */
         ARG_STRDUP,        /**< duplicate string value */

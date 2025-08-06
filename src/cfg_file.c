@@ -373,6 +373,32 @@ static bool parse_and_set_value (const char *key, const char *value, void *arg, 
   return (true);
 }
 
+static bool parse_and_set_double (const char *key, const char *value, void *arg)
+{
+  double val = 0.0;
+
+  if (sscanf(value, "%lf", &val) != 1)
+  {
+    CFG_WARN ("failed to match '%s' as `double` in key '%s'.\n", value, key);
+    return (false);
+  }
+  *(double*) arg = val;
+  return (true);
+}
+
+static bool parse_and_set_float (const char *key, const char *value, void *arg)
+{
+  float val = 0.0;
+
+  if (sscanf(value, "%f", &val) != 1)
+  {
+    CFG_WARN ("failed to match '%s' as `float` in key '%s'.\n", value, key);
+    return (false);
+  }
+  *(float*) arg = val;
+  return (true);
+}
+
 /**
  * Parse and store `ARG_ATO_IP4/6` values.
  */
@@ -434,6 +460,16 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
       case ARG_ATOI:
            TRACE_ARG (ARG_ATOI);
            rc = parse_and_set_value (key, value, arg, sizeof(int));
+           break;
+
+      case ARG_ATOF:
+           TRACE_ARG (ARG_ATOF);
+           rc = parse_and_set_float (key, value, arg);
+           break;
+
+      case ARG_ATOD:
+           TRACE_ARG (ARG_ATOD);
+           rc = parse_and_set_double (key, value, arg);
            break;
 
       case ARG_ATO_U8:
