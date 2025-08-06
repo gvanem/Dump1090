@@ -1199,6 +1199,12 @@ void airports_background (uint64_t now)
   if ((now - last_dump) < API_CACHE_PERIOD)   /* 5 min not passed */
      return;
 
+  if (last_dump == 0ULL)           /* return if first time called */
+  {
+    last_dump = now;
+    return;
+  }
+
   last_dump = now;
 
   if (!airports_cache_open(&file))
@@ -1321,22 +1327,21 @@ static void *read_route_records (FILE *f, const BIN_header *hdr)
 }
 
 /**
- * Check if the `airports.bin` or `routes.bin` databases are older than 10 days.
- * If so, run `py.exe -3 ../tools/gen_data.py` to update them.
+ * Check a single .BIN database for existance and age.is not older than 10 days.
+ * \retval false  no update needed.
+ * \retval true   update needed.
  */
 static bool airports_update_BIN_file (const char *fname)
 {
   struct stat st;
   bool        force_it = false;
-  char        cmd [200];
 
   if (stat(fname, &st) != 0)
   {
     LOG_STDERR ("\nForce updating '%s' since it does not exist.\n", fname);
     force_it = true;
   }
-
-  if (!force_it)
+  else
   {
     time_t when, now = time (NULL);
     time_t expiry = now - 10 * 24 * 3600;
@@ -1346,23 +1351,44 @@ static bool airports_update_BIN_file (const char *fname)
       when = now + 10 * 24 * 3600;  /* 10 days into the future */
       if (Modes.update)
          LOG_STDERR ("\nUpdate of '%s' not needed before %.24s.\n", fname, ctime(&when));
-      return (true);
     }
+    else
+      force_it = true;
   }
-
-  snprintf (cmd, sizeof(cmd), "py.exe -3 %s\\tools\\gen_data.py", Modes.where_am_I);
-
-  LOG_STDERR ("%supdating '%s' by '%s'\n", force_it ? "Force " : "", fname, cmd);
-  return (system (cmd) == 0);
+  return (force_it);
 }
 
+/**
+ * Check if the `airports.bin`, `aircraft.bin` or `routes.bin` databases
+ * needs update. If so, run `py.exe -3 ../tools/gen_data.py` to update all of them.
+ */
 bool airports_update_BIN (void)
 {
-  return (airports_update_BIN_file(g_data.airports_bin) &&
-          airports_update_BIN_file(g_data.routes_bin));
+  int  need_update = 0;
+  bool rc = true;
+
+  if (airports_update_BIN_file(g_data.airports_bin))
+     need_update++;
+
+  if (airports_update_BIN_file(g_data.aircrafts_bin))
+     need_update++;
+
+  if (airports_update_BIN_file(g_data.routes_bin))
+     need_update++;
+
+  if (need_update > 0)
+  {
+    char cmd [200];
+
+    snprintf (cmd, sizeof(cmd), "py.exe -3 %s\\tools\\gen_data.py", Modes.where_am_I);
+
+    LOG_STDERR ("Updating .BIN-files using '%s'\n\n", cmd);
+    rc = (system (cmd) == 0);
+  }
+  return (rc);
 }
 
-static bool airports_set_BIN_file (mg_file_path *file, const char *bin_file)
+static int airports_set_BIN_file (mg_file_path *file, const char *bin_file)
 {
   struct stat st;
   bool   exist, truncated = false;
@@ -1374,9 +1400,9 @@ static bool airports_set_BIN_file (mg_file_path *file, const char *bin_file)
      truncated = (st.st_size < sizeof(BIN_header));
 
   if (!exist)
-     LOG_STDERR ("file: '%s' is missing\n", *file);
+     LOG_STDERR ("file: '%s' is missing.\n", *file);
   if (truncated)
-     LOG_STDERR ("file: '%s' is truncated\n", *file);
+     LOG_STDERR ("file: '%s' is truncated.\n", *file);
 
   return (exist && !truncated);
 }
@@ -1411,9 +1437,9 @@ static bool airports_init_BIN (void)
   BIN_header hdr;
   FILE      *f;
 
-  if (!airports_set_BIN_file (&g_data.aircrafts_bin, "aircraft.bin") ||
-      !airports_set_BIN_file (&g_data.airports_bin, "airports.bin") ||
-      !airports_set_BIN_file (&g_data.routes_bin, "routes.bin"))
+  if (airports_set_BIN_file (&g_data.aircrafts_bin, "aircraft.bin") +
+      airports_set_BIN_file (&g_data.airports_bin, "airports.bin")  +
+      airports_set_BIN_file (&g_data.routes_bin, "routes.bin") == 0)
      return (false);
 
   f = airports_init_one_BIN (g_data.routes_bin, &hdr);
