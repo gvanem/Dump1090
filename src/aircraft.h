@@ -14,7 +14,7 @@
 
 /**
  * \def AIRCRAFT_DATABASE_URL
- * The default URL for the `--aircrafts-update` option.
+ * The default URL for the `--update` option.
  */
 #define AIRCRAFT_DATABASE_URL   "https://s3.opensky-network.org/data-samples/metadata/aircraftDatabase.zip"
 
@@ -218,13 +218,14 @@ typedef struct aircraft {
  *
  * To verify the CPR stuff works correctly;
  * follow a single plane at a time and watch the distance changes smoothly.
- * Not jumping around the map as it used to.
+ * And not jumping around the map as it used to.
  *
  * Effective with cmd-line option `--debug P` only.
  */
 #define LOG_FOLLOW(a) do {                             \
         if ((Modes.debug & DEBUG_PLANE) &&             \
-            a->addr && Modes.a_follow == 0) {          \
+            a->addr && Modes.a_follow == 0)            \
+        {                                              \
           LOG_FILEONLY ("%06X: Following\n", a->addr); \
           Modes.a_follow = a->addr;                    \
         }                                              \
@@ -232,7 +233,8 @@ typedef struct aircraft {
 
 #define LOG_UNFOLLOW(a) do {                             \
         if ((Modes.debug & DEBUG_PLANE) &&               \
-            a->addr && a->addr == Modes.a_follow) {      \
+            a->addr && a->addr == Modes.a_follow)        \
+        {                                                \
           LOG_FILEONLY ("%06X: Unfollowing\n", a->addr); \
           Modes.a_follow = 0;                            \
         }                                                \
@@ -245,13 +247,14 @@ typedef struct aircraft {
                         a->addr, a->distance / 1000.0);  \
       } while (0)
 
-#define LOG_BEARING(a) do {                                                   \
-        if ((Modes.debug & DEBUG_PLANE) &&                                    \
-            a->addr == Modes.a_follow && Modes.home_pos_ok) {                 \
-           double _bearing = geo_get_bearing (&Modes.home_pos, &a->position); \
-           LOG_FILEONLY ("%06X: bearing: %.1lf / %s\n",                       \
-                         a->addr, _bearing, geo_bearing_name(_bearing));      \
-        }                                                                     \
+#define LOG_BEARING(a) do {                                                  \
+        if ((Modes.debug & DEBUG_PLANE) &&                                   \
+            a->addr == Modes.a_follow && Modes.home_pos_ok)                  \
+        {                                                                    \
+          double _bearing = geo_get_bearing (&Modes.home_pos, &a->position); \
+          LOG_FILEONLY ("%06X: bearing: %.1lf / %s\n",                       \
+                        a->addr, _bearing, geo_bearing_name(_bearing));      \
+        }                                                                    \
       } while (0)
 
 bool        aircraft_init (void);
