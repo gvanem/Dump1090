@@ -224,9 +224,6 @@ static int cfg_parse_file (cfg_context *ctx)
     if (!cfg_parse_line(ctx, &key, &value))
        break;
 
-    if (!*value)      /* foo = <empty value> */
-       continue;
-
      expanded = cfg_getenv_expand (ctx, value);
      if (expanded)
         value = expanded;
@@ -296,9 +293,16 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
     }
 
     p = strchr (ctx->current_val, '#');
-    if (p && isspace(p[-1]))       /* Remove trailing comments */
+    if (p)     /* Remove trailing comments */
        *p = '\0';
 
+    p = str_trim (ctx->current_val);
+    if (!*p)      /* foo = <empty value> */
+    {
+      TRACE ("Ignore empty value for current_key: '%s'.\n", ctx->current_key);
+      ctx->current_line++;
+      continue;
+    }
     break;
   }
 
@@ -512,8 +516,8 @@ static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
 
   p1 = strstr (variable, "%0");
   p2 = strstr (variable, "%~dp0");
-//p3 = strstr (variable, "%~nx0"); /* expand %0 to a file name and extension only */
-//p4 = strstr (variable, "%~f0");  /* expand %0 to a fully qualified path name */
+//p3 = strstr (variable, "%~nx0"); /* expand to a file name and extension only */
+//p4 = strstr (variable, "%~f0");  /* expand to a fully qualified path name */
 
   if (p1)
   {
