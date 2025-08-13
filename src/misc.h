@@ -23,10 +23,10 @@
 /**
  * Various helper macros.
  */
-#define MODES_NOTUSED(V)   ((void)V)
+#define MODES_NOTUSED(x)   ((void) x)
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define DIM(array)         (sizeof(array) / sizeof(array[0]))
-#define NONE_STR           "<none>"
+#define NONE_STR           "<none>"   /* None or "Not applicable" */
 #define STDIN_FILENO       0
 
 /**
@@ -516,8 +516,8 @@ typedef struct global_data {
         pos_t         home_pos;                   /**< Coordinates of home position. */
         cartesian_t   home_pos_cart;              /**< Coordinates of home position (cartesian). */
         bool          home_pos_ok;                /**< We have a good home position. */
-        double        max_dist;                   /**< Absolute maximum decoding distance, in metres */
-        double        min_dist;                   /**< Absolute minimum distance for '--only-addr', in metres */
+        uint64_t      max_dist;                   /**< Absolute maximum decoding distance, in metres */
+        uint64_t      min_dist;                   /**< Absolute minimum distance for '--only-addr', in metres */
         int           a_sort;                     /**< The column sort method for aircrafts in `--interactive` mode. >= 0 is ascending, < 0 descending */
         bool          wininet_HTTP2;              /**< Enable HTTP/2 for WinInet API. */
         const char   *wininet_last_error;         /**< Last error from WinInet API. */

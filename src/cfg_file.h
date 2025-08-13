@@ -10,8 +10,6 @@
 typedef enum cfg_tab_types {
         ARG_ATOB,          /**< convert to `bool` */
         ARG_ATOI,          /**< convert to `int` */
-        ARG_ATOF,          /**< convert to `double` */
-        ARG_ATOD,          /**< convert to `double` */
         ARG_ATO_U8,        /**< convert to 8-bit  `uint8_t` */
         ARG_ATO_U16,       /**< convert to 16-bit `uint16_t` */
         ARG_ATO_U32,       /**< convert to 32-bit `uint32_t` */

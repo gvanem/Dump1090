@@ -248,7 +248,7 @@ int cpr_do_global (struct aircraft *a, const struct modeS_message *mm, uint64_t 
 
   CPR_set_error (0, a, now);
 
-  /* Check max _distance
+  /* Check max distance
    */
   if (Modes.max_dist > 0 && Modes.home_pos_ok)
   {
@@ -257,7 +257,7 @@ int cpr_do_global (struct aircraft *a, const struct modeS_message *mm, uint64_t 
     if (distance > Modes.max_dist)
     {
       CPR_TRACE ("%06X: global distance check failed (%.3f,%.3f), max dist %.1fkm, actual %.1fkm\n",
-                 a->addr, new_pos->lat, new_pos->lon, Modes.max_dist / 1000.0, distance / 1000.0);
+                 a->addr, new_pos->lat, new_pos->lon, (double)Modes.max_dist / 1000.0, distance / 1000.0);
 
       Modes.stat.cpr_global_dist_checks++;
       a->global_dist_checks++;

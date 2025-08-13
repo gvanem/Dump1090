@@ -166,6 +166,7 @@ static const cfg_table config[] = {
     { "logfile-daily",     ARG_ATOB,    (void*) &Modes.logfile_daily },
     { "logfile-ignore",    ARG_FUNC,    (void*) modeS_log_add_ignore },
     { "loops",             ARG_FUNC,    (void*) set_loops },
+    { "max-distance",      ARG_ATO_U64, (void*) &Modes.max_dist },
     { "max-messages",      ARG_ATO_U64, (void*) &Modes.max_messages },
     { "max-frames",        ARG_ATO_U64, (void*) &Modes.max_frames },
     { "measure-noise",     ARG_ATOB,    (void*) &Modes.measure_noise },
@@ -501,8 +502,8 @@ static void modeS_set_defaults (void)
   Modes.json_interval    = 1000;
   Modes.net_poll_ms      = 10;
   Modes.tui_interface    = TUI_WINCON;
-  Modes.min_dist         = 0.0;                /* 0 Km default min distance */
-  Modes.max_dist         = 500000.0;           /* 500 Km default max distance */
+  Modes.min_dist         = 0;                  /* 0 Km default min distance */
+  Modes.max_dist         = 500000;             /* 500 Km default max distance */
   Modes.FIFO_acquire_ms  = 100;                /* timeout for `fifo_acquire()` */
   Modes.FIFO_dequeue_ms  = 100;                /* timeout for `fifo_dequeue()` */
   Modes.FIFO_bufs        = MODES_MAG_BUFFERS;  /* # of buffers for `fifo_init()` */
@@ -699,7 +700,7 @@ static bool modeS_init_hardware (void)
                 Modes.rtlsdr.index, Modes.rtlsdr.name ? Modes.rtlsdr.name : NONE_STR,
                 Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : NONE_STR,
                 (double)Modes.sample_rate / 1E6,
-                Modes.rtltcp.remote ? Modes.rtltcp.remote : "<n/a>",
+                Modes.rtltcp.remote ? Modes.rtltcp.remote : NONE_STR,
                 Modes.selected_dev,
                 Modes.bytes_per_sample,
                 Modes.trailing_samples,
@@ -2879,7 +2880,7 @@ static bool modeS_message_display (modeS_message *mm)
     display_addr (mm, 0);
 
     if (mm->cf == 0 || mm->cf == 1 || mm->cf == 2 || mm->cf == 5 || mm->cf == 6)
-        display_extended_squitter (mm);
+       display_extended_squitter (mm);
   }
   else if (mm->msg_type == 19)
   {
