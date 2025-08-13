@@ -4,7 +4,6 @@
  * \brief   Config-file handling.
  */
 #include "misc.h"
-#include "net_io.h"
 #include "cfg_file.h"
 
 /**
