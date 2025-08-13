@@ -256,7 +256,19 @@ let utcTimesHistoric = true;
 let labelZoom = 0;
 let labelZoomGround = 14.8;
 
-let labelFont = 'bold 12px tahoma';
+// font family for labels, default bold, could be empty or italic as well
+let labelStyle = 'bold';
+let labelFamily = 'Tahoma, Verdana, Helvetica, sans-serif';
+let labelScale = 1;
+
+// labelFont this is now generated from the detailed settings above, setting this in config.js won't
+// have ANY effect
+let labelFont;
+
+// some scaling for fonts and things
+let globalScale = 1;
+let userScale = 1;
+let iconScale = 1;
 
 let displayUATasADSB = false;
 let uatNoTISB = false;
@@ -335,7 +347,9 @@ let planespottingAPI = false;
 // get flight route from routeApi service default setting (toggle via settings checkbox)
 let useRouteAPI = false;
 // show IATA airport codes instead of ICAO when using the route API
-let useIataAirportCodes = true;
+let useIataAirportCodes = true; // DEPRECATED, forces routeDisplay to icao when set to false
+// configure route display, possible values: iata, icao, city (can use multiple like this: 'iata,city')
+let routeDisplay = 'iata';
 // which routeApi service to use
 let routeApiUrl = "https://adsb.im/api/0/routeset";
 // alternative: "https://api.adsb.lol/api/0/routeset";

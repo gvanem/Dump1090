@@ -239,7 +239,14 @@ MapboxAPIKey = null;
 //labelZoom = 8;
 //labelZoomGround = 12.5;
 
-//labelFont = 'bold 12px tahoma';
+// font family for labels, default bold, could be empty or italic as well
+// labelStyle = 'bold';
+// labelFamily = 'Tahoma, Verdana, Helvetica, sans-serif';
+// labelScale = 1;
+
+// globalScale = 1;
+// userScale = 1;
+// iconScale = 1;
 
 //displayUATasADSB = false;
 //uatNoTISB = true;
@@ -324,7 +331,8 @@ HideCols = [
 
 // get flight route from routeApi service default setting (toggle via settings checkbox)
    useRouteAPI = true;
-// useIataAirportCodes = true; // use ICAO when false
+// configure route display, possible values: iata, icao, city (can use multiple like this: iata+city)
+// routeDisplay = 'iata';
 // which routeApi service to use
    routeApiUrl = "https://adsb.im/api/0/routeset";
 // routeApiUrl = "https://api.adsb.lol/api/0/routeset";

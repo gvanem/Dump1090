@@ -97,10 +97,6 @@ let traceDate = null;
 let traceDateString = null;
 let traceOpts = {};
 let icaoParam = null;
-let globalScale = 1;
-let userScale = 1;
-let iconScale = 1;
-let labelScale = 1;
 let newWidth = lineWidth;
 let SiteOverride = (SiteLat != null && SiteLon != null);
 let onJumpInput = null;
@@ -1659,18 +1655,13 @@ jQuery('#selected_altitude_geom1')
                 }
             }
         });
-
-        /*
-        new Toggle({
-            key: "useIataAirportCodes",
-            display: "Show IATA airport codes",
-            container: "#settingsRight",
-            init: useIataAirportCodes,
-            setState: function(state) {
-                useIataAirportCodes = state;
-            }
-        });
-        */
+        if (useIataAirportCodes == false) {
+            routeDisplay = 'icao'; // cope with deprecated useIata var
+        }
+        if (usp.has('routeDisplay')) {
+            routeDisplay = usp.get('routeDisplay');
+        }
+        routeDisplay = routeDisplay.split(',');
     } else {
         useRouteAPI = false;
     }
@@ -5643,7 +5634,7 @@ function setGlobalScale(scale, init) {
     globalScale = scale;
     document.documentElement.style.setProperty("--SCALE", globalScale);
 
-    labelFont = "bold " + (12 * globalScale * labelScale) + "px/" + (14 * globalScale * labelScale) + "px Tahoma, Verdana, Helvetica, sans-serif";
+    labelFont = `${labelStyle} ${(12 * globalScale * labelScale)}px/${(14 * globalScale * labelScale)}px ${labelFamily}`;
 
     checkScale();
     setLineWidth();

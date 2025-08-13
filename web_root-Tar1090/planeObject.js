@@ -354,7 +354,7 @@ PlaneObject.prototype.updateTrackPrev = function() {
     this.prev_time = this.position_time;
     this.prev_track = this.track;
     this.prev_rot = this.rotation;
-    this.prev_true = this.true_head;
+    this.prev_true = this.true_heading;
     this.prev_alt = this.altitude;
     this.prev_alt_rounded = this.alt_rounded;
     this.prev_alt_geom = this.alt_geom;
@@ -855,7 +855,7 @@ PlaneObject.prototype.updateIcon = function() {
         else
             callsign =   'hex: ' + this.icao;
         if ((useRouteAPI || this.dataSource == "ais") && this.routeString) {
-            if (g.extendedLabels) {
+            if (0 && g.extendedLabels) {
                 callsign += ' - ' + this.routeString;
             } else {
                 callsign += '\n' + this.routeString;
@@ -2925,26 +2925,39 @@ function routeDoLookup(currentTime) {
                         console.log(routes);
                         continue;
                     }
-                    // let's log just a little bit of what's happening
-                    let codes = useIataAirportCodes ? route._airport_codes_iata : route.airport_codes;
-                    if (debugRoute) {
-                        var logText = `result for ${route.callsign}: `;
-                        if (codes == 'unknown') {
-                            logText += 'unknown to the API server';
-                        } else if (route.plausible == false) {
-                            logText += `${codes} considered implausible`;
-                        } else {
-                            logText += `adding ${codes}`;
-                        }
-                        //console.log(logText);
+                    if (!route.airport_codes || route.airport_codes == "unknown") {
+                        continue;
                     }
-                    if (codes != 'unknown') {
-                        if (route.plausible == true) {
-                            g.route_cache[route.callsign] = codes;
-                        } else {
-                            g.route_cache[route.callsign] = `?? ${codes}`;
+                    let codes = "";
+
+                    for (let airport of route._airports) {
+                        if (codes) {
+                            if (routeDisplay.includes('city')) {
+                                codes += " -\n"
+                            } else {
+                                codes += " - "
+                            }
                         }
+                        let aString = ""
+                        for (let type of routeDisplay) {
+                            if (aString) {
+                                aString += '/';
+                            }
+                            if (type == 'iata') {
+                                aString += airport.iata;
+                            } else if (type == 'icao') {
+                                aString += airport.icao;
+                            } else if (type == 'city') {
+                                aString += airport.location;
+                            }
+                        }
+                        codes += aString;
                     }
+
+                    if (!route.plausible) {
+                        codes = '?? ' + codes;
+                    }
+                    g.route_cache[route.callsign] = codes;
                 }
             })
             .fail((jqxhr, status, error) => {
