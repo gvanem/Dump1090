@@ -319,6 +319,7 @@ void demod_2400 (const mag_buf *mag)
         initial_phase = best_phase (&preamble[19]);
         if (initial_phase < 0)
            continue;       /* nothing satisfactory */
+
         first_phase = last_phase = initial_phase;  /* try only the phase we think it is */
       }
 

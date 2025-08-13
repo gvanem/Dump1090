@@ -102,16 +102,17 @@ void demod_2400_AC (const mag_buf *mag)
      /* Estimate initial clock phase based on the amount of power
       * that ended up in the second sample
       */
-     float f1a_power = (float)m[f1_sample] * m[f1_sample];
-     float f1b_power = (float)m[f1_sample+1] * m[f1_sample+1];
-     float fraction = f1b_power / (f1a_power + f1b_power);
-     unsigned f1_clock = (unsigned) (25 * (f1_sample + fraction * fraction) + 0.5);
+     float    f1a_power = (float)m[f1_sample] * m[f1_sample];
+     float    f1b_power = (float)m[f1_sample+1] * m[f1_sample+1];
+     float    fraction  = f1b_power / (f1a_power + f1b_power);
+     unsigned f1_clock  = (unsigned) (25 * (f1_sample + fraction * fraction) + 0.5);
 
      /* same again for F2:
       * F2 is 20.3us / 14 bit periods after F1
       */
      unsigned f2_clock = f1_clock + (87 * 14);
      unsigned f2_sample = f2_clock / 25;
+
      assert(f2_sample < mlen + mag->overlap);
 
      if (!(m[f2_sample-1] < m[f2_sample+0]))
