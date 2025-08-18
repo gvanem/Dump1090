@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <math.h>
 #include <winsock2.h>
 #include <windows.h>
 #include <wchar.h>
@@ -744,7 +745,7 @@ typedef struct file_packed {
 #define _Printf_format_string_
 #endif
 
-#if defined(__clang__)
+#if defined(__clang__) || defined(__GNUC__)
   #define ATTR_PRINTF(_1, _2)  __attribute__((format(printf, _1, _2)))
 #else
   #define ATTR_PRINTF(_1, _2)

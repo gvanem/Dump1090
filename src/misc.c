@@ -4,6 +4,7 @@
  */
 #include <stdint.h>
 #include <sys/utime.h>
+#include <share.h>
 #include <inttypes.h>
 #include <winsock2.h>
 #include <windows.h>
@@ -1114,7 +1115,7 @@ int touch_dir (const char *directory, bool recurse)
  * Number of micro-seconds between the beginning of the Windows epoch
  * (Jan. 1, 1601) and the Unix epoch (Jan. 1, 1970).
  */
-#define DELTA_EPOCH_IN_USEC  11644473600000000Ui64
+#define DELTA_EPOCH_IN_USEC  11644473600000000ULL
 
 /**
  * Return number of usec between the Window epoch to the Unix epoch.
@@ -1153,6 +1154,7 @@ int _gettimeofday (struct timeval *tv, void *timezone)
   return (0);
 }
 
+#ifdef NOT_USED
 /*
  * Not used but leave it in.
  */
@@ -1160,6 +1162,7 @@ int get_timespec_UTC (struct timespec *ts)
 {
   return timespec_get (ts, TIME_UTC);
 }
+#endif
 
 /**
  * Returns a `FILETIME *ft`.
@@ -1471,7 +1474,11 @@ static const char *compiler_info (void)
 {
   static char buf [50];
 
-#if defined(__clang__)
+#if defined(__MINGW64__)
+  snprintf (buf, sizeof(buf), "MinGW-w64 %s, gcc %d.%d.%d",
+            __MINGW64_VERSION_STR, __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+
+#elif defined(__clang__)
   snprintf (buf, sizeof(buf), "clang-cl %d.%d.%d",
             __clang_major__, __clang_minor__, __clang_patchlevel__);
 
@@ -1479,10 +1486,14 @@ static const char *compiler_info (void)
   snprintf (buf, sizeof(buf), "Microsoft cl %d.%d.%d",
             _MSC_VER / 100, _MSC_VER % 100, _MSC_FULL_VER % 100000);
 
-#else
+#elif defined(_MSC_VER)
   snprintf (buf, sizeof(buf), "Microsoft cl %d.%d",
             (_MSC_VER / 100), _MSC_VER % 100);
+
+#else
+  #error "Unknown compiler!?"
 #endif
+
   return (buf);
 }
 
@@ -1717,13 +1728,14 @@ int modeS_asprintf (char **bufp, _Printf_format_string_ const char *fmt, ...)
 /**
  * Print the CFLAGS and LDFLAGS we were built with.
  *
- * On a `make depend` (`DOING_MAKE_DEPEND` is defined),
- * do not add the above generated files to the dependency output.
- *
  * When building with `msbuild Dump1090.vcxproj` or during `make docs`,
- * do not included these generated files.
+ * do not included these generated files (since they are not built as
+ * custom targets).
  */
-#if defined(__clang__)
+#if defined(__MINGW64__)
+  #define CFLAGS   "cflags_gcc.h"
+  #define LDFLAGS  "ldflags_gcc.h"
+#elif defined(__clang__)
   #define CFLAGS   "cflags_clang-cl.h"
   #define LDFLAGS  "ldflags_clang-cl.h"
 #else
@@ -1731,7 +1743,7 @@ int modeS_asprintf (char **bufp, _Printf_format_string_ const char *fmt, ...)
   #define LDFLAGS  "ldflags_cl.h"
 #endif
 
-#if defined(DOING_MSBUILD) || defined(DOING_MAKE_DEPEND) || defined(__DOXYGEN__)
+#if defined(DOING_MSBUILD) || defined(__DOXYGEN__)
   #undef CFLAGS
   #undef LDFLAGS
 #endif
@@ -1901,6 +1913,18 @@ DEF_WIN_FUNC (BOOL, HttpQueryInfoA, (HINTERNET handle,
  * Also the size for `download_to_file()` buffer.
  */
 #define BUF_INCREMENT (50*1024)
+
+#ifndef INTERNET_OPTION_HTTP_DECODING
+#define INTERNET_OPTION_HTTP_DECODING  65
+#endif
+
+#ifndef INTERNET_OPTION_ENABLE_HTTP_PROTOCOL
+#define INTERNET_OPTION_ENABLE_HTTP_PROTOCOL 148
+#endif
+
+#ifndef HTTP_PROTOCOL_FLAG_HTTP2
+#define HTTP_PROTOCOL_FLAG_HTTP2 0x02
+#endif
 
 /**
  * Handles dynamic loading and unloading of DLLs and their functions.

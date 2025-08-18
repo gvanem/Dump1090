@@ -490,6 +490,8 @@ bool speak_string (const char *fmt, ...)
 
 #define ADD_VALUE(v)  { (DWORD)v, #v }
 
+#if !defined(__MINGW64__) || defined(HAVE_SAPI_ERRORS)
+
 static const search_list hr_errors[] = {
        ADD_VALUE (S_OK),
        ADD_VALUE (S_FALSE),
@@ -616,7 +618,7 @@ static const search_list hr_errors[] = {
 static const char *hr_strerror (HRESULT hr)
 {
   static char buf [100];
-  const char *name;
+  const char *name = NULL;
 
   if (hr == S_OK)
        name = "S_OK";
@@ -627,6 +629,20 @@ static const char *hr_strerror (HRESULT hr)
   snprintf (buf, sizeof(buf), "%s/0x%08lX", name, hr);
   return (buf);
 }
+
+#else
+static const char *hr_strerror (HRESULT hr)
+{
+  static char buf [100];
+  const char *name = (hr == S_OK) ? "S_OK" : NULL;
+
+  if (!name)
+     name = "Unknown";
+  snprintf (buf, sizeof(buf), "%s/0x%08lX", name, hr);
+  return (buf);
+}
+
+#endif /* __MINGW64__ || HAVE_SAPI_ERRORS */
 
 static const char *sp_running_state (SPRUNSTATE state)
 {

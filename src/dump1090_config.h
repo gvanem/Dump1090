@@ -41,6 +41,13 @@
     #pragma clang diagnostic ignored "-Wnull-pointer-subtraction"
   #endif
 
+#elif defined(__MINGW64__)
+  /*
+   * Cause a compile-error for these warnings:
+   */
+  #pragma clang diagnostic error "-Wformat"
+  #pragma clang diagnostic error "-Wformat-insufficient-args"
+
 #elif defined(_MSC_VER)
  /*
   * airports.c(1502): warning C4102:
@@ -149,8 +156,11 @@
 #define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
 #define MG_ENABLE_DIRLIST       0  /* No need for directory listings in HTTP */
 #define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
-#define MG_TLS                  3  /* Enable MG_TLS_BUILTIN code */
-#define MG_TLS_SSLKEYLOGFILE    1  /* Enable logging to `$(SSLKEYLOGFILE)` */
+
+#if !defined(__MINGW64__)
+  #define MG_TLS                3  /* Enable MG_TLS_BUILTIN code */
+  #define MG_TLS_SSLKEYLOGFILE  1  /* Enable logging to `$(SSLKEYLOGFILE)` */
+#endif
 
 #define _CRT_RAND_S             1  /* To pull in 'rand_s()' */
 
@@ -171,6 +181,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <malloc.h>
 #include <io.h>
 
@@ -235,7 +246,9 @@
  * Common stuff for compiling .rc files
  */
 #if defined(RC_INVOKED)
-  #if defined(__clang__)
+  #if defined(__MINGW64__)
+    #define RC_BUILDER  "MinGW-w64"
+  #elif defined(__clang__)
     #define RC_BUILDER  "clang-cl"
   #else
     #define RC_BUILDER  "MSVC"

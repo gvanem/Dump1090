@@ -21,7 +21,7 @@ typedef struct pconsole_t {
         HANDLE   slave_stdout;    /* slave write handle */
         HANDLE   slave_read;      /* slave read handle */
         HANDLE   child_proc;
-        HPCON    pseudo_hnd;
+        void    *pseudo_hnd;
         COORD    coord;
         char     ev_name [40];
         u_char   read_ch;
@@ -56,10 +56,10 @@ DEF_WIN_FUNC (HRESULT, CreatePseudoConsole, (COORD  size,
                                              HANDLE input,
                                              HANDLE output,
                                              DWORD  flags,
-                                             HPCON *hnd));
+                                             void **hnd));
 
-DEF_WIN_FUNC (HRESULT, ClosePseudoConsole,  (HPCON *hnd));
-DEF_WIN_FUNC (HRESULT, ResizePseudoConsole, (HPCON *hnd, COORD size));
+DEF_WIN_FUNC (HRESULT, ClosePseudoConsole,  (void **hnd));
+DEF_WIN_FUNC (HRESULT, ResizePseudoConsole, (void **hnd, COORD size));
 
 static struct dyn_struct kernel32_funcs[] = {
                          ADD_VALUE (CreatePseudoConsole),

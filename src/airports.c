@@ -412,6 +412,32 @@ typedef struct search_stats {
 
 static stats g_stats;
 
+#if defined(__MINGW64__) && !defined(HAVE_BSEARCH_S)
+static void *bsearch_s (const void *key, const void *base, size_t nmemb, size_t size,
+                        int (*compare)(void *, const void *, const void *), void *ctx)
+{
+  ssize_t min = 0;
+  ssize_t max = nmemb - 1;
+  ssize_t cursor;
+  int     ret;
+  void   *p;
+
+  while (min <= max)
+  {
+    cursor = min + (max - min) / 2;
+    p = (char*)base + (cursor * size);
+    ret = (*compare) (ctx, key, p);
+    if (!ret)
+       return (p);
+
+    if (ret < 0)
+         max = cursor - 1;
+    else min = cursor + 1;
+  }
+  return (NULL);
+}
+#endif
+
 /**
  * The compare functions for `qsort_s()` and `bsearch_s()`.
  */

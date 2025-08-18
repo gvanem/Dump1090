@@ -8,7 +8,6 @@
 #include <string.h>
 #include <stdint.h>
 #include <errno.h>
-#include <math.h>
 #include <malloc.h>
 #include <signal.h>
 #include <fcntl.h>
@@ -3645,20 +3644,22 @@ static void flush_log (uint64_t now)
 
 /**
  * This background function is called continously by `main_data_loop()`.
- * It performs:
+ * It does:
  *  \li Polls the network for events blocking less than 125 msec.
  *  \li Flushes the `Modes.log` file every 30 sec.
  *  \li Polls the `Windows Location API` for a location every 250 msec.
+ *  \li Prints FIFO-statistics file every 1 minute.
  *  \li Removes inactive aircrafts from the list.
  *  \li Refreshes interactive data every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`).
- *  \li Refreshes the console-title with some statistics (also 4 times per second).
+ *  \li Refreshes the console-title with some statistics (also every 250 msec).
+ *  \li Checks for a `+ / -` keypress to increase or decrease the device gain. <br>
+ *      Also checks for a `A / G` keypress to toggle between Auto / Manual gain.
  */
 void background_tasks (void)
 {
-  bool            refresh;
-  pos_t           pos;
-  uint64_t        now;
-  static uint64_t tc_last = 0;
+  bool     refresh;
+  pos_t    pos;
+  uint64_t now;
 
   if (Modes.net)
      net_poll();
