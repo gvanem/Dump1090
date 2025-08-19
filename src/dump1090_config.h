@@ -156,11 +156,8 @@
 #define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
 #define MG_ENABLE_DIRLIST       0  /* No need for directory listings in HTTP */
 #define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
-
-#if !defined(__MINGW64__)
-  #define MG_TLS                3  /* Enable MG_TLS_BUILTIN code */
-  #define MG_TLS_SSLKEYLOGFILE  1  /* Enable logging to `$(SSLKEYLOGFILE)` */
-#endif
+#define MG_TLS                  3  /* Enable MG_TLS_BUILTIN code */
+#define MG_TLS_SSLKEYLOGFILE    1  /* Enable logging to `$(SSLKEYLOGFILE)` */
 
 #define _CRT_RAND_S             1  /* To pull in 'rand_s()' */
 

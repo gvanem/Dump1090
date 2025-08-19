@@ -14585,13 +14585,14 @@ typedef uint16_t comp;            /**< A single precision component. */
 typedef uint32_t long_comp;       /**< A double precision component. */
 typedef int32_t slong_comp;       /**< A signed double precision component. */
 #else                        /* regular 32 bit */
-#ifdef WIN32
-#define COMP_RADIX 4294967296i64
-#define COMP_MAX 0xFFFFFFFFFFFFFFFFui64
+#if defined(_WIN32) || defined(WIN32)
+#define COMP_RADIX 4294967296ULL
+#define COMP_MAX 0xFFFFFFFFFFFFFFFFULL
 #else
 #define COMP_RADIX 4294967296       /**< Max component + 1 */
 #define COMP_MAX 0xFFFFFFFFFFFFFFFF /**< (Max dbl comp -1) */
 #endif
+
 #define COMP_BIT_SIZE 32   /**< Number of bits in a component. */
 #define COMP_BYTE_SIZE 4   /**< Number of bytes in a component. */
 #define COMP_NUM_NIBBLES 8 /**< Used For diagnostics only. */
