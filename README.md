@@ -61,7 +61,7 @@ and added some more references and screen-shots. But in the source-code I've don
 ## Normal usage
 
 > [!TIP]
-> Before running `dump1090.exe` for the first time, please run `setup.exe` to properly set up geolocation.
+> Before running `dump1090.exe` for the first time, it is best practice to run `setup.exe` to properly set up geolocation. It should auto-run if it was never run before.
 
 Since the uncompressed `aircraft-database.csv` file is too big to be allowed here on Github, it will
 automatically be downloaded and unzipped from [**OpenSky**](https://opensky-network.org/datasets/metadata/).
