@@ -18,8 +18,6 @@
 #include <io.h>
 #include <process.h>
 #include <windows.h>
-#include <shlwapi.h> // for PathRemoveFileSpecA
-#pragma comment(lib, "shlwapi.lib")
 
 #include "misc.h"
 #include "net_io.h"
@@ -4195,51 +4193,45 @@ static void set_debug_bits (const char *flags)
   }
 }
 
-static bool set_home_pos (const char *arg)
+static bool set_home_pos (const char* arg)
 {
-  pos_t pos;
+    pos_t pos;
 
-  if (arg)
-  {
-    if (sscanf(arg, "%lf,%lf", &pos.lat, &pos.lon) != 2)
+    if (arg)
     {
-      LOG_STDERR ("Invalid home-pos %s.\n", arg);
-      return (false);
-    }
-    
-    // if -1,-1 - launch setup
-    if (pos.lat == -1.0 && pos.lon == -1.0)
-    {
-        char exePath[MAX_PATH];
-        char dirPath[MAX_PATH];
-        char setupPath[MAX_PATH];
-
-        if (GetModuleFileNameA(NULL, exePath, MAX_PATH))
+        if (sscanf(arg, "%lf,%lf", &pos.lat, &pos.lon) != 2)
         {
-            strcpy_s(dirPath, sizeof(dirPath), exePath);
-            PathRemoveFileSpecA(dirPath);
-            PathCombineA(setupPath, dirPath, "setup.exe");
-
-            ShellExecuteA(NULL, "open", setupPath, NULL, dirPath, SW_SHOWNORMAL);
-        }
-        else {
-            LOG_STDERR("Failed to get program directory for launching auto-setup");
+            LOG_STDERR("Invalid home-pos %s.\n", arg);
             return false;
         }
-        return true;
-    }
 
-    if (!VALID_POS(pos))
-    {
-        LOG_STDERR("Invalid home-pos %s", arg);
-        return false;
-    }
+        // if -1,-1 - launch setup
+        if (pos.lat == -1.0 && pos.lon == -1.0)
+        {
+            char setupPath[MAX_PATH];
 
-    Modes.home_pos    = pos;
-    Modes.home_pos_ok = true;
-    geo_spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
-  }
-  return true;
+            // Assumes Modes.where_am_I holds the program directory
+            snprintf(setupPath, sizeof(setupPath), "%s\\setup.exe", Modes.where_am_I);
+
+            if ((INT_PTR)ShellExecuteA(NULL, "open", setupPath, NULL, Modes.where_am_I, SW_SHOWNORMAL) <= 32)
+            {
+                LOG_STDERR("Failed to launch auto-setup: %s\n", setupPath);
+                return false;
+            }
+            return true;
+        }
+
+        if (!VALID_POS(pos))
+        {
+            LOG_STDERR("Invalid home-pos %s", arg);
+            return false;
+        }
+
+        Modes.home_pos = pos;
+        Modes.home_pos_ok = true;
+        geo_spherical_to_cartesian(NULL, &Modes.home_pos, &Modes.home_pos_cart);
+    }
+    return true;
 }
 
 /**
