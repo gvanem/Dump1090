@@ -2792,11 +2792,11 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
 #if !defined(USE_ASAN)
   /*
    * Fake alert:
-   *  If a `system ("ping.exe -6 -n 1 ipv6.google.com")` works, just assume that
-   *  the `Reply from <ping6_addr> time=zz sec' will work as the DNS6 address.
+   *   If a `system ("ping.exe -6 -n 1 ipv6.google.com")` works, just assume that
+   *   the `Reply from <ping6_addr> time=zz sec' will work as the DNS6 address.
    * Note:
-   *   `ipv6.google.com` does not have IPv4 address, only IPv6, therefore
-   *   it is guaranteed to hit IPv6 resolution path.
+   *   `ipv6.google.com` does not have IPv4 address, only IPv6.
+   *   Therefore it is guaranteed to hit IPv6 resolution path.
    */
   _set_errno (0);
   f = _popen (ping6_cmd, "r");
@@ -2813,10 +2813,22 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
        continue;
 
     DEBUG (DEBUG_NET, "_popen(): '%s'\n", ping6_buf);
-    if (sscanf(ping6_buf, "Reply from %s", ping6_addr) == 1)
+
+    /*
+     * Match a line like:
+     *  Reply from 2a00:1450:400f:803::200e: time=21ms
+     */
+    if (sscanf(ping6_buf, "Reply from %s: ", ping6_addr) == 1)
     {
-      DEBUG (DEBUG_NET, "ping6_addr: '%s'\n", ping6_addr);
-      *dns6_p = strdup (ping6_addr);
+      char *p = strrchr (ping6_addr, ':');
+
+      if (p && !p[1])
+         *p = '\0';    /* Drop the trailing ':' */
+
+     /* Return it as IPv6 bracket notation with port number
+      */
+      *dns6_p = mg_mprintf ("udp://[%s]:53", ping6_addr);
+      DEBUG (DEBUG_NET, "ping6_addr: '%s'\n", *dns6_p);
       break;
     }
   }
@@ -2970,8 +2982,12 @@ bool net_init (void)
   if (Modes.dns6)
      Modes.mgr.dns6.url = Modes.dns6;
 
-  LOG_FILEONLY2 ("Added %zu IPv4 and %zu IPv6 addresses to deny.\n",
-                 deny_list_num4(), deny_list_num6());
+  LOG_FILEONLY2 ("Added %zu IPv4 and %zu IPv6 addresses to deny.\n"
+                 "              IPv4 DNS: %s\n"
+                 "              IPv6 DNS: %s\n",
+                 deny_list_num4(), deny_list_num6(),
+                 Modes.mgr.dns4.url ? Modes.mgr.dns4.url : NONE_STR,
+                 Modes.mgr.dns6.url ? Modes.mgr.dns6.url : NONE_STR);
 
   if (test_mode)
   {
