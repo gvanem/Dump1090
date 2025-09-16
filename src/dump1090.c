@@ -17,7 +17,6 @@
 #include <sys/stat.h>
 #include <io.h>
 #include <process.h>
-#include <windows.h>
 
 #include "misc.h"
 #include "net_io.h"
