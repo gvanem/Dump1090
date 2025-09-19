@@ -4208,16 +4208,52 @@ static bool set_home_pos (const char* arg)
         if (pos.lat == -1.0 && pos.lon == -1.0)
         {
             char setupPath[MAX_PATH];
-
-            // Assumes Modes.where_am_I holds the program directory
             snprintf(setupPath, sizeof(setupPath), "%s\\setup.exe", Modes.where_am_I);
 
-            if ((INT_PTR)ShellExecuteA(NULL, "open", setupPath, NULL, Modes.where_am_I, SW_SHOWNORMAL) <= 32)
+            STARTUPINFOA si = { 0 };
+            PROCESS_INFORMATION pi = { 0 };
+            si.cb = sizeof(si);
+
+            // Command line must be writable
+            char cmdLine[MAX_PATH * 2];
+            snprintf(cmdLine, sizeof(cmdLine), "\"%s\"", setupPath);
+
+            if (!CreateProcessA(
+                NULL,
+                cmdLine,
+                NULL, NULL,
+                FALSE,
+                0,
+                NULL,
+                Modes.where_am_I, // working dir
+                &si,
+                &pi))
             {
-                LOG_STDERR("Failed to launch auto-setup: %s\n", setupPath);
-                return false;
+                LOG_STDERR("Failed to launch auto-setup: %s (err=%lu)\n", setupPath, GetLastError());
+                exit(1);
             }
-            return true;
+
+            // Wait for setup.exe to finish
+            WaitForSingleObject(pi.hProcess, INFINITE);
+
+            DWORD exitCode = 0;
+            if (!GetExitCodeProcess(pi.hProcess, &exitCode))
+            {
+                LOG_STDERR("Could not get exit code for setup.exe (err=%lu)\n", GetLastError());
+                exit(1);
+            }
+
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+
+            if (exitCode != 0)
+            {
+                LOG_STDERR("Setup failed (exit code %lu). Please retry launching Dump1090.\n", exitCode);
+                exit(1);
+            }
+
+            LOG_STDOUT("Setup complete, relaunch Dump1090.\n");
+            exit(0);
         }
 
         if (!VALID_POS(pos))
@@ -4232,6 +4268,7 @@ static bool set_home_pos (const char* arg)
     }
     return true;
 }
+
 
 /**
  * Use `Windows Location API` to set `Modes.home_pos`.
