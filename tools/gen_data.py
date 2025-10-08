@@ -75,14 +75,13 @@ def open_file (fname, mode, encoding = None):
 def create_c_file (fname):
   f = open_file (fname, "w+t")
   print ("Creating %s" % fname)
-  text = textwrap.dedent ("""
-                          /*
-                           * Generated at %s by:
-                           * %s %s
-                           * DO NOT EDIT!
-                           */
-                           """ % (time.ctime(), sys.executable, __file__))
-  f.write (text)
+  f.write (textwrap.dedent ("""
+                            /*
+                             * Generated at %s by:
+                             * %s %s
+                             * DO NOT EDIT!
+                             */
+                             """ % (time.ctime(), sys.executable, __file__)))
   return f
 
 def nice_size (num):
@@ -344,7 +343,7 @@ class zip_handler():
 #
 def create_gen_data_h (h_file):
   f = create_c_file (h_file)
-  text = textwrap.dedent ("""
+  f.write (textwrap.dedent ("""
            #ifndef GEN_DATA_H
            #define GEN_DATA_H
 
@@ -434,9 +433,8 @@ def create_gen_data_h (h_file):
            """  % (aircraft_format, aircraft_rec_len,
                    airport_format,  airport_rec_len,
                    routes_format,   routes_rec_len,
-                   blocks_format,   blocks_rec_len))
+                   blocks_format,   blocks_rec_len)))
 
-  f.write (text)
   f.close()
   sys.stdout.flush()
 
@@ -446,7 +444,7 @@ def create_gen_data_h (h_file):
 #
 def create_c_test_file (c_file, bin_file, rec_len, rec_num):
   f = create_c_file (c_file)
-  text = textwrap.dedent ("""
+  f.write (textwrap.dedent ("""
      #include "gen_data.h"
 
      #pragma pack(push, 1)
@@ -471,11 +469,9 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
      static const char *bin_file = "%s";
 
      static char buf [2000];  /* work buffer */
-     """ % (len(bin_marker), bin_marker, rec_num, rec_len, struct.calcsize(bin_header), bin_file))
+     """ % (len(bin_marker), bin_marker, rec_num, rec_len, struct.calcsize(bin_header), bin_file)))
 
-  f.write (text)
-
-  text = textwrap.dedent ("""
+  f.write (textwrap.dedent ("""
      /*
       * Turn off this annoying and incorrect warning:
       * precision used with 'S' conversion specifier, resulting in undefined behavior
@@ -580,10 +576,9 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
      #ifdef __clang__
      #pragma clang diagnostic pop
      #endif
-     """)
-  f.write (text)
+     """))
 
-  text = textwrap.dedent ("""
+  f.write (textwrap.dedent ("""
      #if defined(AIRCRAFT_LOOKUP) || defined(AIRPORTS_LOOKUP) || defined(ROUTES_LOOKUP) || defined(CODE_BLOCKS_LOOKUP)
 
      static uint32_t num_rec = 0;  /* record-counter; [ 0 - hdr.rec_num-1] */
@@ -614,10 +609,9 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
           num_mil++;
        return (buf);
      }
-     """)
-  f.write (text)
+     """))
 
-  text = textwrap.dedent ("""
+  f.write (textwrap.dedent ("""
      #else
      /*
       * Check that 'rec->FIELD_1' is sorted accending.
@@ -639,10 +633,9 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
        return (buf);
      }
      #endif  /* CODE_BLOCKS_LOOKUP */
-     """)
-  f.write (text)
+     """))
 
-  text = textwrap.dedent ("""
+  f.write (textwrap.dedent ("""
      static void *allocate_records (size_t size)
      {
        void *mem = malloc (size);
@@ -722,9 +715,8 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
        return (num_err == 0 ? 0 : 1);
      }
      #endif /* AIRCRAFT_LOOKUP || AIRPORTS_LOOKUP || ROUTES_LOOKUP || CODE_BLOCK_LOOKUP */
-     """)
+     """))
 
-  f.write (text)
   f.close()
 
 #
@@ -859,7 +851,7 @@ generate_c_code_top = textwrap.dedent ("""
    static const blocks_record sorted_blocks[] = {
      /* start     finish      count   bitmask  sign_bitmask is_mil country_ISO
       */
-   """)
+   """ % zip_dir)
 
 generate_c_code_bottom_1 = textwrap.dedent ("""
      };
@@ -919,7 +911,7 @@ generate_c_code_bottom_2 = textwrap.dedent ("""
 
 def gen_c_file (blocks):
   f = create_c_file (opt.gen_c)
-  f.write (generate_c_code_top % zip_dir)
+  f.write (generate_c_code_top)
   for d in sorted (blocks.data, reverse = True, key = lambda field: field[4]):
       f.write ("   { 0x%06X, 0x%06X, %7u, 0x%06X, 0x%06X,     %d,    \"%.2s\" },\n" % \
         (int(d[0], 16),    # blocks_record::start
