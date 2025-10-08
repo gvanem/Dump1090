@@ -9,7 +9,7 @@ as needed and generate these files:
 """
 
 import os, sys, stat, struct, time, csv, argparse, zipfile
-import fnmatch, shutil
+import fnmatch, shutil, textwrap
 
 #
 # Globals:
@@ -24,6 +24,17 @@ my_time    = os.stat(__file__).st_mtime
 bin_marker = "BIN-dump1090"   # magic marker
 bin_header = "<12sqII"        # must match 'struct BIN_header' == 28 byte
 
+try:
+  import ipdb
+
+  def debug_hook (exc_type, exc_value, traceback):
+    print (f"Caught exception: {exc_type.__name__}: {exc_value}")
+    ipdb.post_mortem (traceback)
+
+  if os.environ.get ("DEBUG"):
+     sys.excepthook = debug_hook
+except:
+  pass
 
 def error (s, prefix = ""):
   if s is None:
@@ -64,12 +75,14 @@ def open_file (fname, mode, encoding = None):
 def create_c_file (fname):
   f = open_file (fname, "w+t")
   print ("Creating %s" % fname)
-  f.write ("""/*
- * Generated at %s by:
- * %s %s
- * DO NOT EDIT!
- */
- """ % (time.ctime(), sys.executable, __file__))
+  text = textwrap.dedent ("""
+                          /*
+                           * Generated at %s by:
+                           * %s %s
+                           * DO NOT EDIT!
+                           */
+                           """ % (time.ctime(), sys.executable, __file__))
+  f.write (text)
   return f
 
 def nice_size (num):
@@ -331,97 +344,99 @@ class zip_handler():
 #
 def create_gen_data_h (h_file):
   f = create_c_file (h_file)
-  f.write ("""
-#ifndef GEN_DATA_H
-#define GEN_DATA_H
+  text = textwrap.dedent ("""
+           #ifndef GEN_DATA_H
+           #define GEN_DATA_H
 
-#ifndef _CRT_SECURE_NO_WARNINGS
-#define _CRT_SECURE_NO_WARNINGS
-#endif
+           #ifndef _CRT_SECURE_NO_WARNINGS
+           #define _CRT_SECURE_NO_WARNINGS
+           #endif
 
-#ifndef _CRT_NONSTDC_NO_WARNINGS
-#define _CRT_NONSTDC_NO_WARNINGS
-#endif
+           #ifndef _CRT_NONSTDC_NO_WARNINGS
+           #define _CRT_NONSTDC_NO_WARNINGS
+           #endif
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
-#include <time.h>
-#include <io.h>
-#include <windows.h>
+           #include <stdio.h>
+           #include <stdlib.h>
+           #include <stdint.h>
+           #include <string.h>
+           #include <time.h>
+           #include <io.h>
+           #include <windows.h>
 
-#pragma pack(push, 1)
+           #pragma pack(push, 1)
 
-/* Note: these 'char' members may NOT have be 0-terminated.
- */
-typedef struct aircraft_record {  /* matching 'aircraft_format = "%s"' == %d */
-        char icao_addr [6];
-        char regist   [10];
-        char manuf    [10];
-        char model    [40];
-      } aircraft_record;
+           /* Note: these 'char' members may NOT have be 0-terminated.
+            */
+           typedef struct aircraft_record {  /* matching 'aircraft_format = "%s"' == %d */
+                   char icao_addr [6];
+                   char regist   [10];
+                   char manuf    [10];
+                   char model    [40];
+                 } aircraft_record;
 
-typedef struct airport_record {   /* matching 'airport_format = "%s"' == %d */
-        char  icao_name [4];
-        char  iata_name [3];
-        char  full_name [40];
-        char  location  [20];
-        char  country   [2];
-        float latitude;
-        float longitude;
-      } airport_record;
+           typedef struct airport_record {   /* matching 'airport_format = "%s"' == %d */
+                   char  icao_name [4];
+                   char  iata_name [3];
+                   char  full_name [40];
+                   char  location  [20];
+                   char  country   [2];
+                   float latitude;
+                   float longitude;
+                 } airport_record;
 
-typedef struct route_record {     /* matching 'routes_format = "%s"' == %d*/
-        char call_sign [8];
-        char airports [20];
-      } route_record;
+           typedef struct route_record {     /* matching 'routes_format = "%s"' == %d*/
+                   char call_sign [8];
+                   char airports [20];
+                 } route_record;
 
-typedef struct blocks_record {    /* matching 'blocks_format = "%s"' == %d */
-        uint32_t start;
-        uint32_t finish;
-        uint32_t count;
-        uint32_t bitmask;
-        uint32_t sign_bitmask;
-        char     is_military;
-        char     country_ISO [2];
-      } blocks_record;
+           typedef struct blocks_record {    /* matching 'blocks_format = "%s"' == %d */
+                   uint32_t start;
+                   uint32_t finish;
+                   uint32_t count;
+                   uint32_t bitmask;
+                   uint32_t sign_bitmask;
+                   char     is_military;
+                   char     country_ISO [2];
+                 } blocks_record;
 
-#pragma pack(pop)
+           #pragma pack(pop)
 
-extern const aircraft_record *gen_aircraft_lookup (const char *icao_addr);
-extern const airport_record  *gen_airport_lookup (const char *icao_addr);
-extern const route_record    *gen_route_lookup (const char *call_sign);
-extern const blocks_record   *gen_blocks_lookup (uint32_t icao_addr);
+           extern const aircraft_record *gen_aircraft_lookup (const char *icao_addr);
+           extern const airport_record  *gen_airport_lookup (const char *icao_addr);
+           extern const route_record    *gen_route_lookup (const char *call_sign);
+           extern const blocks_record   *gen_blocks_lookup (uint32_t icao_addr);
 
 
-#if defined(AIRCRAFT_LOOKUP)
-  #define RECORD   aircraft_record
-  #define FIELD_1  icao_addr
+           #if defined(AIRCRAFT_LOOKUP)
+             #define RECORD   aircraft_record
+             #define FIELD_1  icao_addr
 
-#elif defined(AIRPORTS_LOOKUP)
-  #define RECORD   airport_record
-  #define FIELD_1  icao_name
+           #elif defined(AIRPORTS_LOOKUP)
+             #define RECORD   airport_record
+             #define FIELD_1  icao_name
 
-#elif defined(ROUTES_LOOKUP)
-  #define RECORD   route_record
-  #define FIELD_1  call_sign
+           #elif defined(ROUTES_LOOKUP)
+             #define RECORD   route_record
+             #define FIELD_1  call_sign
 
-#elif defined(CODE_BLOCKS_LOOKUP)
-  #define RECORD   blocks_record
-  #define FIELD_1  start
-#endif
+           #elif defined(CODE_BLOCKS_LOOKUP)
+             #define RECORD   blocks_record
+             #define FIELD_1  start
+           #endif
 
-#if defined(AIRCRAFT_LOOKUP) || defined(AIRPORTS_LOOKUP) || defined(ROUTES_LOOKUP)
-  static RECORD dummy;
-  #define FIELD_1_SIZE  (int) sizeof (dummy.FIELD_1)
-#endif
+           #if defined(AIRCRAFT_LOOKUP) || defined(AIRPORTS_LOOKUP) || defined(ROUTES_LOOKUP)
+             static RECORD dummy;
+             #define FIELD_1_SIZE  (int) sizeof (dummy.FIELD_1)
+           #endif
 
-#endif /* GEN_DATA_H */
-"""  % (aircraft_format, aircraft_rec_len,
-        airport_format,  airport_rec_len,
-        routes_format,   routes_rec_len,
-        blocks_format,   blocks_rec_len))
+           #endif /* GEN_DATA_H */
+           """  % (aircraft_format, aircraft_rec_len,
+                   airport_format,  airport_rec_len,
+                   routes_format,   routes_rec_len,
+                   blocks_format,   blocks_rec_len))
+
+  f.write (text)
   f.close()
   sys.stdout.flush()
 
@@ -431,279 +446,285 @@ extern const blocks_record   *gen_blocks_lookup (uint32_t icao_addr);
 #
 def create_c_test_file (c_file, bin_file, rec_len, rec_num):
   f = create_c_file (c_file)
-  f.write ("""
-#include "gen_data.h"
+  text = textwrap.dedent ("""
+     #include "gen_data.h"
 
-#pragma pack(push, 1)
+     #pragma pack(push, 1)
 
-typedef struct BIN_header {
-        char     bin_marker [%d];   /* BIN-file marker == "%s" */
-        time_t   created;           /* time of creation (64-bits) */
-        uint32_t rec_num;           /* number of records in .BIN-file == %u */
-        uint32_t rec_len;           /* sizeof(record) in .BIN-file == %u */
-      } BIN_header;                 /* == %u bytes */
+     typedef struct BIN_header {
+             char     bin_marker [%d];   /* BIN-file marker == "%s" */
+             time_t   created;           /* time of creation (64-bits) */
+             uint32_t rec_num;           /* number of records in .BIN-file == %u */
+             uint32_t rec_len;           /* sizeof(record) in .BIN-file == %u */
+           } BIN_header;                 /* == %u bytes */
 
-#pragma pack(pop)
+     #pragma pack(pop)
 
-#ifndef U8_NUM
-#define U8_NUM 4
-#endif
+     #ifndef U8_NUM
+     #define U8_NUM 4
+     #endif
 
-#ifndef U8_SIZE
-#define U8_SIZE 100
-#endif
+     #ifndef U8_SIZE
+     #define U8_SIZE 100
+     #endif
 
-static const char *bin_file = "%s";
+     static const char *bin_file = "%s";
 
-static char buf [2000];  /* work buffer */
-""" % (len(bin_marker), bin_marker, rec_num, rec_len, struct.calcsize(bin_header), bin_file))
+     static char buf [2000];  /* work buffer */
+     """ % (len(bin_marker), bin_marker, rec_num, rec_len, struct.calcsize(bin_header), bin_file))
 
-  f.write ("""
-/*
- * Turn off this annoying and incorrect warning:
- * precision used with 'S' conversion specifier, resulting in undefined behavior
- */
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wformat"
-#endif
+  f.write (text)
 
-#if defined(AIRCRAFT_LOOKUP)
-  #define HEADER  "ICAO    Regist      Manuf       Model"
+  text = textwrap.dedent ("""
+     /*
+      * Turn off this annoying and incorrect warning:
+      * precision used with 'S' conversion specifier, resulting in undefined behavior
+      */
+     #ifdef __clang__
+     #pragma clang diagnostic push
+     #pragma clang diagnostic ignored "-Wformat"
+     #endif
 
-  static const char *format_rec (const aircraft_record *rec)
-  {
-    snprintf (buf, sizeof(buf), "%-6.6s  %-10.10s  %-10.10s  %.40s",
-              rec->icao_addr, rec->regist, rec->manuf, rec->model);
-    return (buf);
-  }
+     #if defined(AIRCRAFT_LOOKUP)
+       #define HEADER  "ICAO    Regist      Manuf       Model"
 
-  const aircraft_record *gen_aircraft_lookup (const char *FIELD_1)
-  {
-    (void) FIELD_1;
-    return (NULL);
-  }
+       static const char *format_rec (const aircraft_record *rec)
+       {
+         snprintf (buf, sizeof(buf), "%-6.6s  %-10.10s  %-10.10s  %.40s",
+                   rec->icao_addr, rec->regist, rec->manuf, rec->model);
+         return (buf);
+       }
 
-#elif defined(AIRPORTS_LOOKUP)
-  #define HEADER  "ICAO IATA  Name                            Location             Cntry    Lat.  Long."
+       const aircraft_record *gen_aircraft_lookup (const char *FIELD_1)
+       {
+         (void) FIELD_1;
+         return (NULL);
+       }
 
-  /**
-   * Return a `wchar_t *` string for a UTF-8 string with proper right padding.
-   */
-  const wchar_t *utf8_format (const char *s, int min_width)
-  {
-    static wchar_t buf [U8_NUM] [U8_SIZE];
-    static int     idx = 0;
-    wchar_t        wc_buf [U8_SIZE];
-    wchar_t       *ret = buf [idx++];
-    int            len;
+     #elif defined(AIRPORTS_LOOKUP)
+       #define HEADER  "ICAO IATA  Name                            Location             Cntry    Lat.  Long."
 
-    idx &= (U8_NUM - 1);   /* use `U8_NUM` buffers in round-robin */
-    wcscpy (wc_buf, L"?");
+       /**
+        * Return a `wchar_t *` string for a UTF-8 string with proper right padding.
+        */
+       const wchar_t *utf8_format (const char *s, int min_width)
+       {
+         static wchar_t buf [U8_NUM] [U8_SIZE];
+         static int     idx = 0;
+         wchar_t        wc_buf [U8_SIZE];
+         wchar_t       *ret = buf [idx++];
+         int            len;
 
-    len = MultiByteToWideChar (CP_UTF8, MB_ERR_INVALID_CHARS, s, -1, NULL, 0);
-    len = min (len, U8_SIZE - 1);
-    MultiByteToWideChar (CP_UTF8, 0, s, -1, wc_buf, len);
-    _snwprintf (ret, U8_SIZE-1, L"%.*s", min_width, wc_buf);
-    return (ret);
-  }
+         idx &= (U8_NUM - 1);   /* use `U8_NUM` buffers in round-robin */
+         wcscpy (wc_buf, L"?");
 
-  static const char *format_rec (const airport_record *rec)
-  {
-    const wchar_t *full_name = utf8_format (rec->full_name, 35);
-    const wchar_t *location  = utf8_format (rec->location, 35);
+         len = MultiByteToWideChar (CP_UTF8, MB_ERR_INVALID_CHARS, s, -1, NULL, 0);
+         len = min (len, U8_SIZE - 1);
+         MultiByteToWideChar (CP_UTF8, 0, s, -1, wc_buf, len);
+         _snwprintf (ret, U8_SIZE-1, L"%.*s", min_width, wc_buf);
+         return (ret);
+       }
 
-    snprintf (buf, sizeof(buf), "%-4.4s %-3.3s   %-30.30S  %-20.20S %-2.2s    %+7.2f %+7.2f",
-              rec->icao_name, rec->iata_name, full_name, location,
-              rec->country, rec->latitude, rec->longitude);
-    return (buf);
-  }
+       static const char *format_rec (const airport_record *rec)
+       {
+         const wchar_t *full_name = utf8_format (rec->full_name, 35);
+         const wchar_t *location  = utf8_format (rec->location, 35);
 
-  const airport_record *gen_airport_lookup (const char *FIELD_1)
-  {
-    (void) FIELD_1;
-    return (NULL);
-  }
+         snprintf (buf, sizeof(buf), "%-4.4s %-3.3s   %-30.30S  %-20.20S %-2.2s    %+7.2f %+7.2f",
+                   rec->icao_name, rec->iata_name, full_name, location,
+                   rec->country, rec->latitude, rec->longitude);
+         return (buf);
+       }
 
-#elif defined(ROUTES_LOOKUP)
-  #define HEADER  "Call-sign   Airports"
+       const airport_record *gen_airport_lookup (const char *FIELD_1)
+       {
+         (void) FIELD_1;
+         return (NULL);
+       }
 
-  static const char *format_rec (const route_record *rec)
-  {
-    snprintf (buf, sizeof(buf), "%-8.8s    %-20.20s", rec->call_sign, rec->airports);
-    return (buf);
-  }
+     #elif defined(ROUTES_LOOKUP)
+       #define HEADER  "Call-sign   Airports"
 
-  const route_record *gen_route_lookup (const char *FIELD_1)
-  {
-    (void) FIELD_1;
-    return (NULL);
-  }
+       static const char *format_rec (const route_record *rec)
+       {
+         snprintf (buf, sizeof(buf), "%-8.8s    %-20.20s", rec->call_sign, rec->airports);
+         return (buf);
+       }
 
-#elif defined(CODE_BLOCKS_LOOKUP)
-  #define HEADER  "Start     Finish       Count   Bitmask  Sign-bitmask is_mil  ISO2"
+       const route_record *gen_route_lookup (const char *FIELD_1)
+       {
+         (void) FIELD_1;
+         return (NULL);
+       }
 
-  static const char *format_rec (const blocks_record *rec)
-  {
-    snprintf (buf, sizeof(buf), "0x%06X  0x%06X  %8u  0x%06X     0x%06X       %u  %.2s",
-              rec->start, rec->finish, rec->count, rec->bitmask,
-              rec->sign_bitmask, rec->is_military, rec->country_ISO);
-    return (buf);
-  }
+     #elif defined(CODE_BLOCKS_LOOKUP)
+       #define HEADER  "Start     Finish       Count   Bitmask  Sign-bitmask is_mil  ISO2"
 
-  const blocks_record *gen_blocks_lookup (uint32_t FIELD_1)
-  {
-    (void) FIELD_1;
-    return (NULL);
-  }
-#else
-  #error "A 'x_LOOKUP' must be defined."
-#endif
+       static const char *format_rec (const blocks_record *rec)
+       {
+         snprintf (buf, sizeof(buf), "0x%06X  0x%06X  %8u  0x%06X     0x%06X       %u  %.2s",
+                   rec->start, rec->finish, rec->count, rec->bitmask,
+                   rec->sign_bitmask, rec->is_military, rec->country_ISO);
+         return (buf);
+       }
 
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-""")
+       const blocks_record *gen_blocks_lookup (uint32_t FIELD_1)
+       {
+         (void) FIELD_1;
+         return (NULL);
+       }
+     #else
+       #error "A 'x_LOOKUP' must be defined."
+     #endif
 
-  f.write ("""
-#if defined(AIRCRAFT_LOOKUP) || defined(AIRPORTS_LOOKUP) || defined(ROUTES_LOOKUP) || defined(CODE_BLOCKS_LOOKUP)
+     #ifdef __clang__
+     #pragma clang diagnostic pop
+     #endif
+     """)
+  f.write (text)
 
-static uint32_t num_rec = 0;  /* record-counter; [ 0 - hdr.rec_num-1] */
-static uint32_t num_err = 0;  /* number of sort errors */
+  text = textwrap.dedent ("""
+     #if defined(AIRCRAFT_LOOKUP) || defined(AIRPORTS_LOOKUP) || defined(ROUTES_LOOKUP) || defined(CODE_BLOCKS_LOOKUP)
 
-#if defined(CODE_BLOCKS_LOOKUP)
-static uint32_t num_mil = 0;  /* number of 'rec->is_military' records */
+     static uint32_t num_rec = 0;  /* record-counter; [ 0 - hdr.rec_num-1] */
+     static uint32_t num_err = 0;  /* number of sort errors */
 
-/*
- * Check that 'rec->start' is sorted accending.
- */
-static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECORD *prev_rec)
-{
-  static char buf [100];
+     #if defined(CODE_BLOCKS_LOOKUP)
+     static uint32_t num_mil = 0;  /* number of 'rec->is_military' records */
 
-  buf[0] = '\\0';
+     /*
+      * Check that 'rec->start' is sorted accending.
+      */
+     static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECORD *prev_rec)
+     {
+       static char buf [100];
 
-  if (num_rec >= 1)
-  {
-    if (prev_rec->start > rec->start)
-    {
-      snprintf (buf, sizeof(buf), " start:  0x%06X not greater than 0x%06X",
-                rec->start, prev_rec->start);
-      num_err++;
-    }
-  }
-  if (rec->is_military)
-     num_mil++;
-  return (buf);
-}
-""")
+       buf[0] = '\\0';
 
-  f.write ("""
-#else
-/*
- * Check that 'rec->FIELD_1' is sorted accending.
- */
-static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECORD *prev_rec)
-{
-  static char buf [100];
+       if (num_rec >= 1)
+       {
+         if (prev_rec->start > rec->start)
+         {
+           snprintf (buf, sizeof(buf), " start:  0x%06X not greater than 0x%06X",
+                     rec->start, prev_rec->start);
+           num_err++;
+         }
+       }
+       if (rec->is_military)
+          num_mil++;
+       return (buf);
+     }
+     """)
+  f.write (text)
 
-  buf[0] = '\\0';
+  text = textwrap.dedent ("""
+     #else
+     /*
+      * Check that 'rec->FIELD_1' is sorted accending.
+      */
+     static const char *check_record (uint32_t num_rec, const RECORD *rec, const RECORD *prev_rec)
+     {
+       static char buf [100];
 
-  if (num_rec >= 1 && rec->FIELD_1[0] &&
-      strnicmp(prev_rec->FIELD_1, rec->FIELD_1, FIELD_1_SIZE) >= 0)
-  {
-    snprintf (buf, sizeof(buf), ": '%.*s' not greater than '%.*s'",
-              FIELD_1_SIZE, rec->FIELD_1,
-              FIELD_1_SIZE, prev_rec->FIELD_1);
-    num_err++;
-  }
-  return (buf);
-}
-#endif  /* CODE_BLOCKS_LOOKUP */
-""")
+       buf[0] = '\\0';
 
-  f.write ("""
-static void *allocate_records (size_t size)
-{
-  void *mem = malloc (size);
+       if (num_rec >= 1 && rec->FIELD_1[0] &&
+           strnicmp(prev_rec->FIELD_1, rec->FIELD_1, FIELD_1_SIZE) >= 0)
+       {
+         snprintf (buf, sizeof(buf), ": '%.*s' not greater than '%.*s'",
+                   FIELD_1_SIZE, rec->FIELD_1,
+                   FIELD_1_SIZE, prev_rec->FIELD_1);
+         num_err++;
+       }
+       return (buf);
+     }
+     #endif  /* CODE_BLOCKS_LOOKUP */
+     """)
+  f.write (text)
 
-  if (!mem)
-  {
-    fprintf (stderr, "Failed to allocate %zu bytes for %s!\\n", size, bin_file);
-    exit (1);
-  }
-  return (mem);
-}
+  text = textwrap.dedent ("""
+     static void *allocate_records (size_t size)
+     {
+       void *mem = malloc (size);
 
-int main (void)
-{
-  FILE         *f = fopen (bin_file, "rb");
-  BIN_header    hdr;
-  RECORD       *rec, *start, *prev_rec = NULL;
-  const uint8_t BOM[] = { 0xEF, 0xBB, 0xBF };
-  size_t        dsize;        /* data-size excluding BIN_header */
-  long          fsize;        /* size of .BIN-file */
+       if (!mem)
+       {
+         fprintf (stderr, "Failed to allocate %zu bytes for %s!\\n", size, bin_file);
+         exit (1);
+       }
+       return (mem);
+     }
 
-  if (!f)
-  {
-    fprintf (stderr, "Failed to open %s!\\n", bin_file);
-    return (1);
-  }
+     int main (void)
+     {
+       FILE         *f = fopen (bin_file, "rb");
+       BIN_header    hdr;
+       RECORD       *rec, *start, *prev_rec = NULL;
+       const uint8_t BOM[] = { 0xEF, 0xBB, 0xBF };
+       size_t        dsize;        /* data-size excluding BIN_header */
+       long          fsize;        /* size of .BIN-file */
 
-  /* Write an UTF-8 BOM at the start if stdout (STDOUT_FILENO=1) is redirected
-   */
-  if (!isatty(1))
-     fwrite (&BOM, sizeof(BOM), 1, stdout);
+       if (!f)
+       {
+         fprintf (stderr, "Failed to open %s!\\n", bin_file);
+         return (1);
+       }
 
-  fread (&hdr, 1, sizeof(hdr), f);
+       /* Write an UTF-8 BOM at the start if stdout (STDOUT_FILENO=1) is redirected
+        */
+       if (!isatty(1))
+          fwrite (&BOM, sizeof(BOM), 1, stdout);
 
-  printf ("bin_marker: %.*s, sizeof(BIN_header): %zu\\n", (int)sizeof(hdr.bin_marker), hdr.bin_marker, sizeof(hdr));
-  printf ("created:    %.24s\\n", ctime(&hdr.created));
-  printf ("rec_len:    %u\\n", hdr.rec_len);
-  printf ("rec_num:    %u\\n\\n", hdr.rec_num);
+       fread (&hdr, 1, sizeof(hdr), f);
 
-  /* Check the file-size vs. BIN-header
-   */
-  fsize = filelength (fileno(f));
-  dsize = hdr.rec_len * hdr.rec_num;
+       printf ("bin_marker: %.*s, sizeof(BIN_header): %zu\\n", (int)sizeof(hdr.bin_marker), hdr.bin_marker, sizeof(hdr));
+       printf ("created:    %.24s\\n", ctime(&hdr.created));
+       printf ("rec_len:    %u\\n", hdr.rec_len);
+       printf ("rec_num:    %u\\n\\n", hdr.rec_num);
 
-  if (fsize != dsize + sizeof(hdr))
-  {
-    fprintf (stderr,
-            "Something is wrong with the records!\\n"
-            "file-size: %ld\\n"
-            "expecting: %zu (%u*%u + %zu)\\n", fsize, dsize + sizeof(hdr), hdr.rec_len, hdr.rec_num, sizeof(hdr));
-    exit (1);
-  }
+       /* Check the file-size vs. BIN-header
+        */
+       fsize = filelength (fileno(f));
+       dsize = hdr.rec_len * hdr.rec_num;
 
-  start = allocate_records (dsize);
+       if (fsize != dsize + sizeof(hdr))
+       {
+         fprintf (stderr,
+                 "Something is wrong with the records!\\n"
+                 "file-size: %ld\\n"
+                 "expecting: %zu (%u*%u + %zu)\\n", fsize, dsize + sizeof(hdr), hdr.rec_len, hdr.rec_num, sizeof(hdr));
+         exit (1);
+       }
 
-  printf ("%s\\n-------------------------------------------------"
-          "-------------------------------------------\\n", HEADER);
+       start = allocate_records (dsize);
 
-  for (rec = start; num_rec < hdr.rec_num; rec++)
-  {
-    fread (rec, 1, sizeof(*rec), f);
+       printf ("%s\\n-------------------------------------------------"
+               "-------------------------------------------\\n", HEADER);
 
-    printf ("%s%s\\n", format_rec(rec), check_record(num_rec, rec, prev_rec));
-    prev_rec = rec;
-    num_rec++;
-  }
+       for (rec = start; num_rec < hdr.rec_num; rec++)
+       {
+         fread (rec, 1, sizeof(*rec), f);
 
-#if defined(CODE_BLOCKS_LOOKUP)
-  printf ("\\nnum_mil: %u, num_err: %u\\n", num_mil, num_err);
-#else
-  printf ("\\nnum_err: %u\\n", num_err);
-#endif
+         printf ("%s%s\\n", format_rec(rec), check_record(num_rec, rec, prev_rec));
+         prev_rec = rec;
+         num_rec++;
+       }
 
-  fclose (f);
-  free (start);
+     #if defined(CODE_BLOCKS_LOOKUP)
+       printf ("\\nnum_mil: %u, num_err: %u\\n", num_mil, num_err);
+     #else
+       printf ("\\nnum_err: %u\\n", num_err);
+     #endif
 
-  return (num_err == 0 ? 0 : 1);
-}
-#endif /* AIRCRAFT_LOOKUP || AIRPORTS_LOOKUP || ROUTES_LOOKUP || CODE_BLOCK_LOOKUP */
-""")
+       fclose (f);
+       free (start);
 
+       return (num_err == 0 ? 0 : 1);
+     }
+     #endif /* AIRCRAFT_LOOKUP || AIRPORTS_LOOKUP || ROUTES_LOOKUP || CODE_BLOCK_LOOKUP */
+     """)
+
+  f.write (text)
   f.close()
 
 #
@@ -815,86 +836,86 @@ def main():
 #
 # For gen_data.py --gen-c:
 #
-generate_c_code_top = """
-#include "gen_data.h"
+generate_c_code_top = textwrap.dedent ("""
+   #include "gen_data.h"
 
-/*
- * Squelch this:
- *   warning C4295: 'country_ISO': array is too small to include a terminating null character
- */
-#pragma warning (disable: 4295)
+   /*
+    * Squelch this:
+    *   warning C4295: 'country_ISO': array is too small to include a terminating null character
+    */
+   #pragma warning (disable: 4295)
 
-/*
- * From `%s/code-blocks/schema-01/README.md:
- *   Iterate through each code block in descending order of `SignificantBitmask`.
- *   AND the aircraft Mode-S identifier with the `SignificantBitmask`.
- *   If the result equals the `Bitmask` then the code block matches.
- *   Stop searching as soon as you find a match.
- *
- * Create an array sorted on `data->sign_bitmask' (descending order)
- * as a static C-array. It could be included into `aircraft.c'
- * to replace `aircraft_is_military()'.
- */
-static const blocks_record sorted_blocks[] = {
-  /* start     finish      count   bitmask  sign_bitmask is_mil country_ISO
-   */
-"""
+   /*
+    * From `%s/code-blocks/schema-01/README.md:
+    *   Iterate through each code block in descending order of `SignificantBitmask`.
+    *   AND the aircraft Mode-S identifier with the `SignificantBitmask`.
+    *   If the result equals the `Bitmask` then the code block matches.
+    *   Stop searching as soon as you find a match.
+    *
+    * Create an array sorted on `data->sign_bitmask' (descending order)
+    * as a static C-array. It could be included into `aircraft.c'
+    * to replace `aircraft_is_military()'.
+    */
+   static const blocks_record sorted_blocks[] = {
+     /* start     finish      count   bitmask  sign_bitmask is_mil country_ISO
+      */
+   """)
 
-generate_c_code_bottom_1 = """
-  };
+generate_c_code_bottom_1 = textwrap.dedent ("""
+     };
 
-static size_t num_sorted_blocks = %u;
-"""
+   static size_t num_sorted_blocks = %u;
+   """)
 
-generate_c_code_bottom_2 = """
-const blocks_record *aircraft_find_block (uint32_t addr)
-{
-  const blocks_record *b = sorted_blocks + 0;
-  size_t i;
+generate_c_code_bottom_2 = textwrap.dedent ("""
+   const blocks_record *aircraft_find_block (uint32_t addr)
+   {
+     const blocks_record *b = sorted_blocks + 0;
+     size_t i;
 
-  for (i = 0; i < num_sorted_blocks; i++, b++)
-     if ((addr & b->sign_bitmask) == b->bitmask)
-        return (b);
-  return (NULL);
-}
+     for (i = 0; i < num_sorted_blocks; i++, b++)
+        if ((addr & b->sign_bitmask) == b->bitmask)
+           return (b);
+     return (NULL);
+   }
 
-#ifdef TEST_CODE_BLOCKS
-static uint32_t random_range (uint32_t min, uint32_t max)
-{
-  double scaled = (double) rand() / RAND_MAX;
-  return (uint32_t) ((max - min + 1) * scaled) + min;
-}
+   #ifdef TEST_CODE_BLOCKS
+   static uint32_t random_range (uint32_t min, uint32_t max)
+   {
+     double scaled = (double) rand() / RAND_MAX;
+     return (uint32_t) ((max - min + 1) * scaled) + min;
+   }
 
-static void find_and_print_block (uint32_t addr)
-{
-  const blocks_record *b = aircraft_find_block (addr);
+   static void find_and_print_block (uint32_t addr)
+   {
+     const blocks_record *b = aircraft_find_block (addr);
 
-  if (!b)
-       printf ("%06X: not found!!\\n", addr);
-  else printf ("%06X: %5zu  %d    '%.2s'\\n",
-               addr, ((char*)b - (char*)&sorted_blocks[0]) / sizeof(*b), b->is_military, b->country_ISO);
-}
+     if (!b)
+          printf ("%06X: not found!!\\n", addr);
+     else printf ("%06X: %5zu  %d    '%.2s'\\n",
+                  addr, ((char*)b - (char*)&sorted_blocks[0]) / sizeof(*b), b->is_military, b->country_ISO);
+   }
 
-int main (void)
-{
-  size_t i;
+   int main (void)
+   {
+     size_t i;
 
-  srand (time(NULL));
-  puts ("50 random ICAO-addresses:\\n"
-        "ICAO      rec  Mil  Country");
-  puts ("------------------------------");
+     srand (time(NULL));
+     puts ("50 random ICAO-addresses:\\n"
+           "ICAO      rec  Mil  Country");
+     puts ("------------------------------");
 
-  for (i = 0; i < 50; i++)
-      find_and_print_block (random_range(0, 0x7FFFFF));
+     for (i = 0; i < 50; i++)
+         find_and_print_block (random_range(0, 0x7FFFFF));
 
-  puts ("\\nSome 47xx addresses:");
-  find_and_print_block (0x4780C6);
-  find_and_print_block (0x4780E0);
-  find_and_print_block (0x47FFFF);
-  return (0);
-}
-#endif /* TEST_CODE_BLOCKS */
-"""
+     puts ("\\nSome 47xx addresses:");
+     find_and_print_block (0x4780C6);
+     find_and_print_block (0x4780E0);
+     find_and_print_block (0x47FFFF);
+     return (0);
+   }
+   #endif /* TEST_CODE_BLOCKS */
+   """)
 
 def gen_c_file (blocks):
   f = create_c_file (opt.gen_c)
