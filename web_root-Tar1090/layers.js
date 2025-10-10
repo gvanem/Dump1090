@@ -99,15 +99,89 @@ function createBaseLayers() {
         type: 'base',
     }));
 
+    if (offlineMapDetailOFM > 0) {
+        world.push(new ol.layer.VectorTile({
+            type: 'base',
+            name: 'OpenFreeMapOfflineBright',
+            title: 'OpenFreeMap Offl. Bright',
+            onVisible: (layer) => {
+                if (!layer.get('styleApplied')) {
+                    ol.mapboxStyle.applyStyle(layer, "./openfreemap_offline/bright");
+                    ol.mapboxStyle.applyBackground(layer, "./openfreemap_offline/bright");
+                    layer.set('styleApplied', true);
+                }
+            },
+        }));
+        world.push(new ol.layer.VectorTile({
+            type: 'base',
+            name: 'OpenFreeMapOfflineLiberty',
+            title: 'OpenFreeMap Offl. Lib.',
+            onVisible: (layer) => {
+                if (!layer.get('styleApplied')) {
+                    ol.mapboxStyle.applyStyle(layer, "./openfreemap_offline/liberty");
+                    ol.mapboxStyle.applyBackground(layer, "./openfreemap_offline/liberty");
+                    layer.set('styleApplied', true);
+                }
+            },
+        }));
+        world.push(new ol.layer.VectorTile({
+            type: 'base',
+            name: 'OpenFreeMapOfflinePositron',
+            title: 'OpenFreeMap Offl. Pos.',
+            onVisible: (layer) => {
+                if (!layer.get('styleApplied')) {
+                    ol.mapboxStyle.applyStyle(layer, "./openfreemap_offline/positron");
+                    ol.mapboxStyle.applyBackground(layer, "./openfreemap_offline/positron");
+                    layer.set('styleApplied', true);
+                }
+            },
+        }));
+        world.push(new ol.layer.VectorTile({
+            type: 'base',
+            name: 'OpenFreeMapOfflineDark',
+            title: 'OpenFreeMap Offl. Dark',
+            onVisible: (layer) => {
+                if (!layer.get('styleApplied')) {
+                    ol.mapboxStyle.applyStyle(layer, "./openfreemap_offline/dark");
+                    ol.mapboxStyle.applyBackground(layer, "./openfreemap_offline/dark");
+                    layer.set('styleApplied', true);
+                }
+            },
+        }));
+        world.push(new ol.layer.VectorTile({
+            type: 'base',
+            name: 'OpenFreeMapOfflineFiord',
+            title: 'OpenFreeMap Offl. Fiord',
+            onVisible: (layer) => {
+                if (!layer.get('styleApplied')) {
+                    ol.mapboxStyle.applyStyle(layer, "./openfreemap_offline/fiord");
+                    ol.mapboxStyle.applyBackground(layer, "./openfreemap_offline/fiord");
+                    layer.set('styleApplied', true);
+                }
+            },
+        }));
+    }
+    if (1) {
+        world.push(new ol.layer.VectorTile({
+            type: 'base',
+            name: 'OpenFreeMapBright',
+            title: 'OpenFreeMap Bright',
+            onVisible: (layer) => {
+                if (!layer.get('styleApplied')) {
+                    ol.mapboxStyle.applyStyle(layer, "https://tiles.openfreemap.org/styles/bright");
+                    ol.mapboxStyle.applyBackground(layer, "https://tiles.openfreemap.org/styles/bright");
+                    layer.set('styleApplied', true);
+                }
+            },
+        }));
+    }
     if (1) {
         world.push(new ol.layer.VectorTile({
             type: 'base',
             name: 'OpenFreeMapLiberty',
             title: 'OpenFreeMap Liberty',
-            declutter: true,
             onVisible: (layer) => {
                 if (!layer.get('styleApplied')) {
-                    // ol-mapbox-style plugin packed in with ol ... (kinda ugly)
                     ol.mapboxStyle.applyStyle(layer, "https://tiles.openfreemap.org/styles/liberty");
                     ol.mapboxStyle.applyBackground(layer, "https://tiles.openfreemap.org/styles/liberty");
                     layer.set('styleApplied', true);
@@ -120,12 +194,38 @@ function createBaseLayers() {
             type: 'base',
             name: 'OpenFreeMapPositron',
             title: 'OpenFreeMap Positron',
-            declutter: true,
             onVisible: (layer) => {
                 if (!layer.get('styleApplied')) {
-                    // ol-mapbox-style plugin packed in with ol ... (kinda ugly)
                     ol.mapboxStyle.applyStyle(layer, "https://tiles.openfreemap.org/styles/positron");
                     ol.mapboxStyle.applyBackground(layer, "https://tiles.openfreemap.org/styles/positron");
+                    layer.set('styleApplied', true);
+                }
+            },
+        }));
+    }
+    if (1) {
+        world.push(new ol.layer.VectorTile({
+            type: 'base',
+            name: 'OpenFreeMapDark',
+            title: 'OpenFreeMap Dark',
+            onVisible: (layer) => {
+                if (!layer.get('styleApplied')) {
+                    ol.mapboxStyle.applyStyle(layer, "https://tiles.openfreemap.org/styles/dark");
+                    ol.mapboxStyle.applyBackground(layer, "https://tiles.openfreemap.org/styles/dark");
+                    layer.set('styleApplied', true);
+                }
+            },
+        }));
+    }
+    if (1) {
+        world.push(new ol.layer.VectorTile({
+            type: 'base',
+            name: 'OpenFreeMapFiord',
+            title: 'OpenFreeMap Fiord',
+            onVisible: (layer) => {
+                if (!layer.get('styleApplied')) {
+                    ol.mapboxStyle.applyStyle(layer, "https://tiles.openfreemap.org/styles/fiord");
+                    ol.mapboxStyle.applyBackground(layer, "https://tiles.openfreemap.org/styles/fiord");
                     layer.set('styleApplied', true);
                 }
             },
@@ -214,6 +314,7 @@ function createBaseLayers() {
         world.push(vtlayer);
     }
 
+    /* seems defunct
     world.push(new ol.layer.Tile({
         source: new ol.source.OSM({
             url: 'https://gibs-{a-c}.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/EPSG3857_500m/{z}/{y}/{x}.jpeg',
@@ -222,10 +323,11 @@ function createBaseLayers() {
             maxZoom: 8,
             transition: tileTransition,
         }),
-        name: 'gibs_reliev',
+        name: 'gibs_relief',
         title: 'GIBS Relief',
         type: 'base',
     }));
+    */
 
     const date = new Date(Date.now() - 86400 * 1000);
     const yesterday = date.getUTCFullYear() + '-' + (date.getUTCMonth() + 1).toString().padStart(2, '0') + '-' + date.getUTCDate().toString().padStart(2, '0');
@@ -302,7 +404,7 @@ function createBaseLayers() {
         MapboxAPIKey = loStore['mapboxKey'];
 
     if (MapboxAPIKey) {
-        world.push(new ol.MapboxVectorLayer({
+        world.push(new ol.mapboxStyle.MapboxVectorLayer({
             styleUrl: 'mapbox://styles/mapbox/streets-v10',
             accessToken: MapboxAPIKey,
             properties: {
@@ -311,7 +413,7 @@ function createBaseLayers() {
                 type: 'base',
             },
         }));
-        world.push(new ol.MapboxVectorLayer({
+        world.push(new ol.mapboxStyle.MapboxVectorLayer({
             styleUrl: 'mapbox://styles/mapbox/light-v11',
             accessToken: MapboxAPIKey,
             properties: {
@@ -320,7 +422,7 @@ function createBaseLayers() {
                 type: 'base',
             },
         }));
-        world.push(new ol.MapboxVectorLayer({
+        world.push(new ol.mapboxStyle.MapboxVectorLayer({
             styleUrl: 'mapbox://styles/mapbox/dark-v11',
             accessToken: MapboxAPIKey,
             properties: {
@@ -329,7 +431,7 @@ function createBaseLayers() {
                 type: 'base',
             },
         }));
-        world.push(new ol.MapboxVectorLayer({
+        world.push(new ol.mapboxStyle.MapboxVectorLayer({
             styleUrl: 'mapbox://styles/mapbox/outdoors-v10',
             accessToken: MapboxAPIKey,
             properties: {
@@ -692,7 +794,7 @@ function createBaseLayers() {
                 url: 'https://tilecache.rainviewer.com/v2/radar/' + latestLayer.past[latestLayer.past.length - 1].time + '/512/{z}/{x}/{y}/6/1_1.png',
                 attributions: '<a href="https://www.rainviewer.com/api.html" target="_blank">RainViewer.com</a>',
                 attributionsCollapsible: false,
-                maxZoom: 20,
+                maxZoom: 10,
             });
             rainviewerRadar.setSource(rainviewerRadarSource);
         };
@@ -707,10 +809,9 @@ function createBaseLayers() {
         });
 
         world.push(rainviewerRadar);
+    }
 
-
-
-
+    if (false) {
         const rainviewerClouds = new ol.layer.Tile({
             name: 'rainviewer_clouds',
             title: 'RainViewer Clouds',
@@ -725,7 +826,7 @@ function createBaseLayers() {
                 url: 'https://tilecache.rainviewer.com/' + latestLayer.infrared[latestLayer.infrared.length - 1].path + '/512/{z}/{x}/{y}/0/0_0.png',
                 attributions: '<a href="https://www.rainviewer.com/api.html" target="_blank">RainViewer.com</a>',
                 attributionsCollapsible: false,
-                maxZoom: 20,
+                maxZoom: 10,
             });
             rainviewerClouds.setSource(rainviewerCloudsSource);
         };
