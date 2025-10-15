@@ -295,9 +295,9 @@ static const char *wincon_to_ansi (WORD col)
   static char ret [20];  /* max: "\x1B[30;1;40;1m" == 12 */
   static BYTE wincon_to_SGR [8] = { 0, 4, 2, 6, 1, 5, 3, 7 };
   BYTE   fg, bg, SGR;
-  size_t left = sizeof(ret);
   bool   bold;
-  char  *p = ret;
+  char  *p   = ret;
+  char  *end = ret + sizeof(ret);
 
   if (col == 0)
      return ("\x1B[0m");
@@ -307,9 +307,8 @@ static const char *wincon_to_ansi (WORD col)
   bold = (col & FOREGROUND_INTENSITY);
 
   if (bold)
-       p += snprintf (p, left, "\x1B[%d;1m", 30 + SGR);
-  else p += snprintf (p, left, "\x1B[%dm", 30 + SGR);
-  left -= (ret - p);
+       p += snprintf (p, end - p, "\x1B[%d;1m", 30 + SGR);
+  else p += snprintf (p, end - p, "\x1B[%dm", 30 + SGR);
 
   bold = (col & BACKGROUND_INTENSITY);
   bg   = ((BYTE)col & ~BACKGROUND_INTENSITY) >> 4;
@@ -317,8 +316,8 @@ static const char *wincon_to_ansi (WORD col)
   {
     SGR = wincon_to_SGR [bg];
     if (bold)
-         snprintf (p-1, left+1, ";%d;1m", 40 + SGR);
-    else snprintf (p-1, left+1, ";%dm", 40 + SGR);
+         snprintf (p - 1, end - p + 1, ";%d;1m", 40 + SGR);
+    else snprintf (p - 1, end - p + 1, ";%dm", 40 + SGR);
   }
   return (ret);
 }
@@ -499,7 +498,6 @@ global_data Modes;
 void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...)
 {
   char    buf [1000];
-  char   *p = buf;
   va_list args;
 
   va_start (args, fmt);
@@ -509,106 +507,101 @@ void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...)
   (void) f;
 }
 
-/* Example from:
+/*
+ * Rewritten example from:
  *   https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
  */
 #define ESC "\x1b"
 #define CSI "\x1b["
 
-static bool EnableVTMode (void)
+static bool enable_VT_mode (HANDLE *hnd)
 {
+  DWORD mode = 0;
+
   // Set output mode to handle virtual terminal sequences
-  HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-  if (hOut == INVALID_HANDLE_VALUE)
-  {
-      return false;
-  }
+  *hnd = GetStdHandle (STD_OUTPUT_HANDLE);
+  if (*hnd == INVALID_HANDLE_VALUE)
+     return (false);
 
-  DWORD dwMode = 0;
-  if (!GetConsoleMode(hOut, &dwMode))
-  {
-      return false;
-  }
+  if (!GetConsoleMode(*hnd, &mode))
+     return (false);
 
-  dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-  if (!SetConsoleMode(hOut, dwMode))
-  {
-      return false;
-  }
-  return true;
+  mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+  if (!SetConsoleMode(*hnd, mode))
+     return (false);
+  return (true);
 }
 
-static void PrintVerticalBorder (void)
+static void print_vertical_border (void)
 {
-  printf (ESC "(0"); // Enter Line drawing mode
-  printf (CSI "104;93m"); // bright yellow on bright blue
-  printf ("x"); // in line drawing mode, \x78 -> \u2502 "Vertical Bar"
-  printf (CSI "0m"); // restore color
-  printf (ESC "(B"); // exit line drawing mode
+  printf (ESC "(0");       // Enter Line drawing mode
+  printf (CSI "104;93m");  // bright yellow on bright blue
+  printf ("x");            // in line drawing mode, \x78 -> \u2502 "Vertical Bar"
+  printf (CSI "0m");       // restore color
+  printf (ESC "(B");       // exit line drawing mode
 }
 
-static void PrintHorizontalBorder (COORD const Size, bool fIsTop)
+static void print_horizontal_border (const COORD *size, bool top)
 {
-  printf (ESC "(0"); // Enter Line drawing mode
-  printf (CSI "104;93m"); // Make the border bright yellow on bright blue
-  printf (fIsTop ? "l" : "m"); // print left corner
+  printf (ESC "(0");          // Enter Line drawing mode
+  printf (CSI "104;93m");     // Make the border bright yellow on bright blue
+  printf (top ? "l" : "m");   // print left corner
 
-  for (int i = 1; i < Size.X - 1; i++)
-      printf ("q"); // in line drawing mode, \x71 -> \u2500 "HORIZONTAL SCAN LINE-5"
+  for (int i = 1; i < size->X - 1; i++)
+      printf ("q");           // in line drawing mode, \x71 -> \u2500 "HORIZONTAL SCAN LINE-5"
 
-  printf (fIsTop ? "k" : "j"); // print right corner
+  printf (top ? "k" : "j");   // print right corner
   printf (CSI "0m");
-  printf (ESC "(B"); // exit line drawing mode
+  printf (ESC "(B");          // exit line drawing mode
 }
 
-static void PrintStatusLine (const char* const pszMessage, COORD const Size)
+static void print_status_line (const char *message, const COORD *size)
 {
-  printf (CSI "%d;1H", Size.Y);
-  printf (CSI "K"); // clear the line
-  printf ("%s", pszMessage);
+  printf (CSI "%d;1H", size->Y);
+  printf (CSI "K");    // clear the line
+  printf ("%s", message);
 }
 
 int main (void)
 {
-  bool fSuccess = EnableVTMode();
+  HANDLE hnd;
+  bool   ok = enable_VT_mode (&hnd);
 
-  if (!fSuccess)
+  if (!ok)
   {
     printf ("Unable to enter VT processing mode. Quitting.\n");
-    return -1;
-  }
-  HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
-  if (hOut == INVALID_HANDLE_VALUE)
-  {
-    printf ("Couldn't get the console handle. Quitting.\n");
-    return -1;
+    return (-1);
   }
 
   CONSOLE_SCREEN_BUFFER_INFO ScreenBufferInfo;
-  GetConsoleScreenBufferInfo(hOut, &ScreenBufferInfo);
+  int   line, num_lines, num_tab_stops;
+  COORD size;
 
-  COORD Size;
-  Size.X = ScreenBufferInfo.srWindow.Right - ScreenBufferInfo.srWindow.Left + 1;
-  Size.Y = ScreenBufferInfo.srWindow.Bottom - ScreenBufferInfo.srWindow.Top + 1;
+  memset (&size, '\0', sizeof(size));
+  GetConsoleScreenBufferInfo (hnd, &ScreenBufferInfo);
+
+  size.X = ScreenBufferInfo.srWindow.Right - ScreenBufferInfo.srWindow.Left + 1;
+  size.Y = ScreenBufferInfo.srWindow.Bottom - ScreenBufferInfo.srWindow.Top + 1;
 
   // Enter the alternate buffer
   printf (CSI "?1049h");
 
   // Clear screen, tab stops, set, stop at columns 16, 32
   printf (CSI "1;1H");
-  printf (CSI "2J"); // Clear screen
+  printf (CSI "2J");      // Clear screen
 
-  int iNumTabStops = 4; // (0, 20, 40, width)
-  printf (CSI "3g"); // clear all tab stops
-  printf (CSI "1;20H"); // Move to column 20
-  printf (ESC "H"); // set a tab stop
+  num_tab_stops = 4;      // (0, 20, 40, width)
+  printf (CSI "3g");      // clear all tab stops
+  printf (CSI "1;20H");   // Move to column 20
+  printf (ESC "H");       // set a tab stop
 
-  printf (CSI "1;40H"); // Move to column 40
-  printf (ESC "H"); // set a tab stop
+  printf (CSI "1;40H");   // Move to column 40
+  printf (ESC "H");       // set a tab stop
 
   // Set scrolling margins to 3, h-2
-  printf (CSI "3;%dr", Size.Y - 2);
-  int iNumLines = Size.Y - 4;
+  printf (CSI "3;%dr", size.Y - 2);
+
+  num_lines = size.Y - 4;
 
   printf (CSI "1;1H");
   printf (CSI "102;30m");
@@ -617,64 +610,64 @@ int main (void)
 
   // Print a top border - Yellow
   printf (CSI "2;1H");
-  PrintHorizontalBorder(Size, true);
+  print_horizontal_border (&size, true);
 
-  // // Print a bottom border
-  printf (CSI "%d;1H", Size.Y - 1);
-  PrintHorizontalBorder(Size, false);
+  // Print a bottom border
+  printf (CSI "%d;1H", size.Y - 1);
+  print_horizontal_border (&size, false);
 
   // draw columns
   printf (CSI "3;1H");
-  int line = 0;
-  for (line = 0; line < iNumLines * iNumTabStops; line++)
+
+  for (line = 0; line < num_lines * num_tab_stops; line++)
   {
-    PrintVerticalBorder();
-    if (line + 1 != iNumLines * iNumTabStops)  // don't advance to next line if this is the last line
-        printf ("\t");                         // advance to next tab stop
+    print_vertical_border();
+    if (line + 1 != num_lines * num_tab_stops)  // don't advance to next line if this is the last line
+       printf ("\t");                           // advance to next tab stop
   }
 
-  PrintStatusLine("Press any key to see text printed between tab stops.", Size);
+  print_status_line ("Press any key to see text printed between tab stops.", &size);
   _getwch();
 
   // Fill columns with output
   printf (CSI "3;1H");
-  for (line = 0; line < iNumLines; line++)
+  for (line = 0; line < num_lines; line++)
   {
     int tab = 0;
-    for (tab = 0; tab < iNumTabStops - 1; tab++)
+    for (tab = 0; tab < num_tab_stops - 1; tab++)
     {
-      PrintVerticalBorder();
+      print_vertical_border();
       printf ("line=%d", line);
-      printf ("\t"); // advance to next tab stop
+      printf ("\t");             // advance to next tab stop
     }
-    PrintVerticalBorder();// print border at right side
-    if (line + 1 != iNumLines)
-        printf ("\t"); // advance to next tab stop, (on the next line)
+    print_vertical_border();     // print border at right side
+    if (line + 1 != num_lines)
+       printf ("\t");            // advance to next tab stop, (on the next line)
   }
 
-  PrintStatusLine("Press any key to demonstrate scroll margins", Size);
+  print_status_line ("Press any key to demonstrate scroll margins", &size);
   _getwch();
 
   printf (CSI "3;1H");
-  for (line = 0; line < iNumLines * 2; line++)
+  for (line = 0; line < num_lines * 2; line++)
   {
     printf (CSI "K"); // clear the line
-    int tab = 0;
-    for (tab = 0; tab < iNumTabStops - 1; tab++)
+
+    for (int tab = 0; tab < num_tab_stops - 1; tab++)
     {
-      PrintVerticalBorder();
+      print_vertical_border();
       printf ("line=%d", line);
-      printf ("\t"); // advance to next tab stop
+      printf ("\t");           // advance to next tab stop
     }
-    PrintVerticalBorder(); // print border at right side
-    if (line + 1 != iNumLines * 2)
+    print_vertical_border();   // print border at right side
+    if (line + 1 != num_lines * 2)
     {
-      printf ("\n"); //Advance to next line. If we're at the bottom of the margins, the text will scroll.
-      printf ("\r"); //return to first col in buffer
+      printf ("\n");           // Advance to next line. If we're at the bottom of the margins, the text will scroll.
+      printf ("\r");           // return to first col in buffer
     }
   }
 
-  PrintStatusLine("Press any key to exit", Size);
+  print_status_line ("Press any key to exit", &size);
   _getwch();
 
   // Exit the alternate buffer
