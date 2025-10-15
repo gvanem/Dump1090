@@ -66,6 +66,15 @@ USE_WSOCK_TRACE ?= 0
 USE_ASTYLE ?= 1
 
 #
+# Run the static Code Analysis engine from Visual Studio?
+# Only for 'CC=cl' (not 'CC=clang-cl').
+#
+# Ref:
+#   https://learn.microsoft.com/en-us/cpp/build/reference/analyze-code-analysis?view=msvc-170
+#
+USE_ANALYSIS ?= 0
+
+#
 # Python is needed for:
 #   *) .c-file preprocessing.
 #   *) generation of '$(OBJ_DIR)/web-pages-*.c'.
@@ -83,7 +92,7 @@ CLANG_MAJOR_VER ?= 15
 
 define Usage
 
-  Usage: "make -f $(THIS_FILE) [CC=cl | clang-cl] <CPU=x86 | x64> [all | clean | vclean | depend]")
+  Usage: "make -f $(THIS_FILE) [CC=cl | clang-cl] <CPU=x86 | x64> [all | clean | vclean ]")
   Specify CC=cl       - build with MSVC
   Specify CC=clang-cl - build with clang-cl
   Specify CPU=x86     - build for 32-bit
@@ -246,27 +255,28 @@ endif
 #
 TARGETS = ../dump1090.exe
 
-SOURCES = aircraft.c    \
-          airports.c    \
-          cfg_file.c    \
-          color.c       \
-          convert.c     \
-          cpr.c         \
-          crc.c         \
-          csv.c         \
-          demod-2000.c  \
-          demod-2400.c  \
-          demod-8000.c  \
-          dump1090.c    \
-          fifo.c        \
-          geo.c         \
-          infile.c      \
-          interactive.c \
-          location.c    \
-          misc.c        \
-          net_io.c      \
-          pconsole.c    \
-          smartlist.c   \
+SOURCES = aircraft.c     \
+          airports.c     \
+          cfg_file.c     \
+          color.c        \
+          convert.c      \
+          cpr.c          \
+          crc.c          \
+          csv.c          \
+          demod-2000.c   \
+          demod-2400.c   \
+          demod-2400AC.c \
+          demod-8000.c   \
+          dump1090.c     \
+          fifo.c         \
+          geo.c          \
+          infile.c       \
+          interactive.c  \
+          location.c     \
+          misc.c         \
+          net_io.c       \
+          pconsole.c     \
+          smartlist.c    \
           speech.c
 
 vpath %.c externals        \
@@ -409,9 +419,10 @@ $(OBJ_DIR) doxy-docs:
 ifeq ($(USE_BIN_FILES),1)
   #
   # In case 'make.exe' is a MSys make, the value of '$(realpath $(TEMP))'
-  # becomes something like '/c/temp' which if not understood by '$(CC)'.
-  # Hence use an 'c:/temp/dump1090/standing-data/results' explicitly.
-  # Change to suite.
+  # becomes something like '/c/temp' which is not understood by '$(CC)'.
+  #
+  # Hence use an explicit 'c:/temp/dump1090/standing-data/results'.
+  # Change 'BIN_DIR' to suite:
   #
   BIN_DIR = $(realpath $(TEMP))/dump1090/standing-data/results
 
@@ -472,19 +483,19 @@ OpenLayers3_ARGS = --ignore "../web_root-OpenLayers3/3d/*" \
                    --ignore "../web_root-OpenLayers3/sql/*"
 
 $(OBJ_DIR)/web-page-1.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root, 1,)
+	$(call generate_web_page, $@, ../web_root, 1, )
 
 $(OBJ_DIR)/web-page-2.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-FlightAware, 2,)
+	$(call generate_web_page, $@, ../web_root-FlightAware, 2, )
 
 $(OBJ_DIR)/web-page-3.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root-OpenLayers3, 3, $(OpenLayers3_ARGS))
 
 $(OBJ_DIR)/web-page-4.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3/3d, 4,)
+	$(call generate_web_page, $@, ../web_root-OpenLayers3/3d, 4, )
 
 $(OBJ_DIR)/web-page-5.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-Tar1090, 5,)
+	$(call generate_web_page, $@, ../web_root-Tar1090, 5, )
 
 $(OBJ_DIR)/web-page-%.obj: $(OBJ_DIR)/web-page-%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
@@ -510,6 +521,14 @@ $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 $(CC).args: $(THIS_FILE)
 	$(call green_msg, All common CFLAGS are in $(BRIGHT_WHITE)$@)
 	$(call create_resp_file, $@, $(CFLAGS))
+ifeq ($(USE_ANALYSIS),1)
+	$(file >> $@, -DCODE_ANALYSIS)
+	$(file >> $@, -noFileLocks)
+	$(file >> $@, -analyze)
+	$(file >> $@, -analyze:ruleset "$(VSINSTALLDIR)\Team Tools\Static Analysis Tools\Rule Sets\NativeRecommendedRules.ruleset")
+	$(file >> $@, -analyze:plugin "$(VCToolsInstallDir)\bin\HostX64\x64\EspXEngine.dll")
+endif
+
 
 #
 # Not needed since 'favicon.c' is not in 'make clean'.
@@ -540,7 +559,7 @@ docs: doxy-docs doxy-docs/Doxyfile
 	mv --force $</dump1090.chm ..
 	$(call green_white_msg, Done generating Doxygen docs and, ../dump1090.chm)
 
-docs_clean:
+clean_docs:
 	rm -fr doxy-docs
 	rm -f ../dump1090.chm
 
@@ -550,6 +569,9 @@ doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 
 speech_test.i: speech.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, -DTEST $<)
+
+dump1090_rc.i: dump1090.rc $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+	$(call C_preprocess, $@, -DRC_INVOKED $<)
 
 %.i: %.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, $<)
@@ -572,17 +594,17 @@ ifeq ($(COPY_DLLs),)
 	$(call green_msg, No .DLLs to copy)
 else
   DLL_copy:
-	$(call green_msg, Copying '$(COPY_DLLs)' to CWD)
-	cp --update $(COPY_DLLs) .
+	$(call green_msg, Copying '$(COPY_DLLs)' to '..')
+	cp --update $(COPY_DLLs) ..
 endif
 
-DLL_clean:
-	rm -f clang_rt.asan_dynamic*.dll
+clean_DLLs:
+	rm -f ../clang_rt.asan_dynamic*.dll
 
 #
 # Clean up after Visual-Studio
 #
-VS_clean:
+clean_VS:
 	rm -f vc14*.pdb
 	rm -fr .vs x64 x86 Dump1090
 
@@ -603,13 +625,13 @@ TARGETS_JUNK = $(sort $(TARGETS:.exe=.map)     \
 
 OTHER_JUNK = link.tmp link.args cl.args clang-cl.args
 
-clean: docs_clean DLL_clean VS_clean
+clean: clean_docs clean_DLLs clean_VS
 	rm -f $(TARGETS_JUNK) $(OTHER_JUNK)
 	rm -f $(OBJ_DIR)/*.obj $(OBJ_DIR)/*.res
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
 realclean vclean: clean clean_gen_data
-	rm -f $(TARGETS) ../blocks_test.exe ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe ../web-pages.dll .depend.Windows
+	rm -f $(TARGETS) ../blocks_test.exe ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe ../web-pages.dll
 	rm -fr $(OBJ_DIR)
 
 #
@@ -914,13 +936,11 @@ define CHECK_FOR_UNUSED_LIBS_PY
   report (process(State.IDLE))
 endef
 
-DEP_CFLAGS  = -MM $(filter -D% -I%, $(CFLAGS)) -DDOING_MAKE_DEPEND
-DEP_REPLACE = -e 's@\(.*\)\.o: @\n$$(OBJ_DIR)\/\1.obj: @'
-
 #
 # Fixed dependencies:
 #
-$(OBJ_DIR)/misc.obj: dump1090_config.h $(OBJ_DIR)/cflags_$(CC).h $(OBJ_DIR)/ldflags_$(CC).h
+$(OBJ_DIR)/misc.obj:     dump1090_config.h $(OBJ_DIR)/cflags_$(CC).h $(OBJ_DIR)/ldflags_$(CC).h
+$(OBJ_DIR)/dump1090.res: dump1090_config.h
 
 ifeq ($(USE_BIN_FILES),1)
   $(OBJ_DIR)/aircraft.obj: $(OBJ_DIR)/gen-code-blocks.c $(BIN_DIR)/gen_data.h
@@ -983,10 +1003,4 @@ CURSES_SRC = $(addprefix externals/PDC-Mod/, \
 
 $(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
 $(OBJ_DIR)/net_io.obj:       client-cert-key.h server-cert-key.h
-
-depend:
-	$(call generate, .depend.Windows, #)
-	gcc $(DEP_CFLAGS) $(SOURCES) | sed $(DEP_REPLACE) >> .depend.Windows
-
--include .depend.Windows
 
