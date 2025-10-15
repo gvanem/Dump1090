@@ -214,6 +214,9 @@ void demod_2400_AC (const mag_buf *mag)
        */
       mm.sys_timestamp_msg = mag->sys_timestamp + receiveclock_ms_elapsed (mag->sample_timestamp, mm.timestamp_msg);
 
+      Modes.stat.valid_preamble++;
+      Modes.stat.demod_modeac++;
+
       decode_mode_A_message (&mm, modeac);
 
       /* Pass data to the next layer
@@ -221,6 +224,5 @@ void demod_2400_AC (const mag_buf *mag)
       modeS_user_message (&mm);
 
       f1_sample += (20*87 / 25);
-      Modes.stat.demod_modeac++;
   }
 }
