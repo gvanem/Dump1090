@@ -287,26 +287,13 @@ void fifo_release (mag_buf *buf)
 
 void fifo_stats (void)
 {
-  static uint64_t old_enqueue = 0ULL;
-  static uint64_t old_dequeue = 0ULL;
-  static uint64_t old_full    = 0ULL;
-  uint64_t delta_enqueue, delta_dequeue, delta_full;
+  static uint64_t old_full = 0ULL;
+  uint64_t delta_full = Modes.stat.FIFO_full - old_full;
 
-  delta_enqueue = Modes.stat.FIFO_enqueue - old_enqueue;
-  delta_dequeue = Modes.stat.FIFO_dequeue - old_dequeue;
-  delta_full    = Modes.stat.FIFO_full    - old_full;
-
-  if (!overlap_buffer || !Modes.log ||
-      delta_full == 0ULL ||         /* nothing dropped this period */
-      (Modes.debug & DEBUG_PLANE))  /* do not disturb plane details */
-     return;
-
-  LOG_FILEONLY ("FIFO_enqueue: %llu (%llu), FIFO_dequeue: %llu (%llu), FIFO_full: %llu (%llu)\n",
-                Modes.stat.FIFO_enqueue, delta_enqueue,
-                Modes.stat.FIFO_dequeue, delta_dequeue,
-                Modes.stat.FIFO_full,    delta_full);
-
-  old_enqueue = Modes.stat.FIFO_enqueue;
-  old_dequeue = Modes.stat.FIFO_dequeue;
-  old_full    = Modes.stat.FIFO_full;
+  if (overlap_buffer && Modes.log && delta_full > 0ULL &&
+      !(Modes.debug & DEBUG_PLANE))  /* do not disturb plane details */
+  {
+    LOG_FILEONLY ("FIFO_full: %llu (%llu)\n", Modes.stat.FIFO_full, delta_full);
+  }
+  old_full = Modes.stat.FIFO_full;
 }
