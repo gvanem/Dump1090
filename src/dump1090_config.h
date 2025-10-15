@@ -29,6 +29,7 @@
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
   #pragma clang diagnostic ignored "-Wcast-function-type-mismatch"
   #pragma clang diagnostic ignored "-Wmicrosoft-enum-forward-reference"
+  #pragma clang diagnostic ignored "-Wunterminated-string-initialization"
 
   /*
    * Cause a compile-error for these warnings:
@@ -123,6 +124,31 @@
      * warning C4459: declaration of 'db' hides global declaration
      */
     #pragma warning (disable: 4459)
+  #endif
+
+  /*
+   * Turn off some more warnings with 'USE_ANALYSIS=1'
+   */
+  #if defined(CODE_ANALYSIS)
+    /*
+     * warning C6031: Return value ignored: '_setmode'.
+     */
+    #pragma warning (disable: 6031)
+
+    /*
+     * warning C6053: The prior call to '_snprintf' might not zero-terminate string 'tmp_file'
+     */
+    #pragma warning (disable: 6053)
+
+    /*
+     * warning C6262: Function uses '33804' bytes of stack.  Consider moving some data to heap.
+     */
+    #pragma warning (disable: 6262)
+
+    /*
+     * warning C28301: No annotations for first declaration of '_rotl8'.
+     */
+    #pragma warning (disable: 28301)
   #endif
 #endif
 
