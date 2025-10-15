@@ -151,6 +151,8 @@ double geo_cartesian_distance (const struct aircraft *a, const cartesian_t *c1, 
 
 /**
  * Return the closest of `val1` and `val2` to `val`.
+ *
+ * No longer used.
  */
 double geo_closest_to (double val, double val1, double val2)
 {

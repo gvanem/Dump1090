@@ -1983,7 +1983,7 @@ const char *wininet_strerror (DWORD err)
   Modes.wininet_last_error = NULL;
 
   if (mod && FormatMessageA (FORMAT_MESSAGE_FROM_HMODULE,
-                             mod, err, MAKELANGID(LANG_NEUTRAL,SUBLANG_DEFAULT),
+                             mod, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
                              buf, sizeof(buf), NULL))
   {
     static char err_buf [512];
@@ -2008,7 +2008,7 @@ const char *wininet_strerror (DWORD err)
     if ((*p_InternetGetLastResponseInfoA) (&wininet_err, wininet_err_buf, &wininet_err_len) &&
         wininet_err > INTERNET_ERROR_BASE && wininet_err <= INTERNET_ERROR_LAST)
     {
-      snprintf (p, (size_t)(p-err_buf), " (%lu/%s)", (u_long)wininet_err, wininet_err_buf);
+      snprintf (p, (size_t)(p - err_buf), " (%lu/%s)", (u_long)wininet_err, wininet_err_buf);
       p = strrchr (p, '.');
       if (p && p[1] == '\0')
          *p = '\0';

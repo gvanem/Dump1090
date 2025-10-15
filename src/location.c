@@ -209,7 +209,7 @@ static bool location_init (void)
 no_access:
   LOG_STDOUT ("Fix your Windows settings to allow applications to access you location.\n"
               "Ref: 'Start | Settings | Privacy | Location' "
-              "Or do not use the '--location = yes' option.\n");
+              "Or do not use the 'location = yes' config-setting.\n");
   return (false);
 }
 
