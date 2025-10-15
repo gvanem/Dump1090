@@ -528,6 +528,18 @@ static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
     snprintf (buf1, sizeof(buf1), "%.*s%s%s", (int)(p2 - variable), variable, ctx->current_dir, p2 + 5);
     var = buf1;
   }
+#if 0
+  else if (p3)
+  {
+    snprintf (buf1, sizeof(buf1), "%.*s%s%s", (int)(p3 - variable), variable, basename(ctx->current_file), p3 + 5);
+    var = buf1;
+  }
+  else if (p4)
+  {
+    snprintf (buf1, sizeof(buf1), "%.*s%s%s", (int)(p4 - variable), variable, dirname(ctx->current_file), p4 + 4);
+    var = buf1;
+  }
+#endif
   else
   {
     /* Don't use getenv(); it doesn't find variable added after program was
