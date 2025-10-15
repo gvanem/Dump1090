@@ -9,6 +9,7 @@ run.bat
 run2.bat
 cl.args
 clang-cl.args
+gcc.args
 link.args
 link.tmp
 objects
