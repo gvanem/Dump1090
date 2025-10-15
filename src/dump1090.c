@@ -158,6 +158,7 @@ static const cfg_table config[] = {
     { "agc",               ARG_ATOB,    (void*) &Modes.dig_agc },
     { "interactive-ttl",   ARG_FUNC,    (void*) set_interactive_ttl },
     { "keep-alive",        ARG_ATOB,    (void*) &Modes.keep_alive },
+    { "http-ipv4-only",    ARG_ATOB,    (void*) &Modes.http_ipv4_only },
     { "http-ipv6",         ARG_ATOB,    (void*) &Modes.http_ipv6 },
     { "http-ipv6-only",    ARG_ATOB,    (void*) &Modes.http_ipv6_only },
     { "http2",             ARG_ATOB,    (void*) &Modes.wininet_HTTP2 },
@@ -743,6 +744,9 @@ static bool modeS_init (void)
 
   if (Modes.http_ipv6_only)
      Modes.http_ipv6 = true;
+
+  if (Modes.http_ipv4_only)
+     Modes.http_ipv6 = Modes.http_ipv6_only = false;
 
   if (Modes.logfile_initial[0] && stricmp(Modes.logfile_initial, "NUL"))
      modeS_init_log();
@@ -3648,7 +3652,7 @@ static void flush_log (uint64_t now)
  *  \li Polls the network for events blocking less than 125 msec.
  *  \li Flushes the `Modes.log` file every 30 sec.
  *  \li Polls the `Windows Location API` for a location every 250 msec.
- *  \li Prints FIFO-statistics file every 1 minute.
+ *  \li Print the FIFO-full delta-count.
  *  \li Removes inactive aircrafts from the list.
  *  \li Refreshes interactive data every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`).
  *  \li Refreshes the console-title with some statistics (also every 250 msec).
@@ -3705,11 +3709,7 @@ void background_tasks (void)
     shown_home_pos = true;
   }
 
-  static uint32_t fifo_stat = 0;
-
-  if ((++fifo_stat % 240) == 0)     /* every 240th time; approx 1 min */
-     fifo_stats();
-
+  fifo_stats();
   aircraft_remove_stale (now);
   airports_background (now);
 
