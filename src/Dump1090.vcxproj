@@ -19,12 +19,13 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-  <ResourceCompile Include="dump1090.rc" />
+    <ResourceCompile Include="dump1090.rc" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <ProjectGuid>{E4F9EDE0-9C94-4F7F-9E30-6B9BB0948E60}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -159,6 +160,7 @@
     <ClCompile Include="csv.c" />
     <ClCompile Include="demod-2000.c" />
     <ClCompile Include="demod-2400.c" />
+    <ClCompile Include="demod-2400AC.c" />
     <ClCompile Include="demod-8000.c" />
     <ClCompile Include="dump1090.c" />
     <ClCompile Include="fifo.c" />
