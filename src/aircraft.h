@@ -282,6 +282,7 @@ void        aircraft_show_stats (void);
 bool        aircraft_set_sort (const char *arg);
 a_sort_t    aircraft_sort (int s);
 const char *aircraft_sort_name (int s);
+void        aircraft_fix_flightaware (void);
 
 #if defined(USE_BIN_FILES)
   const char *aircraft_get_country2 (uint32_t addr, bool get_short);

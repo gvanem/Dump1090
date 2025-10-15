@@ -560,8 +560,24 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
     cli->encoding_gzip = true;  /**\todo Add gzip compression */
   }
 
+  /**
+   * The below dynamically created `*.html` pages should contain some
+   * "303 Redirect" tag. Like:
+   * `<meta http-equiv="Refresh" content="1; url="newURL" />`.
+   *
+   * Where:
+   *   `newURL == http://this-hosts-IPv4-address:8080` or
+   *   `newURL == http://[this-hosts-IPv6-address]:8080`
+   *
+   * Use `getsockname (c->fd, &sock_addr, &sock_addr_len)`.
+   */
 #if 0
-  if (!cli->rem_addr.is_ip6 && Modes.http_ipv6_only)
+  if (cli->rem_addr.is_ip6 && Modes.http_ipv4_only)
+  {
+    send_file (c, cli, "404-http-ipv4-only.html", s_idx);
+    return (404);
+  }
+  else if (!cli->rem_addr.is_ip6 && Modes.http_ipv6_only)
   {
     send_file (c, cli, "404-http-ipv6-only.html", s_idx);
     return (404);
@@ -2123,6 +2139,25 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
     return (*p_mg_unlist) (i);
   }
 
+  static bool check_flightaware_packed (const char *start, size_t fsize)
+  {
+    const char *p = start;
+    const char *prefix = ".flightawareLogo":
+    const char *end = start + fsize - strlen(prefix);
+
+    while (p < end)
+    {
+      if (str_startswith(buf, prefix))
+         return (true);
+
+      p = strchr (p, '\n');
+      if (!p)
+         return (false);
+      p++;
+    }
+    return (false);
+  }
+
 #else
   static bool check_packed_web_page (void)
   {
@@ -2131,7 +2166,57 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   }
 #endif  /* USE_PACKED_DLL */
 
-/*
+/**
+ * Check for a FlightAware web-root.
+ *
+ * If `Modes.web_root/style.css` has a line starting with `.flightawareLogo`,
+ * we assume FlightAware web-root is used.
+ *
+ * Since the JavaScript in a FlightAware web-page has different JSON-values
+ * compared to Tar1090, we have to check this.
+ *
+ * E.g. it wants to receive "alt_baro" and "alt_geom" instead of "altitude" etc.
+ * in `aircraft_make_one_json()`.
+ *
+ * The JSON spec:
+ *   https://github.com/flightaware/dump1090/blob/master/README-json.md
+ */
+static bool check_flightaware (void)
+{
+  mg_file_path buf;
+  FILE        *f;
+  const char  *prefix = ".flightawareLogo";
+
+#if defined(USE_PACKED_DLL)
+  if (use_packed_dll)
+  {
+    size_t      fsize;
+    const char *data = mg_unpack ("style.css", &fsize, NULL);
+
+    if (!data)
+       return (false);
+    return check_flightaware_packed (data, fsize);
+  }
+#endif
+
+  snprintf (buf, sizeof(buf), "%s/style.css", Modes.web_root);
+  f = fopen (buf, "rt");
+  if (!f)
+     return (false);
+
+  while (fgets(buf, sizeof(buf)-1, f))
+  {
+    if (str_startswith(buf, prefix))
+    {
+      fclose (f);
+      return (true);
+    }
+  }
+  fclose (f);
+  return (false);
+}
+
+/**
  * Check a regular Web-page
  */
 static bool check_web_page (void)
@@ -2332,7 +2417,7 @@ static void unique_ip_tests (void)
   printf ("\n%s():\n", __FUNCTION__);
   memset (&addr, '\0', sizeof(addr));
 
-  if (!Modes.http_ipv6_only)
+  if (Modes.http_ipv4_only || !Modes.http_ipv6_only)
   {
     service = MODES_NET_SERVICE_HTTP4;
     unique_ip_add_hostile (HOSTILE_IP_1, service);
@@ -3056,6 +3141,16 @@ bool net_init (void)
 
   if ((Modes.http4_out || Modes.http6_out) && !check_packed_web_page() && !check_web_page())
      return (false);
+
+  Modes.web_page_is_FA = check_flightaware();
+
+  if (Modes.web_page_is_FA)
+  {
+    /* Since 'aircraft_init()' was already called, we have to this here now.
+     */
+    aircraft_fix_flightaware();
+    LOG_FILEONLY ("Running with a FlightAware web-page\n");
+  }
 
   return (true);
 }

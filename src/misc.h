@@ -504,6 +504,7 @@ typedef struct global_data {
         int           keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
         int           http_ipv6;                  /**< Enable IPv6 for HTTP server. */
         int           http_ipv6_only;             /**< Allow only IPv6 for HTTP server. */
+        int           http_ipv4_only;             /**< Allow only IPv4 for HTTP server. */
         int           speech_enable;              /**< Enable speech for planes entering and leaving. */
         int           speech_volume;              /**< Speech volume; 0 - 100 percent */
         mg_file_path  web_page_full;              /**< The fully qualified path of web_page */
@@ -511,6 +512,7 @@ typedef struct global_data {
         mg_file_path  web_root;                   /**< And it's directory. */
         bool          web_root_touch;             /**< Touch all files in `web_root` first. */
         bool          web_send_rssi;              /**< Send the "RSSI" in the JSON-data to the web-server */
+        bool          web_page_is_FA;             /**< True if `web_page_full` is from FlightAware */
         mg_file_path  aircraft_db;                /**< The `aircraft-database.csv` file. */
         char        *aircraft_db_url;             /**< Value of key `aircrafts-update = url` */
         int           strip_level;                /**< For '--strip X' mode. */

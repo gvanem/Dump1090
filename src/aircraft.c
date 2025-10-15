@@ -218,6 +218,12 @@ bool aircraft_valid (const aircraft *a)
 
   if (a->addr & MODES_NON_ICAO_ADDRESS)
      valid = false;
+
+#if 1
+  if (!memcmp(a->call_sign, "TEST1234", 8))
+     LOG_FILEONLY ("TEST1234: valid: %d, mode_AC: 0x%08X, msgs: %d\n", valid, mode_AC, msgs);
+#endif
+
   return (valid);
 }
 
@@ -1670,7 +1676,7 @@ bool aircraft_match_init (const char *arg)
 }
 
 /**
- * Match the ICAO-address in `_a` against `Modes.icao_filter`.
+ * Match the ICAO-address in `a` against `Modes.icao_filter`.
  */
 bool aircraft_match (uint32_t a)
 {
@@ -1905,6 +1911,27 @@ static double get_signal (const aircraft *a)
   return (10 * log10 (sum / 8 + 1.125E-5));
 }
 
+/*
+ * Tar1090 want these JSON fields:
+ */
+static const char *json_alt   = "altitude";
+static const char *json_speed = "speed";
+static const char *json_vert  = "vert_rate";
+
+void aircraft_fix_flightaware (void)
+{
+  if (Modes.web_page_is_FA)
+  {
+    LOG_FILEONLY ("Fixing JSON for FlightAware\n");
+
+    /* But FlightAware wants these presumably:
+     */
+    json_alt   = "alt_baro";   /* the aircraft barometric altitude in feet */
+    json_speed = "gs";         /* ground speed in knots */
+    json_vert  = "geom_rate";  /* rate of change of geometric altitude, feet/minute */
+  }
+}
+
 static char *append_flags (int flags, char *buf)
 {
   char *p = buf;
@@ -1921,16 +1948,16 @@ static char *append_flags (int flags, char *buf)
      p += sprintf (p, "\"lat\",\"lon\",");
 
   if (flags & MODES_ACFLAGS_ALTITUDE_VALID)
-     p += sprintf (p, "\"altitude\",");
+     p += sprintf (p, "\"%s\",", json_alt);
 
   if (flags & MODES_ACFLAGS_HEADING_VALID)
      p += sprintf (p, "\"track\",");
 
   if (flags & MODES_ACFLAGS_SPEED_VALID)
-     p += sprintf (p, "\"speed\",");
+     p += sprintf (p, "\"%s\",", json_speed);
 
   if (flags & MODES_ACFLAGS_VERTRATE_VALID)
-     p += sprintf (p, "\"vert_rate\",");
+     p += sprintf (p, "\"%s\",", json_vert);
 
   if (flags & MODES_ACFLAGS_CATEGORY_VALID)
      p += sprintf (p, "\"category\",");
@@ -1997,20 +2024,20 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
 
   if ((a->AC_flags & MODES_ACFLAGS_AOG_VALID) && (a->AC_flags & MODES_ACFLAGS_AOG))
   {
-    size  = mg_snprintf (p, left, ",\"altitude\":\"ground\"");
+    size  = mg_snprintf (p, left, ",\"%s\":\"ground\"", json_alt);
     p    += size;
     left -= (int)size;
   }
   else if (a->AC_flags & MODES_ACFLAGS_ALTITUDE_VALID)
   {
-    size  = mg_snprintf (p, left, ",\"altitude\":%d", altitude);
+    size  = mg_snprintf (p, left, ",\"%s\":%d", json_alt, altitude);
     p    += size;
     left -= (int)size;
   }
 
   if (a->AC_flags & MODES_ACFLAGS_VERTRATE_VALID)
   {
-    size  = mg_snprintf (p, left, ",\"vert_rate\":%d", a->vert_rate);
+    size  = mg_snprintf (p, left, ",\"%s\":%d", json_vert, a->vert_rate);
     p    += size;
     left -= (int)size;
   }
@@ -2024,7 +2051,7 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
 
   if (a->AC_flags & MODES_ACFLAGS_SPEED_VALID)
   {
-    size  = mg_snprintf (p, left, ",\"speed\":%d", speed);
+    size  = mg_snprintf (p, left, ",\"%s\":%d", json_speed, speed);
     p    += size;
     left -= (int)size;
   }
@@ -2808,7 +2835,13 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
   /* If a (new) CALLSIGN has been received, copy it to the aircraft structure
    */
   if (mm->AC_flags & MODES_ACFLAGS_CALLSIGN_VALID)
-     memcpy (a->call_sign, mm->flight, sizeof(a->call_sign));
+  {
+    memcpy (a->call_sign, mm->flight, sizeof(a->call_sign));
+#if 1
+    if (!memcmp(a->call_sign, "TEST1234", 8))
+       LOG_FILEONLY ("TEST1234: AC_flags: 0x%08X\n", mm->AC_flags);
+#endif
+  }
 
   /* If a (new) ALTITUDE has been received, copy it to the aircraft structure
    */
