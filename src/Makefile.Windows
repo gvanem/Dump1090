@@ -479,9 +479,6 @@ $(OBJ_DIR)/%_test.obj: %.c | $(CC).args $(OBJ_DIR)
 $(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, $<)
 
-OpenLayers3_ARGS = --ignore "../web_root-OpenLayers3/3d/*" \
-                   --ignore "../web_root-OpenLayers3/sql/*"
-
 $(OBJ_DIR)/web-page-1.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root, 1, )
 
@@ -498,10 +495,10 @@ $(OBJ_DIR)/web-page-%.obj: $(OBJ_DIR)/web-page-%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
 $(OBJ_DIR)/packed_webfs_1.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3, 1, $(OpenLayers3_ARGS))
+	$(call generate_web_page, $@, ../web_root-OpenLayers3, 1, )
 
 $(OBJ_DIR)/packed_webfs_2.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3, 2, $(OpenLayers3_ARGS) --minify)
+	$(call generate_web_page, $@, ../web_root-OpenLayers3, 2, --minify)
 
 #
 # Test the output of the non-minified and minified '$(OBJ_DIR)/packed_webfs*.c' files.
