@@ -2147,7 +2147,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
 
     while (p < end)
     {
-      if (str_startswith(buf, prefix))
+      if (str_startswith(p, prefix))
          return (true);
 
       p = strchr (p, '\n');
