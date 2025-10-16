@@ -1,7 +1,0 @@
-{
-    "database":{"type":"mysql",
-                "host":"localhost",
-                "user":"root",
-                "passwd":"9anson",
-                "dbase":"ADS-B"}
-}

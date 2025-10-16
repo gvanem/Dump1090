@@ -306,7 +306,7 @@ SOURCES += externals/PDC-Mod/amalgamation.c
 #
 # For '../web-pages.dll':
 #
-WEB_SUFFIXES ?= 1 2 3 4 5
+WEB_SUFFIXES ?= 1 2 3 4
 
 WEB_SRC := $(addsuffix .c, \
              $(addprefix $(OBJ_DIR)/web-page-, $(WEB_SUFFIXES)))
@@ -489,13 +489,10 @@ $(OBJ_DIR)/web-page-2.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root-FlightAware, 2, )
 
 $(OBJ_DIR)/web-page-3.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3, 3, $(OpenLayers3_ARGS))
+	$(call generate_web_page, $@, ../web_root-OpenLayers3, 3, )
 
 $(OBJ_DIR)/web-page-4.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-OpenLayers3/3d, 4, )
-
-$(OBJ_DIR)/web-page-5.c: ../tools/gen_packed_fs.py
-	$(call generate_web_page, $@, ../web_root-Tar1090, 5, )
+	$(call generate_web_page, $@, ../web_root-Tar1090, 4, )
 
 $(OBJ_DIR)/web-page-%.obj: $(OBJ_DIR)/web-page-%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
