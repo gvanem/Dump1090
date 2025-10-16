@@ -1922,8 +1922,6 @@ void aircraft_fix_flightaware (void)
 {
   if (Modes.web_page_is_FA)
   {
-    LOG_FILEONLY ("Fixing JSON for FlightAware\n");
-
     /* But FlightAware wants these presumably:
      */
     json_alt   = "alt_baro";   /* the aircraft barometric altitude in feet */

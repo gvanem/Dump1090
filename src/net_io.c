@@ -2142,7 +2142,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   static bool check_flightaware_packed (const char *start, size_t fsize)
   {
     const char *p = start;
-    const char *prefix = ".flightawareLogo":
+    const char *prefix = ".flightawareLogo";
     const char *end = start + fsize - strlen(prefix);
 
     while (p < end)
