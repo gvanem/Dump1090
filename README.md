@@ -49,8 +49,8 @@ and added some more references and screen-shots. But in the source-code I've don
 
 ### Requirements
 
-* CMake >= 3.24
-* Visual Studio 2022 (or newer) with C++ workload
+- CMake >= 3.24
+- Visual Studio 2022 (or newer) with C++ workload
 
 ### Steps
 
@@ -90,16 +90,16 @@ c:\dev\Dump1090\dump1090.exe
 Assuming you have downloaded (or `git clone`-d) this package to `c:\dev\Dump1090`,
 then `cd c:\dev\Dump1090\src` and do:
 
-  * Using GNU-make, type:
-    * `c:\dev\Dump1090\src> make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
-  * Or using Visual Studio tools:
-    * `c:\dev\Dump1090\src> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
-  * or for MinGW-w64, type:
-    * `c:\dev\Dump1090\src> make -f Makefile.MinGW`.
-    * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`. <nl>
-      The project may have to be retargeted. *Devenv* would do this automatically and print <nl>
-      `Configuration 'Release|x64': changing Platform Toolset to 'v143' (was 'v142')` when finished.
-  * Build setup.exe by moving into the `tools/` directory with `cd ..\tools`, and running `.\generate-setupfile.bat` (ensure Rust is installed)
+- Using GNU-make, type:
+  - `c:\dev\Dump1090\src> make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
+- Or using Visual Studio tools:
+  - `c:\dev\Dump1090\src> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
+- or for MinGW-w64, type:
+  - `c:\dev\Dump1090\src> make -f Makefile.MinGW`.
+  - or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`. <nl>
+    The project may have to be retargeted. _Devenv_ would do this automatically and print <nl>
+    `Configuration 'Release|x64': changing Platform Toolset to 'v143' (was 'v142')` when finished.
+- Build setup.exe by moving into the `tools/` directory with `cd ..\tools`, and running `.\generate-setupfile.bat` (ensure Rust is installed)
 
 ## Normal usage
 
@@ -186,8 +186,8 @@ Tuned to 1090.000 MHz. Gain reported by device: AUTO.
 ```
 
 To run the program in interactive mode:
-`    c:\dev\Dump1090> dump1090 --interactive
-   `
+`   c:\dev\Dump1090> dump1090 --interactive
+  `
 
 To run the program in interactive mode, with network support and connecting
 to your browser to **http://localhost:8080**, use this command:
