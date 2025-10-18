@@ -1,7 +1,9 @@
 /**
  * A simple config-file that gets force-included for *all*
  * .c-files in Dump1090.
- * Ref. option `-FI./dump1090_config.h` in Makefile.Windows.
+ *
+ * Ref. option `-FI./dump1090_config.h` in 'Makefile.Windows'
+ *      or `--include ./dump1090_config.h` in 'Makefile.MinGW'.
  */
 #pragma once
 
@@ -290,7 +292,7 @@
   #endif
 
   /**
-   * 'RC_BITS' is defined Makefile.Windows to '32' or '64'.
+   * 'RC_BITS' is defined 'Makefile.Windows' or 'Makefile.MinGW' to '32' or '64'.
    */
   #define RC_VER_STRING  PROG_VERSION  " (" RC_BUILDER ", " _STR(RC_BITS) "-bits, " RC_DBG_REL ")"
   #define RC_VERSION     VER_MAJOR, VER_MINOR, VER_MICRO, 0
