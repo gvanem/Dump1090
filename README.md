@@ -49,11 +49,6 @@ and added some more references and screen-shots. But in the source-code I've don
 
 ### Requirements
 
-- CMake >= 3.24 (4.0 or newer recommended)
-- Visual Studio 2022 with C++ workload
-
-### Requirements
-
 * CMake >= 3.24
 * Visual Studio 2022 (or newer) with C++ workload
 
