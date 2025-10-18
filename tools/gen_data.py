@@ -16,25 +16,14 @@ import fnmatch, shutil, textwrap
 #
 opt        = None
 temp_dir   = os.getenv ("TEMP").replace("\\", "/") + "/dump1090/standing-data"
-result_dir = temp_dir + "/results"
+result_dir = temp_dir   + "/results"
+mingw_mark = result_dir + "/mingw"
 zip_dir    = temp_dir + "/standing-data-main"   # the top-level directory within 'zip_file'
 header     = "-" * 80
 my_time    = os.stat(__file__).st_mtime
 
 bin_marker = "BIN-dump1090"   # magic marker
 bin_header = "<12sqII"        # must match 'struct BIN_header' == 28 byte
-
-try:
-  import ipdb
-
-  def debug_hook (exc_type, exc_value, traceback):
-    print (f"Caught exception: {exc_type.__name__}: {exc_value}")
-    ipdb.post_mortem (traceback)
-
-  if os.environ.get ("DEBUG"):
-     sys.excepthook = debug_hook
-except:
-  pass
 
 def error (s, prefix = ""):
   if s is None:
@@ -270,20 +259,22 @@ class csv_handler():
   # and run it if opt.test == True.
   #
   def build_and_run (self):
-    if not os.path.exists(self.exe_test) or \
-       os.stat(self.exe_test).st_mtime < os.stat(self.c_test).st_mtime:
-       cmd = [ "cl.exe", "clang-cl.exe" ] [opt.clang]
-       cmd += " -nologo -MD -W3 -Zi -I%s -Fe%s -Fo%s -D%s %s" % \
-              (result_dir,
-               self.exe_test,
-               self.c_test.replace (".c", ".obj"),
-               self.define,
-               self.c_test)
-       cmd += " -link -nologo -incremental:no"
+    if not os.path.exists (self.exe_test) or \
+       os.stat (self.exe_test).st_mtime < os.stat(self.c_test).st_mtime:
+       if opt.mingw:
+          open_file (mingw_mark, "w+")
+          cmd = f"gcc.exe -O2 -g -o {self.exe_test} -I{result_dir} -D{self.define} {self.c_test}"
+       else:
+          obj_file = self.c_test.replace (".c", ".obj")
+          cmd = [ "cl.exe", "clang-cl.exe" ] [opt.clang]
+          cmd += f" -nologo -MD -W3 -Zi -I{result_dir} -Fe{self.exe_test} -Fo{obj_file} -D{self.define}"
+          cmd += f" {self.c_test} -link -nologo -incremental:no"
+
        if run_prog (cmd) != 0:
           error ("Compile failed: '%s'" % cmd)
+
     if opt.test:
-       return run_prog (self.exe_test, "-" * 80)
+       return run_prog (self.exe_test.replace("/", "\\"), "-" * 80)
     return 0
 
 #
@@ -313,8 +304,8 @@ class zip_handler():
 
   def download (self):
     print ("Downloading %s..." % self.url)
-    from urllib.request import urlretrieve as url_get
-    url_get (self.url, filename = self.zipfile, reporthook=self.download_progress)
+    from urllib.request import urlretrieve
+    urlretrieve (self.url, filename = self.zipfile, reporthook = self.download_progress)
     print ("")
 
   def extract (self):
@@ -434,7 +425,6 @@ def create_gen_data_h (h_file):
                    airport_format,  airport_rec_len,
                    routes_format,   routes_rec_len,
                    blocks_format,   blocks_rec_len)))
-
   f.close()
   sys.stdout.flush()
 
@@ -576,9 +566,7 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
      #ifdef __clang__
      #pragma clang diagnostic pop
      #endif
-     """))
 
-  f.write (textwrap.dedent ("""
      #if defined(AIRCRAFT_LOOKUP) || defined(AIRPORTS_LOOKUP) || defined(ROUTES_LOOKUP) || defined(CODE_BLOCKS_LOOKUP)
 
      static uint32_t num_rec = 0;  /* record-counter; [ 0 - hdr.rec_num-1] */
@@ -609,9 +597,7 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
           num_mil++;
        return (buf);
      }
-     """))
 
-  f.write (textwrap.dedent ("""
      #else
      /*
       * Check that 'rec->FIELD_1' is sorted accending.
@@ -633,9 +619,7 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
        return (buf);
      }
      #endif  /* CODE_BLOCKS_LOOKUP */
-     """))
 
-  f.write (textwrap.dedent ("""
      static void *allocate_records (size_t size)
      {
        void *mem = malloc (size);
@@ -721,13 +705,13 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
 
 #
 # Spawn a command:
-#   1) 'cl.exe' or 'clang-cl.exe'
+#   1) 'cl.exe', 'clang-cl.exe' or 'gcc.exe'
 #   2) with 'opt.test', run a compiled .exe-file
 #
 def run_prog (cmd, header = None):
   print ("\ncmd:\n  %s" % cmd, file = sys.stderr, flush = True)
   sys.stdout.flush()
-  rc = os.system (cmd.replace ("/", "\\"))
+  rc = os.system (cmd)
   if header:
      print (header, flush = True)
   return rc
@@ -744,6 +728,7 @@ def show_help():
   -g, --gen-c <file>:  Generate .c-code from 'code-blocks.bin' into '<file>'.
   -h, --help:          Show this help.
   -l, --list:          List all .csv-file
+  -m, --mingw:         Use MinGW 'gcc.exe' to compile (not 'cl.exe').
   -t, --test:          Build and run the test-programs '%s/*.exe'.""" % \
     (__file__, zip_dir, result_dir))
   sys.exit (0)
@@ -755,6 +740,7 @@ def parse_cmdline():
   parser.add_argument ("-g", "--gen-c", dest = "gen_c", type = str, default = None)
   parser.add_argument ("-h", "--help",  dest = "help",  action = "store_true")
   parser.add_argument ("-l", "--list",  dest = "list",  action = "store_true")
+  parser.add_argument ("-m", "--mingw", dest = "mingw", action = "store_true")
   parser.add_argument ("-t", "--test",  dest = "test",  action = "store_true")
   return parser.parse_args()
 
@@ -766,6 +752,7 @@ def do_init():
      print ("Cleaning '%s/**':" % temp_dir)
      shutil.rmtree (temp_dir, ignore_errors = True)
      sys.exit (0)
+
   return opt
 
 def main():
@@ -782,6 +769,12 @@ def main():
   airports = csv_handler ("airports", airport_rec_len, airport_record)
   routes   = csv_handler ("routes", routes_rec_len, routes_record)
   blocks   = csv_handler ("%s/code-blocks/schema-01/code-blocks.csv" % zip_dir, blocks_rec_len, blocks_record, True)
+
+  #
+  # If this file was created, use MinGW 'gcc.exe' to test the result.
+  #
+  if os.path.exists (mingw_mark):
+     opt.mingw = True
 
   if opt.list:
      num, fsize = Zip.list_files()
@@ -821,6 +814,7 @@ def main():
         print ("All tests succeeded!", file = sys.stderr)
      else:
         error ("There were some errors!")
+
   else:
      print ("\nRun '%s %s --test' to test these:\n  %s\n  %s\n  %s\n  %s\n" % \
             (sys.executable, __file__, aircraft.exe_test, airports.exe_test, blocks.exe_test, routes.exe_test))
