@@ -713,7 +713,7 @@ endef
 define generate_web_page
   $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
   $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --verbose --recursive \
-            --suffix=_$(strip $(3)) --ignore "t.*" $(4) --strip $(2)/ $(2)/)
+            --suffix=_$(strip $(3)) --ignore "t.*" --ignore "README*" $(4) --strip $(2)/ $(2)/)
   @echo
 endef
 
