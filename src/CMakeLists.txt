@@ -77,9 +77,9 @@ target_link_libraries(dump1090 PRIVATE
     ws2_32
 )
 
-# Console subsystem and ignore warnings
+# Console subsystem
 set_target_properties(dump1090 PROPERTIES
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE /IGNORE:4099"
+    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
     OUTPUT_NAME "dump1090"
 )
 
