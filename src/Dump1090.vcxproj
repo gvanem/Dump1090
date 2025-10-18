@@ -95,7 +95,6 @@
       <OutputFile>../dump1090.exe</OutputFile>
       <SubSystem>Console</SubSystem>
       <AdditionalDependencies>advapi32.lib;dnsapi.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;shlwapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
-      <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -113,7 +112,6 @@
       <SubSystem>Console</SubSystem>
       <OptimizeReferences>false</OptimizeReferences>
       <AdditionalDependencies>advapi32.lib;dnsapi.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;shlwapi.lib;winusb.lib;;ws2_32.lib</AdditionalDependencies>
-      <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -130,7 +128,6 @@
       <OutputFile>../dump1090.exe</OutputFile>
       <SubSystem>Console</SubSystem>
       <AdditionalDependencies>advapi32.lib;dnsapi.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;shlwapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
-      <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -147,7 +144,6 @@
       <OutputFile>../dump1090.exe</OutputFile>
       <SubSystem>Console</SubSystem>
       <AdditionalDependencies>advapi32.lib;dnsapi.lib;iphlpapi.lib;ole32.lib;user32.lib;setupapi.lib;shlwapi.lib;winusb.lib;ws2_32.lib</AdditionalDependencies>
-      <AdditionalOptions>/IGNORE:4099</AdditionalOptions>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
