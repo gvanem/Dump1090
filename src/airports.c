@@ -750,7 +750,7 @@ static void routes_find_test (void)
     if (!dest)
         dest = "?";
 
-    printf ("  %6zu  %-7s    %.4s  %.4s   %ws %ws    %7.1lf\n",
+    printf ("  %6zu  %-7s    %.4s  %.4s   %S %S    %7.1lf\n",
             rec_num, call_sign, start, start + 5,
             u8_format(dep, 20),
             u8_format(dest, 20),
@@ -1710,7 +1710,7 @@ static void airport_print_rec (const airport *a, const char *ICAO, size_t idx, d
      snprintf (val_buf, sizeof(val_buf), usec_fmt, val);
 
   if (UTF8_decode)
-       printf ("'%ws' '%ws' ", u8_format(location, 20), u8_format(full_name, 42));
+       printf ("'%S' '%S' ", u8_format(location, 20), u8_format(full_name, 42));
   else printf ("'%-20.20s' '%-43.43s'", location, full_name);
 
   printf ("  %9.3f %9.3f  %s\n", pos->lat, pos->lon, val_buf);
@@ -1842,7 +1842,7 @@ static void location_print_rec (unsigned idx, const char *ICAO, const char *IATA
   if (!full_name)
       full_name = "?";
 
-  printf ("  %5u    '%-8s'  '%-3s'   %2s    '%ws'  %ws\n",
+  printf ("  %5u    '%-8s'  '%-3s'   %2s    '%S'  %S\n",
           idx,
           ICAO[0]   ? ICAO : "?",
           IATA[0]   ? IATA : "?",
@@ -2392,7 +2392,7 @@ bool airports_API_flight_log_resolved (const aircraft *a)
     dep_location_w = dep_location ? u8_format (dep_location, 0) : NULL;
     dst_location_w = dst_location ? u8_format (dst_location, 0) : NULL;
 
-    LOG_FILEONLY ("%s, \"%s -> %s\" (%ws -> %ws, %s).\n",
+    LOG_FILEONLY ("%s, \"%s -> %s\" (%S -> %S, %s).\n",
                   plane_buf, f->departure, f->destination,
                   dep_location_w ? dep_location_w : L"?",
                   dst_location_w ? dst_location_w : L"?",
@@ -2401,7 +2401,7 @@ bool airports_API_flight_log_resolved (const aircraft *a)
     if (Modes.speech_enable)
     {
       if (dep_location_w && dst_location_w)
-           speak_string ("%s entering. Route %ws to %ws", f->call_sign, dep_location_w, dst_location_w);
+           speak_string ("%s entering. Route %S to %S", f->call_sign, dep_location_w, dst_location_w);
       else speak_string ("%s entering", f->call_sign);
     }
     return (true);

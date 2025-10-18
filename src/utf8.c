@@ -249,7 +249,7 @@ void run_tests_1 (bool verbose, bool use_utf8_format2)
     printf ("  codepoints: %2zd(%2zd), ", codepoints, strlen(s));
 
     if (use_utf8_format2)
-         printf ("  '%ws' %s\n", utf8_format2(s, 15), column_2);
+         printf ("  '%S' %s\n", utf8_format2(s, 15), column_2);
     else printf ("  '%s' %s\n", utf8_format(s, 15), column_2);
 
     assert (codepoints <= strlen(s));
