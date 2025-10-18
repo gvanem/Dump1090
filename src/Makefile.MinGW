@@ -142,11 +142,14 @@ clean_gen_data: ../tools/gen_data.py
 $(OBJ_DIR)/%.res: %.rc
 	$(call create_res_file, $@, $<)
 
+$(OBJ_DIR)/sqlite3.o: externals/sqlite3.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile_long_time, $@, $<)
+
 $(OBJ_DIR)/%.o: %.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, $<)
 
 gcc.args: $(THIS_FILE)
-	$(call green_msg, All common CFLAGS are in $(BRIGHT_WHITE)$@)
+	$(call green_msg, All CFLAGS are in $(BRIGHT_WHITE)$@)
 	$(call create_resp_file, $@, -c $(CFLAGS))
 
 #
@@ -197,6 +200,12 @@ green_msg       = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
 green_white_msg = $(call green_msg, $(1) $(BRIGHT_WHITE)$(strip $(2)) $(BRIGHT_GREEN)...)
 
 define C_compile
+  $(CC) @$(CC).args -o $(strip $(1) $(2))
+  @echo
+endef
+
+define C_compile_long_time
+  $(call green_msg, Compiling $(BRIGHT_WHITE)$(strip $(2)) $(BRIGHT_GREEN)will take some time...)
   $(CC) @$(CC).args -o $(strip $(1) $(2))
   @echo
 endef
