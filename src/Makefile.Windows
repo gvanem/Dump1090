@@ -313,6 +313,7 @@ WEB_SRC := $(addsuffix .c, \
              $(addprefix $(OBJ_DIR)/web-page-, $(WEB_SUFFIXES)))
 
 ifeq ($(USE_PACKED_DLL),1)
+  vpath %.c  $(OBJ_DIR)
   vpath %.rc $(OBJ_DIR)
 
   TARGETS   += ../web-pages.dll
@@ -568,10 +569,10 @@ speech_test.i: speech.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 dump1090_rc.i: dump1090.rc $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, -DRC_INVOKED $<)
 
-%.i: %.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+pdc_%.i: externals/PDC-Mod/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, $<)
 
-pdc_%.i: externals/PDC-Mod/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+%.i: %.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, $<)
 
 FORCE:
@@ -709,11 +710,11 @@ define generate_ldflags_h
 endef
 
 #
-# Ignore any temp-files matching "t.*"
+# Ignore any "README*" file and temp-files matching "t.*"
 #
 define generate_web_page
   $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
-  $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --verbose --recursive \
+  $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --recursive \
             --suffix=_$(strip $(3)) --ignore "t.*" --ignore "README*" $(4) --strip $(2)/ $(2)/)
   @echo
 endef
