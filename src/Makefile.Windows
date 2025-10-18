@@ -161,6 +161,7 @@ ifeq ($(CC),clang-cl)
   CFLAGS += -fms-compatibility \
             -ferror-limit=5    \
             -Wno-unused-command-line-argument
+
   RCFLAGS += -D__clang__
   gen_data_arg = -c
 else
@@ -513,7 +514,7 @@ $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 	$(call link_EXE, $@, $^ $(ASAN_LIBS) ole32.lib shlwapi.lib)
 
 $(CC).args: $(THIS_FILE)
-	$(call green_msg, All common CFLAGS are in $(BRIGHT_WHITE)$@)
+	$(call green_msg, All CFLAGS are in $(BRIGHT_WHITE)$@)
 	$(call create_resp_file, $@, $(CFLAGS))
 ifeq ($(USE_ANALYSIS),1)
 	$(file >> $@, -DCODE_ANALYSIS)
@@ -645,7 +646,7 @@ define C_compile
 endef
 
 define C_compile_long_time
-  $(call green_msg, Compiling $(BRIGHT_WHITE)$(strip $(1)) $(BRIGHT_GREEN)will take some time...)
+  $(call green_msg, Compiling $(BRIGHT_WHITE)$(strip $(2)) $(BRIGHT_GREEN)will take some time...)
   $(_CC) @$(CC).args -Fo./$(strip $(1) $(2))
   @echo
 endef
