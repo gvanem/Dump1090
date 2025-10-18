@@ -56,7 +56,6 @@ and added some more references and screen-shots. But in the source-code I've don
 
 * CMake >= 3.24
 * Visual Studio 2022 (or newer) with C++ workload
-* Optional: Ninja build system
 
 ### Steps
 
