@@ -119,7 +119,7 @@ exit /b 1
   ..\dump1090 -VV
 
   %_ECHO% "\e[1;33m\nRunning '..\dump1090 --test aircraft,airport,net':\e[0m"
-  ..\dump1090 --config dump1090.cfg --debug gn --test aircraft,airport,net
+  ..\dump1090 --config dump1090.cfg --debug gn --test "aircraft,airport,net"
 
   %_ECHO% "\e[1;33m\nRunning 'type $(TEMP)/dump1090/reverse-resolve.csv':\e[0m"
   type %TEMP%\dump1090\reverse-resolve.csv
