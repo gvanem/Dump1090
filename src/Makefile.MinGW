@@ -1,0 +1,356 @@
+#
+# GNU Makefile for dump1090 / MinGW.
+#
+# By G. Vanem <gvanem@yahoo.no> 2025.
+#
+# Ref: https://github.com/gvanem/Dump1090.git
+#
+TODAY      = $(shell date +%d-%B-%Y)
+YEAR       = $(shell date +%Y)
+PYTHON     = py -3
+THIS_FILE  = Makefile.MinGW
+MAKEFLAGS += --warn-undefined-variables
+
+USE_ASTYLE ?= 1
+
+CC = gcc
+
+OBJ_DIR = objects
+
+c_to_obj = $(addprefix $(OBJ_DIR)/, $(notdir $(1:.c=.o)))
+
+#
+# The CFLAGS + LDFLAGS used. Printed on '../dump1090.exe -VV'.
+#
+GENERATED = $(OBJ_DIR)/cflags_gcc.h \
+            $(OBJ_DIR)/ldflags_gcc.h
+
+CFLAGS = -g -O2                \
+         -I.                   \
+         -I./externals         \
+         -I./externals/PDC-Mod \
+         -I./$(OBJ_DIR)        \
+         --include ./dump1090_config.h
+
+CFLAGS += -DMG_ENABLE_POLL=1 \
+          -DUSE_BIN_FILES=1
+
+LDFLAGS =
+
+#
+# If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
+#
+ifeq ($(CPU),x64)
+  BITS   := 64
+  RCFLAGS =  --target=pe-x86-64
+else ifeq ($(CPU),x86)
+  BITS := 32
+  RCFLAGS =  --target=pe-i386
+else
+  $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
+endif
+
+RCFLAGS += -O coff -DRC_BITS=$(BITS) -D__MINGW64__
+
+OS_LIBS = -ladvapi32 -ldnsapi -liphlpapi -lole32 -lsetupapi -lshlwapi -luuid -luser32 -lwinmm -lwinusb -lws2_32
+
+#
+# What to build:
+#
+TARGETS = ../dump1090.exe
+
+SOURCES = aircraft.c     \
+          airports.c     \
+          cfg_file.c     \
+          color.c        \
+          convert.c      \
+          cpr.c          \
+          crc.c          \
+          csv.c          \
+          demod-2000.c   \
+          demod-2400.c   \
+          demod-2400AC.c \
+          demod-8000.c   \
+          dump1090.c     \
+          fifo.c         \
+          geo.c          \
+          infile.c       \
+          interactive.c  \
+          location.c     \
+          misc.c         \
+          net_io.c       \
+          pconsole.c     \
+          smartlist.c    \
+          speech.c
+
+vpath %.c externals        \
+          externals/AirSpy \
+          externals/SDRplay
+
+SOURCES += $(addprefix externals/, \
+             mongoose.c            \
+             sqlite3.c             \
+             zip.c                 \
+             AirSpy/airspy.c       \
+             SDRplay/sdrplay.c)
+
+vpath %.c externals/rtl-sdr
+
+SOURCES += $(addprefix externals/rtl-sdr/, \
+             librtlsdr.c                   \
+             trace.c                       \
+             tuner_e4k.c                   \
+             tuner_fc001x.c                \
+             tuner_fc2580.c                \
+             tuner_r82xx.c)
+
+vpath %.c  externals/PDC-Mod
+SOURCES += externals/PDC-Mod/amalgamation.c
+
+OBJECTS = $(call c_to_obj, $(SOURCES))
+
+vpath %.c ../tools
+
+all: $(GENERATED) $(TARGETS)
+	$(call green_msg, Welcome to Dump1090/gcc.)
+
+$(OBJ_DIR):
+	mkdir --parents $@
+
+../dump1090.exe: $(OBJECTS) $(OBJ_DIR)/dump1090.res
+	$(call link_EXE, $@, $^ $(OS_LIBS))
+
+#
+# In case 'make.exe' is a MSys make, the value of '$(realpath $(TEMP))'
+# becomes something like '/c/temp' which if not understood by '$(CC)'.
+# Hence use an 'c:/temp/dump1090/standing-data/results' explicitly.
+# Change to suite.
+#
+BIN_DIR = $(realpath $(TEMP))/dump1090/standing-data/results
+
+$(OBJ_DIR)/gen-code-blocks.c \
+$(BIN_DIR)/gen_data.h        \
+$(BIN_DIR)/code-blocks.bin: ../tools/gen_data.py | $(OBJ_DIR)
+	$(call green_msg, Generating $(BRIGHT_WHITE)$@)
+	$(PYTHON) $< --gen-c $(OBJ_DIR)/gen-code-blocks.c
+	cp --update $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
+
+clean_gen_data: ../tools/gen_data.py
+	$(call green_msg, Cleaning generated data)
+	$(PYTHON) $< --clean
+
+$(OBJ_DIR)/%.res: %.rc
+	$(call create_res_file, $@, $<)
+
+$(OBJ_DIR)/%.o: %.c | $(CC).args $(OBJ_DIR)
+	$(call C_compile, $@, $<)
+
+gcc.args: $(THIS_FILE)
+	$(call green_msg, All common CFLAGS are in $(BRIGHT_WHITE)$@)
+	$(call create_resp_file, $@, -c $(CFLAGS))
+
+#
+# For '../dump1090.exe -VV':
+#
+$(OBJ_DIR)/cflags_gcc.h: $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate_cflags_h, $@, $(CC) -c $(CFLAGS))
+
+$(OBJ_DIR)/ldflags_gcc.h: $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate_ldflags_h, $@, $(CC) $(LDFLAGS) -o dump1090.exe $(OBJECTS) $(OBJ_DIR)/dump1090.res $(OS_LIBS))
+
+$(OBJ_DIR)/dump1090.res: dump1090_config.h
+
+dump1090_rc.i: dump1090.rc $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+	$(call C_preprocess, $@, -DRC_INVOKED $<)
+
+%.i: %.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+	$(call C_preprocess, $@, $<)
+
+pdc_%.i: externals/PDC-Mod/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
+	$(call C_preprocess, $@, $<)
+
+FORCE:
+
+$(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
+	$(call generate, $@, #)
+	$(file >> $@,if 1:)
+	$(file >> $@,$(CPP_FILTER_PY))
+
+clean:
+	rm -f gcc.args
+	rm -f $(OBJ_DIR)/*.o $(OBJ_DIR)/*.res
+	- @rmdir $(OBJ_DIR) 2>/dev/null
+
+realclean vclean: clean clean_gen_data
+	rm -f $(TARGETS)
+	rm -fr $(OBJ_DIR)
+
+#
+# GNU-make macros:
+#
+# This assumes you have an MSys/Cygwin 'echo.exe' with colour support.
+#
+BRIGHT_GREEN = \e[1;32m
+BRIGHT_WHITE = \e[1;37m
+
+green_msg       = @echo -e "$(BRIGHT_GREEN)$(strip $(1))\e[0m"
+green_white_msg = $(call green_msg, $(1) $(BRIGHT_WHITE)$(strip $(2)) $(BRIGHT_GREEN)...)
+
+define C_compile
+  $(CC) @$(CC).args -o $(strip $(1) $(2))
+  @echo
+endef
+
+define create_res_file
+  windres $(RCFLAGS) -o $(strip $(1) $(2))
+  @echo
+endef
+
+define create_resp_file
+  $(file > $(1))
+  $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
+endef
+
+define link_EXE
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
+  $(call create_resp_file, link.args, $(LDFLAGS) $(2))
+  $(CC) -o $(1) @link.args
+  @echo
+endef
+
+define Warning
+  $(1)
+  $(1) DO NOT EDIT! This file was automatically generated
+  $(1) from $(CURDIR)/$(THIS_FILE) at $(TODAY).
+  $(1) Edit that file instead.
+  $(1)
+endef
+
+define generate
+  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
+  $(file > $(1),$(call Warning,$(strip $(2))))
+endef
+
+define generate_cflags_h
+  $(call generate, $(1),//)
+  $(file >> $(1),const char *cflags = "$(strip $(2))";)
+endef
+
+define generate_ldflags_h
+  $(call generate, $(1),//)
+  $(file >> $(1),const char *ldflags = "$(strip $(2))";)
+endef
+
+ifeq ($(USE_ASTYLE),1)
+  C_FORMATER = | astyle
+else
+  C_FORMATER =
+endif
+
+define C_preprocess
+  $(call green_msg, Preprocessing $(BRIGHT_WHITE)$(strip $(2)))
+  $(file  > $(1),/* The result of preprocessing '$(strip $(2))' (USE_ASTYLE=$(USE_ASTYLE)):)
+  $(file >> $(1), *  $(CC) -E)
+  $(foreach f, $(CFLAGS), $(file >> $(1), *  $(f)))
+  $(file >> $(1), *---------------------------------------------------------)
+  $(file >> $(1), * Try to compile this output.)
+  $(file >> $(1), */)
+  $(CC) -E @$(CC).args $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(C_FORMATER) >> $(1)
+endef
+
+define CPP_FILTER_PY
+  import sys, os
+
+  empty_lines = 0
+  while True:
+    line = sys.stdin.readline()
+    if not line:
+       break
+    line = line.rstrip()
+    if line == "":
+       empty_lines += 1
+       continue
+
+    #
+    # MSVC or clang-cl 'line' directive
+    #
+    l = line.lstrip()
+    if l.startswith("#line") or l.startswith("# "):
+       line = line.replace ("\\\\", "/")
+
+    print (line)
+
+    #
+    # Print a newline after a functions or structs
+    #
+    if l == "}" or l == "};":
+       print ("")
+
+  print ("Removed %d empty lines." % empty_lines, file=sys.stderr)
+endef
+
+#
+# Fixed dependencies:
+#
+$(OBJ_DIR)/misc.o: dump1090_config.h $(OBJ_DIR)/cflags_gcc.h $(OBJ_DIR)/ldflags_gcc.h
+
+$(OBJ_DIR)/aircraft.o: $(OBJ_DIR)/gen-code-blocks.c $(BIN_DIR)/gen_data.h
+
+CURSES_SRC = $(addprefix externals/PDC-Mod/, \
+               acs_defs.h                    \
+               addch.c                       \
+               addchstr.c                    \
+               addstr.c                      \
+               amalgamation.c                \
+               attr.c                        \
+               beep.c                        \
+               bkgd.c                        \
+               border.c                      \
+               clear.c                       \
+               color.c                       \
+               delch.c                       \
+               deleteln.c                    \
+               getch.c                       \
+               getstr.c                      \
+               getyx.c                       \
+               inch.c                        \
+               inchstr.c                     \
+               initscr.c                     \
+               inopts.c                      \
+               insch.c                       \
+               insstr.c                      \
+               instr.c                       \
+               kernel.c                      \
+               keyname.c                     \
+               mouse.c                       \
+               mouse2.c                      \
+               move.c                        \
+               outopts.c                     \
+               overlay.c                     \
+               pad.c                         \
+               panel.c                       \
+               panel.h                       \
+               pdccolor.c                    \
+               pdccolor.h                    \
+               pdcclip.c                     \
+               pdcdisp.c                     \
+               pdcgetsc.c                    \
+               pdckbd.c                      \
+               pdcscrn.c                     \
+               pdcsetsc.c                    \
+               pdcutil.c                     \
+               printw.c                      \
+               refresh.c                     \
+               scanw.c                       \
+               scroll.c                      \
+               scr_dump.c                    \
+               slk.c                         \
+               termattr.c                    \
+               touch.c                       \
+               util.c                        \
+               winclip.c                     \
+               window.c)
+
+$(OBJ_DIR)/amalgamation.o: $(CURSES_SRC)
+$(OBJ_DIR)/net_io.o:       client-cert-key.h server-cert-key.h
+
