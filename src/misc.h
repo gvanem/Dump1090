@@ -532,6 +532,7 @@ typedef struct global_data {
         bool          icao_invert;
         bool          internal_error;
         bool          cpr_trace;                 /**< Report CPR events to .log-file? default true */
+        bool          console_icon;              /**< In interactive-mode, do a `SendMessage (WM_SETICON)` for our icon */
 
         /** For handling a `Modes.aircraft_db` file:
          */

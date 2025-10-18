@@ -130,6 +130,7 @@ static uint64_t max_messages;
 
 static const cfg_table config[] = {
     { "bias-t",            ARG_FUNC,    (void*) set_bias_tee },
+    { "console-icon",      ARG_ATOB,    (void*) &Modes.console_icon },
     { "cpr-trace",         ARG_ATOB,    (void*) &Modes.cpr_trace },
     { "DC-filter",         ARG_ATOB,    (void*) &Modes.DC_filter },
     { "airspy-dll",        ARG_FUNC,    (void*) airspy_set_dll_name },

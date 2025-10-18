@@ -540,8 +540,12 @@ static void test_utf8 (void)
  */
 static void set_console_icon (HWND wnd)
 {
-  HANDLE icon = LoadImage (GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_APPICON), IMAGE_ICON, 0, 0, 0);
+  HANDLE icon;
 
+  if (!Modes.console_icon)
+     return;
+
+  icon = LoadImage (GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_APPICON), IMAGE_ICON, 0, 0, 0);
   if (icon && IsWindow(wnd))
      SendMessage (wnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
 }
