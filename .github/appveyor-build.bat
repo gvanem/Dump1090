@@ -79,6 +79,8 @@ if %BUILDER%. == clang. (
 )
 
 if %BUILDER%. == MinGW. (
+  %_ECHO% "\e[1;33mgcc info:\e[0m"
+  gcc -v
   %_ECHO% "\e[1;33mBuilding for MinGW/x64:\e[0m"
   make -f Makefile.MinGW CPU=x64 clean all
   goto run_tests
