@@ -2,6 +2,7 @@ environment:
   matrix:
     - BUILDER: MSVC
     - BUILDER: clang
+    - BUILDER: MinGW
 
 matrix:
   #
@@ -11,10 +12,10 @@ matrix:
 
 install:
   #
-  # Prepend the PATH for 'make' + 'sh' etc.
+  # Prepend the PATH for 'make', 'sh' and MinGW 'gcc'.
   # And set compiler environment for MSVC/clang-cl:
   #
-  - cmd: set PATH=c:\msys64\usr\bin;%PATH%
+  - cmd: set PATH=c:\msys64\usr\bin;c:\msys64\MinGW64\bin;%PATH%
   - cmd: call "c:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x64
 
   #
