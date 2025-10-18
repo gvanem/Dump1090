@@ -11,7 +11,9 @@ PYTHON     = py -3
 THIS_FILE  = Makefile.MinGW
 MAKEFLAGS += --warn-undefined-variables
 
-USE_ASTYLE ?= 1
+USE_ASTYLE     ?= 0
+USE_BIN_FILES  ?= 0
+USE_PACKED_DLL ?= 0
 
 CC = gcc
 
@@ -32,8 +34,11 @@ CFLAGS = -g -O2                \
          -I./$(OBJ_DIR)        \
          --include ./dump1090_config.h
 
-CFLAGS += -DMG_ENABLE_POLL=1 \
-          -DUSE_BIN_FILES=1
+CFLAGS += -DMG_ENABLE_POLL=1 -DUSE_MG_DNS=1
+
+ifeq ($(USE_BIN_FILES),1)
+  CFLAGS += -DUSE_BIN_FILES
+endif
 
 LDFLAGS =
 
@@ -50,7 +55,7 @@ else
   $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
 endif
 
-RCFLAGS += -O coff -DRC_BITS=$(BITS) -D__MINGW64__
+RCFLAGS += -O coff -DRC_BITS=$(BITS) -I.
 
 OS_LIBS = -ladvapi32 -ldnsapi -liphlpapi -lole32 -lsetupapi -lshlwapi -luuid -luser32 -lwinmm -lwinusb -lws2_32
 
@@ -107,7 +112,25 @@ SOURCES += $(addprefix externals/rtl-sdr/, \
 vpath %.c  externals/PDC-Mod
 SOURCES += externals/PDC-Mod/amalgamation.c
 
+#
+# For '../web-pages.dll':
+#
+WEB_SUFFIXES ?= 1 2 3 4
+
+WEB_SRC := $(addsuffix .c, \
+             $(addprefix $(OBJ_DIR)/web-page-, $(WEB_SUFFIXES)))
+
+ifeq ($(USE_PACKED_DLL),1)
+  vpath %.c  $(OBJ_DIR)
+  vpath %.rc $(OBJ_DIR)
+
+  TARGETS   += ../web-pages.dll
+  CFLAGS    += -DUSE_PACKED_DLL
+  GENERATED += $(WEB_SRC)
+endif
+
 OBJECTS = $(call c_to_obj, $(SOURCES))
+WEB_OBJ = $(call c_to_obj, $(WEB_SRC))
 
 vpath %.c ../tools
 
@@ -139,6 +162,13 @@ clean_gen_data: ../tools/gen_data.py
 	$(call green_msg, Cleaning generated data)
 	$(PYTHON) $< --clean
 
+../web-pages.dll: $(WEB_OBJ) $(OBJ_DIR)/web-pages.res
+	$(call link_web_DLL, $@, $^, $(WEB_SUFFIXES))
+
+$(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
+	$(call generate, $@, //)
+	$(file >> $@,$(web_pages_RC))
+
 $(OBJ_DIR)/%.res: %.rc
 	$(call create_res_file, $@, $<)
 
@@ -147,6 +177,21 @@ $(OBJ_DIR)/sqlite3.o: externals/sqlite3.c | $(CC).args $(OBJ_DIR)
 
 $(OBJ_DIR)/%.o: %.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, $<)
+
+$(OBJ_DIR)/web-page-%.o: $(OBJ_DIR)/web-page-%.c | $(CC).args
+	$(call C_compile_long_time, $@, $<)
+
+$(OBJ_DIR)/web-page-1.c: ../tools/gen_packed_fs.py
+	$(call generate_web_page, $@, ../web_root, 1, )
+
+$(OBJ_DIR)/web-page-2.c: ../tools/gen_packed_fs.py
+	$(call generate_web_page, $@, ../web_root-FlightAware, 2, )
+
+$(OBJ_DIR)/web-page-3.c: ../tools/gen_packed_fs.py
+	$(call generate_web_page, $@, ../web_root-OpenLayers3, 3, )
+
+$(OBJ_DIR)/web-page-4.c: ../tools/gen_packed_fs.py
+	$(call generate_web_page, $@, ../web_root-Tar1090, 4, )
 
 gcc.args: $(THIS_FILE)
 	$(call green_msg, All CFLAGS are in $(BRIGHT_WHITE)$@)
@@ -227,6 +272,16 @@ define link_EXE
   @echo
 endef
 
+#
+# No need to specify the 'mg_XX()' functions to export.
+# They gets exported automatically.
+#
+define link_web_DLL
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
+  $(CC) -o $(1) -shared $(LDFLAGS) $(2)
+  @echo
+endef
+
 define Warning
   $(1)
   $(1) DO NOT EDIT! This file was automatically generated
@@ -250,6 +305,16 @@ define generate_ldflags_h
   $(file >> $(1),const char *ldflags = "$(strip $(2))";)
 endef
 
+#
+# Ignore any "README*" file and temp-files matching "t.*"
+#
+define generate_web_page
+  $(call green_msg, Generating $(BRIGHT_WHITE)$(strip $(1)))
+  $(PYTHON) ../tools/gen_packed_fs.py --outfile $(strip $(1) --recursive \
+            --suffix=_$(strip $(3)) --ignore "t.*" --ignore "README*" $(4) --strip $(2)/ $(2)/)
+  @echo
+endef
+
 ifeq ($(USE_ASTYLE),1)
   C_FORMATER = | astyle
 else
@@ -265,6 +330,42 @@ define C_preprocess
   $(file >> $(1), * Try to compile this output.)
   $(file >> $(1), */)
   $(CC) -E @$(CC).args $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(C_FORMATER) >> $(1)
+endef
+
+define web_pages_RC
+  #include <winver.h>
+  #include "dump1090_config.h"
+
+  VS_VERSION_INFO VERSIONINFO
+    FILEVERSION     RC_VERSION
+    PRODUCTVERSION  RC_VERSION
+    FILEFLAGSMASK   0x3FL
+    FILEOS          VOS__WINDOWS32
+    FILETYPE        VFT_DLL
+    FILESUBTYPE     0x0L
+    FILEFLAGS       0
+
+  BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+      BLOCK "040904b0"
+      BEGIN
+        VALUE "CompanyName",      "https://github.com/gvanem/Dump1090"
+        VALUE "FileDescription",  "Dump1090 bundled web-pages."
+        VALUE "FileVersion",      RC_VER_STRING
+        VALUE "InternalName",     "Dump1090 web-pages"
+        VALUE "LegalCopyright",   "Copyright (c) 2022-$(YEAR) Gisle Vanem"
+        VALUE "LegalTrademarks",  "MIT License "
+        VALUE "OriginalFilename", "web-pages.dll"
+        VALUE "ProductName",      "Dump1090"
+        VALUE "ProductVersion",   RC_VER_STRING
+      END
+    END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+  END
 endef
 
 define CPP_FILTER_PY
