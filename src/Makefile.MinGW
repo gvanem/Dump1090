@@ -34,7 +34,8 @@ CFLAGS = -g -O2                \
          -I./$(OBJ_DIR)        \
          --include ./dump1090_config.h
 
-CFLAGS += -DMG_ENABLE_POLL=1 -DUSE_MG_DNS=1
+CFLAGS += -DMG_ENABLE_POLL=1 \
+        # -DUSE_MG_DNS=1
 
 ifeq ($(USE_BIN_FILES),1)
   CFLAGS += -DUSE_BIN_FILES
