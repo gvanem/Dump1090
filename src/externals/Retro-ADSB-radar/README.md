@@ -1,4 +1,4 @@
-# Retro ADS-B Radar ✈
+# Retro ADS-B Radar
 
 Aircraft radar display built with Python and Pygame. Visualises real-time aircraft positions and metadata from a tar1090 server, with a retro interface.
 
@@ -11,9 +11,9 @@ Aircraft radar display built with Python and Pygame. Visualises real-time aircra
 - Terminus TTF fonts for an authentic look
 - Default configuration is compatible with the [Hagibis Mini PC USB-C Hub](https://hagibis.com/products-p00288p1.html)
 
-![Retro ADS-B Radar Screenshot](images/screenshot.png)
+![Retro ADS-B Radar Screenshot](screenshot.png)
 
-![Retro ADS-B Radar Running on Hagibis Mini PC USB-C Hub](images/hagibis_display.jpg)
+![Retro ADS-B Radar Running on Hagibis Mini PC USB-C Hub](hagibis_display.jpg)
 
 ## Quick Start
 
@@ -52,13 +52,13 @@ python3 radar.py
 To quit, press `Q` or `ESC` in the radar window.
 
 ## Configuration
-The application is configured via `config.ini`. Copy `config.ini.example` to `config.ini` and adjust as needed:
+The application is configured via `config.ini`. Edit `config.ini` and adjust as needed:
 
 ```ini
 [General]
 FETCH_INTERVAL = 10                # Data fetch interval (seconds)
 MIL_PREFIX_LIST = 7CF              # Comma-separated list of military aircraft hex prefixes (e.g. 7CF,AE,43C)
-TAR1090_URL = http://localhost/tar1090/data/aircraft.json  # tar1090 data source URL
+TAR1090_URL = http://localhost/data/aircraft.json  # tar1090 data source URL
 BLINK_MILITARY = true              # Toggle blinking effect for military aircraft (true/false)
 
 [Location]
@@ -72,7 +72,7 @@ SCREEN_WIDTH = 960                 # Window width (pixels)
 SCREEN_HEIGHT = 640                # Window height (pixels)
 FPS = 6                            # Frames per second
 MAX_TABLE_ROWS = 10                # Maximum number of aircraft to show in the table
-FONT_PATH = fonts/TerminusTTF-4.49.3.ttf  # Path to TTF font
+FONT_PATH = TerminusTTF-4.49.3.ttf # Path to TTF font
 BACKGROUND_PATH =                  # Optional path to background image
 HEADER_FONT_SIZE = 32              # Font size for the header text
 RADAR_FONT_SIZE = 22               # Font size for radar labels and callsigns
@@ -92,18 +92,18 @@ The availability of these modules is checked at startup. If dependencies are  in
 
 ```
 Checking Pygame module support...
-✅ Video: Supported
-✅ Font: Supported
-✅ Image: Supported
+  Video: Supported
+  Font: Supported
+  Image: Supported
 ```
 
 If modules are missing, the output will look like this:
 
 ```
 Checking Pygame module support...
-❌ Video: Not available - install libsdl2-2.0-0
-❌ Font: Not available - install libsdl2-ttf-2.0-0
-❌ Image: Not available - install libsdl2-image-2.0-0
+  Video: Not available - install libsdl2-2.0-0
+  Font: Not available - install libsdl2-ttf-2.0-0
+  Image: Not available - install libsdl2-image-2.0-0
 ```
 
 ### How to Fix Missing Dependencies
