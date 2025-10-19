@@ -1161,8 +1161,8 @@ static void main_data_loop (void)
     }
     else
     {
-     /* Wait for a magnitude buffer (default 100 msec)
-      */
+      /* Wait for a magnitude buffer (default 100 msec)
+       */
       mag_buf *buf = fifo_dequeue (Modes.FIFO_dequeue_ms);
 
       if (!buf)

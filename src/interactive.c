@@ -361,7 +361,7 @@ static bool mouse_header_check (const POINT *pos, bool clicked)
 
   for (field = x = 0; field < DIM(headers); field++)
   {
-    if (pos->x >= x && pos->x <= strlen(headers[field]) + x)
+    if (pos->x >= x && pos->x <= (LONG) strlen (headers[field]) + x)
     {
       (*api->hilight_header) (x, field);
 
