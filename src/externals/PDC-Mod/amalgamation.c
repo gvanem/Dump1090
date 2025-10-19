@@ -49,4 +49,3 @@
 #include "winclip.c"
 #include "window.c"
 
-#pragma comment (lib, "winmm.lib")

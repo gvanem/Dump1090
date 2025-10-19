@@ -189,7 +189,7 @@ else
   $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
 endif
 
-OS_LIBS   = advapi32.lib dnsapi.lib iphlpapi.lib ole32.lib setupapi.lib shlwapi.lib uuid.lib user32.lib winusb.lib
+OS_LIBS   = advapi32.lib dnsapi.lib iphlpapi.lib ole32.lib setupapi.lib shlwapi.lib uuid.lib user32.lib winmm.lib winusb.lib
 ASAN_LIBS =
 COPY_DLLs =
 
@@ -743,7 +743,7 @@ define C_preprocess
   $(file >> $(1), *---------------------------------------------------------)
   $(file >> $(1), * Try to compile this output.)
   $(file >> $(1), */)
-  $(_CC) -E @$(CC).args $(d1PP) $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(C_FORMATER) >> $(1)
+  $(strip $(_CC) -E @$(CC).args $(d1PP) $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(C_FORMATER) >> $(1))
 endef
 
 #
