@@ -46,20 +46,46 @@ and added some more references and screen-shots. But in the source-code I've don
 
 ## Building
 
+  This project can be built in 3 ways; using CMake, GNU-make or MSBuild / Visual-Studio.
+  The shell could not matter; CMD, TakeCommand, Cmder or PowerShell should work. <br>
   Assuming you have downloaded (or `git clone`-d) this package to `c:\dev\Dump1090`,
-  then `cd c:\dev\Dump1090\src` and do:
+  then `cd c:\dev\Dump1090\src`.
 
-  * Using GNU-make, type:
-    * `c:\dev\Dump1090\src> make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
-    * or for MinGW-w64, type:
-    * `c:\dev\Dump1090\src> make -f Makefile.MinGW`.
-  * Or using Visual Studio tools:
-    * `c:\dev\Dump1090\src> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
-    * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`. <nl>
-      The project may have to be retargeted. *Devenv* would do this automatically and print <nl>
-      `Configuration 'Release|x64': changing Platform Toolset to 'v143' (was 'v142')` when finished.
-  * Build `setup.exe` by moving into the `tools/` directory with `cd ..\tools`, and running `.\generate-setupfile.bat`
-    (ensure Rust is installed)
+ **Building with CMake:**
+
+  * CMake >= 3.24 is required.
+  * Visual Studio 2022 (or newer) with C++ workload is required.
+  * Steps:
+     * Create a build directory and configure the project using CMake:
+       ```powershell
+       mkdir build
+       cd build
+       cmake .. -G "Visual Studio 17 2022" -A x64
+        ```
+     * Build it:
+       ```powershell
+       cmake --build . --config Release
+       ```
+     * After building, the executable will be placed in the parent directory:
+       ```
+       c:\dev\Dump1090\dump1090.exe
+       ```
+
+**Building with GNU-Make:**
+
+  * `c:\dev\Dump1090\src> make -f Makefile.Windows CC=cl` (or `CC=clang-cl`).
+  * or for MinGW-w64, type:
+  * `c:\dev\Dump1090\src> make -f Makefile.MinGW`.
+
+ **Building with Visual Studio tools:**
+
+  * `c:\dev\Dump1090\src> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
+  * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`. <nl>
+    The project may have to be retargeted. *Devenv* would do this automatically and print <nl>
+    `Configuration 'Release|x64': changing Platform Toolset to 'v143' (was 'v142')` when finished.
+
+  Build `setup.exe` by moving into the `tools/` directory with `cd ..\tools`, and running `.\generate-setupfile.bat`
+  (ensure Rust is installed)
 
 ## Normal usage
 
