@@ -6,12 +6,16 @@
 cmake_minimum_required(VERSION 3.20)
 project(dump1090 LANGUAGES C)
 
+#
 # Windows-only check
+#
 if(NOT WIN32)
     message(FATAL_ERROR "dump1090 is Windows-only")
 endif()
 
+#
 # Define source files
+#
 set(SOURCES
     aircraft.c
     airports.c
@@ -49,27 +53,43 @@ set(SOURCES
     externals/SDRplay/sdrplay.c
 )
 
+#
 # Include directories
+#
 include_directories(
     .
     ./externals
     ./externals/PDC-Mod
 )
 
-# Preprocessor define and forced include
+#
+# Preprocessor define; since we have no custom CMake rule to create
+# a 'cflags_$(CC).h' and 'ldflags_$(CC).h' yet.
+#
 add_definitions(-DDOING_MSBUILD)
-add_compile_options(/FIdump1090_config.h)
 
+#
+# Forced include header:
+#
+if (MSVC)
+   message ("Building for MSVC")
+  add_compile_options (/FIdump1090_config.h)
+else()
+  #
+  # Assume MinGW / gcc
+  #
+   message ("Building for MinGW")
+  add_compile_options (--include dump1090_config.h)
+endif()
+
+#
 # Create executable
-add_executable(dump1090 ${SOURCES})
+#
+add_executable (dump1090 ${SOURCES})
 
-# Compiler options per configuration
-target_compile_options(dump1090 PRIVATE
-    $<$<CONFIG:Debug>:/MDd /W4 /Zi /Od>
-    $<$<CONFIG:Release>:/MD /W4 /Zi>
-)
-
+#
 # Link Windows libraries
+#
 target_link_libraries(dump1090 PRIVATE
     advapi32
     dnsapi
@@ -78,30 +98,52 @@ target_link_libraries(dump1090 PRIVATE
     user32
     setupapi
     shlwapi
+    winmm
     winusb
     ws2_32
 )
 
-# Console subsystem
-set_target_properties(dump1090 PROPERTIES
-    LINK_FLAGS "/SUBSYSTEM:CONSOLE"
-    OUTPUT_NAME "dump1090"
-)
+#
+# Compiler options per configuration
+#
+if (MSVC)
+  target_compile_options (dump1090 PRIVATE
+                          $<$<CONFIG:Debug>:/MDd /W4 /Zi /Od>
+                          $<$<CONFIG:Release>:/MD /W4 /Zi>)
 
-# Set machine type based on architecture
-if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    set_target_properties(dump1090 PROPERTIES LINK_FLAGS "${CMAKE_LINK_FLAGS} /MACHINE:X64")
+  #
+  # Console subsystem
+  #
+  set_target_properties (dump1090 PROPERTIES
+      LINK_FLAGS "/SUBSYSTEM:CONSOLE"
+      OUTPUT_NAME "dump1090"
+  )
+
+  #
+  # Set machine type based on architecture
+  #
+  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+      set_target_properties(dump1090 PROPERTIES LINK_FLAGS "${CMAKE_LINK_FLAGS} /MACHINE:X64")
+  else()
+      set_target_properties(dump1090 PROPERTIES LINK_FLAGS "${CMAKE_LINK_FLAGS} /MACHINE:X86")
+  endif()
+
+  #
+  # Enable PDB generation
+  #
+  set_target_properties (dump1090 PROPERTIES
+      COMPILE_PDB_NAME "dump1090"
+      COMPILE_PDB_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  )
+
 else()
-    set_target_properties(dump1090 PROPERTIES LINK_FLAGS "${CMAKE_LINK_FLAGS} /MACHINE:X86")
+  set_target_properties (dump1090 PROPERTIES OUTPUT_NAME "dump1090")
 endif()
 
-# Enable PDB generation
-set_target_properties(dump1090 PROPERTIES
-    COMPILE_PDB_NAME "dump1090"
-    COMPILE_PDB_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-)
-
-# Post-build: copy executable to ../dump1090.exe
+#
+# Post-build: copy executable to ../dump1090.exe.
+# Fails with "-G Ninja" !?
+#
 add_custom_command(TARGET dump1090 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
         $<TARGET_FILE:dump1090>
