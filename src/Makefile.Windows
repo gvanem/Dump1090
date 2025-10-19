@@ -165,6 +165,7 @@ ifeq ($(CC),clang-cl)
   RCFLAGS += -D__clang__
   gen_data_arg = -c
 else
+  CFLAGS  += -diagnostics:caret
   RCFLAGS += -D_MSC_VER
   gen_data_arg =
 endif
