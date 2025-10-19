@@ -165,7 +165,6 @@ ifeq ($(CC),clang-cl)
   RCFLAGS += -D__clang__
   gen_data_arg = -c
 else
-  CFLAGS  += -diagnostics:caret
   RCFLAGS += -D_MSC_VER
   gen_data_arg =
 endif
@@ -380,6 +379,7 @@ else
     _CC = $(realpath $(CLANG_$(BITS)))/bin/clang-cl.exe
   else
     _CC = $(TOOLS_ROOT)/bin/HostX64/$(CPU)/cl.exe
+    CFLAGS += -diagnostics:caret
   endif
 
   #
