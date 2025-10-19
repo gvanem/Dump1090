@@ -5,6 +5,7 @@ Keep most externals here. Only in source form:
  * `attic/* ---------------` : Old stuff no longer used.
  * `PDC-Mod/*.[ch] --------` : A modified *PDCurses* library from **[PDCurses-MOD](https://github.com/Bill-Gray/PDCursesMod.git)**.
  * `mongoose.[ch] ---------` : The Web-server code from **[Mongoose](https://github.com/cesanta/mongoose)**.
+ * `Retro-ADSB-radar ------` : Another *"TUI"* backend. A modified Python script from **[Retro-ADSB-radar](https://github.com/nicespoon/retro-adsb-radar)**.
  * `rtl-sdr/*.[ch] --------` : *RTLSDR* interface; heavily modified from **[old-DAB's](https://github.com/old-dab/rtlsdr)** version.
  * `SDRplay/*.h -----------` : The *SDRPlay API* (v. 3.15) `.h`-files from **[SDRplay Ltd](https://www.sdrplay.com)**.
  * `sqlite3.[ch] ----------` : The embeddable **[SQLite](http://www.sqlite.org)** Database Engine. The amalgamated version.
