@@ -3103,10 +3103,10 @@ void modeS_user_message (modeS_message *mm)
     }
   }
 
-  /* Send data to connected clients.
+  /* Send data to connected RAW clients.
    * In `--net-active` mode we have no clients.
    */
-  if (Modes.net)
+  if (Modes.net && a)
      modeS_send_raw_output (mm);
 }
 
