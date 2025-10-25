@@ -4,6 +4,7 @@ import os
 import sys
 import threading
 import time
+from pprint import pprint
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Optional, Tuple
@@ -11,32 +12,33 @@ from typing import List, Optional, Tuple
 import pygame
 import requests
 
-# Read configuration
+verbose = (len(sys.argv) >= 2) and (sys.argv[1] == "-v")
+
+# Read configuration while in CWD
+os.chdir (os.path.dirname (os.path.abspath(__file__)))
 config = configparser.ConfigParser()
-script_dir = os.path.dirname(os.path.abspath(__file__))
-config_path = os.path.join(script_dir, "config.ini")
-config.read(config_path)
+config.read ("config.ini")
 
 # Import config values from config.ini with defaults
-FETCH_INTERVAL = config.getint('General', 'FETCH_INTERVAL', fallback=10)
+FETCH_INTERVAL  = config.getint('General', 'FETCH_INTERVAL', fallback=10)
 MIL_PREFIX_LIST = [prefix.strip() for prefix in config.get('General', 'MIL_PREFIX_LIST', fallback='7CF').split(',')]
-TAR1090_URL = config.get('General', 'TAR1090_URL', fallback='http://localhost:8080/data/aircraft.json')
-BLINK_MILITARY = config.getboolean('General', 'BLINK_MILITARY', fallback=True)
+TAR1090_URL     = config.get('General', 'TAR1090_URL', fallback='http://127.0.0.1:8080/data/aircraft.json')
+BLINK_MILITARY  = config.getboolean('General', 'BLINK_MILITARY', fallback=True)
 
 LAT = config.getfloat('Location', 'LAT', fallback=0.0)
 LON = config.getfloat('Location', 'LON', fallback=0.0)
 AREA_NAME = config.get('Location', 'AREA_NAME', fallback='UNKNOWN')
 RADIUS_NM = config.getint('Location', 'RADIUS_NM', fallback=60)
 
-SCREEN_WIDTH = config.getint('Display', 'SCREEN_WIDTH', fallback=960)
-SCREEN_HEIGHT = config.getint('Display', 'SCREEN_HEIGHT', fallback=640)
-FPS = config.getint('Display', 'FPS', fallback=6)
-MAX_TABLE_ROWS = config.getint('Display', 'MAX_TABLE_ROWS', fallback=10)
-FONT_PATH = config.get('Display', 'FONT_PATH', fallback='TerminusTTF-4.49.3.ttf')
-BACKGROUND_PATH = config.get('Display', 'BACKGROUND_PATH', fallback=None)
+SCREEN_WIDTH     = config.getint('Display', 'SCREEN_WIDTH', fallback=960)
+SCREEN_HEIGHT    = config.getint('Display', 'SCREEN_HEIGHT', fallback=640)
+FPS              = config.getint('Display', 'FPS', fallback=6)
+MAX_TABLE_ROWS   = config.getint('Display', 'MAX_TABLE_ROWS', fallback=10)
+FONT_PATH        = config.get('Display', 'FONT_PATH', fallback='TerminusTTF-4.49.3.ttf')
+BACKGROUND_PATH  = config.get('Display', 'BACKGROUND_PATH', fallback=None)
 HEADER_FONT_SIZE = config.getint('Display', 'HEADER_FONT_SIZE', fallback=32)
-RADAR_FONT_SIZE = config.getint('Display', 'RADAR_FONT_SIZE', fallback=22)
-TABLE_FONT_SIZE = config.getint('Display', 'TABLE_FONT_SIZE', fallback=22)
+RADAR_FONT_SIZE  = config.getint('Display', 'RADAR_FONT_SIZE', fallback=22)
+TABLE_FONT_SIZE  = config.getint('Display', 'TABLE_FONT_SIZE', fallback=22)
 INSTRUCTION_FONT_SIZE = config.getint('Display', 'INSTRUCTION_FONT_SIZE', fallback=12)
 
 # Colours
@@ -159,8 +161,8 @@ def parse_aircraft(data: dict) -> Optional[Aircraft]:
         callsign=data.get('flight', 'UNKNOWN').strip()[:8],
         lat=lat,
         lon=lon,
-        altitude=data.get('alt_baro', 0) or 0,
-        speed=int(data.get('gs', 0) or 0),
+        altitude=data.get('altitude', 0) or 0,
+        speed=int(data.get('speed', 0) or 0),
         track=data.get('track', 0) or 0,
         distance=distance,
         bearing=bearing,
@@ -348,6 +350,11 @@ class AircraftTracker:
             response.raise_for_status()
 
             data = response.json()
+            if verbose:
+               print ("data:")
+               pprint (data)
+               print ("")
+
             aircraft_list = []
 
             for aircraft_data in data.get('aircraft', []):
@@ -395,8 +402,14 @@ def main():
     load_font(TABLE_FONT_SIZE)
     load_font(INSTRUCTION_FONT_SIZE)
 
+    # Make this a 'config.ini' setting
+    if 1:
+        flags = pygame.RESIZABLE
+    else:
+        flags = pygame.FULLSCREEN | pygame.SCALED
+
     # Set up display
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN | pygame.SCALED)
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags)
     pygame.display.set_caption(f"{AREA_NAME} ADS-B RADAR")
     clock = pygame.time.Clock()
 
