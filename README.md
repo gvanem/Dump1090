@@ -84,13 +84,11 @@ and added some more references and screen-shots. But in the source-code I've don
     The project may have to be retargeted. *Devenv* would do this automatically and print <nl>
     `Configuration 'Release|x64': changing Platform Toolset to 'v143' (was 'v142')` when finished.
 
-  Build `setup.exe` by moving into the `tools/` directory with `cd ..\tools`, and running `.\generate-setupfile.bat`
-  (ensure Rust is installed)
+> [!TIP]
+> Before running `dump1090.exe` for the first time, please run `setup.exe` to properly set up geolocation. <br>
+> To rebuild it, do `cd tools`, and run `.\generate-setupfile.bat` (ensure Rust is installed)
 
 ## Normal usage
-
-> [!TIP]
-> Before running `dump1090.exe` for the first time, please run `setup.exe` to properly set up geolocation.
 
 Since the uncompressed `aircraft-database.csv` file is too big to be allowed here on Github, it will
 automatically be downloaded and unzipped from [**OpenSky**](https://opensky-network.org/datasets/metadata/).
