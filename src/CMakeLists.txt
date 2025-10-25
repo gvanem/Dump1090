@@ -56,29 +56,25 @@ set(SOURCES
 #
 # Include directories
 #
-include_directories(
-    .
-    ./externals
-    ./externals/PDC-Mod
-)
+include_directories (. ./externals ./externals/PDC-Mod)
 
 #
 # Preprocessor define; since we have no custom CMake rule to create
 # a 'cflags_$(CC).h' and 'ldflags_$(CC).h' yet.
 #
-add_definitions(-DDOING_MSBUILD)
+add_definitions (-DDOING_MSBUILD)
 
 #
 # Forced include header:
 #
 if (MSVC)
-   message ("Building for MSVC")
+  message ("Building for MSVC")
   add_compile_options (/FIdump1090_config.h)
 else()
   #
   # Assume MinGW / gcc
   #
-   message ("Building for MinGW")
+  message ("Building for MinGW")
   add_compile_options (--include dump1090_config.h)
 endif()
 
@@ -138,6 +134,27 @@ if (MSVC)
 
 else()
   set_target_properties (dump1090 PROPERTIES OUTPUT_NAME "dump1090")
+endif()
+
+#
+# How the hell is this supposed to work?
+#
+if (MSVC)
+  set (_cflags_h  ${CMAKE_CURRENT_BINARY_DIR}/cflags_cl.h)
+  set (_ldflags_h ${CMAKE_CURRENT_BINARY_DIR}/ldflags_cl.h)
+
+  add_custom_command (OUTPUT ${_cflags_h}
+                      COMMAND echo const char *cflags = "${CMAKE_C_COMPILER} ${C_FLAGS} ${C_INCLUDES}" > ${_cflags_h}
+                      VERBATIM USES_TERMINAL)
+
+  add_custom_command (OUTPUT ${_ldflags_h}
+                      COMMAND echo const char *ldflags = "${CMAKE_LINKER} ${CMAKE_EXE_LINKER_FLAGS}" > ${_ldflags_h}
+                      VERBATIM USES_TERMINAL)
+
+  add_custom_target (gen_files DEPENDS ${_cflags_h} ${_ldflags_h} VERBATIM)
+
+  add_dependencies (dump1090 gen_files)
+  add_definitions (-DDOING_CMAKE_BUILD -I${CMAKE_CURRENT_BINARY_DIR})
 endif()
 
 #
