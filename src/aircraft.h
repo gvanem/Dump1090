@@ -148,7 +148,7 @@ typedef struct aircraft_info {
 typedef struct aircraft {
         uint32_t  addr;                   /**< ICAO address */
         uint16_t  addrtype;               /**< Highest priority address type seen for this aircraft. \ref addrtype_t */
-        char      call_sign [9];          /**< Call-sign / flight number */
+        char      call_sign [9];          /**< Call-sign / flight number. Not normalized */
         int       altitude;               /**< Altitude */
         int       altitude_C;             /**< Altitude for Mode-C */
         int       altitude_HAE;           /**< Altitude for HAE */

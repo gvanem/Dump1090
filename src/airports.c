@@ -97,6 +97,7 @@ typedef struct flight_info {
         FILETIME            responded;         /**< time when this record had a response (UTC) */
         int                 http_status;       /**< the HTTP status-code (or 0) */
         bool                done_trace;        /**< relax the `API_TRACE()` for this record */
+        bool                normalized;        /**< the `call_sign[]` was normalized */
       } flight_info;
 
 /**
@@ -192,6 +193,7 @@ static void         airport_CSV_test_3 (void);
 static void         airport_CSV_test_4 (void);
 static void         airport_loc_test_1 (void);
 static void         airport_loc_test_2 (void);
+static void         airport_normalize_test (void);
 static void         airport_print_header (unsigned line, bool use_usec);
 static void         locale_test (void);
 static void         flight_info_exit (FILE *f);
@@ -1024,7 +1026,33 @@ static bool airports_API_parse_response (flight_info *f, char *resp)
   return (rc);
 }
 
-/*
+/**
+ * Normalize a call-sign; strip leading zeros in a call-sign.
+ *
+ * E.g. a request for callsign "SVA037" shall send this request:
+ *   https://vrs-standing-data.adsb.lol/routes/SV/SVA37.json
+ *
+ * Not this:
+ *   https://vrs-standing-data.adsb.lol/routes/SV/SVA037.json
+ *
+ * \ref https://github.com/vradarserver/standing-data/blob/main/routes/schema-01/README.md?plain=1#L18-L26
+ */
+static bool normalize_callsign (char *normalized, const char *call_sign)
+{
+  char alpha1 [10];
+  char alpha2 [10] = { '\0' };
+  int  num = 0;
+
+  if (sscanf(call_sign, "%[A-Z]%d%[A-Z]", alpha1, &num, alpha2) < 2)
+  {
+    strcpy (normalized, call_sign);
+    return (false);
+  }
+  snprintf (normalized, 10, "%s%d%s", alpha1, num, alpha2);
+  return (true);
+}
+
+/**
  * This function blocks the `API_thread_func()` function.
  *
  * Send one request at a time for a call-sign to be resolved into
@@ -1034,24 +1062,26 @@ static bool API_thread_worker (flight_info *f)
 {
   char *response;
   char  request [200];
+  char  normalized [10];
   bool  rc = false;
 
   /**
    * A route for e.g. callsign "TVS4307" becomes:
    *   https://vrs-standing-data.adsb.lol/routes/TV/TVS4307.json
    *
-   * \todo Replace WinInet with what
-   *   WebClient.exe -svrs-standing-data.adsb.lol -f/routes/TV/TVS4307.json
-   *
-   * does. Or add the WebClient.exe code into Mongoose as `MG_TLS=MG_TLS_CUSTOM`.
+   * The call-sign in the request must be normalized first.
    */
-  snprintf (request, sizeof(request), API_SERVICE_URL, f->call_sign, f->call_sign);
+  f->normalized = normalize_callsign (normalized, f->call_sign);
+
+  snprintf (request, sizeof(request), API_SERVICE_URL, f->call_sign, normalized);
 
   /* Log complete request to log-file?
    */
   if (g_data.do_trace_LOL)
        API_TRACE_LOL ("request", g_data.ap_stats.API_requests_sent, request, f);
-  else API_TRACE ("request # %lu: (ICAO: %06X) '%s'\n", g_data.ap_stats.API_requests_sent, f->ICAO_addr, request);
+  else API_TRACE ("request # %lu: (ICAO: %06X, was_norm: %d) '%s',\n",
+                  g_data.ap_stats.API_requests_sent, f->normalized,
+                  f->ICAO_addr, request);
 
   g_data.ap_stats.API_requests_sent++;
 
@@ -1551,6 +1581,7 @@ uint32_t airports_init (void)
     airport_loc_test_2();
     airport_API_test_1();
     airport_API_test_2();
+    airport_normalize_test();
     routes_find_test();
     airports_show_stats();
   }
@@ -1895,6 +1926,45 @@ static void airport_loc_test_2 (void)
        location = airport_find_location_by_IATA (IATA);
 
     location_print_rec (rec_num, ICAO, IATA, cont, location, g_data.airport_CSV[rec_num].full_name);
+  }
+  puts ("");
+}
+
+/**
+ * Test `airport_normalize_call_sign()`.
+ *
+ * https://github.com/vradarserver/standing-data/blob/main/routes/schema-01/README.md?plain=1#L54
+ */
+typedef struct normalize_test {
+        char before [10];
+        char after  [10];
+      } normalize_test;
+
+static void airport_normalize_test (void)
+{
+  static const normalize_test tests[] = {
+            { "EZY1200", "EZY1200" },
+            { "EZY0001", "EZY1"    },
+            { "EZY0000", "EZY0"    },
+            { "EZY00AB", "EZY0AB"  },
+            { "SVA037",  "SVA37"   },
+            { "U21234",  "EZY1234" }  /* IATA code "U2" is ICAO code "EZY". Not implemented */
+          };
+  const normalize_test *t = tests + 0;
+
+  printf ("%s():\n", __FUNCTION__);
+
+  for (size_t i = 0; i < DIM(tests); i++, t++)
+  {
+    char norm [10];
+    bool okay;
+
+    normalize_callsign (norm, t->before);
+    okay = (strcmp (norm, tests[i].after) == 0);
+    printf ("  %-8s -> %-8s  %s", tests [i].before, norm, okay ? "OK" : "FAIL");
+    if (!okay)
+       printf (", should be %s", tests[i].after);
+    puts ("");
   }
   puts ("");
 }
