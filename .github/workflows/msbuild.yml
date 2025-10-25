@@ -21,7 +21,7 @@ jobs:
 
     - name: Build
       working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.BUILD_PLATFORM}} ${{env.SOLUTION_FILE_PATH}}
+      run: msbuild /m /p:Configuration=${{matrix.BUILD_CONFIGURATION}} /p:Platform=${{matrix.BUILD_PLATFORM}} /p:PlatformToolset=v143 ${{env.SOLUTION_FILE_PATH}}
 
 # test:
 #   steps:
