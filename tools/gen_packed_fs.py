@@ -4,7 +4,7 @@ A tool to generate a .c-file for a built-in "Packed FileSystem".
 Inspired by Mongoose' 'test/pack.c' program.
 """
 
-import os, sys, stat, time, fnmatch, argparse
+import os, sys, stat, time, fnmatch, argparse, inspect
 
 try:
   import csscompressor, htmlmin, jsmin, io
@@ -30,14 +30,14 @@ C_TOP = """//
 """
 
 C_ARRAY = """
-static const file_packed packed_files[] = {
+static const file_packed packed_files [] = {
 //  data,  fsize,         modified
 """
 
 C_BOTTOM = """
 const char *mg_unlist%s (size_t i)
 {
-  return (packed_files[i].name);
+  return (packed_files [i].name);
 }
 
 const char *mg_unpack%s (const char *name, size_t *size, time_t *mtime)
@@ -62,6 +62,13 @@ def trace (level, s):
   if opt.verbose >= level:
      print (s)
 
+def _abort (err):
+  frame = sys._getframe (1)
+  line  = frame.f_back.f_lineno
+  file  = inspect.getsourcefile (frame.f_back)
+  print (f"assertion at {file}({line}): '{err}'")
+  raise AssertionError (err)
+
 def fmt_number (num):
   if num > 1000000:
      ret = "%d.%03d.%03d" % (num/1000000, (num/1000) % 1000, num % 1000)
@@ -74,12 +81,14 @@ def fmt_number (num):
 def dump_hex (in_file, out_file, data, data_len, len_in, num):
   files_dict [in_file]["fsize"] = data_len
   out_file.write ("//\n// Minified version generated from '%s' (%d%% saving) \n//\n" % (in_file, 100 - 100*data_len/len_in))
-  out_file.write ("static const unsigned char file%d[] = {\n" % num)
-  for n in range(0, data_len):
-      c = data[n]
-      assert ord(c) <= 255
+  out_file.write ("static const unsigned char file%d [] = {\n" % num)
+  for i in range(0, data_len):
+      c = data [i]
+      if ord(c) > 0xFF:
+         _abort (f"ord(c) > 0xFF at file: {in_file}, pos: {n}")
+       # out_file.write ("0x%02X," % (ord(c) >> 8))
       out_file.write ("0x%02X," % ord(c))
-      if (n + 1) % 16 == 0:
+      if (i + 1) % 16 == 0:
          out_file.write ("\n")
   out_file.write ("0x00\n};\n\n")
 
@@ -102,8 +111,8 @@ def generate_array_html (in_file, out_file, num):
   return len_in, len_out
 
 def generate_array_js (in_file, out_file, num):
-  with open (in_file, "r") as f:
-       data_in = f.read (-1)
+  with open (in_file, "rb") as f:
+       data_in = str (f.read())
        ins  = io.StringIO (data_in)
        outs = io.StringIO()
        jsmin.JavascriptMinify().minify (ins, outs)
@@ -116,7 +125,7 @@ def generate_array_js (in_file, out_file, num):
 def generate_array (in_file, out_file, num):
   with open (in_file, "rb") as f:
        out_file.write ("//\n// Generated from '%s'\n//\n" % in_file)
-       out_file.write ("static const unsigned char file%d[] = {" % num)
+       out_file.write ("static const unsigned char file%d [] = {" % num)
        data_in  = f.read (-1)
        data_out = data_in
        len_in   = len(data_in)
@@ -185,7 +194,7 @@ def show_help (error=None):
   -h, --help:         Show this help.
   -c, --case:         Be case-sensitive.
   -i, --ignore X:     Ignore patterns matching 'X'.
-  -m, --minify:       Compress the .js/.css/.html files first (not for Python2).
+  -m, --minify:       Compress the .js/.css/.html files first.
   -o, --outfile:      File to generate.
   -r, --recursive:    Walk the sub-directories recursively.
   -s, --strip Y:      Strip 'Y' from paths.
