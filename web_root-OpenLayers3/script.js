@@ -1133,24 +1133,63 @@ function initialize_map() {
 
     //console.log ("Finds: " + ShowMyFindsLayer +" "+ SleafordMySql);
 
-    if (ShowMyFindsLayer && SleafordMySql) {
-        // AKISSACK Ref: AK9U
-        var myLayer = new ol.layer.Vector({
-            name: "my_layer",
+    //------------------------------------------------------------------------------------
+    // // AKISSACK Ref: AK9U -------------------------------------------------------------
+    //------------------------------------------------------------------------------------
+    // This section can be ignored.  It is just a test to show my metal detecting finds
+    //------------------------------------------------------------------------------------
+
+    if (ShowMyFindsLayer) {
+        var findsLayer = new ol.layer.Vector({
+            name: "findsLayer",
             type: "overlay",
             title: "Finds",
             source: new ol.source.Vector({
-                features: MyFeatures,
+                url: "layers/mdfinds.geojson",
+                format: new ol.format.GeoJSON({
+                    defaultDataProjection: "EPSG:4326",
+                    projection: "EPSG:3857",
+                }),
             }),
+
+            style: (function () {
+                var style = new ol.style.Style({
+                    image: new ol.style.Icon({
+                        src: "layers/img/spade.png",
+                    }),
+                    text: new ol.style.Text({
+                        text: "Name",
+                        scale: 1.5,
+                        offsetX: -1,
+                        offsetY: 10,
+                        fill: new ol.style.Fill({
+                            color: "#000066",
+                        }),
+                    }),
+                });
+                var styles = [style];
+                return function (feature, resolution) {
+                    if (ZoomLvl > 15) {
+                       style.getText().setText(feature.get("ID"));
+                    }else style.getText().setText("");
+                    return styles;
+                };
+
+            })(),
         });
+        findsLayer.setVisible(false);
 
         layers.push(
             new ol.layer.Group({
                 title: "Private",
-                layers: [myLayer],
+                //layers: [myLayer, findsLayer],
+                layers: [findsLayer],
             })
         );
     }
+    //------------------------------------------------------------------------------------
+    // // AKISSACK Ref: AK9U ---------------------------------------------------- END
+    //------------------------------------------------------------------------------------
 
     MapType = localStorage["MapType"];
     if (MapType === undefined) {
@@ -1473,126 +1512,6 @@ function initialize_map() {
     // Ref: AK8X Ends ----------------------------------------------------------- AKISSACK
     //------------------------------------------------------------------------------------
 
-    //------------------------------------------------------------------------------------
-    // // AKISSACK Ref: AK9U -------------------------------------------------------------
-    //------------------------------------------------------------------------------------
-    // This section can be ignored.  It is just a test to show my metal detecting finds
-    //------------------------------------------------------------------------------------
-    if (ShowMyFindsLayer && SleafordMySql) {
-        // AKISSACK Ref: AK9U
-
-        var fCoin = new ol.style.Style({
-            image: new ol.style.Icon({
-                src: "sql/img/coin.png",
-            }),
-        });
-        var fCoins = new ol.style.Style({
-            image: new ol.style.Icon({
-                src: "sql/img/coins.png",
-            }),
-        });
-        var fCoinr = new ol.style.Style({
-            image: new ol.style.Icon({
-                src: "sql/img/coinr.png",
-            }),
-        });
-
-        var fSpade = new ol.style.Style({
-            image: new ol.style.Icon({
-                src: "sql/img/spade.png",
-            }),
-        });
-        var fSpader = new ol.style.Style({
-            image: new ol.style.Icon({
-                src: "sql/img/spader.png",
-            }),
-        });
-        var fSpec = new ol.style.Style({
-            image: new ol.style.Icon({
-                src: "sql/img/spec.png",
-            }),
-        });
-        var fMil = new ol.style.Style({
-            image: new ol.style.Icon({
-                src: "sql/img/mil.png",
-            }),
-        });
-
-        $(
-            function ()
-            //-----------------------------------------------------------------------
-            // Send a http request with AJAX http://api.jquery.com/jQuery.ajax/
-            // install: apt-get install mysql-client php5-mysql
-            //-----------------------------------------------------------------------
-            {
-                $.ajax({
-                    url: "sql/sql-finds-layer.php",
-                    data: "",
-                    dataType: "json",
-                    success: function (data) {
-                        processMdData(data);
-                    },
-                });
-            }
-        );
-
-        function processMdData(allFindData) {
-            // New SQL Database etc Feb 2022
-            //console.log(allFindData);
-            for (var i in allFindData) {
-                var oneFind = allFindData[i];
-                for (var y in oneFind) {
-                    // Get elements of JSON array
-                    if (y == "Lat") {
-                        var findlat = oneFind[y];
-                    } else if (y == "Long") {
-                        var findlon = oneFind[y];
-                    } else if (y == "Name") {
-                        var findname = oneFind[y];
-                    } else if (y == "Number") {
-                        var findnumber = oneFind[y];
-                    } else if (y == "icon") {
-                        var findicon = oneFind[y];
-                    } else if (y == "desc") {
-                        var finddesc = oneFind[y];
-                    } else if (y == "Score") {
-                        var findscore = oneFind[y];
-                    }
-                    var f = new ol.Feature({
-                        geometry: new ol.geom.Point(
-                            ol.proj.transform([+findlon, +findlat], "EPSG:4326", "EPSG:3857")
-                        ),
-                        name: findname + "<br>" + findnumber,
-                    });
-
-		    //Simpler iconisation
-		    if (findname.startsWith("Coin")){
-	                f.setStyle(fCoin);
-		    //}
-
-                    //if (findicon === "coin") {
-                    //    f.setStyle(fCoin);
-                    //} else if (findicon === "coins") {
-                    //    f.setStyle(fCoins);
-                    //} else if (findicon === "coinr") {
-                    //    f.setStyle(fCoinr);
-                    //} else if (findicon === "mil") {
-                    //    f.setStyle(fMil);
-                    //} else if (findicon === "spec") {
-                    //    f.setStyle(fSpec);
-                    //} else if (findicon === "spader") {
-                    //    f.setStyle(fSpader);
-                    } else {
-                        f.setStyle(fSpade);
-                    }
-                }
-                MyFeatures.push(f);
-            } // end of i in all find data
-        }
-        //------------------------------------------------------------------------------------
-        // // AKISSACK Ref: AK9U ---------------------------------------------------- END
-        //------------------------------------------------------------------------------------
-    }
 
     //------------------------------------------------------------------------------------
     // AKISSACK - HOVER OVER LABELS ------------------------------------- ref: AK6D starts
@@ -1612,12 +1531,14 @@ function initialize_map() {
                 function (feature, layer) {
                     overlay.setPosition(evt.coordinate);
                     var popname = feature.get("name");
-                    //console.log("popname: " + popname);
+                    if (typeof popname === "undefined"){
+                        var popname = feature.get("Name");
+                    }
+                    // console.log("popname: " + popname);
 
                     if (
                         ShowMyFindsLayer &&
-                        typeof popname != "undefined" &&
-                        popname != "~"
+                        typeof popname != "undefined" && popname != "~"
                     ) {
                         overlay.getElement().innerHTML = popname ? popname : "";
                         return feature;
