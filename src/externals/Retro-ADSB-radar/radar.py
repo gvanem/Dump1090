@@ -154,20 +154,20 @@ def parse_aircraft(data: dict) -> Optional[Aircraft]:
     # Simple military detection using defined prefixes
     hex_code = data['hex'].lower()
     mil_prefixes = tuple(prefix.lower() for prefix in MIL_PREFIX_LIST)
-    is_military = hex_code.startswith(mil_prefixes)
+    is_military  = hex_code.startswith(mil_prefixes)
 
-    return Aircraft(
-        hex_code=hex_code,
-        callsign=data.get('flight', 'UNKNOWN').strip()[:8],
-        lat=lat,
-        lon=lon,
-        altitude=data.get('altitude', 0) or 0,
-        speed=int(data.get('speed', 0) or 0),
-        track=data.get('track', 0) or 0,
-        distance=distance,
-        bearing=bearing,
-        is_military=is_military
-    )
+    return Aircraft (
+        hex_code = hex_code,
+        callsign = data.get('flight', 'UNKNOWN').strip()[:8],
+        lat      = lat,
+        lon      = lon,
+        altitude = data.get('altitude', 0) or data.get('alt_baro', 0) or 0,
+        speed    = int(data.get('speed', 0))  or int(data.get('gs', 0))  or 0,
+        track    = data.get('track', 0) or 0,
+        distance = distance,
+        bearing  = bearing,
+        is_military = is_military
+     )
 
 class RadarScope:
     """Radar display component"""
