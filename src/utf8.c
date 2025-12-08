@@ -209,11 +209,14 @@ const wchar_t *utf8_format2 (const char *s, int min_width)
 }
 
 #if defined(TEST)
+#include <locale.h>
 
 #if defined(__clang__)
   #pragma clang diagnostic ignored "-Wbraced-scalar-init"
   #pragma clang diagnostic ignored "-Wunused-parameter"
   #pragma clang diagnostic ignored "-Wpointer-sign"
+#else
+  #pragma warning (disable: 4057 5321)
 #endif
 
 static const uint8_t *utf8_tests_1[] = {           // In LaTeX syntax

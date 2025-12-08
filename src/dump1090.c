@@ -37,6 +37,14 @@
 
 global_data Modes;
 
+/**
+ * Tell MingW's CRT to turn off command line globbing by default.
+ * This matter for:
+ *   \li `dump1090.exe options --test *` or
+ *   \li `dump1090.exe options <filter-spec>`.
+ */
+int _dowildcard = 0;
+
 static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
                "'MODES_MAG_BUFFERS' should be smaller than 'MODES_ASYNC_BUF_NUMBERS' for flowcontrol to work");
 
@@ -3476,7 +3484,7 @@ static bool modeS_SBS_valid_msg (const mg_iobuf *io, bool *ignore)
 {
   const char *m = (const char*) io->buf;
 
-  *ignore = true;   /* Assume we ignore */
+  *ignore = true;   /* Assume we ignore all */
 
   if (io->len < 4)
      return (false);
@@ -3487,16 +3495,18 @@ static bool modeS_SBS_valid_msg (const mg_iobuf *io, bool *ignore)
     Modes.stat.SBS_MSG_msg++;
   }
 
-  if (strncmp(m, "AIR,", 4) == 0)
+  if (!strncmp(m, "AIR,", 4))
   {
     Modes.stat.SBS_AIR_msg++;
     return (true);
   }
-  if (strncmp(m, "STA,", 4) == 0)
+
+  if (!strncmp(m, "STA,", 4))
   {
     Modes.stat.SBS_STA_msg++;
     return (true);
   }
+
   return (!strncmp(m, "MSG,", 4) || !strncmp(m, "SEL,", 4) ||
           !strncmp(m, "CLK,", 4) || !strncmp(m, "ID,", 3));
 }

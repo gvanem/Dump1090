@@ -860,7 +860,7 @@ static void API_trace (unsigned line, const char *fmt, ...)
 
 static void API_trace_LOL (const char *req_resp, uint32_t num, const char *str, const flight_info *f)
 {
-  char        http_status [20] = "";
+  char        buf [20] = "";
   const char *more = "";
   size_t      len = strlen (str);
 
@@ -868,7 +868,7 @@ static void API_trace_LOL (const char *req_resp, uint32_t num, const char *str, 
 
   if (!strcmp(req_resp, "response") && f->http_status > 0)
   {
-    snprintf (http_status, sizeof(http_status), "HTTP %d:\n", f->http_status);
+    snprintf (buf, sizeof(buf), "HTTP %d:\n", f->http_status);
     if (f->http_status >= 400 && f->http_status <= 599)   /* limit 40x - 50x responses to 400 bytes */
     {
       if (len > 400)
@@ -876,8 +876,12 @@ static void API_trace_LOL (const char *req_resp, uint32_t num, const char *str, 
       len = 400;
     }
   }
+  else if (f->normalized)
+  {
+    strcpy (buf, "normalized, ");
+  }
 
-  modeS_flogf (Modes.log, "%s # %u (ICAO: %06X): %s", req_resp, num, f->ICAO_addr, http_status);
+  modeS_flogf (Modes.log, "%s # %u (ICAO: %06X): %s", req_resp, num, f->ICAO_addr, buf);
 
   /* Do this since `str` could contain `%s` etc.
    */
@@ -1079,7 +1083,7 @@ static bool API_thread_worker (flight_info *f)
    */
   if (g_data.do_trace_LOL)
        API_TRACE_LOL ("request", g_data.ap_stats.API_requests_sent, request, f);
-  else API_TRACE ("request # %lu: (ICAO: %06X, was_norm: %d) '%s',\n",
+  else API_TRACE ("request # %lu: (ICAO: %06X, normalized: %d) '%s',\n",
                   g_data.ap_stats.API_requests_sent, f->normalized,
                   f->ICAO_addr, request);
 
@@ -1570,7 +1574,17 @@ uint32_t airports_init (void)
 
   if (g_data.test_mode)
   {
+#if 0
+    /* Try multiple locale formats for compatibility across Windows versions
+     */
+    bool ok = setlocale (LC_CTYPE, ".UTF-8") ||
+              setlocale (LC_CTYPE, ".UTF8") ||
+              setlocale (LC_CTYPE, "en_US.UTF-8") ||
+              setlocale (LC_CTYPE, "C.UTF-8");
+#endif
+
     SetConsoleOutputCP (CP_UTF8);
+    SetConsoleCP (CP_UTF8);
 
     patch_call_signs_tests();
     airport_CSV_test_1();

@@ -508,7 +508,12 @@ static void test_utf8 (void)
   const wchar_t *FLOw = L"Flor\xF8";          /* UTF-16 encoding */
   int   y;
 
-  setlocale (LC_ALL, ".utf8");
+  /* Try multiple locale formats for compatibility across Windows versions
+   */
+  bool ok = setlocale (LC_CTYPE, ".UTF-8") ||
+            setlocale (LC_CTYPE, ".UTF8") ||
+            setlocale (LC_CTYPE, "en_US.UTF-8") ||
+            setlocale (LC_CTYPE, "C.UTF-8");
 
   y =  (*api->get_cury)();
 
@@ -531,6 +536,8 @@ static void test_utf8 (void)
   (*api->print_format) (0, y++, "ASCII: %-20.20s: %s", KEFa, hex_dump(KEFa, strlen(KEFa)));
   (*api->print_format) (0, y++, "ASCII: %-20.20s: %s", FLOa, hex_dump(FLOa, strlen(FLOa)));
   (*api->gotoxy) (0, y+1);
+
+  (void) ok;
 }
 
 /**

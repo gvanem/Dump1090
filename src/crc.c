@@ -169,7 +169,7 @@ static int flag_collisions (const errorinfo *table, int tablesize, int offset, i
 
     if (error_bit >= first_error)
     {
-      errorinfo *collision = bsearch(&ei, table, tablesize, sizeof(errorinfo), syndrome_compare);
+      errorinfo *collision = bsearch (&ei, table, tablesize, sizeof(errorinfo), syndrome_compare);
       if (collision != NULL && collision->errors != -1)
       {
         count++;
