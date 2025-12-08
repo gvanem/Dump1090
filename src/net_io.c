@@ -193,8 +193,12 @@ static const char *event_name (int ev)
           ev == MG_EV_MQTT_MSG   ? "MG_EV_MQTT_MSG" :   /* Can never occur here */
           ev == MG_EV_MQTT_OPEN  ? "MG_EV_MQTT_OPEN" :  /* Can never occur here */
           ev == MG_EV_SNTP_TIME  ? "MG_EV_SNTP_TIME" :  /* Can never occur here */
-          ev == MG_EV_WAKEUP     ? "MG_EV_WAKEUP"       /* Can never occur here */
-                                 : "?");
+          ev == MG_EV_WAKEUP     ? "MG_EV_WAKEUP" :     /* Can never occur here */
+          ev == MG_EV_MDNS_A     ? "MG_EV_MDNS_A" :     /* Can never occur here */
+          ev == MG_EV_MDNS_PTR   ? "MG_EV_MDNS_PTR" :   /* Can never occur here */
+          ev == MG_EV_MDNS_SRV   ? "MG_EV_MDNS_SRV" :   /* Can never occur here */
+          ev == MG_EV_MDNS_TXT   ? "MG_EV_MDNS_TXT" :   /* Can never occur here */
+                                   "?");
 }
 
 /**
@@ -1345,15 +1349,15 @@ static bool addr_equal (const mg_addr *a, const mg_addr *b)
      return (false);
 
   if (a->is_ip6)
-     return (memcmp (&a->ip, &b->ip, sizeof(a->ip)) == 0);
-  return (*(uint32_t*)&a->ip == *(uint32_t*)&b->ip);
+     return (memcmp (&a->addr.ip6, &b->addr.ip6, sizeof(a->addr.ip6)) == 0);
+  return (*(uint32_t*)&a->addr.ip4 == *(uint32_t*)&b->addr.ip4);
 }
 
 static bool addr_none (const mg_addr *a)
 {
   if (a->is_ip6)
-     return (memcmp (&a->ip, &in6addr_any, sizeof(a->ip)) == 0);
-  return (*(uint32_t*)&a->ip == 0);
+     return (memcmp (&a->addr.ip6, &in6addr_any, sizeof(a->addr.ip6)) == 0);
+  return (*(uint32_t*)&a->addr.ip4 == 0);
 }
 
 /**
@@ -1451,7 +1455,7 @@ static int compare_on_ip (const void *_a, const void *_b)
   if (a->addr.is_ip6 != b->addr.is_ip6)
      return (-1);    /* put IPv6 addresses last */
 
-  return memcmp (&a->addr.ip, &b->addr.ip, sizeof(a->addr.ip));
+  return memcmp (&a->addr.addr.ip, &b->addr.addr.ip, sizeof(a->addr.addr.ip));
 }
 
 /**
@@ -1717,9 +1721,9 @@ static bool client_is_extern (const mg_addr *addr)
   const struct in_addr *ia;
 
   if (addr->is_ip6)
-     return (IN6_IS_ADDR_LOOPBACK ((const IN6_ADDR*)&addr->ip) == false);
+     return (IN6_IS_ADDR_LOOPBACK ((const IN6_ADDR*)&addr->addr.ip6) == false);
 
-  ia = (const struct in_addr*) &addr->ip;
+  ia = (const struct in_addr*) &addr->addr.ip4;
   return (ia->s_net != 0 && ia->s_net != 127);   /* not 0.0.0.0 and not 127.x.y.z */
 }
 
@@ -1792,7 +1796,7 @@ static char *net_str_addr (const mg_addr *a, char *buf, size_t len)
 
     *p++ = '[';
     len--;
-    if (!inet_ntop(AF_INET6, &a->ip, p, len))
+    if (!inet_ntop(AF_INET6, &a->addr.ip, p, len))
     {
       DEBUG (DEBUG_NET, "inet_ntop(AF_INET6) -> \"%s\").\n",
              win_strerror(WSAGetLastError()));
@@ -1863,7 +1867,7 @@ static char *net_str_addr_port (const mg_addr *a, char *buf, size_t len)
     if (!h_name)
     {
        mg_snprintf (ip_str, sizeof(ip_str), "%M", mg_print_ip, a);
-       h = gethostbyaddr ((char*)&a->ip, sizeof(a->ip), AF_INET);
+       h = gethostbyaddr ((char*)&a->addr.ip4, sizeof(a->addr.ip4), AF_INET);
        net_reverse_add (ip_str, (h && h->h_name) ? h->h_name : "", time(NULL), 0, false);
     }
     h_name = h ? h->h_name : NULL;
@@ -2423,27 +2427,27 @@ static void unique_ip_tests (void)
     unique_ip_add_hostile (HOSTILE_IP_1, service);
     unique_ip_add_hostile (HOSTILE_IP_2, service);
 
-    *(uint32_t*) &addr.ip = mg_htonl (INADDR_LOOPBACK);   /* == 127.0.0.1 */
+    addr.addr.ip4 = mg_htonl (INADDR_LOOPBACK);   /* == 127.0.0.1 */
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
-    *(uint32_t*) &addr.ip = mg_htonl (INADDR_LOOPBACK+1); /* == 127.0.0.2 */
+    addr.addr.ip4 = mg_htonl (INADDR_LOOPBACK+1); /* == 127.0.0.2 */
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
     for (i = 0; i < 20; i++)
     {
-      mg_random (&addr.ip, sizeof(addr.ip));
+      mg_random (&addr.addr.ip, sizeof(addr.addr.ip));
       if (client_is_unique(&addr, service, NULL))
          Modes.stat.unique_clients [service]++;
       Modes.stat.bytes_recv [service] += 10;
     }
 
-    *(uint32_t*) &addr.ip = mg_htonl (INADDR_LOOPBACK);    /* == 127.0.0.1 */
+    addr.addr.ip4 = mg_htonl (INADDR_LOOPBACK);    /* == 127.0.0.1 */
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
-    *(uint32_t*) &addr.ip = mg_htonl (INADDR_LOOPBACK+1);  /* == 127.0.0.2 */
+    addr.addr.ip4 = mg_htonl (INADDR_LOOPBACK+1);  /* == 127.0.0.2 */
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
 
@@ -2454,7 +2458,7 @@ static void unique_ip_tests (void)
   if (Modes.http_ipv6)
   {
     service = MODES_NET_SERVICE_HTTP6;
-    memcpy (&addr.ip, &in6addr_loopback, sizeof(addr.ip));    /* == [::1] */
+    memcpy (&addr.addr.ip6, &in6addr_loopback, sizeof(addr.addr.ip6));    /* == [::1] */
     addr.is_ip6 = true;
     if (client_is_unique(&addr, service, NULL))
        Modes.stat.unique_clients [service]++;
@@ -2463,8 +2467,8 @@ static void unique_ip_tests (void)
 
     for (i = 0; i < 20; i++)
     {
-      *(uint16_t*) &addr.ip [0]  = 0x0120;    /* 2001:xx */
-      mg_random (&addr.ip[2], sizeof(addr.ip) - 2);
+      *(uint16_t*) &addr.addr.ip [0]  = 0x0120;    /* 2001:xx */
+      mg_random (&addr.addr.ip[2], sizeof(addr.addr.ip) - 2);
 
       if (client_is_unique(&addr, service, NULL))
          Modes.stat.unique_clients [service]++;
@@ -2758,10 +2762,10 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
     static const char hex_chars[] = "0123456789abcdef";
     char  *c = request;
 
-    for (i = (int)DIM(a->ip) - 1; i >= 0; i--)
+    for (i = (int)DIM(a->addr.ip6) - 1; i >= 0; i--)
     {
-      int hi = a->ip [i] >> 4;
-      int lo = a->ip [i] & 15;
+      int hi = a->addr.ip6 [i] >> 4;
+      int lo = a->addr.ip6 [i] & 15;
 
       *c++ = hex_chars [lo];
       *c++ = '.';
@@ -2773,7 +2777,7 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
   else
   {
     snprintf (request, sizeof(request), "%d.%d.%d.%d.in-addr.arpa",
-              a->ip[3], a->ip[2], a->ip[1], a->ip[0]);
+              a->addr.ip[3], a->addr.ip[2], a->addr.ip[1], a->addr.ip[0]);
   }
 
   response[0] = '\0';
