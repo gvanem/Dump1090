@@ -1350,14 +1350,14 @@ static bool addr_equal (const mg_addr *a, const mg_addr *b)
 
   if (a->is_ip6)
      return (memcmp (&a->addr.ip6, &b->addr.ip6, sizeof(a->addr.ip6)) == 0);
-  return (*(uint32_t*)&a->addr.ip4 == *(uint32_t*)&b->addr.ip4);
+  return (a->addr.ip4 == b->addr.ip4);
 }
 
 static bool addr_none (const mg_addr *a)
 {
   if (a->is_ip6)
      return (memcmp (&a->addr.ip6, &in6addr_any, sizeof(a->addr.ip6)) == 0);
-  return (*(uint32_t*)&a->addr.ip4 == 0);
+  return (a->addr.ip4 == 0);
 }
 
 /**
@@ -2762,10 +2762,10 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
     static const char hex_chars[] = "0123456789abcdef";
     char  *c = request;
 
-    for (i = (int)DIM(a->addr.ip6) - 1; i >= 0; i--)
+    for (i = (int)DIM(a->addr.ip) - 1; i >= 0; i--)
     {
-      int hi = a->addr.ip6 [i] >> 4;
-      int lo = a->addr.ip6 [i] & 15;
+      int hi = a->addr.ip [i] >> 4;
+      int lo = a->addr.ip [i] & 15;
 
       *c++ = hex_chars [lo];
       *c++ = '.';
