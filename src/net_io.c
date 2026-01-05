@@ -107,7 +107,7 @@ static void         net_timer_add (intptr_t service, int timeout_ms, int flag);
 static void         net_timer_del (intptr_t service);
 static void         net_conn_free (connection *conn, intptr_t service);
 static char        *net_store_error (intptr_t service, const char *err);
-static char        *net_error_details (mg_connection *c, const char *in_out, const void *ev_data);
+static char        *net_error_details (const mg_connection *c, const char *in_out, const void *ev_data);
 static char        *net_str_addr (const mg_addr *a, char *buf, size_t len);
 static char        *net_str_addr_port (const mg_addr *a, char *buf, size_t len);
 static reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name, time_t timestamp, DNS_STATUS status, bool pending);
@@ -374,7 +374,7 @@ void net_handler_send (intptr_t service, const void *msg, size_t len)
  * `addr` includes port and `scope_id` for IPv6.
  * This can be for either client or server.
  */
-connection *connection_get (mg_connection *c, intptr_t service, bool is_server)
+connection *connection_get (const mg_connection *c, intptr_t service, bool is_server)
 {
   connection *conn;
 
@@ -774,7 +774,7 @@ static bool net_setsockopt (mg_connection *c, int opt, int len)
   return (setsockopt (sock, SOL_SOCKET, opt, (const char*)&len, len) == 0);
 }
 
-static char *net_error_details (mg_connection *c, const char *in_out, const void *ev_data)
+static char *net_error_details (const mg_connection *c, const char *in_out, const void *ev_data)
 {
   const char *err = (const char*) ev_data;
   char        orig_err [60] = "";
@@ -880,7 +880,7 @@ static char *net_error_details (mg_connection *c, const char *in_out, const void
 /**
  * The function for an active `connect()` failure.
  */
-static void connection_failed_active (mg_connection *c, intptr_t service, const void *ev_data)
+static void connection_failed_active (const mg_connection *c, intptr_t service, const void *ev_data)
 {
   const char *err = net_error_details (c, "Connection out ", ev_data);
 
@@ -893,7 +893,7 @@ static void connection_failed_active (mg_connection *c, intptr_t service, const 
 /**
  * Handle failure for an `accept()`-ed connection.
  */
-static void connection_failed_accepted (mg_connection *c, intptr_t service, const void *ev_data)
+static void connection_failed_accepted (const mg_connection *c, intptr_t service, const void *ev_data)
 {
   connection *conn = connection_get (c, service, true);
   const char *err;
