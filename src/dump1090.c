@@ -3658,6 +3658,39 @@ static void flush_log (uint64_t now)
 }
 
 /**
+ * Poll the asynchronous result from `Location API`.
+ */
+static void poll_location (void)
+{
+  static bool shown_home_pos = false;
+  pos_t       pos;
+
+  if (Modes.win_location && location_poll(&pos))
+  {
+    /* Assume our location won't change while running this program.
+     * Hence just stop the `Location API` event-handler.
+     */
+    location_exit();
+    Modes.home_pos = pos;
+
+    geo_spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
+    if (Modes.home_pos_ok)
+       LOG_FILEONLY ("Ignoring the 'homepos' config value since we use the 'Windows Location API':"
+                     " Latitude: %.8f, Longitude: %.8f.\n",
+                     Modes.home_pos.lat, Modes.home_pos.lon);
+    Modes.home_pos_ok = true;
+  }
+
+  if (Modes.home_pos_ok && !shown_home_pos)
+  {
+    LOG_FILEONLY ("Modes.home_pos: %.07lf %s, %.07lf %s\n",
+                  fabs(Modes.home_pos.lon), Modes.home_pos.lon > 0.0 ? "E" : "W",
+                  fabs(Modes.home_pos.lat), Modes.home_pos.lat > 0.0 ? "N" : "S");
+    shown_home_pos = true;
+  }
+}
+
+/**
  * This background function is called continously by `main_data_loop()`.
  * It does:
  *  \li Polls the network for events blocking less than 125 msec.
@@ -3673,7 +3706,6 @@ static void flush_log (uint64_t now)
 void background_tasks (void)
 {
   bool     refresh;
-  pos_t    pos;
   uint64_t now;
 
   if (Modes.net)
@@ -3692,34 +3724,7 @@ void background_tasks (void)
 
   Modes.last_update_ms = now;
 
-  /* Check the asynchronous result from `Location API`.
-   */
-  if (Modes.win_location && location_poll(&pos))
-  {
-    /* Assume our location won't change while running this program.
-     * Hence just stop the `Location API` event-handler.
-     */
-    location_exit();
-    Modes.home_pos = pos;
-
-    geo_spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
-    if (Modes.home_pos_ok)
-       LOG_FILEONLY ("Ignoring the 'homepos' config value since we use the 'Windows Location API':"
-                     " Latitude: %.8f, Longitude: %.8f.\n",
-                     Modes.home_pos.lat, Modes.home_pos.lon);
-    Modes.home_pos_ok = true;
-  }
-
-  static bool shown_home_pos = false;
-
-  if (Modes.home_pos_ok && !shown_home_pos)
-  {
-    LOG_FILEONLY ("Modes.home_pos: %.07lf %s, %.07lf %s\n",
-                  fabs(Modes.home_pos.lon), Modes.home_pos.lon > 0.0 ? "E" : "W",
-                  fabs(Modes.home_pos.lat), Modes.home_pos.lat > 0.0 ? "N" : "S");
-    shown_home_pos = true;
-  }
-
+  poll_location();
   fifo_stats();
   aircraft_remove_stale (now);
   airports_background (now);
