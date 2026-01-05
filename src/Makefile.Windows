@@ -66,15 +66,6 @@ USE_WSOCK_TRACE ?= 0
 USE_ASTYLE ?= 1
 
 #
-# Run the static Code Analysis engine from Visual Studio?
-# Only for 'CC=cl' (not 'CC=clang-cl').
-#
-# Ref:
-#   https://learn.microsoft.com/en-us/cpp/build/reference/analyze-code-analysis?view=msvc-170
-#
-USE_ANALYSIS ?= 0
-
-#
 # Python is needed for:
 #   *) .c-file preprocessing.
 #   *) generation of '$(OBJ_DIR)/web-pages-*.c'.
@@ -460,8 +451,7 @@ $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args $(OBJ_DIR)
 	$(call link_web_DLL, $@, $^ oldnames.lib $(ASAN_LIBS), $(WEB_SUFFIXES))
 
 $(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
-	$(call generate, $@, //)
-	$(file >> $@,$(web_pages_RC))
+	$(call generate_c, $@, $(web_pages_RC))
 
 $(OBJ_DIR)/%.res: %.rc
 	$(call create_res_file, $@, $<)
@@ -510,21 +500,16 @@ $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 	$(call C_compile_long_time, $@, $<)
 
 ../packed_test.exe: $(PACKED_TEST_OBJ)
-	$(call link_EXE, $@, $^ $(ASAN_LIBS) advapi32.lib shlwapi.lib)
+	$(call link_EXE, $@, $^ advapi32.lib shlwapi.lib $(ASAN_LIBS))
 
 ../speech_test.exe: $(OBJ_DIR)/speech_test.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj $(OBJ_DIR)/smartlist.obj
-	$(call link_EXE, $@, $^ $(ASAN_LIBS) ole32.lib shlwapi.lib)
+	$(call link_EXE, $@, $^ advapi32.lib ole32.lib shlwapi.lib $(ASAN_LIBS))
+
+extras: ../blocks_test.exe ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe
 
 $(CC).args: $(THIS_FILE)
 	$(call green_msg, All CFLAGS are in $(BRIGHT_WHITE)$@)
 	$(call create_resp_file, $@, $(CFLAGS))
-ifeq ($(USE_ANALYSIS),1)
-	$(file >> $@, -DCODE_ANALYSIS)
-	$(file >> $@, -noFileLocks)
-	$(file >> $@, -analyze)
-	$(file >> $@, -analyze:ruleset "$(VSINSTALLDIR)\Team Tools\Static Analysis Tools\Rule Sets\NativeRecommendedRules.ruleset")
-	$(file >> $@, -analyze:plugin "$(VCToolsInstallDir)\bin\HostX64\x64\EspXEngine.dll")
-endif
 
 
 #
@@ -532,7 +517,7 @@ endif
 # Cannot assume everybody has the 'xxd' program.
 #
 gen_favicons: favicon.png favicon.ico
-	$(call generate, favicon.c, //)
+	$(call generate_c, favicon.c, )
 	@echo -e '\n// Generated array from favicon.png' >> favicon.c
 	xxd -i favicon.png >> favicon.c
 	@echo -e '\n// Generated array from favicon.ico' >> favicon.c
@@ -700,14 +685,17 @@ define generate
   $(file > $(1),$(call Warning,$(strip $(2))))
 endef
 
-define generate_cflags_h
+define generate_c
   $(call generate, $(1),//)
-  $(file >> $(1),const char *cflags = "$(strip $(2))";)
+  $(file >> $(1),$(2))
+endef
+
+define generate_cflags_h
+  $(call generate_c, $(1), const char *cflags = "$(strip $(2))";)
 endef
 
 define generate_ldflags_h
-  $(call generate, $(1),//)
-  $(file >> $(1),const char *ldflags = "$(strip $(2))";)
+  $(call generate_c, $(1), const char *ldflags = "$(strip $(2))";)
 endef
 
 #
