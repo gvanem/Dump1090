@@ -26,7 +26,9 @@ fn query_nominatim(location_query: &str) -> Result<(f64, f64), Box<dyn std::erro
 
     println!("Querying: {}", url);
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::ClientBuilder::new()
+        .user_agent("dump1090-setup/1.0 (https://github.com/gvanem/dump1090)")
+        .build()?;
     let response = client.get(&url).send()?;
     let results: Vec<NominatimResult> = response.json()?;
 

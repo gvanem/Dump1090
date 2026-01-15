@@ -118,6 +118,7 @@ static bool  set_if_mode (const char *arg);
 static bool  set_interactive_ttl (const char *arg);
 static bool  set_home_pos (const char *arg);
 static bool  set_home_pos_from_location_API (const char *arg);
+static bool  launch_setup_exe (void);
 static bool  set_host_port_raw_in (const char *arg);
 static bool  set_host_port_raw_out (const char *arg);
 static bool  set_host_port_sbs_in (const char *arg);
@@ -750,6 +751,31 @@ static bool modeS_init (void)
 
   if (strcmp(Modes.cfg_file, "NUL") && !cfg_open_and_parse(Modes.cfg_file, config))
      return (false);
+
+  /* Check if homepos is unconfigured (-1,-1) and launch setup.exe */
+  if (Modes.home_pos_ok && Modes.home_pos.lat == -1.0 && Modes.home_pos.lon == -1.0)
+  {
+    LOG_STDERR ("Home position is not configured. Launching setup.exe...\n");
+    if (!launch_setup_exe())
+    {
+      LOG_STDERR ("Setup failed or was cancelled. Cannot proceed without a valid home position.\n");
+      return (false);
+    }
+    /* Reload config to get the updated homepos */
+    LOG_STDERR ("Reloading configuration...\n");
+    if (!cfg_open_and_parse(Modes.cfg_file, config))
+    {
+      LOG_STDERR ("Failed to reload configuration file.\n");
+      return (false);
+    }
+    /* Verify homepos was updated */
+    if (!Modes.home_pos_ok || (Modes.home_pos.lat == -1.0 && Modes.home_pos.lon == -1.0))
+    {
+      LOG_STDERR ("Home position is still not configured after setup. Cannot proceed.\n");
+      return (false);
+    }
+    LOG_STDERR ("Home position configured: %.6f,%.6f\n", Modes.home_pos.lat, Modes.home_pos.lon);
+  }
 
   if (Modes.http_ipv6_only)
      Modes.http_ipv6 = true;
@@ -4201,6 +4227,75 @@ static void set_debug_bits (const char *flags)
     }
     flags++;
   }
+}
+
+/**
+ * Launch setup.exe and retry up to 3 times if it exits with non-zero code.
+ * Returns true if setup.exe exits with code 0, false otherwise.
+ */
+static bool launch_setup_exe (void)
+{
+  char  setup_path[_MAX_PATH];
+  DWORD exit_code;
+  int   attempt;
+  
+  /* Construct path to setup.exe in the same directory as the executable */
+  GetModuleFileNameA (NULL, setup_path, sizeof(setup_path));
+  char *last_slash = strrchr (setup_path, '\\');
+  if (last_slash)
+     strcpy (last_slash + 1, "setup.exe");
+  else
+     strcpy (setup_path, "setup.exe");
+
+  for (attempt = 1; attempt <= 3; attempt++)
+  {
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+
+    memset (&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    memset (&pi, 0, sizeof(pi));
+
+    LOG_STDERR ("Launching setup.exe (attempt %d/3)...\n", attempt);
+
+    if (!CreateProcessA(setup_path, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+    {
+      LOG_STDERR ("Failed to launch setup.exe: %lu\n", GetLastError());
+      if (attempt == 3)
+         return (false);
+      continue;
+    }
+
+    /* Wait for setup.exe to complete */
+    WaitForSingleObject (pi.hProcess, INFINITE);
+
+    /* Get exit code */
+    if (!GetExitCodeProcess(pi.hProcess, &exit_code))
+    {
+      LOG_STDERR ("Failed to get exit code: %lu\n", GetLastError());
+      CloseHandle (pi.hProcess);
+      CloseHandle (pi.hThread);
+      if (attempt == 3)
+         return (false);
+      continue;
+    }
+
+    CloseHandle (pi.hProcess);
+    CloseHandle (pi.hThread);
+
+    if (exit_code == 0)
+    {
+      LOG_STDERR ("Setup completed successfully.\n");
+      return (true);
+    }
+
+    LOG_STDERR ("Setup exited with code %lu.\n", exit_code);
+    if (attempt < 3)
+       LOG_STDERR ("Retrying...\n");
+  }
+
+  LOG_STDERR ("Setup failed after 3 attempts.\n");
+  return (false);
 }
 
 static bool set_home_pos (const char *arg)
