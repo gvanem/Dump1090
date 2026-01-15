@@ -155,9 +155,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     io::stdin().read_line(&mut enable_location)?;
     let enable_location = enable_location.trim().to_lowercase();
     let location_setting = if enable_location == "y" || enable_location == "yes" {
-        "true"
+        "yes"
     } else {
-        "false"
+        "no"
     };
 
     // Read config file
