@@ -4230,35 +4230,29 @@ static void set_debug_bits (const char *flags)
 }
 
 /**
- * Launch setup.exe and retry up to 3 times if it exits with non-zero code.
+ * Launch setup.exe and wait for it to complete.
  * Returns true if setup.exe exits with code 0, false otherwise.
  */
 static bool launch_setup_exe (void)
 {
-  mg_file_path setup_path;
-  DWORD        exit_code;
-  int          attempt;
-  
-  /* Construct path to setup.exe in the same directory as the executable */
-  snprintf (setup_path, sizeof(setup_path), "%s\\setup.exe", Modes.where_am_I);
-
-  for (attempt = 1; attempt <= 3; attempt++)
-  {
-    STARTUPINFOA si;
+    mg_file_path        setup_path;
+    STARTUPINFOA        si;
     PROCESS_INFORMATION pi;
+    DWORD               exit_code;
+    
+    /* Construct path to setup.exe in the same directory as the executable */
+    snprintf (setup_path, sizeof(setup_path), "%s\\setup.exe", Modes.where_am_I);
 
     memset (&si, 0, sizeof(si));
     si.cb = sizeof(si);
     memset (&pi, 0, sizeof(pi));
 
-    LOG_STDERR ("Launching setup.exe (attempt %d/3)...\n", attempt);
+    LOG_STDERR ("Launching setup.exe...\n");
 
     if (!CreateProcessA(setup_path, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
     {
-      LOG_STDERR ("Failed to launch setup.exe: %lu\n", GetLastError());
-      if (attempt == 3)
-         return (false);
-      continue;
+        LOG_STDERR ("Failed to launch setup.exe: %lu\n", GetLastError());
+        return (false);
     }
 
     /* Wait for setup.exe to complete */
@@ -4267,12 +4261,10 @@ static bool launch_setup_exe (void)
     /* Get exit code */
     if (!GetExitCodeProcess(pi.hProcess, &exit_code))
     {
-      LOG_STDERR ("Failed to get exit code: %lu\n", GetLastError());
-      CloseHandle (pi.hProcess);
-      CloseHandle (pi.hThread);
-      if (attempt == 3)
-         return (false);
-      continue;
+        LOG_STDERR ("Failed to get exit code: %lu\n", GetLastError());
+        CloseHandle (pi.hProcess);
+        CloseHandle (pi.hThread);
+        return (false);
     }
 
     CloseHandle (pi.hProcess);
@@ -4280,17 +4272,12 @@ static bool launch_setup_exe (void)
 
     if (exit_code == 0)
     {
-      LOG_STDERR ("Setup completed successfully.\n");
-      return (true);
+        LOG_STDERR ("Setup completed successfully.\n");
+        return (true);
     }
 
     LOG_STDERR ("Setup exited with code %lu.\n", exit_code);
-    if (attempt < 3)
-       LOG_STDERR ("Retrying...\n");
-  }
-
-  LOG_STDERR ("Setup failed after 3 attempts.\n");
-  return (false);
+    return (false);
 }
 
 static bool set_home_pos (const char *arg)
