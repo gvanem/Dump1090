@@ -4235,17 +4235,12 @@ static void set_debug_bits (const char *flags)
  */
 static bool launch_setup_exe (void)
 {
-  char  setup_path[_MAX_PATH];
-  DWORD exit_code;
-  int   attempt;
+  mg_file_path setup_path;
+  DWORD        exit_code;
+  int          attempt;
   
   /* Construct path to setup.exe in the same directory as the executable */
-  GetModuleFileNameA (NULL, setup_path, sizeof(setup_path));
-  char *last_slash = strrchr (setup_path, '\\');
-  if (last_slash)
-     strcpy (last_slash + 1, "setup.exe");
-  else
-     strcpy (setup_path, "setup.exe");
+  snprintf (setup_path, sizeof(setup_path), "%s\\setup.exe", Modes.where_am_I);
 
   for (attempt = 1; attempt <= 3; attempt++)
   {
