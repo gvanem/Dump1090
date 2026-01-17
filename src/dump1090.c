@@ -4243,6 +4243,14 @@ static bool launch_setup_exe (void)
     /* Construct path to setup.exe in the same directory as the executable */
     snprintf (setup_path, sizeof(setup_path), "%s\\setup.exe", Modes.where_am_I);
 
+    /* Check if setup.exe exists */
+    if (GetFileAttributesA(setup_path) == INVALID_FILE_ATTRIBUTES)
+    {
+        LOG_STDERR ("setup.exe not found at: %s\n", setup_path);
+        LOG_STDERR ("Please ensure setup.exe is in the same directory as dump1090.exe\n");
+        return (false);
+    }
+
     memset (&si, 0, sizeof(si));
     si.cb = sizeof(si);
     memset (&pi, 0, sizeof(pi));
