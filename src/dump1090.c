@@ -4235,10 +4235,8 @@ static void set_debug_bits (const char *flags)
  */
 static bool launch_setup_exe (void)
 {
-    mg_file_path        setup_path;
-    STARTUPINFOA        si;
-    PROCESS_INFORMATION pi;
-    DWORD               exit_code;
+    mg_file_path setup_path;
+    intptr_t     exit_code;
     
     /* Construct path to setup.exe in the same directory as the executable */
     snprintf (setup_path, sizeof(setup_path), "%s\\setup.exe", Modes.where_am_I);
@@ -4251,41 +4249,24 @@ static bool launch_setup_exe (void)
         return (false);
     }
 
-    memset (&si, 0, sizeof(si));
-    si.cb = sizeof(si);
-    memset (&pi, 0, sizeof(pi));
-
     LOG_STDERR ("Launching setup.exe...\n");
 
-    if (!CreateProcessA(setup_path, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+    exit_code = _spawnl (_P_WAIT, setup_path, setup_path, NULL);
+
+    if (exit_code == -1)
     {
-        LOG_STDERR ("Failed to launch setup.exe: %lu\n", GetLastError());
+        LOG_STDERR ("Failed to launch setup.exe\n");
         return (false);
     }
 
-    /* Wait for setup.exe to complete */
-    WaitForSingleObject (pi.hProcess, INFINITE);
-
-    /* Get exit code */
-    if (!GetExitCodeProcess(pi.hProcess, &exit_code))
+    if (exit_code != 0)
     {
-        LOG_STDERR ("Failed to get exit code: %lu\n", GetLastError());
-        CloseHandle (pi.hProcess);
-        CloseHandle (pi.hThread);
+        LOG_STDERR ("Setup exited with code %ld.\n", exit_code);
         return (false);
     }
 
-    CloseHandle (pi.hProcess);
-    CloseHandle (pi.hThread);
-
-    if (exit_code == 0)
-    {
-        LOG_STDERR ("Setup completed successfully.\n");
-        return (true);
-    }
-
-    LOG_STDERR ("Setup exited with code %lu.\n", exit_code);
-    return (false);
+    LOG_STDERR ("Setup completed successfully.\n");
+    return (true);
 }
 
 static bool set_home_pos (const char *arg)
