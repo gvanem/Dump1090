@@ -19,10 +19,34 @@
 #include "aircraft.h"
 
 /**
- * The name of Aircraft SQL file is based on the name of `Modes.aircraft_db`.
+ * The name of Aircraft SQL file is based on the name of `Modes.aircraft_db`;
+ * `aircraft_sql` == `Modes.aircraft_db + ".sqlite"`.
  */
 static mg_file_path aircraft_sql  = { "?" };
 static bool         have_sql_file = false;
+static bool         test_mode     = false;
+static bool         test_done     = false;
+
+/**
+ * The function-pointers to lookup country/military status
+ * of an aircraft.
+ */
+typedef const char * (*func_get_country) (uint32_t addr, bool get_short);
+typedef bool         (*func_is_military) (uint32_t addr, const char **country);
+
+#if defined(USE_BIN_FILES)
+  /*
+   * Includes '$(OBJ_DIR)/gen_data.h' and `struct aircraft_record` etc.
+   */
+  #include "gen_data.h"
+
+  static func_get_country  p_get_country = aircraft_get_country2;
+  static func_is_military  p_is_military = aircraft_is_military2;
+
+#else
+  static func_get_country  p_get_country = aircraft_get_country;
+  static func_is_military  p_is_military = aircraft_is_military;
+#endif
 
 /**
  * \def DB_COLUMNS
@@ -595,14 +619,11 @@ static const aircraft_info *CSV_lookup_entry (uint32_t addr)
                   sizeof(*Modes.aircraft_list_CSV), CSV_compare_on_addr);
 }
 
-DEF_C_FUNC (const char *, get_country, (uint32_t, bool));
-DEF_C_FUNC (bool,         is_military, (uint32_t, const char **));
-
 /**
  * Do a simple test on the `Modes.aircraft_list_CSV`.
  *
  * Also, if `have_sql_file == true`, compare the lookup speed
- * of Sqlite3 compared to our `bsearch()` lookup.
+ * of Sqlite3 compared to our `bsearch()` lookup used in `CSV_lookup_entry()`.
  */
 static void aircraft_test_1 (void)
 {
@@ -620,14 +641,6 @@ static void aircraft_test_1 (void)
   mg_file_path sql_file = "";
   bool         heli_found = false;
   const char  *heli_type  = "?";
-
-#if defined(USE_BIN_FILES)
-  p_get_country = aircraft_get_country2;
-  p_is_military = aircraft_is_military2;
-#else
-  p_get_country = aircraft_get_country;
-  p_is_military = aircraft_is_military;
-#endif
 
   if (have_sql_file)
      snprintf (sql_file, sizeof(sql_file), " and \"%s\"", basename(aircraft_sql));
@@ -686,45 +699,197 @@ static void aircraft_test_1 (void)
   LOG_STDOUT ("%3u FAIL\n", i - num_ok);
 }
 
+#if defined(USE_BIN_FILES)
+static bool aircraft_init_BIN (void)
+{
+  BIN_header  hdr;
+  struct stat st;
+  size_t      size;
+  time_t      created;
+  const char *fname;
+  FILE       *f = NULL;
+  void       *mem = NULL;
+  bool        exist;
+  bool        truncated = false;
+
+  snprintf (Modes.bin.aircrafts_bin, sizeof(Modes.bin.aircrafts_bin), "%s\\%s", Modes.results_dir, BIN_AIRCRAFT);
+  fname = Modes.bin.aircrafts_bin;
+  exist = (stat(fname, &st) == 0);
+
+  if (exist)
+     truncated = (st.st_size < sizeof(BIN_header));
+
+  if (!exist)
+     LOG_STDERR ("file: '%s' is missing.\n", fname);
+
+  if (truncated)
+     LOG_STDERR ("file: '%s' is truncated.\n", fname);
+
+  if (!exist || truncated)
+     goto fail;
+
+  f = fopen (fname, "rb");
+  if (!f)
+  {
+    LOG_STDERR ("Failed to open %s! errno: %d/%s\n", fname, errno, strerror(errno));
+    goto fail;
+  }
+
+  if (fread(&hdr, 1, sizeof(hdr), f) != sizeof(hdr))
+  {
+    LOG_STDERR ("Failed to read header for %s!\n", fname);
+    goto fail;
+  }
+
+  size = hdr.rec_len * hdr.rec_num;
+  mem  = malloc (size);
+  if (!mem)
+  {
+    LOG_STDERR ("Failed to allocate %zu bytes for %s!\n", size, fname);
+    goto fail;
+  }
+
+  if (fread(mem, 1, size, f) != size)
+  {
+    LOG_STDERR ("Failed to read %zu bytes for %s!\n", size, fname);
+    goto fail;
+  }
+
+  created = hdr.created;
+
+  if (Modes.debug & DEBUG_GENERAL)
+     puts ("");
+  TRACE ("bin_file:   %s\n",    fname);
+  TRACE ("bin_marker: %.*s\n",  (int)sizeof(hdr.bin_marker), hdr.bin_marker);
+  TRACE ("created:    %.24s\n", ctime(&created));
+  TRACE ("rec_len:    %u\n",    hdr.rec_len);
+  TRACE ("rec_num:    %u\n\n",  hdr.rec_num);
+
+  fclose (f);
+  Modes.bin.aircrafts_records     = mem;
+  Modes.bin.aircrafts_records_num = hdr.rec_num;
+  return (true);
+
+fail:
+  if (f)
+     fclose (f);
+  if (mem)
+     free (mem);
+  Modes.bin.aircrafts_bin[0] = '\0';
+  return (false);
+}
+
+static int aircraft_compare (const void *_a, const void *_b)
+{
+  aircraft_record *a = (aircraft_record*) _a;
+  aircraft_record *b = (aircraft_record*) _b;
+  uint32_t a_addr = mg_unhexn (a->icao_addr, sizeof(a->icao_addr));
+  uint32_t b_addr = mg_unhexn (b->icao_addr, sizeof(b->icao_addr));
+
+  return (int) (a_addr - b_addr);
+}
+
+static aircraft_record *BIN_lookup_entry (uint32_t addr)
+{
+  aircraft_record  key;
+  aircraft_record *a = NULL;
+
+  snprintf (key.icao_addr, sizeof(key.icao_addr), "%06X", addr);
+  if (Modes.bin.aircrafts_records_num > 0)
+     a = bsearch (&key, Modes.bin.aircrafts_records, Modes.bin.aircrafts_records_num, sizeof(key), aircraft_compare);
+
+  return (a);
+}
+#endif
+
+static void free_CSV_BIN_records (void)
+{
+  free (Modes.aircraft_list_CSV);
+  Modes.aircraft_list_CSV = NULL;
+  Modes.aircraft_num_CSV = 0;
+
+#if defined(USE_BIN_FILES)
+  free (Modes.bin.aircrafts_records);
+  Modes.bin.aircrafts_records = NULL;
+  Modes.bin.aircrafts_records_num = 0;
+#endif
+}
+
+static uint32_t get_address (unsigned rec_num)
+{
+  const aircraft_info *a1;
+
+#if defined(USE_BIN_FILES)
+  if (Modes.bin.aircrafts_records)
+  {
+    const aircraft_record *a2;
+
+    assert (rec_num < Modes.bin.aircrafts_records_num);
+    a2 = (const aircraft_record*) Modes.bin.aircrafts_records + rec_num;
+    return mg_unhexn (a2->icao_addr, sizeof(a2->icao_addr));
+  }
+#endif
+  assert (rec_num < Modes.aircraft_num_CSV);
+  a1 = Modes.aircraft_list_CSV + rec_num;
+  return (a1->addr);
+}
+
 /**
  * As above, but if `have_sql_file == true`, compare the lookup speed
- * of Sqlite3 compared to our `bsearch()` lookup.
+ * of Sqlite3 compared to our `bsearch()` lookup used in `CSV_lookup_entry()`.
+ *
+ * And with `USE_BIN_FILES`, compare the speed of `bsearch()` lookup used
+ * in `BIN_lookup_entry()`. This latter step assumes all ICAO addresses are
+ * found in all 3 sources. But this is not the case.
  */
-static void aircraft_test_2 (void)
+static void aircraft_test_2 (unsigned range)
 {
   unsigned     i;
+  int          rec_width = 6;
   mg_file_path sql_file = "";
+  mg_file_path bin_file = "";
+
+#if defined(USE_BIN_FILES)
+  if (Modes.bin.aircrafts_bin[0] && Modes.bin.aircrafts_records)
+     snprintf (bin_file, sizeof(bin_file), "\n                   and \"%s\"",
+               Modes.bin.aircrafts_bin);
+#endif
+
+  if (range < 100000)
+     rec_width = 5;
+  if (range < 10000)
+     rec_width = 4;
+  if (range < 1000)
+     rec_width = 3;
 
   if (have_sql_file)
      snprintf (sql_file, sizeof(sql_file), " and \"%s\"", basename(aircraft_sql));
 
-  LOG_STDOUT ("\n%s(): Checking 5 random records in \"%s\"%s:\n",
-              __FUNCTION__, basename(Modes.aircraft_db), sql_file);
-
-  if (!Modes.aircraft_list_CSV)
+  if (range == 0)
   {
-    LOG_STDOUT ("  cannot do this with an empty 'aircraft_list_CSV'\n");
+    LOG_STDOUT ("  cannot do this with empty list(s)\n");
     return;
   }
+
+  LOG_STDOUT ("\n%s(): Checking 5 random records in \"%s\"%s%s, range: 0-%u:\n",
+              __FUNCTION__, basename(Modes.aircraft_db), sql_file, bin_file, range);
 
   for (i = 0; i < 5; i++)
   {
     const aircraft_info *a_CSV, *a_SQL;
-    unsigned rec_num = random_range (0, Modes.aircraft_num_CSV-1);
-    uint32_t addr;
-    double   usec;
+    unsigned rec_num = random_range (0, range - 1);
+    double   usec    = get_usec_now();
+    uint32_t addr    = get_address (rec_num);
 
-    usec  = get_usec_now();
-    addr  = (Modes.aircraft_list_CSV + rec_num) -> addr;
     a_CSV = CSV_lookup_entry (addr);
     usec  = get_usec_now() - usec;
 
-    LOG_STDOUT ("  CSV: %6u: addr: 0x%06X, reg-num: %-8s manufact: %-20.20s callsign: %-10.10s type: %-4s %6.0f usec\n",
-                rec_num, addr,
-                a_CSV->reg_num[0]   ? a_CSV->reg_num   : "-",
-                a_CSV->manufact[0]  ? a_CSV->manufact  : "-",
-                a_CSV->call_sign[0] ? a_CSV->call_sign : "-",
-                a_CSV->type[0]      ? a_CSV->type      : "-",
+    LOG_STDOUT ("  CSV: %*u: addr: 0x%06X, reg-num: %-8s  manufact: %-20.20s callsign: %-10.10s type: %-4s %6.0f usec\n",
+                rec_width, rec_num, addr,
+                (a_CSV && a_CSV->reg_num[0])   ? a_CSV->reg_num   : "-",
+                (a_CSV && a_CSV->manufact[0])  ? a_CSV->manufact  : "-",
+                (a_CSV && a_CSV->call_sign[0]) ? a_CSV->call_sign : "-",
+                (a_CSV && a_CSV->type[0])      ? a_CSV->type      : "-",
                 usec);
 
     if (have_sql_file)
@@ -733,14 +898,36 @@ static void aircraft_test_2 (void)
       a_SQL = SQL_lookup_entry (addr);
       usec  = get_usec_now() - usec;
 
-      LOG_STDOUT ("  SQL:         addr: 0x%06X, reg-num: %-8s manufact: %-20.20s callsign: %-10.10s type: %-4s %6.0f usec\n",
-                  addr,
+      LOG_STDOUT ("  SQL: %*s  addr: 0x%06X, reg-num: %-8s  manufact: %-20.20s callsign: %-10.10s type: %-4s %6.0f usec\n",
+                  rec_width, "", addr,
                   (a_SQL && a_SQL->reg_num[0])   ? a_SQL->reg_num   : "-",
                   (a_SQL && a_SQL->manufact[0])  ? a_SQL->manufact  : "-",
                   (a_SQL && a_SQL->call_sign[0]) ? a_SQL->call_sign : "-",
                   (a_SQL && a_SQL->type[0])      ? a_SQL->type      : "-",
                   usec);
     }
+
+#if defined(USE_BIN_FILES)
+    {
+      const aircraft_record *a_BIN;
+
+      /* Since the 'a_BIN' text-records may NOT be 0-terminated.
+       */
+      int r_size = sizeof(a_BIN->regist) - 1;
+      int m_size = sizeof(a_BIN->manuf) - 1;
+
+      usec  = get_usec_now();
+      a_BIN = BIN_lookup_entry (addr);  // TODO: rewrite into a 'aircraft_info' record
+      usec  = get_usec_now() - usec;
+
+      LOG_STDOUT ("  BIN: %*s  addr: 0x%06X, reg-num: %-*.*s manufact: %-*.*s"
+                  "            model:    %-20.20s  %6.0f usec\n",
+                  rec_width, "", addr,
+                  r_size, r_size, (a_BIN && a_BIN->regist[0]) ? a_BIN->regist : "-",
+                  m_size, m_size, (a_BIN && a_BIN->manuf[0])  ? a_BIN->manuf  : "-",
+                  (a_BIN && a_BIN->model[0]) ? a_BIN->model : "-", usec);
+    }
+#endif
   }
 }
 
@@ -853,9 +1040,18 @@ static void aircraft_test_3 (void)
 
 static bool aircraft_tests (void)
 {
+  unsigned range = Modes.aircraft_num_CSV;
+
+#if defined(USE_BIN_FILES)
+  if (aircraft_init_BIN() && range > Modes.bin.aircrafts_records_num)
+     range = Modes.bin.aircrafts_records_num;    /* make it an overlapping range */
+#endif
+
   aircraft_test_1();
-  aircraft_test_2();
-  aircraft_test_3();
+  aircraft_test_2 (range);
+
+  if (Modes.debug & DEBUG_GENERAL)
+     aircraft_test_3();
   return (true);
 }
 
@@ -1034,13 +1230,14 @@ static bool aircraft_SQL_set_name (void)
 /**
  * Initialize the SQLite interface and aircraft-database from the .csv.sqlite file.
  */
-static double aircraft_SQL_load (bool *created, bool *opened, struct stat *st_csv)
+static bool aircraft_SQL_load (bool *created, bool *opened, struct stat *st_csv, double *load_t)
 {
   struct stat st;
   int    diff_days;
   double usec;
 
   *created = *opened = false;
+  *load_t = 0.0;
 
   if (sqlite3_initialize() != SQLITE_OK)
   {
@@ -1055,7 +1252,7 @@ static double aircraft_SQL_load (bool *created, bool *opened, struct stat *st_cs
     *created = sql_create();
     if (*created)
        have_sql_file = true;
-    return (0.0);
+    return (false);
   }
 
   memset (&st, '\0', sizeof(st));
@@ -1064,9 +1261,11 @@ static double aircraft_SQL_load (bool *created, bool *opened, struct stat *st_cs
 
   TRACE ("'%s' is %d days %s than the CSV-file\n",
          aircraft_sql, abs(diff_days), diff_days < 0 ? "newer" : "older");
+
   usec = get_usec_now();
   *opened = sql_open();
-  return (get_usec_now() - usec);
+  *load_t = get_usec_now() - usec;
+  return (true);
 }
 
 /**
@@ -1100,15 +1299,15 @@ static bool aircraft_CSV_load (void)
     return (false);
   }
 
-  sql_load_t = aircraft_SQL_load (&sql_created, &sql_opened, &st_csv);
+  aircraft_SQL_load (&sql_created, &sql_opened, &st_csv, &sql_load_t);
 
   if (aircraft_sql[0])
      LOG_STDERR ("%susing Sqlite file: \"%s\".\n", have_sql_file ? "" : "Not ", aircraft_sql);
 
-  /* If `Modes.tests`, open and parse the .CSV-file to compare speed
+  /* In `test_mode`, open and parse the .CSV-file to compare speed
    * of 'Modes.aircraft_list_CSV' lookup vs. `SQL_lookup_entry()` lookup.
    */
-  if (!sql_opened || sql_created || test_contains(Modes.tests, "aircraft"))
+  if (!sql_opened || sql_created || test_mode)
   {
     memset (&Modes.csv_ctx, '\0', sizeof(Modes.csv_ctx));
     Modes.csv_ctx.file_name = Modes.aircraft_db;
@@ -1156,12 +1355,12 @@ static bool aircraft_CSV_load (void)
     else LOG_STDOUT ("\nCreated %u records\n", Modes.aircraft_num_CSV);
   }
 
-  if (test_contains(Modes.tests, "aircraft"))
+  if (test_mode)
   {
-    TRACE ("CSV loaded and parsed in %.3f ms\n", csv_load_t/1E3);
+    TRACE ("CSV loaded and parsed in %.3f ms\n", csv_load_t / 1E3);
     if (sql_create_t > 0.0)
-         TRACE ("SQL created in %.3f ms\n", sql_create_t/1E3);
-    else TRACE ("SQL loaded in %.3f ms\n", sql_load_t/1E3);
+         TRACE ("SQL created in %.3f ms\n", sql_create_t / 1E3);
+    else TRACE ("SQL loaded in %.3f ms\n", sql_load_t / 1E3);
 
     return aircraft_tests();
   }
@@ -2585,6 +2784,9 @@ void aircraft_show_stats (void)
 
 bool aircraft_init (void)
 {
+  test_mode = test_contains (Modes.tests, "aircraft") && !test_done;
+  test_done = true;
+
   Modes.aircrafts = smartlist_new();
   if (!Modes.aircrafts)
   {
@@ -2627,8 +2829,7 @@ void aircraft_exit (bool free_aircrafts)
     smartlist_wipe (Modes.aircrafts, (smartlist_free_func)aircraft_free);
     Modes.aircrafts = NULL;
   }
-  free (Modes.aircraft_list_CSV);
-  Modes.aircraft_list_CSV = NULL;
+  free_CSV_BIN_records();
 }
 
 /**
@@ -3005,3 +3206,4 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
   }
   return (a);
 }
+

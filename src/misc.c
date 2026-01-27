@@ -1890,10 +1890,10 @@ static void print_BIN_files (void)
 #if defined(USE_BIN_FILES)
   #define DATE_TIME "YYY/MM/DD, HH:MM:SS"
   size_t      i;
-  const char *bin_files[] = { "aircraft.bin",
-                              "airports.bin",
-                              "code-blocks.bin",
-                              "routes.bin"
+  const char *bin_files[] = { BIN_AIRPORTS,
+                              BIN_AIRCRAFT,
+                              BIN_CODE_BLOCKS,
+                              BIN_ROUTES
                             };
 
   printf ("\nGenerated .BIN-files:\n");

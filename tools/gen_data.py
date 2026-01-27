@@ -2,10 +2,10 @@
 """
 Download 'https://github.com/vradarserver/standing-data/archive/refs/heads/main.zip'
 as needed and generate these files:
-  aircrafts.csv   + aircrafts.bin   + test-aircrafts.exe
-  airports.csv    + airports.bin    + test-airports.exe
-  routes.csv      + routes.bin      + test-routes.exe
-                    code-blocks.bin + test-code-blocks.exe
+  aircraft.csv   + aircraft.bin    + test-aircraft.exe
+  airports.csv   + airports.bin    + test-airports.exe
+  routes.csv     + routes.bin      + test-routes.exe
+                   code-blocks.bin + test-code-blocks.exe
 """
 
 import os, sys, stat, struct, time, csv, argparse, zipfile
@@ -356,6 +356,15 @@ def create_gen_data_h (h_file):
 
            #pragma pack(push, 1)
 
+           typedef struct BIN_header {
+                   char     bin_marker [%d];  /* BIN-file marker == "%s" */
+                   time_t   created;          /* time of creation (64-bits) */
+                   uint32_t rec_num;          /* number of records in .BIN-file */
+                   uint32_t rec_len;          /* sizeof(record) in .BIN-file == %u */
+                 } BIN_header;
+           """ % (len(bin_marker), bin_marker, struct.calcsize(bin_header))))
+
+  f.write (textwrap.dedent ("""
            /* Note: these 'char' members may NOT have be 0-terminated.
             */
            typedef struct aircraft_record {  /* matching 'aircraft_format = "%s"' == %d */
@@ -375,10 +384,22 @@ def create_gen_data_h (h_file):
                    float longitude;
                  } airport_record;
 
-           typedef struct route_record {     /* matching 'routes_format = "%s"' == %d*/
+           typedef struct route_record {     /* matching 'routes_format = "%s"' == %d */
                    char call_sign [8];
                    char airports [20];
                  } route_record;
+
+           typedef struct route_record2 {     /* matching 'routes_format = "%s"' == %d */
+                   char  call_sign [8];
+
+                   /* this is really `airports[20]`. Like "EGCC-LTBS".
+                    * Or "KCLT-KRSW-KCLT" with one stop-over airport.
+                    * Or "KJFK-EBBR-ZSYT-RKSI" with two stop-over airport.
+                    * Airport names are always 4 letter ICAO.
+                    */
+                   char  departure   [10];
+                   char  destination [10];
+                 } route_record2;
 
            typedef struct blocks_record {    /* matching 'blocks_format = "%s"' == %d */
                    uint32_t start;
@@ -424,6 +445,7 @@ def create_gen_data_h (h_file):
            """  % (aircraft_format, aircraft_rec_len,
                    airport_format,  airport_rec_len,
                    routes_format,   routes_rec_len,
+                   routes_format,   routes_rec_len,
                    blocks_format,   blocks_rec_len)))
   f.close()
   sys.stdout.flush()
@@ -437,17 +459,6 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
   f.write (textwrap.dedent ("""
      #include "gen_data.h"
 
-     #pragma pack(push, 1)
-
-     typedef struct BIN_header {
-             char     bin_marker [%d];   /* BIN-file marker == "%s" */
-             time_t   created;           /* time of creation (64-bits) */
-             uint32_t rec_num;           /* number of records in .BIN-file == %u */
-             uint32_t rec_len;           /* sizeof(record) in .BIN-file == %u */
-           } BIN_header;                 /* == %u bytes */
-
-     #pragma pack(pop)
-
      #ifndef U8_NUM
      #define U8_NUM 4
      #endif
@@ -459,7 +470,7 @@ def create_c_test_file (c_file, bin_file, rec_len, rec_num):
      static const char *bin_file = "%s";
 
      static char buf [2000];  /* work buffer */
-     """ % (len(bin_marker), bin_marker, rec_num, rec_len, struct.calcsize(bin_header), bin_file)))
+     """ % bin_file))
 
   f.write (textwrap.dedent ("""
      /*

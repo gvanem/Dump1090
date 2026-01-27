@@ -13,15 +13,18 @@
 
 #include "misc.h"
 #include "interactive.h"
-#include "routes.h"
 #include "smartlist.h"
 #include "speech.h"
 #include "airports.h"
 
+#if defined(USE_BIN_FILES)
+#include "gen_data.h"
+#endif
+
 #define API_SERVICE_URL     "https://vrs-standing-data.adsb.lol/routes/%.2s/%s.json"
 #define API_SERVICE_503     "<html><head><title>503 Service Temporarily Unavailable"
 
-#define API_SERVICE_URL2    "https://adsb.im/api/0/routeset"
+#define API_SERVICE_URL2    "https://adsb.im/api/0/routeset"  /* not used */
 
 #define API_AIRPORT_IATA    "\"_airport_codes_iata\": "    /* what to look for in response */
 #define API_AIRPORT_ICAO    "\"airport_codes\": "          /* todo: look for these ICAO codes too */
@@ -164,16 +167,8 @@ typedef struct airports_priv {
         bool              do_trace;       /**< Use `API_TRACE()` macro? */
         bool              do_trace_LOL;   /**< or use `API_TRACE_LOL()` macro? */
         bool              no_db;          /**< Running w/o `Modes.airport_db' */
-        bool              init_done;
         bool              test_mode;
         uint32_t          last_rc;
-
-       /**
-        * Only effective if `USE_BIN_FILES` is defined.
-        */
-        mg_file_path      routes_bin;
-        mg_file_path      aircrafts_bin;
-        mg_file_path      airports_bin;
 
         /**
          * \todo
@@ -203,17 +198,6 @@ static void         flight_stats_now (flight_info_stats *stats);
 
 static const char   *usec_fmt;
 static airports_priv g_data;
-
-#if defined(USE_BIN_FILES)
-  static route_record2 *route_records;
-  static size_t         route_records_num;
-
-  // static airport_record *airports_records;
-  // static size_t          airports_records_num;
-
-  // static aircraft_record *aircraft_records;
-  // static size_t           aircraft_records_num;
-#endif
 
 /**
  * Used in `airport_API_test_1()` and `airport_API_test_2()`.
@@ -636,7 +620,7 @@ static int routes_compare (const void *a, const void *b)
 }
 
 /**
- * Look in `*route_records` before posting a request to the ADSB-LOL API.
+ * Look in `Modes.bin.route_records` before posting a request to the ADSB-LOL API.
  */
 static flight_info *routes_find_by_callsign (const char *call_sign)
 {
@@ -653,9 +637,9 @@ static flight_info *routes_find_by_callsign (const char *call_sign)
   const airport      *int2 = NULL;
   int                 rc;
 
-  if (route_records_num > 0)
-     r = bsearch (call_sign, route_records, route_records_num,
-                  sizeof(route_record), routes_compare);
+  if (Modes.bin.route_records_num > 0)
+     r = bsearch (call_sign, Modes.bin.route_records, Modes.bin.route_records_num,
+                  sizeof(*r), routes_compare);
 
   if (!r)
      return (NULL);
@@ -715,17 +699,18 @@ static void routes_find_test (void)
   printf ("%s(): '-DUSE_BIN_FILES' not defined.\n", __FUNCTION__);
 
 #else
-  size_t num = min (50, route_records_num);
-  size_t i, rec_num;
+  size_t         num = min (50, Modes.bin.route_records_num);
+  size_t         i, rec_num;
+  route_record2 *r = (route_record2*) Modes.bin.route_records;
 
-  if (!route_records)
+  if (!r || num == 0)
   {
-    printf ("\7%s(): 'route_records == NULL!?'.\n"
+    printf ("\7%s(): 'Modes.bin.route_records == NULL!?'.\n"
             "Run 'py -3 ../tools/gen_data.py' again.\n", __FUNCTION__);
     return;
   }
 
-  printf ("%s():\n  Checking %zu random records among %zu records.\n", __FUNCTION__, num, route_records_num);
+  printf ("%s():\n  Checking %zu random records among %zu records.\n", __FUNCTION__, num, Modes.bin.route_records_num);
   printf ("  Record  call-sign  DEP   DEST   Departure            Destination               usec\n"
           "  --------------------------------------------------------------------------------------\n");
 
@@ -736,9 +721,9 @@ static void routes_find_test (void)
     const char        *dep, *dest;
     double             start_t = get_usec_now();
 
-    rec_num = (size_t) random_range (0, route_records_num - 1);
-    call_sign = route_records [rec_num].call_sign;
-    start = route_records [rec_num].departure;
+    rec_num   = (size_t) random_range (0, Modes.bin.route_records_num - 1);
+    call_sign = r [rec_num].call_sign;
+    start     = r [rec_num].departure;
 
     f = routes_find_by_callsign (call_sign);
 
@@ -976,7 +961,7 @@ void airports_show_stats (void)
 
 #if defined(USE_BIN_FILES)
   LOG_STDOUT ("  %6zu Route records. Used %u times.\n",
-              route_records_num, g_data.ap_stats.routes_records_used);
+              Modes.bin.route_records_num, g_data.ap_stats.routes_records_used);
   interactive_clreol();
 #endif
 }
@@ -1362,32 +1347,52 @@ static bool airports_init_API (void)
 uint32_t airports_num (uint32_t *num)
 {
   *num = g_data.ap_stats.CSV_numbers;
-  assert (g_data.init_done);
   return (g_data.last_rc);
 }
 
 #if defined(USE_BIN_FILES)
-static void *read_route_records (FILE *f, const BIN_header *hdr)
+static void read_route_records (FILE *f, const BIN_header *hdr)
 {
   size_t size = hdr->rec_len * hdr->rec_num;
   void  *mem = malloc (size);
 
   if (!mem)
   {
-    LOG_STDERR ("Failed to allocate %zu bytes for %s!\n", size, g_data.routes_bin);
-    return (NULL);
+    LOG_STDERR ("Failed to allocate %zu bytes for %s!\n", size, Modes.bin.routes_bin);
+    return;
   }
   if (fread(mem, 1, size, f) != size)
   {
-    LOG_STDERR ("Failed to read %zu bytes for %s!\n", size, g_data.routes_bin);
-    return (NULL);
+    LOG_STDERR ("Failed to read %zu bytes for %s!\n", size, Modes.bin.routes_bin);
+    free (mem);
+    return;
   }
-  route_records_num = hdr->rec_num;
-  return (mem);
+  Modes.bin.route_records_num = hdr->rec_num;
+  Modes.bin.route_records = mem;
+}
+
+static void read_airports_records (FILE *f, const BIN_header *hdr)
+{
+  size_t size = hdr->rec_len * hdr->rec_num;
+  void  *mem = malloc (size);
+
+  if (!mem)
+  {
+    LOG_STDERR ("Failed to allocate %zu bytes for %s!\n", size, Modes.bin.airports_bin);
+    return;
+  }
+  if (fread(mem, 1, size, f) != size)
+  {
+    LOG_STDERR ("Failed to read %zu bytes for %s!\n", size, Modes.bin.airports_bin);
+    free (mem);
+    return;
+  }
+  Modes.bin.airports_records_num = hdr->rec_num;
+  Modes.bin.airports_records = mem;
 }
 
 /**
- * Check a single .BIN database for existance and age.is not older than 10 days.
+ * Check a single .BIN database for existance and age is not older than 10 days.
  * \retval false  no update needed.
  * \retval true   update needed.
  */
@@ -1419,21 +1424,23 @@ static bool airports_update_BIN_file (const char *fname)
 }
 
 /**
- * Check if the `airports.bin`, `aircraft.bin` or `routes.bin` databases
- * needs update. If so, run `py.exe -3 ../tools/gen_data.py` to update all of them.
+ * Check if the `airports.bin` or `routes.bin` databases needs update.
+ * If so, run `py.exe -3 ../tools/gen_data.py` to update all of them.
  */
 bool airports_update_BIN (void)
 {
   int  need_update = 0;
   bool rc = true;
 
-  if (airports_update_BIN_file(g_data.airports_bin))
+  if (airports_update_BIN_file(Modes.bin.airports_bin))
      need_update++;
 
-  if (airports_update_BIN_file(g_data.aircrafts_bin))
+#if 0
+  if (airports_update_BIN_file(Modes.bin.aircrafts_bin))
      need_update++;
+#endif
 
-  if (airports_update_BIN_file(g_data.routes_bin))
+  if (airports_update_BIN_file(Modes.bin.routes_bin))
      need_update++;
 
   if (need_update > 0)
@@ -1485,6 +1492,10 @@ static FILE *airports_init_one_BIN (const char *fname, BIN_header *hdr)
   }
 
   created = hdr->created;
+
+  if (Modes.debug & DEBUG_GENERAL)
+     puts ("");
+  TRACE ("bin_file:   %s\n",    fname);
   TRACE ("bin_marker: %.*s\n",  (int)sizeof(hdr->bin_marker), hdr->bin_marker);
   TRACE ("created:    %.24s\n", ctime(&created));
   TRACE ("rec_len:    %u\n",    hdr->rec_len);
@@ -1497,30 +1508,25 @@ static bool airports_init_BIN (void)
   BIN_header hdr;
   FILE      *f;
 
-  if (airports_set_BIN_file (&g_data.aircrafts_bin, "aircraft.bin") +
-      airports_set_BIN_file (&g_data.airports_bin, "airports.bin")  +
-      airports_set_BIN_file (&g_data.routes_bin, "routes.bin") == 0)
+  if (airports_set_BIN_file(&Modes.bin.airports_bin, BIN_AIRPORTS) +
+      airports_set_BIN_file(&Modes.bin.routes_bin, BIN_ROUTES) == 0)
      return (false);
 
-  f = airports_init_one_BIN (g_data.routes_bin, &hdr);
-  if (!f)
-     return (false);
-
-  route_records = read_route_records (f, &hdr);
-  route_records_num = hdr.rec_num;
-  fclose (f);
-
-  f = airports_init_one_BIN (g_data.aircrafts_bin, &hdr);
-  // ...
+  f = airports_init_one_BIN (Modes.bin.routes_bin, &hdr);
   if (f)
-     fclose (f);
+  {
+    read_route_records (f, &hdr);
+    fclose (f);
+  }
 
-  f = airports_init_one_BIN (g_data.airports_bin, &hdr);
-  // ...
+  f = airports_init_one_BIN (Modes.bin.airports_bin, &hdr);
   if (f)
-     fclose (f);
+  {
+    read_airports_records (f, &hdr);
+    fclose (f);
+  }
 
-  return (route_records ? true : false);
+  return (Modes.bin.route_records || Modes.bin.airports_records ? true : false);
 }
 
 #else
@@ -1538,7 +1544,6 @@ uint32_t airports_init (void)
   bool rc;
 
   assert (g_data.airports == NULL);
-  assert (g_data.init_done == false);
 
   g_data.flight_info = smartlist_new();
   g_data.airports    = smartlist_new();
@@ -1612,7 +1617,6 @@ uint32_t airports_init (void)
    * allthough the ADSB-LOL API does not need that information.
    */
 done:
-  g_data.init_done = true;
   g_data.last_rc = rc ? (g_data.ap_stats.CSV_numbers > 0 || g_data.no_db) : 0;
   return (g_data.last_rc);
 }
@@ -1656,12 +1660,18 @@ void airports_exit (bool free_airports)
     smartlist_free (g_data.flight_info);
   }
 
-  g_data.flight_info = NULL;
+  g_data.flight_info  = NULL;
+  g_data.airports     = NULL;
   Modes.airports_priv = NULL;
 
 #if defined(USE_BIN_FILES)
-  free (route_records);
-  route_records_num = 0;
+  free (Modes.bin.route_records);
+  free (Modes.bin.airports_records);
+
+  Modes.bin.route_records = NULL;
+  Modes.bin.route_records_num = 0;
+  Modes.bin.airports_records = NULL;
+  Modes.bin.airports_records_num = 0;
 #endif
 }
 
@@ -1986,14 +1996,15 @@ static void airport_normalize_test (void)
 static void patch_call_signs_tests (void)
 {
 #if defined(USE_BIN_FILES)
-  size_t i, num;
+  size_t         i, num;
+  route_record2 *r = (route_record2*) Modes.bin.route_records;
 
   printf ("%s():\n", __FUNCTION__);
 
   for (i = 0; i < DIM(call_signs_tests); i++)
   {
-    num = (size_t) random_range (0, route_records_num - 1);
-    call_signs_tests [i] = route_records [num].call_sign;
+    num = (size_t) random_range (0, Modes.bin.route_records_num - 1);
+    call_signs_tests [i] = r [num].call_sign;
   }
 #endif
 }
@@ -2198,7 +2209,7 @@ static flight_info *flight_info_find_by_addr (uint32_t addr)
 
 /**
  * Find `flight_info*` for a `call_sign` in either
- * `route_records*` or the `g_data.flight_info` cache.
+ * `Modes.bin.route_records[]` or the `g_data.flight_info` cache.
  *
  * If `Modes.prefer_ADSB_LOL == true` (from the config-file), search in
  * `g_data.flight_info` cache. If not found there, we return NULL to create
