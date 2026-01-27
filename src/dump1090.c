@@ -118,6 +118,7 @@ static bool  set_if_mode (const char *arg);
 static bool  set_interactive_ttl (const char *arg);
 static bool  set_home_pos (const char *arg);
 static bool  set_home_pos_from_location_API (const char *arg);
+static bool  launch_setup_exe (void);
 static bool  set_host_port_raw_in (const char *arg);
 static bool  set_host_port_raw_out (const char *arg);
 static bool  set_host_port_sbs_in (const char *arg);
@@ -750,6 +751,31 @@ static bool modeS_init (void)
 
   if (strcmp(Modes.cfg_file, "NUL") && !cfg_open_and_parse(Modes.cfg_file, config))
      return (false);
+
+  /* Check if homepos is unconfigured (-1,-1) and launch setup.exe */
+  if (Modes.home_pos_ok && Modes.home_pos.lat == -1.0 && Modes.home_pos.lon == -1.0)
+  {
+    LOG_STDERR ("Home position is not configured. Launching setup.exe...\n");
+    if (!launch_setup_exe())
+    {
+      LOG_STDERR ("Setup failed or was cancelled. Cannot proceed without a valid home position.\n");
+      return (false);
+    }
+    /* Reload config to get the updated homepos */
+    LOG_STDERR ("Reloading configuration...\n");
+    if (!cfg_open_and_parse(Modes.cfg_file, config))
+    {
+      LOG_STDERR ("Failed to reload configuration file.\n");
+      return (false);
+    }
+    /* Verify homepos was updated */
+    if (!Modes.home_pos_ok || (Modes.home_pos.lat == -1.0 && Modes.home_pos.lon == -1.0))
+    {
+      LOG_STDERR ("Home position is still not configured after setup. Cannot proceed.\n");
+      return (false);
+    }
+    LOG_STDERR ("Home position configured: %.6f,%.6f\n", Modes.home_pos.lat, Modes.home_pos.lon);
+  }
 
   if (Modes.http_ipv6_only)
      Modes.http_ipv6 = true;
@@ -4206,6 +4232,46 @@ static void set_debug_bits (const char *flags)
     }
     flags++;
   }
+}
+
+/**
+ * Launch setup.exe and wait for it to complete.
+ * Returns true if setup.exe exits with code 0, false otherwise.
+ */
+static bool launch_setup_exe (void)
+{
+    mg_file_path setup_path;
+    intptr_t     exit_code;
+    
+    /* Construct path to setup.exe in the same directory as the executable */
+    snprintf (setup_path, sizeof(setup_path), "%s\\setup.exe", Modes.where_am_I);
+
+    /* Check if setup.exe exists */
+    if (GetFileAttributesA(setup_path) == INVALID_FILE_ATTRIBUTES)
+    {
+        LOG_STDERR ("setup.exe not found at: %s\n", setup_path);
+        LOG_STDERR ("Please ensure setup.exe is in the same directory as dump1090.exe\n");
+        return (false);
+    }
+
+    LOG_STDERR ("Launching setup.exe...\n");
+
+    exit_code = _spawnl (_P_WAIT, setup_path, setup_path, NULL);
+
+    if (exit_code == -1)
+    {
+        LOG_STDERR ("Failed to launch setup.exe\n");
+        return (false);
+    }
+
+    if (exit_code != 0)
+    {
+        LOG_STDERR ("Setup exited with code %ld.\n", exit_code);
+        return (false);
+    }
+
+    LOG_STDERR ("Setup completed successfully.\n");
+    return (true);
 }
 
 static bool set_home_pos (const char *arg)

@@ -26,7 +26,9 @@ fn query_nominatim(location_query: &str) -> Result<(f64, f64), Box<dyn std::erro
 
     println!("Querying: {}", url);
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::ClientBuilder::new()
+        .user_agent("dump1090-setup/1.0 (https://github.com/gvanem/dump1090)")
+        .build()?;
     let response = client.get(&url).send()?;
     let results: Vec<NominatimResult> = response.json()?;
 
@@ -153,9 +155,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     io::stdin().read_line(&mut enable_location)?;
     let enable_location = enable_location.trim().to_lowercase();
     let location_setting = if enable_location == "y" || enable_location == "yes" {
-        "true"
+        "yes"
     } else {
-        "false"
+        "no"
     };
 
     // Read config file
