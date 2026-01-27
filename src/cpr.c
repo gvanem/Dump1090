@@ -64,6 +64,15 @@ static int CPR_set_error (int result, aircraft *a, uint64_t now)
 }
 
 /**
+ * Add a 20% slack to the allowed max-distance.
+ * So return true if `dist < 1.2 * max_dist`.
+ */
+static bool CPR_distance_ok (double dist, double max_dist)
+{
+  return (dist < 1.20 * max_dist);
+}
+
+/**
  * Helper function for decoding the **CPR**. <br>
  * Always positive MOD operation.
  */
@@ -254,7 +263,7 @@ int cpr_do_global (struct aircraft *a, const struct modeS_message *mm, uint64_t 
   {
     double distance = geo_great_circle_dist (&Modes.home_pos, new_pos);
 
-    if (distance > Modes.max_dist)
+    if (!CPR_distance_ok(distance, Modes.max_dist))
     {
       CPR_TRACE ("%06X: global distance check failed (%.3f,%.3f), max dist %.1fkm, actual %.1fkm\n",
                  a->addr, new_pos->lat, new_pos->lon, (double)Modes.max_dist / 1000.0, distance / 1000.0);
@@ -666,7 +675,6 @@ static bool CPR_speed_check (aircraft            *a,
   uint64_t elapsed;
   double   max_dist, distance, elapsed_sec, speed_Ms;
   double   speed;          /* in knots */
-  bool     dist_ok;
 
   if (!(a->AC_flags & MODES_ACFLAGS_LATLON_VALID))
      return (true);              /* no reference, assume OK */
@@ -715,20 +723,17 @@ static bool CPR_speed_check (aircraft            *a,
   /* find actual distance between old and new point
    */
   distance = geo_great_circle_dist (&a->position, pos);
-  dist_ok  = (distance <= max_dist);
-
-  if (!dist_ok)
+  if (!CPR_distance_ok(distance, max_dist))
   {
     a->seen_pos_EST = 0;
     CPR_TRACE ("%06X: speed check failed, %.1f sec, speed_Ms %.1f M/s, max_dist %.1f km, actual %.1f km\n",
                a->addr, elapsed_sec, speed_Ms, max_dist / 1000.0, distance / 1000.0);
+    return (false);
   }
-  else
-  {
-    a->distance    = distance;
-    a->distance_ok = true;
-  }
-  return (dist_ok);
+
+  a->distance    = distance;
+  a->distance_ok = true;
+  return (true);
 }
 
 /**
