@@ -287,8 +287,14 @@
     #define RC_FILEFLAGS  0
   #endif
 
-  #if defined(USE_ASAN)
-  #define RC_BUILD_FEATURES  "ASAN"
+  #if defined(USE_ASAN) && defined(USE_SPECTRE)
+    #define RC_BUILD_FEATURES  "ASAN, Spectre"
+
+  #elif defined(USE_ASAN)
+    #define RC_BUILD_FEATURES  "ASAN"
+
+  #elif defined(USE_SPECTRE)
+    #define RC_BUILD_FEATURES  "Spectre"
   #endif
 
   /**
