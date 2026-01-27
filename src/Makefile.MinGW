@@ -58,7 +58,8 @@ endif
 
 RCFLAGS += -O coff -DRC_BITS=$(BITS) -I.
 
-OS_LIBS = -ladvapi32 -ldnsapi -liphlpapi -lole32 -lsetupapi -lshlwapi -luuid -luser32 -lwinmm -lwinusb -lws2_32
+OS_LIBS = -ladvapi32 -ldnsapi -liphlpapi -lole32 -lsetupapi \
+          -lshlwapi -luuid -luser32 -lwinmm -lwinusb -lws2_32
 
 #
 # What to build:
