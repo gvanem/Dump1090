@@ -4240,38 +4240,35 @@ static void set_debug_bits (const char *flags)
  */
 static bool launch_setup_exe (void)
 {
-    mg_file_path setup_path;
-    intptr_t     exit_code;
-    
-    /* Construct path to setup.exe in the same directory as the executable */
-    snprintf (setup_path, sizeof(setup_path), "%s\\setup.exe", Modes.where_am_I);
+  mg_file_path setup_path;
+  intptr_t     exit_code;
 
-    /* Check if setup.exe exists */
-    if (GetFileAttributesA(setup_path) == INVALID_FILE_ATTRIBUTES)
-    {
-        LOG_STDERR ("setup.exe not found at: %s\n", setup_path);
-        LOG_STDERR ("Please ensure setup.exe is in the same directory as dump1090.exe\n");
-        return (false);
-    }
+  /* Construct path to setup.exe in the same directory as the executable */
+  snprintf (setup_path, sizeof(setup_path), "%s\\setup.exe", Modes.where_am_I);
 
-    LOG_STDERR ("Launching setup.exe...\n");
+  /* Check if setup.exe exists */
+  if (GetFileAttributesA(setup_path) == INVALID_FILE_ATTRIBUTES)
+  {
+    LOG_STDERR ("setup.exe not found at: %s\n", setup_path);
+    LOG_STDERR ("Please ensure setup.exe is in the same directory as dump1090.exe\n");
+    return (false);
+  }
 
-    exit_code = _spawnl (_P_WAIT, setup_path, setup_path, NULL);
+  LOG_STDERR ("Launching setup.exe...\n");
 
-    if (exit_code == -1)
-    {
-        LOG_STDERR ("Failed to launch setup.exe\n");
-        return (false);
-    }
-
-    if (exit_code != 0)
-    {
-        LOG_STDERR ("Setup exited with code %ld.\n", exit_code);
-        return (false);
-    }
-
-    LOG_STDERR ("Setup completed successfully.\n");
-    return (true);
+  exit_code = _spawnl (_P_WAIT, setup_path, setup_path, NULL);
+  if (exit_code == -1)
+  {
+    LOG_STDERR ("Failed to launch setup.exe\n");
+    return (false);
+  }
+  if (exit_code != 0)
+  {
+    LOG_STDERR ("Setup exited with code %ld.\n", exit_code);
+    return (false);
+  }
+  LOG_STDERR ("Setup completed successfully.\n");
+  return (true);
 }
 
 static bool set_home_pos (const char *arg)
