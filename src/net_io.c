@@ -3150,7 +3150,7 @@ bool net_init (void)
 
   if (Modes.web_page_is_FA)
   {
-    /* Since 'aircraft_init()' was already called, we have to this here now.
+    /* Since 'aircraft_init()' was already called, we have to do this here now.
      */
     aircraft_fix_flightaware();
     LOG_FILEONLY ("Running with a FlightAware web-page\n");
@@ -3216,7 +3216,7 @@ void net_poll (void)
 {
   /* Poll Mongoose for network events.
    * Block for max. `Modes.net_poll_ms` msec.
-   * Default is 20 msec.
+   * Default is 10 msec.
    */
   mg_mgr_poll (&Modes.mgr, Modes.net_poll_ms);
 
