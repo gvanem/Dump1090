@@ -66,6 +66,16 @@ USE_WSOCK_TRACE ?= 0
 USE_ASTYLE ?= 1
 
 #
+# Enable code generation mitigations for speculative execution side-channel
+# attack (Spectre) vulnerabilities?
+#
+# This also enables:
+#   Control-flow Enforcement Technology (CET) Shadow Stack mitigation and
+#   Security Development Lifecycle (SDL) checks.
+#
+USE_SPECTRE ?= 0
+
+#
 # Python is needed for:
 #   *) .c-file preprocessing.
 #   *) generation of '$(OBJ_DIR)/web-pages-*.c'.
@@ -132,6 +142,11 @@ CFLAGS = -nologo -c -Zi -W4        \
 #
 CFLAGS += -volatile:iso
 
+#
+# Eliminate Duplicate Strings:
+#
+CFLAGS += -GF
+
 LDFLAGS = -nologo -map -debug -verbose    \
           -incremental:no -machine:$(CPU) \
           -nodefaultlib:oldnames.lib      \
@@ -142,10 +157,10 @@ LDFLAGS = -nologo -map -debug -verbose    \
 RCFLAGS = -nologo
 
 ifeq ($(USE_CRT_DEBUG),1)
-  CFLAGS  += -MDd -GS -Oy- -RTCu -RTCs
+  CFLAGS  += -MDd -Oy- -RTCu -RTCs
   RCFLAGS += -D_DEBUG
 else
-  CFLAGS += -MD -GS- -Zo -Oy- -Ox -Gs0
+  CFLAGS += -MD -Zo -Oy- -Ox -Gs0
 endif
 
 ifeq ($(CC),clang-cl)
@@ -158,6 +173,17 @@ ifeq ($(CC),clang-cl)
 else
   RCFLAGS += -D_MSC_VER
   gen_data_arg =
+endif
+
+ifeq ($(USE_SPECTRE),1)
+  CFLAGS  += -DUSE_SPECTRE
+  RCFLAGS += -DUSE_SPECTRE
+  CFLAGS  += -guard:cf -Qspectre -GS -sdl
+  LDFLAGS += -guard:cf -dynamicbase -cetcompat -opt:icf -opt:ref -ltcg \
+             -libpath:$(TOOLS_ROOT)/lib/spectre/$(CPU)
+
+else ifeq ($(USE_CRT_DEBUG),0)
+  CFLAGS += -GS-
 endif
 
 ifeq ($(USE_BIN_FILES),1)
@@ -454,7 +480,7 @@ $(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
 	$(call generate_c, $@, $(web_pages_RC))
 
 $(OBJ_DIR)/%.res: %.rc
-	$(call create_res_file, $@, $<)
+	$(call RC_compile, $@, $<)
 
 ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
   $(OBJECTS): $(SOURCES) | $(CC).args $(OBJ_DIR)
@@ -638,7 +664,7 @@ define C_compile_long_time
   @echo
 endef
 
-define create_res_file
+define RC_compile
   rc $(RCFLAGS) -fo $(strip $(1) $(2))
   @echo
 endef
@@ -758,7 +784,6 @@ DOXY_HEADERS = ../aircraft.h                  \
                ../location.h                  \
                ../misc.h                      \
                ../net_io.h                    \
-               ../routes.h                    \
                ../sdrplay.h                   \
                ../smartlist.h                 \
                ../speech.h                    \
