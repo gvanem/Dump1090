@@ -2879,7 +2879,7 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
   *dns4_p = mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
 
 #if !defined(USE_ASAN)
-  /*
+  /**
    * Fake alert:
    *   If a `system ("ping.exe -6 -n 1 ipv6.google.com")` works, just assume that
    *   the `Reply from <ping6_addr> time=zz sec' will work as the DNS6 address.
@@ -2914,8 +2914,9 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
       if (p && !p[1])
          *p = '\0';    /* Drop the trailing ':' */
 
-     /* Return it as IPv6 bracket notation with port number
-      */
+      /*
+       * Return it as IPv6 bracket notation with port number
+       */
       *dns6_p = mg_mprintf ("udp://[%s]:53", ping6_addr);
       DEBUG (DEBUG_NET, "ping6_addr: '%s'\n", *dns6_p);
       break;
