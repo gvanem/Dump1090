@@ -3804,7 +3804,7 @@ void modeS_signal_handler (int sig)
   }
   else if (sig == 0)
   {
-    DEBUG (DEBUG_GENERAL, "Breaking 'main_data_loop()'%s, shutting down ...\n",
+    TRACE ("Breaking 'main_data_loop()'%s, shutting down ...\n",
            Modes.internal_error ? " due to internal error" : "");
   }
 
@@ -3813,7 +3813,7 @@ void modeS_signal_handler (int sig)
     EnterCriticalSection (&Modes.data_mutex);
     rtlsdr_reset_buffer (Modes.rtlsdr.device);
     rc = rtlsdr_cancel_async (Modes.rtlsdr.device);
-    DEBUG (DEBUG_GENERAL, "rtlsdr_cancel_async(): rc: %d.\n", rc);
+    TRACE ("rtlsdr_cancel_async(): rc: %d.\n", rc);
 
     if (rc == -2)  /* RTLSDR is not streaming data */
        Sleep (5);
@@ -3822,14 +3822,14 @@ void modeS_signal_handler (int sig)
   else if (Modes.sdrplay.device)
   {
     rc = sdrplay_cancel_async (Modes.sdrplay.device);
-    DEBUG (DEBUG_GENERAL, "sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
+    TRACE ("sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
 
  /* SetEvent (Modes.reader_event); */
   }
   else if (Modes.airspy.device)
   {
     rc = airspy_cancel_async (Modes.airspy.device);
-    DEBUG (DEBUG_GENERAL, "airspy_cancel_async(): rc: %d / %s.\n", rc, airspy_strerror(rc));
+    TRACE ("airspy_cancel_async(): rc: %d / %s.\n", rc, airspy_strerror(rc));
   }
 }
 
@@ -3983,7 +3983,7 @@ static void modeS_cleanup (void)
     rc = rtlsdr_close (Modes.rtlsdr.device);
     free (Modes.rtlsdr.gains);
     Modes.rtlsdr.device = NULL;
-    DEBUG (DEBUG_GENERAL, "rtlsdr_close(), rc: %d.\n", rc);
+    TRACE ("rtlsdr_close(), rc: %d.\n", rc);
   }
   else if (Modes.rtl_tcp_in)
   {
@@ -3995,14 +3995,14 @@ static void modeS_cleanup (void)
     rc = sdrplay_exit (Modes.sdrplay.device);
     free (Modes.sdrplay.gains);
     Modes.sdrplay.device = NULL;
-    DEBUG (DEBUG_GENERAL2, "sdrplay_exit(), rc: %d.\n", rc);
+    TRACE2 ("sdrplay_exit(), rc: %d.\n", rc);
   }
   else if (Modes.airspy.device)
   {
     rc = airspy_exit (Modes.airspy.device);
     free (Modes.airspy.gains);
     Modes.airspy.device = NULL;
-    DEBUG (DEBUG_GENERAL2, "airspy_exit(), rc: %d.\n", rc);
+    TRACE2 ("airspy_exit(), rc: %d.\n", rc);
   }
 
   if (Modes.reader_thread)
@@ -4111,6 +4111,16 @@ static void set_device (const char *arg)
     }
     else
       Modes.airspy.index = -1;
+  }
+
+  /* No RTLSDR now.
+   */
+  if (Modes.sdrplay.name || Modes.airspy.name ||
+      Modes.sdrplay.index >= 0 || Modes.airspy.index >= 0)
+  {
+    Modes.rtlsdr.index = -1;
+    free (Modes.rtlsdr.name);
+    Modes.rtlsdr.name = NULL;
   }
 
   dev_selection_done = true;
@@ -4264,7 +4274,7 @@ static bool launch_setup_exe (void)
   }
   if (exit_code != 0)
   {
-    LOG_STDERR ("Setup exited with code %ld.\n", exit_code);
+    LOG_STDERR ("Setup exited with code %ld.\n", (long)exit_code);
     return (false);
   }
   LOG_STDERR ("Setup completed successfully.\n");
@@ -4416,8 +4426,7 @@ static bool set_prefer_adsb_lol (const char *arg)
   Modes.prefer_adsb_lol = cfg_true (arg);
 
 #if !defined(USE_BIN_FILES)
-  DEBUG (DEBUG_GENERAL,
-         "Config value 'prefer-adsb-lol=%d' has no meaning.\n"
+  TRACE ("Config value 'prefer-adsb-lol=%d' has no meaning.\n"
          "Will always use ADSB-LOL API to lookup routes in 'airports.c'.\n",
          Modes.prefer_adsb_lol);
 #endif
@@ -4432,7 +4441,7 @@ static bool set_web_page (const char *arg)
   snprintf (Modes.web_page_full, sizeof(Modes.web_page_full), "%s/%s", Modes.web_root, Modes.web_page);
   true_path (Modes.web_page_full);
 
-  DEBUG (DEBUG_GENERAL, "Full-name of web_page: '%s'\n", Modes.web_page_full);
+  TRACE ("Full-name of web_page: '%s'\n", Modes.web_page_full);
   return (true);
 }
 
@@ -4598,21 +4607,21 @@ int main (int argc, char **argv)
     if (Modes.sdrplay.name)
     {
       rc = sdrplay_init (Modes.sdrplay.name, Modes.sdrplay.index, &Modes.sdrplay.device);
-      DEBUG (DEBUG_GENERAL, "sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
+      TRACE ("sdrplay_init(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
       if (rc)
          goto quit;
     }
     else if (Modes.airspy.name)
     {
       rc = airspy_init (Modes.airspy.name, Modes.airspy.index, &Modes.airspy.device);
-      DEBUG (DEBUG_GENERAL, "airspy_init(): rc: %d / %s.\n", rc, airspy_strerror(rc));
+      TRACE ("airspy_init(): rc: %d / %s.\n", rc, airspy_strerror(rc));
       if (rc)
          goto quit;
     }
     else if (!net_handler_host(MODES_NET_SERVICE_RTL_TCP))
     {
       rc = modeS_init_RTLSDR();  /* not using a remote RTL_TCP input device */
-      DEBUG (DEBUG_GENERAL, "modeS_init_RTLSDR(): rc: %d.\n", rc);
+      TRACE ("modeS_init_RTLSDR(): rc: %d.\n", rc);
       if (!rc)
          goto quit;
     }
