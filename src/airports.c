@@ -1369,6 +1369,11 @@ static void read_route_records (FILE *f, const BIN_header *hdr)
   }
   Modes.bin.route_records_num = hdr->rec_num;
   Modes.bin.route_records = mem;
+
+  /* Remember when it was created in case we need to reload a newer
+   * version created while we were running.
+   */
+  Modes.bin.routes_created = hdr->created;
 }
 
 static void read_airports_records (FILE *f, const BIN_header *hdr)
@@ -1389,6 +1394,11 @@ static void read_airports_records (FILE *f, const BIN_header *hdr)
   }
   Modes.bin.airports_records_num = hdr->rec_num;
   Modes.bin.airports_records = mem;
+
+  /* Remember when it was created in case we need to reload a newer
+   * version created while we were running.
+   */
+  Modes.bin.airports_created = hdr->created;
 }
 
 /**
@@ -1777,13 +1787,14 @@ static void airport_print_rec (const airport *a, const char *ICAO, size_t idx, d
 static void airport_CSV_test_1 (void)
 {
   const  airport *a;
-  size_t i, i_max = 10;
+  size_t i, max = (size_t) smartlist_len (g_data.airports);
 
-  printf ("%s():\n  Dumping %zu airport records: ", __FUNCTION__, i_max);
+  max = min (10, max);
+
+  printf ("%s():\n  Dumping %zu airport records: ", __FUNCTION__, max);
   AIRPORT_PRINT_HEADER (false);
 
-  size_t max = (size_t) smartlist_len (g_data.airports);
-  for (i = 0; i < max && i < i_max; i++)
+  for (i = 0; i < max; i++)
   {
     a = smartlist_get (g_data.airports, i);
     airport_print_rec (a, a->ICAO, i, -1.0F, false);
@@ -1815,12 +1826,13 @@ static const airport airport_tests [] = {
 static void airport_CSV_test_2 (void)
 {
   const airport *t = airport_tests + 0;
-  size_t         i, num_ok;
+  size_t         i, num_ok = 0;
+  size_t         max = DIM(airport_tests);
 
-  printf ("%s():\n  Checking %zu fixed records. ", __FUNCTION__, DIM(airport_tests));
+  printf ("%s():\n  Checking %zu fixed records. ", __FUNCTION__, max);
   AIRPORT_PRINT_HEADER (false);
 
-  for (i = num_ok = 0; i < DIM(airport_tests); i++, t++)
+  for (i = 0; i < max; i++, t++)
   {
     const airport *a = CSV_lookup_ICAO (t->ICAO);
 

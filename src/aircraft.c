@@ -757,6 +757,11 @@ static bool aircraft_init_BIN (void)
 
   created = hdr.created;
 
+  /* Remember when it was created in case we need to reload a newer
+   * version created while we were running.
+   */
+  Modes.bin.aircrafts_created = created;
+
   if (Modes.debug & DEBUG_GENERAL)
      puts ("");
   TRACE ("bin_file:   %s\n",    fname);
