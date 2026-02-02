@@ -99,7 +99,13 @@
  *
  * Ref. command-line option `--debug g`.
  */
-#define TRACE(fmt, ...) DEBUG (DEBUG_GENERAL, fmt, ## __VA_ARGS__)
+#define TRACE(fmt, ...)  DEBUG (DEBUG_GENERAL,  fmt, ## __VA_ARGS__)
+
+/**
+ * \def TRACE2(fmt, ...)
+ * And for the `DEBUG_GENERAL2` bit only.
+ */
+#define TRACE2(fmt, ...) DEBUG (DEBUG_GENERAL2, fmt, ## __VA_ARGS__)
 
 /**
  * \def LOG_STDOUT(fmt, ...)
@@ -397,19 +403,23 @@ typedef struct airspy_conf {
  * Structure for `USE_BIN_FILES`:
  *  *) full paths to .BIN-files.
  *  *) allocated memory and size of .BIN-file data.
+ *  *) header timestamp of when .BIN-file was created.
  */
 typedef struct bin_data {
         mg_file_path   routes_bin;             /**< Full path to `Modes.results_dir + "\\" + BIN_ROUTES` */
         void          *route_records;          /**< An array of `route_record2`. \ref "gen_data.h" */
         size_t         route_records_num;
+        time_t         routes_created;
 
         mg_file_path   aircrafts_bin;          /**< Full path to `Modes.results_dir + "\\" + BIN_AIRCRAFT` */
         void          *aircrafts_records;      /**< An array of `aircraft_record`. \ref "gen_data.h" */
         size_t         aircrafts_records_num;
+        time_t         aircrafts_created;
 
         mg_file_path   airports_bin;           /**< Full path to `Modes.results_dir + "\\" + BIN_AIRPORTS` */
         void          *airports_records;       /**< An array of `airport_record`. \ref "gen_data.h" */
         size_t         airports_records_num;
+        time_t         airports_created;
       } bin_data;
 
 /**
