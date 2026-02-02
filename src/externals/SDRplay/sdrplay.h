@@ -16,6 +16,7 @@ extern bool sdrplay_set_adsb_mode (const char *arg);
 extern bool sdrplay_set_dll_name (const char *arg);
 extern bool sdrplay_set_minver (const char *arg);
 extern int  sdrplay_set_gain (sdrplay_dev *device, int gain);
+extern int  sdrplay_get_gain (sdrplay_dev *device, int *gain);
 extern int  sdrplay_cancel_async (sdrplay_dev *device);
 extern int  sdrplay_read_async (sdrplay_dev *device,
                                 sdrplay_cb   cb,

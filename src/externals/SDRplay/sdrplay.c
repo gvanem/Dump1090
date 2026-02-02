@@ -49,7 +49,7 @@
 /**
  * \typedef struct sdrplay_priv
  *
- * Data private for SDRPlay.
+ * Private data for SDRPlay.
  */
 typedef struct sdrplay_priv {
         mg_file_path                   dll_name;
@@ -67,7 +67,8 @@ typedef struct sdrplay_priv {
         unsigned int                   num_devices;
         char                           last_err [256];
         int                            last_rc;
-        int                            max_sig, max_sig_acc;
+        int                            max_sig_acc;    /**< accumulated max-signal for decaying filter */
+        int                            curr_gain;
         sdrplay_api_CallbackFnsT       callbacks;
         sdrplay_api_DeviceParamsT     *dev_params;
         sdrplay_api_RxChannelParamsT  *ch_params;
@@ -104,9 +105,11 @@ typedef struct sdrplay_priv {
 
 static sdrplay_priv sdr;
 
+#define NUM_GAINS 10
+
 /* 4 - 44 dB
  */
-static int gain_table [10] = { 40, 100, 150, 170, 210, 260, 310, 350, 390, 440 };
+static int gain_table [NUM_GAINS] = { 40, 100, 150, 170, 210, 260, 310, 350, 390, 440 };
 
 /**
  * Load and use the SDRPlay-API dynamically.
@@ -175,7 +178,7 @@ static bool sdrplay_load_funcs (void)
   if (!GetModuleFileNameA(sdrplay_funcs[0].mod_handle, full_name, sizeof(full_name)))
      strcpy (full_name, "?");
 
-  /* These 2 names better be the same
+  /* The basenames of these 2 names better be the same
    */
   TRACE ("full_name: '%s'\n", full_name);
   TRACE ("dll_name:  '%s'\n", Modes.sdrplay.dll_name);
@@ -234,7 +237,7 @@ static void sdrplay_store_error (sdrplay_api_ErrT rc)
   else sdr.last_err[0] = '\0';
 
   if (sdr.sdrplay_api_GetLastErrorByType)
-     sdrplay_store_error_details (0);   /* should use corect type */
+     sdrplay_store_error_details (0);   /* should use correct type */
 }
 
 /**
@@ -356,6 +359,7 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
                 params->gainParams.gRdB,
                 params->gainParams.lnaGRdB,
                 params->gainParams.currGain);
+         sdr.curr_gain = params->gainParams.gRdB;
          break;
 
     case sdrplay_api_DeviceRemoved:
@@ -390,7 +394,7 @@ static void sdrplay_callback_A (short                       *xi,
   bool         new_buf_flag;
   uint32_t     end, input_index;
   uint32_t     rx_data_idx = sdr.rx_data_idx;
-  int          max_sig_acc = sdr.max_sig;
+  int          max_sig_acc = sdr.max_sig_acc;
   SAMPLE_TYPE *dptr = (SAMPLE_TYPE*) sdr.rx_data;
 
   /**
@@ -492,7 +496,7 @@ static void sdrplay_callback_A (short                       *xi,
 
   /* Stash static values in `sdr` struct
    */
-  sdr.max_sig     = max_sig_acc;
+  sdr.max_sig_acc = max_sig_acc;
   sdr.rx_data_idx = rx_data_idx;
 
   MODES_NOTUSED (params);
@@ -619,31 +623,14 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
 }
 
 /**
- * \brief Reads samples from the SDRPlayAPIservice.
- *
- * This routine should be called from the main application in a separate thread.
- *
- * It enters an infinite loop only returning when the main application sets
- * the stop-condition specified in the `context`.
- *
- * \param[in] device   The device handle which is ignored. Since it's already
- *                     retured in `sdrplay_init()` (we support only one device at a time.
- *                     But check for a NULL-device just in case).
- * \param[in] callback The address of the receiver callback.
- * \param[in] context  The address of the "stop-variable".
- * \param[in] buf_num  The number of buffers to use (ignored for now).
- * \param[in] buf_len  The length of each buffer to use (ignored for now).
+ * Initialise device parameters etc. before `sdrplay_read_async()`
+ * enters the infinite loop.
  */
-int sdrplay_read_async (sdrplay_dev *device,
-                        sdrplay_cb   callback,
-                        void        *context,
-                        uint32_t     buf_num,
-                        uint32_t     buf_len)
+static int sdrplay_init_async (sdrplay_dev *device,
+                               sdrplay_cb   callback,
+                               void        *context)
 {
   int tuner;
-
-  MODES_NOTUSED (buf_num);
-  MODES_NOTUSED (buf_len);
 
   if (!device || device != sdr.chosen_dev)
   {
@@ -763,7 +750,8 @@ int sdrplay_read_async (sdrplay_dev *device,
   else tuner = '?';
 
   TRACE ("'Tuner_%c': sample-rate: %.0f MS/s, adsbMode: %s.\n"
-         "                           decimation-enable: %d, decimation-factor: %d, SAMPLE_TYPE: %s\n",
+         "                                                "
+         "decimation-enable: %d, decimation-factor: %d, SAMPLE_TYPE: %s\n",
          tuner, sdr.dev_params->devParams->fsFreq.fsHz / 1E6,
          sdrplay_adsb_mode(sdr.ch_params->ctrlParams.adsbMode),
          sdr.ch_params->ctrlParams.decimation.enable,
@@ -782,6 +770,40 @@ int sdrplay_read_async (sdrplay_dev *device,
   if (sdr.last_rc != sdrplay_api_Success)
      return (sdr.last_rc);
 
+  return (0);       /* all is well */
+}
+
+/**
+ * \brief Reads samples from the SDRPlayAPIservice.
+ *
+ * This routine should be called from the main application in a separate thread.
+ *
+ * It enters an infinite loop only returning when the main application sets
+ * the stop-condition specified in the `context`.
+ *
+ * \param[in] device   The device handle which is ignored. Since it's already
+ *                     retured in `sdrplay_init()` (we support only one device at a time.
+ *                     But check for a NULL-device just in case).
+ * \param[in] callback The address of the receiver callback.
+ * \param[in] context  The address of the "stop-variable".
+ * \param[in] buf_num  The number of buffers to use (ignored for now).
+ * \param[in] buf_len  The length of each buffer to use (ignored for now).
+ */
+int sdrplay_read_async (sdrplay_dev *device,
+                        sdrplay_cb   callback,
+                        void        *context,
+                        uint32_t     buf_num,
+                        uint32_t     buf_len)
+{
+  int rc, gain;
+
+  MODES_NOTUSED (buf_num);
+  MODES_NOTUSED (buf_len);
+
+  rc = sdrplay_init_async (device, callback, context);
+  if (rc != 0)
+     return (rc);
+
   while (1)
   {
     Sleep (1000);
@@ -790,19 +812,41 @@ int sdrplay_read_async (sdrplay_dev *device,
       TRACE ("'exit' was set\n");
       break;
     }
-    TRACE ("rx_num_callbacks: %llu, sdr.max_sig: %6d, sdr.rx_data_idx: %6u\n",
-           sdr.rx_num_callbacks, sdr.max_sig, sdr.rx_data_idx);
+    sdrplay_get_gain (device, &gain);
+    TRACE ("gain: %2d, sdr.max_sig_acc: %6d, sdr.rx_data_idx: %7u\n",
+           gain, sdr.max_sig_acc, sdr.rx_data_idx);
   }
   return (0);
 }
 
 /**
- *
+ * \todo fix this.
  */
 int sdrplay_set_gain (sdrplay_dev *device, int gain)
 {
-  LOG_FILEONLY ("gain: %.1f dB\n", (double)gain / 10);
-  MODES_NOTUSED (device);
+  assert (device && device == sdr.chosen_dev);
+  assert (gain >= gain_table[0]);
+  assert (gain <= gain_table[NUM_GAINS-1]);
+
+  sdr.ch_params->tunerParams.gain.gRdB = gain;
+  CALL_FUNC (sdrplay_api_Update, sdr.handle, sdr.chosen_dev->tuner,
+             sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
+
+  if (sdr.last_rc == sdrplay_api_Success)
+  {
+    Modes.sdrplay.gain_reduction = sdr.curr_gain = gain;
+    TRACE ("gain: %.1f dB OK\n", (double)gain / 10);
+    return (0);
+  }
+  TRACE ("gain: %.1f dB out-of-range\n", (double)gain / 10);
+  return (sdr.last_rc);
+}
+
+int sdrplay_get_gain (sdrplay_dev *device, int *gain)
+{
+  assert (device && device == sdr.chosen_dev);
+  assert (gain);
+  *gain = sdr.curr_gain;
   return (0);
 }
 
@@ -876,12 +920,12 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   if (!sdr.rx_data)
      goto nomem;
 
-  Modes.sdrplay.gains = malloc (10 * sizeof(int));
+  Modes.sdrplay.gains = malloc (NUM_GAINS * sizeof(int));
   if (!Modes.sdrplay.gains)
       goto nomem;
 
-  Modes.sdrplay.gain_count = 10;
-  memcpy (Modes.sdrplay.gains, &gain_table, 10 * sizeof(int));
+  Modes.sdrplay.gain_count = NUM_GAINS;
+  memcpy (Modes.sdrplay.gains, &gain_table, NUM_GAINS * sizeof(int));
 
   if (!sdrplay_load_funcs())
      goto failed;
