@@ -7,6 +7,7 @@
 #
 TODAY      = $(shell date +%d-%B-%Y)
 YEAR       = $(shell date +%Y)
+COPY       = cp --update
 PYTHON     = py -3
 THIS_FILE  = Makefile.MinGW
 MAKEFLAGS += --warn-undefined-variables
@@ -158,7 +159,7 @@ $(BIN_DIR)/gen_data.h        \
 $(BIN_DIR)/code-blocks.bin: ../tools/gen_data.py | $(OBJ_DIR)
 	$(call green_msg, Generating $(BRIGHT_WHITE)$@)
 	$(PYTHON) $< --gen-c $(OBJ_DIR)/gen-code-blocks.c
-	cp --update $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
+	$(COPY) $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
 
 clean_gen_data: ../tools/gen_data.py
 	$(call green_msg, Cleaning generated data)
@@ -168,8 +169,7 @@ clean_gen_data: ../tools/gen_data.py
 	$(call link_web_DLL, $@, $^, $(WEB_SUFFIXES))
 
 $(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
-	$(call generate, $@, //)
-	$(file >> $@,$(web_pages_RC))
+	$(call generate_c, $@, $(web_pages_RC))
 
 $(OBJ_DIR)/%.res: %.rc
 	$(call create_res_file, $@, $<)
@@ -222,9 +222,7 @@ pdc_%.i: externals/PDC-Mod/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 FORCE:
 
 $(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate, $@, #)
-	$(file >> $@,if 1:)
-	$(file >> $@,$(CPP_FILTER_PY))
+	$(call generate_py, $@, $(CPP_FILTER_PY))
 
 clean:
 	rm -f gcc.args
@@ -297,14 +295,23 @@ define generate
   $(file > $(1),$(call Warning,$(strip $(2))))
 endef
 
-define generate_cflags_h
+define generate_c
   $(call generate, $(1),//)
-  $(file >> $(1),const char *cflags = "$(strip $(2))";)
+  $(file >> $(1),$(2))
+endef
+
+define generate_py
+  $(call generate, $(1),#)
+  $(file >> $(1),if 1:)
+  $(file >> $(1),$(2))
+endef
+
+define generate_cflags_h
+  $(call generate_c, $(1), const char *cflags = "$(strip $(2))";)
 endef
 
 define generate_ldflags_h
-  $(call generate, $(1),//)
-  $(file >> $(1),const char *ldflags = "$(strip $(2))";)
+  $(call generate_c, $(1), const char *ldflags = "$(strip $(2))";)
 endef
 
 #
@@ -371,7 +378,7 @@ define web_pages_RC
 endef
 
 define CPP_FILTER_PY
-  import sys, os
+ import sys, os
 
   empty_lines = 0
   while True:

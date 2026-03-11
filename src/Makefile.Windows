@@ -7,6 +7,7 @@
 #
 TODAY      = $(shell date +%d-%B-%Y)
 YEAR       = $(shell date +%Y)
+COPY       = cp --update
 THIS_FILE  = Makefile.Windows
 MAKEFLAGS += --warn-undefined-variables
 
@@ -129,6 +130,7 @@ GENERATED = $(OBJ_DIR)/cflags_$(CC).h \
             $(OBJ_DIR)/ldflags_$(CC).h
 
 CFLAGS = -nologo -c -Zi -W4        \
+         -arch:AVX2                \
          -FI./dump1090_config.h    \
          -Fd./$(OBJ_DIR)/vc14x.pdb \
          -I.                       \
@@ -168,6 +170,10 @@ ifeq ($(CC),clang-cl)
             -ferror-limit=5    \
             -Wno-unused-command-line-argument
 
+  #
+  # Generated old-style PDB-files
+  #
+  CFLAGS  += -Z7
   RCFLAGS += -D__clang__
   gen_data_arg = -c
 else
@@ -453,18 +459,21 @@ ifeq ($(USE_BIN_FILES),1)
 	$(call C_compile, $@, -DTEST_CODE_BLOCKS $<)
 
   $(OBJ_DIR)/gen-code-blocks.c \
+  $(OBJ_DIR)/gen_data.h        \
   $(BIN_DIR)/gen_data.h        \
   $(BIN_DIR)/code-blocks.bin: ../tools/gen_data.py | $(OBJ_DIR)
 	$(call green_msg, Generating $(BRIGHT_WHITE)$@)
 	$(PYTHON) $< $(gen_data_arg) --gen-c $(OBJ_DIR)/gen-code-blocks.c
-	cp --update $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
+	$(COPY) $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
+	@echo
 
   clean_gen_data: ../tools/gen_data.py
 	$(call green_msg, Cleaning generated data)
 	$(PYTHON) $< --clean
+	@echo
 else
   clean_gen_data:
-	$(call green_msg, Not cleaning generated data)
+	$(call green_msg, Nothing to clean for 'USE_BIN_FILES=0'\n)
 endif
 
 ../sqlite3.exe: $(OBJ_DIR)/sqlite3.obj $(OBJ_DIR)/sqlite3-shell.obj
@@ -590,9 +599,7 @@ pdc_%.i: externals/PDC-Mod/%.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 FORCE:
 
 $(OBJ_DIR)/cpp-filter.py: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate, $@, #)
-	$(file >> $@,if 1:)
-	$(file >> $@,$(CPP_FILTER_PY))
+	$(call generate_py, $@, $(CPP_FILTER_PY))
 
 #
 # Copy the needed .DLL:
@@ -603,7 +610,7 @@ ifeq ($(COPY_DLLs),)
 else
   DLL_copy:
 	$(call green_msg, Copying '$(COPY_DLLs)' to '..')
-	cp --update $(COPY_DLLs) ..
+	$(COPY) $(COPY_DLLs) ..
 endif
 
 clean_DLLs:
@@ -713,6 +720,12 @@ endef
 
 define generate_c
   $(call generate, $(1),//)
+  $(file >> $(1),$(2))
+endef
+
+define generate_py
+  $(call generate, $(1),#)
+  $(file >> $(1),if 1:)
   $(file >> $(1),$(2))
 endef
 
@@ -861,7 +874,7 @@ define web_pages_RC
 endef
 
 define CPP_FILTER_PY
-  import sys, os
+ import sys, os
 
   empty_lines = 0
   while True:
@@ -898,7 +911,7 @@ define CHECK_FOR_UNUSED_LIBS_PY
   #
   import os, sys
 
-  map_file = sys.argv[1]
+  link_tmp = sys.argv[1]
 
   class State():
     IDLE   = 0
@@ -919,17 +932,9 @@ define CHECK_FOR_UNUSED_LIBS_PY
   def cprint (color, s):
     print ("%s%s%s" % (color, s, Color.RESET))
 
-  def report (unused):
-    num = len(unused)
-    if num > 0:
-       cprint (Color.RED, "%d unused librar%s in %s:" % (num, [ "y", "ies" ][num > 1], map_file))
-       for u in unused:
-           print ("  " + u)
-    cprint (Color.WHITE, "Done.\n")
-
   def process (state):
     unused_libs = []
-    f = open (map_file, "rt")
+    f = open (link_tmp, "rt")
     lines = f.readlines()
     f.close()
     for l in lines:
@@ -943,7 +948,13 @@ define CHECK_FOR_UNUSED_LIBS_PY
            unused_libs.append (l)
     return unused_libs
 
-  report (process(State.IDLE))
+  unused = process (State.IDLE)
+  num = len(unused)
+  if num > 0:
+     cprint (Color.RED, "%d unused librar%s in %s:" % (num, [ "y", "ies" ][num > 1], link_tmp))
+     for u in unused:
+         print ("  " + u)
+  cprint (Color.WHITE, "Done.\n")
 endef
 
 #
