@@ -747,7 +747,7 @@ PlaneObject.prototype.updateTick = function (
                             localStorage.setItem("MinRngLon", JSON.stringify(MinRngLon));
                         }
                         //console.log("slot: "+this.siteBearingSlot+" "+("000" + this.siteBearing).slice(-5) + "° " + ("000" + this.siteNm).slice(-3)+"nm logged as MIN range.");
-                        if (SleafordMySql) {
+                        if (false) { //(SleafordMySql) {
                             //console.log(("000" + this.siteBearingSlot).slice(-3) + "° " + ("000" + this.siteNm).slice(-3)+"nm logged as MID "+this.fl);
                             updateMySqlRange(
                                 "min",
@@ -779,7 +779,7 @@ PlaneObject.prototype.updateTick = function (
                             localStorage.setItem("MidRngLon", JSON.stringify(MidRngLon));
                         }
                         //console.log("slot: "+this.siteBearingSlot+" "+("000" + this.siteBearing).slice(-5) + "° " + ("000" + this.siteNm).slice(-3)+"nm logged as MID range.");
-                        if (SleafordMySql) {
+                        if (false) { //(SleafordMySql) {
                             //console.log(("000" + this.siteBearing).slice(-3) + "° " + ("000" + this.siteNm).slice(-3)+"nm logged as MID "+this.altitude);
                             updateMySqlRange(
                                 "mid",
@@ -812,7 +812,7 @@ PlaneObject.prototype.updateTick = function (
                             localStorage.setItem("MaxRngLon", JSON.stringify(MaxRngLon));
                         }
                         //console.log("slot: "+this.siteBearingSlot+" "+("000" + this.siteBearing).slice(-5) + "° " + ("000" + this.siteNm).slice(-3)+"nm logged as MAX range.");
-                        if (SleafordMySql) {
+                        if (false) { //(SleafordMySql) {
                             //console.log(("000" + this.siteBearing).slice(-3) + "° " + ("000" + this.siteNm).slice(-3)+"nm logged as MAX "+this.altitude);
                             updateMySqlRange(
                                 "max",
@@ -1110,6 +1110,10 @@ function getBearing(startLat, startLong, endLat, endLong) {
 }
 
 function updateMySqlRange(ring, bearing, dist, lat, lon, icao, fl) {
+
+    //  Now unused
+    //-------------
+
     //   updateMySqlRange("max", this.siteBearing, this.siteNm, this.position[1], this.position[0], this.icao, this.fl );
 
     icao = icao.toUpperCase();

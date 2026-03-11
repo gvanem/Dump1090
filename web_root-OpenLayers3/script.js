@@ -2778,20 +2778,45 @@ function exportRangePlot() {
 
 }
 
-function importRangePlot() {
-    fetch('./backup/maxRange.json')
-        .then((response) => response.json())
-        .then((json) => importMax(json));
+//function importRangePlot() { // Issue #25
+//    fetch('./backup/maxRange.json')
+//        .then((response) => response.json())
+//        .then((json) => importMax(json));
 
-    fetch('./backup/midRange.json')
-        .then((response) => response.json())
-        .then((json) => importMid(json));
+//    fetch('./backup/midRange.json')
+//        .then((response) => response.json())
+//        .then((json) => importMid(json));
 
-    fetch('./backup/minRange.json')
-        .then((response) => response.json())
-        .then((json) => importMin(json));
+//    fetch('./backup/minRange.json')
+//        .then((response) => response.json())
+//        .then((json) => importMin(json));
 
+//}
+
+async function importRangePlot() { // Issue #25
+  try {
+    const [maxRes, midRes, minRes] = await Promise.all([
+      fetch('./backup/maxRange.json', { cache: 'no-store' }),
+      fetch('./backup/midRange.json', { cache: 'no-store' }),
+      fetch('./backup/minRange.json', { cache: 'no-store' })
+    ]);
+
+    const [maxJson, midJson, minJson] = await Promise.all([
+      maxRes.json(),
+      midRes.json(),
+      minRes.json()
+    ]);
+
+    importMax(maxJson);
+    importMid(midJson);
+    importMin(minJson);
+    //saveRangesToLocalStorage();
+
+  } catch (err) {
+    console.error("Import failed", err);
+  }
 }
+
 
 function importMax(json) {
     //console.log(json.length);
@@ -2816,6 +2841,12 @@ function importMax(json) {
           MaxRngLon[obj[0]]   = obj[3]
       }
     } 
+    if (TypeOfStorageSession == 'Local') {
+        localStorage.setItem("MaxRngRange", JSON.stringify(MaxRngRange));
+        localStorage.setItem("MaxRngLat", JSON.stringify(MaxRngLat));
+        localStorage.setItem("MaxRngLon", JSON.stringify(MaxRngLon));
+        console.log("Saved imported max data to localStorage.");
+    }
     //console.log(MaxRngRange +" "+MaxRngLat+" "+MaxRngLon);
 }
 
@@ -2841,6 +2872,12 @@ function importMid(json) {
           MidRngLon[obj[0]]   = obj[3]
       }
     } 
+    if (TypeOfStorageSession == 'Local') {
+        localStorage.setItem("MidRngRange", JSON.stringify(MidRngRange));
+        localStorage.setItem("MidRngLat", JSON.stringify(MidRngLat));
+        localStorage.setItem("MidRngLon", JSON.stringify(MidRngLon));
+        console.log("Saved imported mid data to localStorage.");
+    }
 }
 
 function importMin(json) {
@@ -2865,6 +2902,12 @@ function importMin(json) {
           MinRngLon[obj[0]]   = obj[3]
       }
     } 
+    if (TypeOfStorageSession == 'Local') {
+        localStorage.setItem("MinRngRange", JSON.stringify(MinRngRange));
+        localStorage.setItem("MinRngLat", JSON.stringify(MinRngLat));
+        localStorage.setItem("MinRngLon", JSON.stringify(MinRngLon));
+        console.log("Saved imported min data to localStorage.");
+    }
 }
 
 
