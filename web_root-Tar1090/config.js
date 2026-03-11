@@ -52,23 +52,27 @@
 // actual_range_show = true;
 
 // which map is displayed to new visitors
-// MapType_tar1090 = "carto_light_all";
+// MapType_tar1090 = "osm";
 //
 // valid values for the above setting:
 // osm
+// OpenFreeMapBright
+// OpenFreeMapLiberty
+// OpenFreeMapPositron
+// OpenFreeMapDark
+// OpenFreeMapFiord
 // esri
+// esri_gray
+// esri_streets
 // carto_light_all
 // carto_light_nolabels
 // carto_dark_all
 // carto_dark_nolabels
-// gibs
-// osm_adsbx
-// chartbundle_sec: "Sectional Charts",
-// chartbundle_tac: "Terminal Area Charts",
-// chartbundle_hel: "Helicopter Charts",
-// chartbundle_enrl: "IFR Enroute Low Charts",
-// chartbundle_enra: "IFR Area Charts",
-// chartbundle_enrh: "IFR Enroute High Charts"
+// gibs: clouds
+// VFR_Sectional: "Sectional Charts",
+// VFR_Terminal: "Terminal Area Charts",
+// IFR_AreaLow: "IFR Area Charts",
+// IFR_High: "IFR Enroute High Charts"
 //
 // only with bing key:
 // bing_aerial
@@ -204,9 +208,6 @@ ColorByAlt = {
 
 // Show country flags by ICAO addresses?
 //ShowFlags = true;
-
-// Set to false to disable the ChartBundle base layers (US coverage only)
-//ChartBundleLayers = true;
 
 // Provide a Bing Maps API key here to enable the Bing imagery layer.
 // You can obtain a free key (with usage limits) at
