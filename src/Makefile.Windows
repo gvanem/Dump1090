@@ -314,14 +314,14 @@ SOURCES += $(addprefix externals/, \
              AirSpy/airspy.c       \
              SDRplay/sdrplay.c)
 
-vpath %.c externals/rtl-sdr
+vpath %.c externals/RTLSDR
 
-SOURCES += $(addprefix externals/rtl-sdr/, \
-             librtlsdr.c                   \
-             trace.c                       \
-             tuner_e4k.c                   \
-             tuner_fc001x.c                \
-             tuner_fc2580.c                \
+SOURCES += $(addprefix externals/RTLSDR/, \
+             librtlsdr.c                  \
+             trace.c                      \
+             tuner_e4k.c                  \
+             tuner_fc001x.c               \
+             tuner_fc2580.c               \
              tuner_r82xx.c)
 
 vpath %.c  externals/PDC-Mod
@@ -782,26 +782,26 @@ DOXY_SOURCES = $(filter-out externals/sqlite3.c               \
 
 DOXY_SOURCES := $(addprefix ../, $(DOXY_SOURCES))
 
-DOXY_HEADERS = ../aircraft.h                  \
-               ../airports.h                  \
-               ../cfg_file.h                  \
-               ../convert.h                   \
-               ../cpr.h                       \
-               ../csv.h                       \
-               ../crc.h                       \
-               ../demod.h                     \
-               ../dump1090_config.h           \
-               ../fifo.h                      \
-               ../geo.h                       \
-               ../interactive.h               \
-               ../location.h                  \
-               ../misc.h                      \
-               ../net_io.h                    \
-               ../sdrplay.h                   \
-               ../smartlist.h                 \
-               ../speech.h                    \
-               ../externals/rtl-sdr/rtl-sdr.h \
-               ../externals/rtl-sdr/rtl-tcp.h \
+DOXY_HEADERS = ../aircraft.h                 \
+               ../airports.h                 \
+               ../cfg_file.h                 \
+               ../convert.h                  \
+               ../cpr.h                      \
+               ../csv.h                      \
+               ../crc.h                      \
+               ../demod.h                    \
+               ../dump1090_config.h          \
+               ../fifo.h                     \
+               ../geo.h                      \
+               ../interactive.h              \
+               ../location.h                 \
+               ../misc.h                     \
+               ../net_io.h                   \
+               ../sdrplay.h                  \
+               ../smartlist.h                \
+               ../speech.h                   \
+               ../externals/RTLSDR/rtl-sdr.h \
+               ../externals/RTLSDR/rtl-tcp.h \
                ../externals/zip.h
 
 define DUMP1090_DOXYFILE

@@ -159,7 +159,7 @@
 
 #define PROG_VERSION  _STR(VER_MAJOR) "." _STR(VER_MINOR) "." _STR(VER_MICRO)
 
-/** Do not add `__declspec(dllexport)` on `externals/rtl-sdr/` functions.
+/** Do not add `__declspec(dllexport)` on `externals/RTLSDR/` functions.
  */
 #define rtlsdr_STATIC    1
 

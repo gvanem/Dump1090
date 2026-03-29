@@ -102,14 +102,14 @@ SOURCES += $(addprefix externals/, \
              AirSpy/airspy.c       \
              SDRplay/sdrplay.c)
 
-vpath %.c externals/rtl-sdr
+vpath %.c externals/RTLSDR
 
-SOURCES += $(addprefix externals/rtl-sdr/, \
-             librtlsdr.c                   \
-             trace.c                       \
-             tuner_e4k.c                   \
-             tuner_fc001x.c                \
-             tuner_fc2580.c                \
+SOURCES += $(addprefix externals/RTLSDR/, \
+             librtlsdr.c                  \
+             trace.c                      \
+             tuner_e4k.c                  \
+             tuner_fc001x.c               \
+             tuner_fc2580.c               \
              tuner_r82xx.c)
 
 vpath %.c  externals/PDC-Mod

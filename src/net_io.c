@@ -12,7 +12,8 @@
 #include "aircraft.h"
 #include "smartlist.h"
 #include "net_io.h"
-#include "rtl-sdr/rtl-tcp.h"
+#include "RTLSDR/rtl-sdr.h"
+#include "RTLSDR/rtl-tcp.h"
 #include "server-cert-key.h"
 #include "client-cert-key.h"
 
@@ -2703,7 +2704,7 @@ static bool net_reverse_init (void)
 /**
  * Reverse resolve an IPv4/IPv6 address to a host-name using `DnsApi.dll`.
  * \li First look in the local cache (`g_reverse_rec`).
- * \li Unless not found or is too old, do a `DNS_TYPE_PTR` lookup using `DnsQuery_A()`.
+ * \li If not found or is too old, do a `DNS_TYPE_PTR` lookup using `DnsQuery_A()`.
  *
  * E.g. the `ip_str == "84.202.224.38"` should query for `"38.224.202.84.in-addr.arpa"`.
  */
@@ -2994,6 +2995,11 @@ bool net_init (void)
 #endif
   }
 
+  /**
+   * This also set defaults for
+   * `Modes.mgr.dns4.url` and `Modes.mgr.dns6.url`
+   * which could be set to something else via `net_init_dns()`.
+   */
   mg_mgr_init (&Modes.mgr);
 
 #if defined(__DOXYGEN__) || 0
@@ -3072,12 +3078,12 @@ bool net_init (void)
   if (Modes.dns6)
      Modes.mgr.dns6.url = Modes.dns6;
 
-  LOG_FILEONLY2 ("Added %zu IPv4 and %zu IPv6 addresses to deny.\n"
-                 "              IPv4 DNS: %s\n"
-                 "              IPv6 DNS: %s\n",
-                 deny_list_num4(), deny_list_num6(),
-                 Modes.mgr.dns4.url ? Modes.mgr.dns4.url : NONE_STR,
-                 Modes.mgr.dns6.url ? Modes.mgr.dns6.url : NONE_STR);
+  LOG_FILEONLY ("Added %zu IPv4 and %zu IPv6 addresses to deny.\n"
+                "              IPv4 DNS: %s\n"
+                "              IPv6 DNS: %s\n",
+                deny_list_num4(), deny_list_num6(),
+                Modes.mgr.dns4.url && Modes.mgr.dns4.url[0] ? Modes.mgr.dns4.url : NONE_STR,
+                Modes.mgr.dns6.url && Modes.mgr.dns6.url[0] ? Modes.mgr.dns6.url : NONE_STR);
 
   if (test_mode)
   {

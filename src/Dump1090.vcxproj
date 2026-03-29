@@ -174,12 +174,12 @@
     <ClCompile Include="externals\PDC-Mod\amalgamation.c" />
     <ClCompile Include="externals\sqlite3.c" />
     <ClCompile Include="externals\zip.c" />
-    <ClCompile Include="externals\rtl-sdr\librtlsdr.c" />
-    <ClCompile Include="externals\rtl-sdr\trace.c" />
-    <ClCompile Include="externals\rtl-sdr\tuner_e4k.c" />
-    <ClCompile Include="externals\rtl-sdr\tuner_fc001x.c" />
-    <ClCompile Include="externals\rtl-sdr\tuner_fc2580.c" />
-    <ClCompile Include="externals\rtl-sdr\tuner_r82xx.c" />
+    <ClCompile Include="externals\RTLSDR\librtlsdr.c" />
+    <ClCompile Include="externals\RTLSDR\trace.c" />
+    <ClCompile Include="externals\RTLSDR\tuner_e4k.c" />
+    <ClCompile Include="externals\RTLSDR\tuner_fc001x.c" />
+    <ClCompile Include="externals\RTLSDR\tuner_fc2580.c" />
+    <ClCompile Include="externals\RTLSDR\tuner_r82xx.c" />
     <ClCompile Include="externals\SDRplay\sdrplay.c" />
   </ItemGroup>
   <ItemGroup>
@@ -207,15 +207,15 @@
     <ClInclude Include="externals\zip.h" />
     <ClInclude Include="externals\miniz.h" />
     <ClInclude Include="externals\AirSpy\airspy.h" />
-    <ClInclude Include="externals\rtl-sdr\rtlsdr_i2c.h" />
-    <ClInclude Include="externals\rtl-sdr\trace.h" />
-    <ClInclude Include="externals\rtl-sdr\tuner_e4k.h" />
-    <ClInclude Include="externals\rtl-sdr\tuner_fc001x.h" />
-    <ClInclude Include="externals\rtl-sdr\tuner_fc2580.h" />
-    <ClInclude Include="externals\rtl-sdr\tuner_r82xx.h" />
-    <ClInclude Include="externals\rtl-sdr\rtl-sdr.h" />
-    <ClInclude Include="externals\rtl-sdr\rtl-sdr_export.h" />
-    <ClInclude Include="externals\rtl-sdr\version.h" />
+    <ClInclude Include="externals\RTLSDR\rtlsdr_i2c.h" />
+    <ClInclude Include="externals\RTLSDR\trace.h" />
+    <ClInclude Include="externals\RTLSDR\tuner_e4k.h" />
+    <ClInclude Include="externals\RTLSDR\tuner_fc001x.h" />
+    <ClInclude Include="externals\RTLSDR\tuner_fc2580.h" />
+    <ClInclude Include="externals\RTLSDR\tuner_r82xx.h" />
+    <ClInclude Include="externals\RTLSDR\rtl-sdr.h" />
+    <ClInclude Include="externals\RTLSDR\rtl-sdr_export.h" />
+    <ClInclude Include="externals\RTLSDR\version.h" />
     <ClInclude Include="externals\SDRplay\sdrplay.h" />
     <ClInclude Include="externals\SDRplay\sdrplay_api.h" />
     <ClInclude Include="externals\SDRplay\sdrplay_api_callback.h" />
