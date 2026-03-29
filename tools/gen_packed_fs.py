@@ -37,7 +37,9 @@ static const file_packed packed_files [] = {
 C_BOTTOM = """
 const char *mg_unlist%s (size_t i)
 {
-  return (packed_files [i].name);
+  if (i >= 0 && i+1 < num_packed_files)
+     return (packed_files [i].name);
+  return (NULL);
 }
 
 const char *mg_unpack%s (const char *name, size_t *size, time_t *mtime)
@@ -150,7 +152,8 @@ def write_packed_files_array (out):
       out.write (line)
       bytes += fsize
   trace (1, "Total %s bytes data written to '%s'" % (fmt_number(bytes), opt.outfile))
-  out.write ("  { NULL, 0, 0, NULL }\n};\n")
+  out.write ("  { NULL, 0, 0, NULL }\n};\n\n")
+  out.write ("static size_t num_packed_files = %d;\n" % len(files_dict))
 
 #
 # Taken from the Python manual and modified.
