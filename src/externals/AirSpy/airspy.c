@@ -8,7 +8,6 @@
 #define INSIDE_AIRSPY_C
 #include "misc.h"
 #include "airspy.h"
-#include <AirSpy/airspy.h>
 
 #define MODES_BUF_SIZE   (256*1024)   /**< 256k, same as MODES_ASYNC_BUF_SIZE */
 #define MODES_BUFFERS     16          /**< Must be power of 2 */
@@ -104,7 +103,7 @@ static struct dyn_struct airspy_funcs [] = {
  * search along the `%PATH%`.
  *
  * The `airspy-dll` value in `dump1090.cfg` is empty by default and
- * `Modes.airspy.dll_name` equals `airspy.dll`. Hence `LoadLibraryA()`
+ * `sdr.dll_name` equals `airspy.dll`. Hence `LoadLibraryA()`
  * will search along the `%PATH%`.
  *
  * But the config-callback `airspy_set_dll_name()` could have set another
@@ -116,7 +115,7 @@ static bool airspy_load_funcs (void)
   size_t       i, num;
 
   for (i = 0; i < DIM(airspy_funcs); i++)
-      airspy_funcs[i].mod_name = Modes.airspy.dll_name;
+      airspy_funcs[i].mod_name = sdr.dll_name;
 
   SetLastError (0);
 
@@ -131,10 +130,10 @@ static bool airspy_load_funcs (void)
      * And vice-versa.
      */
     if (err == ERROR_BAD_EXE_FORMAT)
-         snprintf (sdr.last_err, sizeof(sdr.last_err), "\"%s\" is not a %d bit DLL", Modes.airspy.dll_name, 8*(int)sizeof(void*));
+         snprintf (sdr.last_err, sizeof(sdr.last_err), "\"%s\" is not a %d bit DLL", sdr.dll_name, 8*(int)sizeof(void*));
     else if (err == ERROR_MOD_NOT_FOUND)
-         snprintf (sdr.last_err, sizeof(sdr.last_err), "\"%s\" not found on PATH", Modes.airspy.dll_name);
-    else snprintf (sdr.last_err, sizeof(sdr.last_err), "Failed to load \"%s\"; %s", Modes.airspy.dll_name, win_strerror(err));
+         snprintf (sdr.last_err, sizeof(sdr.last_err), "\"%s\" not found on PATH", sdr.dll_name);
+    else snprintf (sdr.last_err, sizeof(sdr.last_err), "Failed to load \"%s\"; %s", sdr.dll_name, win_strerror(err));
     return (false);
   }
 
@@ -144,7 +143,7 @@ static bool airspy_load_funcs (void)
   /* These 2 names better be the same
    */
   TRACE ("full_name: '%s'\n", full_name);
-  TRACE ("dll_name:  '%s'\n", Modes.airspy.dll_name);
+  TRACE ("dll_name:  '%s'\n", sdr.dll_name);
   return (true);
 }
 
@@ -451,7 +450,7 @@ const char *airspy_strerror (int rc)
 
 /**
  * Load all needed AirSpy DLL functions dynamically
- * from `Modes.airspy.dll_name`.
+ * from `sdr.dll_name`.
  */
 int airspy_init (const char *name, int index, airspy_dev **device)
 {
@@ -538,7 +537,7 @@ static int airspy_release (airspy_dev *device)
 /**
  * Exit-function for this module:
  *  \li Release the device.
- *  \li Unload the handle of `Modes.airspy.dll_name`.
+ *  \li Unload the handle of `sdr.dll_name`.
  */
 int airspy_exit (airspy_dev *device)
 {
@@ -564,7 +563,7 @@ int airspy_exit (airspy_dev *device)
 
 /**
  * Config-parser callback; <br>
- * parses "airspy-dll" and sets `Modes.airspy.dll_name`.
+ * parses "airspy-dll" and sets `sdr.dll_name`.
  */
 bool airspy_set_dll_name (const char *arg)
 {
@@ -577,8 +576,8 @@ bool airspy_set_dll_name (const char *arg)
 
     TRACE ("dll: '%s', len: %lu\n", dll, len);
     if (len > 0)
-         strcpy_s (Modes.airspy.dll_name, sizeof(Modes.airspy.dll_name), dll);
-    else strcpy_s (Modes.airspy.dll_name, sizeof(Modes.airspy.dll_name), arg);
+         strcpy_s (sdr.dll_name, sizeof(sdr.dll_name), dll);
+    else strcpy_s (sdr.dll_name, sizeof(sdr.dll_name), arg);
     return (true);
   }
 
@@ -591,11 +590,11 @@ bool airspy_set_dll_name (const char *arg)
   else if (attr != FILE_ATTRIBUTE_NORMAL)
   {
     LOG_STDERR ("\nThe \"airspy-dll = %s\" was not found. "
-                "Using the default \"%s\"\n", arg, Modes.airspy.dll_name);
+                "Using the default \"%s\"\n", arg, sdr.dll_name);
     return (false);
   }
-  strcpy_s (Modes.airspy.dll_name, sizeof(Modes.airspy.dll_name), dll);
-  TRACE ("Modes.airspy.dll_name: '%s'\n", Modes.airspy.dll_name);
+  strcpy_s (sdr.dll_name, sizeof(sdr.dll_name), dll);
+  TRACE ("sdr.dll_name: '%s'\n", sdr.dll_name);
   return (true);
 }
 
