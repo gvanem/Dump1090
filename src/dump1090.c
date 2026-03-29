@@ -26,8 +26,9 @@
 #include "demod.h"
 #include "geo.h"
 #include "convert.h"
-#include "externals/AirSpy/airspy.h"
-#include "externals/SDRplay/sdrplay.h"
+#include "RTLSDR/rtl-sdr.h"
+#include "AirSpy/airspy.h"
+#include "SDRplay/sdrplay.h"
 #include "speech.h"
 #include "location.h"
 #include "airports.h"
@@ -114,7 +115,6 @@ static bool  set_bandwidth (const char *arg);
 static bool  set_bias_tee (const char *arg);
 static bool  set_frequency (const char *arg);
 static bool  set_gain (const char *arg);
-static bool  set_if_mode (const char *arg);
 static bool  set_interactive_ttl (const char *arg);
 static bool  set_home_pos (const char *arg);
 static bool  set_home_pos_from_location_API (const char *arg);
@@ -124,6 +124,7 @@ static bool  set_host_port_raw_out (const char *arg);
 static bool  set_host_port_sbs_in (const char *arg);
 static bool  set_logfile (const char *arg);
 static bool  set_loops (const char *arg);
+static bool  set_max_messages (const char *arg);
 static bool  set_port_http (const char *arg);
 static bool  set_port_raw_in (const char *arg);
 static bool  set_port_raw_out (const char *arg);
@@ -134,78 +135,85 @@ static bool  set_sample_rate (const char *arg);
 static bool  set_tui (const char *arg);
 static bool  set_web_page (const char *arg);
 
-static uint32_t sample_rate;
-static uint64_t max_messages;
+/*
+ * Already called this from `parse_cmd_line()` ?
+ */
+static bool sample_rate_set  = false;
+static bool max_messages_set = false;
 
 static const cfg_table config[] = {
-    { "bias-t",            ARG_FUNC,    (void*) set_bias_tee },
-    { "console-icon",      ARG_ATOB,    (void*) &Modes.console_icon },
-    { "cpr-trace",         ARG_ATOB,    (void*) &Modes.cpr_trace },
-    { "DC-filter",         ARG_ATOB,    (void*) &Modes.DC_filter },
-    { "airspy-dll",        ARG_FUNC,    (void*) airspy_set_dll_name },
-    { "sdrplay-dll",       ARG_FUNC,    (void*) sdrplay_set_dll_name },
-    { "sdrplay-adsb-mode", ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
-    { "sdrplay-if-mode",   ARG_FUNC,    (void*) set_if_mode },
-    { "sdrplay-minver",    ARG_FUNC,    (void*) sdrplay_set_minver },
-    { "sdrplay-usb-bulk",  ARG_ATOB,    (void*) &Modes.sdrplay.USB_bulk_mode },
-    { "deny4",             ARG_FUNC,    (void*) net_deny4 },
-    { "deny6",             ARG_FUNC,    (void*) net_deny6 },
-    { "gain",              ARG_FUNC,    (void*) set_gain },
-    { "homepos",           ARG_FUNC,    (void*) set_home_pos },
-    { "location",          ARG_FUNC,    (void*) set_home_pos_from_location_API },
-    { "metric",            ARG_ATOB,    (void*) &Modes.metric },
-    { "web-page",          ARG_FUNC,    (void*) set_web_page },
-    { "web-touch",         ARG_ATOB,    (void*) &Modes.web_root_touch },
-    { "tui",               ARG_FUNC,    (void*) set_tui },
-    { "airports",          ARG_STRCPY,  (void*) &Modes.airport_db },
-    { "aircrafts",         ARG_STRCPY,  (void*) &Modes.aircraft_db },
-    { "aircrafts-url",     ARG_STRDUP,  (void*) &Modes.aircraft_db_url },
-    { "bandwidth",         ARG_FUNC,    (void*) set_bandwidth },
-    { "fifo-bufs",         ARG_ATO_U32, (void*) &Modes.FIFO_bufs },
-    { "fifo-acquire",      ARG_ATO_U32, (void*) &Modes.FIFO_acquire_ms },
-    { "fifo-dequeue",      ARG_ATO_U32, (void*) &Modes.FIFO_dequeue_ms },
-    { "freq",              ARG_FUNC,    (void*) set_frequency },
-    { "agc",               ARG_ATOB,    (void*) &Modes.dig_agc },
-    { "interactive-ttl",   ARG_FUNC,    (void*) set_interactive_ttl },
-    { "keep-alive",        ARG_ATOB,    (void*) &Modes.keep_alive },
-    { "http-ipv4-only",    ARG_ATOB,    (void*) &Modes.http_ipv4_only },
-    { "http-ipv6",         ARG_ATOB,    (void*) &Modes.http_ipv6 },
-    { "http-ipv6-only",    ARG_ATOB,    (void*) &Modes.http_ipv6_only },
-    { "http2",             ARG_ATOB,    (void*) &Modes.wininet_HTTP2 },
-    { "logfile",           ARG_FUNC,    (void*) set_logfile },
-    { "logfile-daily",     ARG_ATOB,    (void*) &Modes.logfile_daily },
-    { "logfile-ignore",    ARG_FUNC,    (void*) modeS_log_add_ignore },
-    { "loops",             ARG_FUNC,    (void*) set_loops },
-    { "max-distance",      ARG_ATO_U64, (void*) &Modes.max_dist },
-    { "max-messages",      ARG_ATO_U64, (void*) &Modes.max_messages },
-    { "max-frames",        ARG_ATO_U64, (void*) &Modes.max_frames },
-    { "measure-noise",     ARG_ATOB,    (void*) &Modes.measure_noise },
-    { "net-http-port",     ARG_FUNC,    (void*) set_port_http },
-    { "net-poll",          ARG_ATO_U32, (void*) &Modes.net_poll_ms },
-    { "net-ri-port",       ARG_FUNC,    (void*) set_port_raw_in },
-    { "net-ro-port",       ARG_FUNC,    (void*) set_port_raw_out },
-    { "net-sbs-port",      ARG_FUNC,    (void*) set_port_sbs },
-    { "prefer-adsb-lol",   ARG_FUNC,    (void*) set_prefer_adsb_lol },
-    { "reverse-resolve",   ARG_ATOB,    (void*) &Modes.reverse_resolve },
-    { "rtlsdr-calibrate",  ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
-    { "rtlsdr-reset",      ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
-    { "rtlsdr-ppm",        ARG_FUNC,    (void*) set_ppm },
-    { "samplerate",        ARG_FUNC,    (void*) set_sample_rate },
-    { "sample-rate",       ARG_FUNC,    (void*) set_sample_rate },
-    { "show-hostname",     ARG_ATOB,    (void*) &Modes.show_host_name },
-    { "sort",              ARG_FUNC,    (void*) aircraft_set_sort },
-    { "speech-enable",     ARG_ATOB,    (void*) &Modes.speech_enable },
-    { "speech-volume",     ARG_ATOI,    (void*) &Modes.speech_volume },
-    { "https-enable",      ARG_ATOB,    (void*) &Modes.https_enable },
-    { "silent",            ARG_ATOB,    (void*) &Modes.silent },
-    { "phase-enhance",     ARG_ATOB,    (void*) &Modes.phase_enhance },
-    { "host-raw-in",       ARG_FUNC,    (void*) set_host_port_raw_in },
-    { "host-raw-out",      ARG_FUNC,    (void*) set_host_port_raw_out },
-    { "host-sbs-in",       ARG_FUNC,    (void*) set_host_port_sbs_in },
-    { "error-correct1",    ARG_ATOB,    (void*) &Modes.error_correct_1 },
-    { "error-correct2",    ARG_ATOB,    (void*) &Modes.error_correct_2 },
-    { "web-send-rssi",     ARG_ATOB,    (void*) &Modes.web_send_rssi },
-    { NULL,                0,           NULL }
+    { "bias-t",               ARG_FUNC,    (void*) set_bias_tee },
+    { "console-icon",         ARG_ATOB,    (void*) &Modes.console_icon },
+    { "cpr-trace",            ARG_ATOB,    (void*) &Modes.cpr_trace },
+    { "DC-filter",            ARG_ATOB,    (void*) &Modes.DC_filter },
+    { "airspy-dll",           ARG_FUNC,    (void*) airspy_set_dll_name },
+    { "sdrplay-adsb-mode",    ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
+    { "sdrplay-antenna",      ARG_FUNC,    (void*) sdrplay_set_antenna },
+    { "sdrplay-decay-filter", ARG_FUNC,    (void*) sdrplay_set_decay_filter },
+    { "sdrplay-dll",          ARG_FUNC,    (void*) sdrplay_set_dll_name },
+    { "sdrplay-if-mode",      ARG_FUNC,    (void*) sdrplay_set_if_mode },
+    { "sdrplay-minver",       ARG_FUNC,    (void*) sdrplay_set_minver },
+    { "sdrplay-tuner",        ARG_FUNC,    (void*) sdrplay_set_tuner },
+    { "sdrplay-usb-bulk",     ARG_FUNC,    (void*) sdrplay_set_USB_bulk_mode  },
+    { "sdrplay-hearth-beat",  ARG_ATOB,    (void*) &Modes.sdrplay.hearth_beat },
+    { "deny4",                ARG_FUNC,    (void*) net_deny4 },
+    { "deny6",                ARG_FUNC,    (void*) net_deny6 },
+    { "gain",                 ARG_FUNC,    (void*) set_gain },
+    { "homepos",              ARG_FUNC,    (void*) set_home_pos },
+    { "location",             ARG_FUNC,    (void*) set_home_pos_from_location_API },
+    { "metric",               ARG_ATOB,    (void*) &Modes.metric },
+    { "web-page",             ARG_FUNC,    (void*) set_web_page },
+    { "web-touch",            ARG_ATOB,    (void*) &Modes.web_root_touch },
+    { "tui",                  ARG_FUNC,    (void*) set_tui },
+    { "airports",             ARG_STRCPY,  (void*) &Modes.airport_db },
+    { "aircrafts",            ARG_STRCPY,  (void*) &Modes.aircraft_db },
+    { "aircrafts-url",        ARG_STRDUP,  (void*) &Modes.aircraft_db_url },
+    { "bandwidth",            ARG_FUNC,    (void*) set_bandwidth },
+    { "fifo-bufs",            ARG_ATO_U32, (void*) &Modes.FIFO_bufs },
+    { "fifo-acquire",         ARG_ATO_U32, (void*) &Modes.FIFO_acquire_ms },
+    { "fifo-dequeue",         ARG_ATO_U32, (void*) &Modes.FIFO_dequeue_ms },
+    { "freq",                 ARG_FUNC,    (void*) set_frequency },
+    { "agc",                  ARG_ATOB,    (void*) &Modes.dig_agc },
+    { "interactive-ttl",      ARG_FUNC,    (void*) set_interactive_ttl },
+    { "keep-alive",           ARG_ATOB,    (void*) &Modes.keep_alive },
+    { "http-ipv4-only",       ARG_ATOB,    (void*) &Modes.http_ipv4_only },
+    { "http-ipv6",            ARG_ATOB,    (void*) &Modes.http_ipv6 },
+    { "http-ipv6-only",       ARG_ATOB,    (void*) &Modes.http_ipv6_only },
+    { "http2",                ARG_ATOB,    (void*) &Modes.wininet_HTTP2 },
+    { "logfile",              ARG_FUNC,    (void*) set_logfile },
+    { "logfile-daily",        ARG_ATOB,    (void*) &Modes.logfile_daily },
+    { "logfile-ignore",       ARG_FUNC,    (void*) modeS_log_add_ignore },
+    { "loops",                ARG_FUNC,    (void*) set_loops },
+    { "max-distance",         ARG_ATO_U64, (void*) &Modes.max_dist },
+    { "max-messages",         ARG_FUNC,    (void*) set_max_messages },
+    { "max-frames",           ARG_ATO_U64, (void*) &Modes.max_frames },
+    { "measure-noise",        ARG_ATOB,    (void*) &Modes.measure_noise },
+    { "net-http-port",        ARG_FUNC,    (void*) set_port_http },
+    { "net-poll",             ARG_ATO_U32, (void*) &Modes.net_poll_ms },
+    { "net-ri-port",          ARG_FUNC,    (void*) set_port_raw_in },
+    { "net-ro-port",          ARG_FUNC,    (void*) set_port_raw_out },
+    { "net-sbs-port",         ARG_FUNC,    (void*) set_port_sbs },
+    { "prefer-adsb-lol",      ARG_FUNC,    (void*) set_prefer_adsb_lol },
+    { "reverse-resolve",      ARG_ATOB,    (void*) &Modes.reverse_resolve },
+    { "rtlsdr-calibrate",     ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
+    { "rtlsdr-reset",         ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
+    { "rtlsdr-ppm",           ARG_FUNC,    (void*) set_ppm },
+    { "samplerate",           ARG_FUNC,    (void*) set_sample_rate },
+    { "sample-rate",          ARG_FUNC,    (void*) set_sample_rate },
+    { "show-hostname",        ARG_ATOB,    (void*) &Modes.show_host_name },
+    { "sort",                 ARG_FUNC,    (void*) aircraft_set_sort },
+    { "speech-enable",        ARG_ATOB,    (void*) &Modes.speech_enable },
+    { "speech-volume",        ARG_ATOI,    (void*) &Modes.speech_volume },
+    { "https-enable",         ARG_ATOB,    (void*) &Modes.https_enable },
+    { "silent",               ARG_ATOB,    (void*) &Modes.silent },
+    { "phase-enhance",        ARG_ATOB,    (void*) &Modes.phase_enhance },
+    { "host-raw-in",          ARG_FUNC,    (void*) set_host_port_raw_in },
+    { "host-raw-out",         ARG_FUNC,    (void*) set_host_port_raw_out },
+    { "host-sbs-in",          ARG_FUNC,    (void*) set_host_port_sbs_in },
+    { "error-correct1",       ARG_ATOB,    (void*) &Modes.error_correct_1 },
+    { "error-correct2",       ARG_ATOB,    (void*) &Modes.error_correct_2 },
+    { "web-send-rssi",        ARG_ATOB,    (void*) &Modes.web_send_rssi },
+    { NULL,                   0,           NULL }
   };
 
 /**
@@ -437,6 +445,19 @@ static void modeS_init_temp (void)
    */
 }
 
+/*
+ * Check that the `Modes.chk_marker` set by `init_misc()` is the same.
+ */
+static bool check_global_data (void)
+{
+  if (memcmp(&Modes.chk_marker, "DEAD", sizeof(Modes.chk_marker)))
+  {
+    LOG_STDERR ("Seems the 'Modes' global-data structure is out-of-wack. Do a 'make clean all'\n");
+    return (false);
+  }
+  return (true);
+}
+
 /**
  * Trap some possible dev-errors.
  */
@@ -493,13 +514,18 @@ static void modeS_set_defaults (void)
 
   /* Defaults for SDRPlay:
    */
-  strcpy (Modes.sdrplay.dll_name, "sdrplay_api.dll");  /* Assumed to be on PATH */
-  Modes.sdrplay.min_version = SDRPLAY_API_VERSION;     /* = 3.14F */
+  sdrplay_set_dll_name ("sdrplay_api.dll");        /* Assumed to be on PATH */
+  sdrplay_set_USB_bulk_mode ("false");             /* == sdrplay_api_ISOCH */
+  Modes.sdrplay.tuner        = -1;                 /* no tuner selected */
+  Modes.sdrplay.antenna_port = -1;                 /* no antenna selected */
+  Modes.sdrplay.hearth_beat  = true;
 
   /* Defaults for AirSpy:
    */
-  strcpy (Modes.airspy.dll_name, "airspy.dll");        /* Assumed to be on PATH */
+  airspy_set_dll_name ("airspy.dll");              /* Assumed to be on PATH */
 
+  /* Defaults for other globals:
+   */
   Modes.infile_fd        = -1;      /* no --infile */
   Modes.gain_auto        = true;
   Modes.bytes_per_sample = 2;       /* I + Q == 2 bytes */
@@ -569,13 +595,14 @@ static void modeS_init_log (void)
     left -= n;
   }
 
+  snprintf (ptr, left, "\n%s Built on %s\n\n", FILLER, __DATE__str());
+
   if (write_BOM)
        fwrite (&BOM, sizeof(BOM), 1, Modes.log);
   else fputc ('\n', Modes.log);
 
   fputs ("---------------------------------------------------------------------------------\n", Modes.log);
   modeS_log (args);
-  fputs ("\n\n", Modes.log);
 }
 
 /**
@@ -746,13 +773,14 @@ static bool modeS_init (void)
 {
   bool rc = true;
 
-  if (!init_misc())
+  if (!init_misc() || !check_global_data())
      return (false);
 
   if (strcmp(Modes.cfg_file, "NUL") && !cfg_open_and_parse(Modes.cfg_file, config))
      return (false);
 
-  /* Check if homepos is unconfigured (-1,-1) and launch setup.exe */
+  /* Check if homepos is unconfigured (-1,-1) and launch setup.exe
+   */
   if (Modes.home_pos_ok && Modes.home_pos.lat == -1.0 && Modes.home_pos.lon == -1.0)
   {
     LOG_STDERR ("Home position is not configured. Launching setup.exe...\n");
@@ -761,14 +789,18 @@ static bool modeS_init (void)
       LOG_STDERR ("Setup failed or was cancelled. Cannot proceed without a valid home position.\n");
       return (false);
     }
-    /* Reload config to get the updated homepos */
+
+    /* Reload config to get the updated homepos
+     */
     LOG_STDERR ("Reloading configuration...\n");
     if (!cfg_open_and_parse(Modes.cfg_file, config))
     {
       LOG_STDERR ("Failed to reload configuration file.\n");
       return (false);
     }
-    /* Verify homepos was updated */
+
+    /* Verify homepos was updated
+     */
     if (!Modes.home_pos_ok || (Modes.home_pos.lat == -1.0 && Modes.home_pos.lon == -1.0))
     {
       LOG_STDERR ("Home position is still not configured after setup. Cannot proceed.\n");
@@ -791,15 +823,6 @@ static bool modeS_init (void)
     LOG_FILEONLY ("speak_init(): failed.\n");
     Modes.speech_enable = false;
   }
-
-  /* Command-line options `--samplerate X` and `--max-messages Y`
-   * overrides the config-file setting
-   */
-  if (sample_rate > 0)
-     Modes.sample_rate = sample_rate;
-
-  if (max_messages > 0)
-     Modes.max_messages = max_messages;
 
   if (Modes.max_frames > 0)
      Modes.max_messages = Modes.max_frames;
@@ -932,7 +955,7 @@ static bool modeS_init_RTLSDR (void)
   if (Modes.rtlsdr.calibrate)
      rtlsdr_cal_imr (1);
 
-  rc = rtlsdr_open (&Modes.rtlsdr.device, Modes.rtlsdr.index);
+  rc = rtlsdr_open ((rtlsdr_dev_t**)&Modes.rtlsdr.device, Modes.rtlsdr.index);
   if (rc)
   {
     const char *err = get_rtlsdr_error (rc);
@@ -1111,6 +1134,9 @@ void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
 
     (*Modes.converter_func) (in_buf, &out_buf->data [out_buf->overlap], to_convert,
                              Modes.converter_state, &out_buf->mean_power);
+
+    if (Modes.sdrplay.device && (Modes.debug & DEBUG_GENERAL2))
+       sdrplay_dump_mag_vector (out_buf->data + out_buf->overlap, out_buf->valid_length);
   }
 }
 
@@ -3637,13 +3663,13 @@ static void show_help (const char *fmt, ...)
             "                        p = Log frames with bad preamble.\n"
             "                        P = Log a single plane at a time with details (ref `LOG_FOLLOW()`).\n"
             "  --device <N / name>   Select RTLSDR/SDRPlay device (default: 0; first found).\n"
-            "                        e.g. `--device 0'               - select first RTLSDR device found.\n"
+            "                        e.g. `--device 1'               - select on RTLSDR index.\n"
             "                             `--device RTL2838-silver'  - select on RTLSDR name.\n"
-            "                             `--device tcp://host:port' - select a remote RTLSDR tcp service (default port=%u).\n"
-            "                             `--device udp://host:port' - select a remote RTLSDR udp service (default port=%u).\n"
             "                             `--device sdrplay'         - select first SDRPlay device found.\n"
             "                             `--device sdrplay1'        - select on SDRPlay index.\n"
             "                             `--device sdrplayRSP1A'    - select on SDRPlay name.\n"
+            "                             `--device tcp://host:port' - select remote RTLSDR tcp service (default port=%u).\n"
+            "                             `--device udp://host:port' - select remote RTLSDR udp service (default port=%u).\n"
             "  --infile <filename>   Read data from file (use `-' for stdin).\n"
             "  --informat <format>   Format for `--infile`; `UC8`, `SC16` or `SC16Q11` (default: `UC8`)\n"
             "  --interactive         Enable interactive mode.\n"
@@ -4148,13 +4174,28 @@ static bool set_gain (const char *arg)
 
 static bool set_sample_rate (const char *arg)
 {
-  Modes.sample_rate = ato_hertz (arg);
+  if (!sample_rate_set)
+  {
+    Modes.sample_rate = ato_hertz (arg);
+    if (Modes.sample_rate != MODES_DEFAULT_RATE &&
+        Modes.sample_rate != 2400000            &&
+        Modes.sample_rate != 8000000)
+       show_help ("Illegal sample_rate: %s. Use '2M, 2.4M or 8M (for SDRPlay)'.\n", arg);
+  }
+  return (true);
+}
 
-  if (Modes.sample_rate != MODES_DEFAULT_RATE &&
-      Modes.sample_rate != 2400000            &&
-      Modes.sample_rate != 8000000)
-     show_help ("Illegal sample_rate: %s. Use '2M, 2.4M or 8M (for SDRPlay)'.\n", arg);
+static bool set_max_messages (const char *arg)
+{
+  if (!max_messages_set)
+  {
+    char    *end;
+    uint64_t num = strtoull (arg, &end, 10);
 
+    if (end == arg)
+       show_help ("Illegal value for `--max-messages %s'.\n", arg);
+    Modes.max_messages = num;
+  }
   return (true);
 }
 
@@ -4253,14 +4294,16 @@ static bool launch_setup_exe (void)
   mg_file_path setup_path;
   intptr_t     exit_code;
 
-  /* Construct path to setup.exe in the same directory as the executable */
+  /* Construct path to setup.exe in the same directory as the executable
+   */
   snprintf (setup_path, sizeof(setup_path), "%s\\setup.exe", Modes.where_am_I);
 
-  /* Check if setup.exe exists */
+  /* Check if setup.exe exists
+   */
   if (GetFileAttributesA(setup_path) == INVALID_FILE_ATTRIBUTES)
   {
-    LOG_STDERR ("setup.exe not found at: %s\n", setup_path);
-    LOG_STDERR ("Please ensure setup.exe is in the same directory as dump1090.exe\n");
+    LOG_STDERR ("setup.exe not found at: %s\n"
+                "Please ensure setup.exe is in the same directory as dump1090.exe\n", setup_path);
     return (false);
   }
 
@@ -4324,12 +4367,6 @@ static bool set_bandwidth (const char *arg)
   return (true);
 }
 
-static bool set_bias_tee (const char *arg)
-{
-  Modes.bias_tee = cfg_true (arg);
-  return (true);
-}
-
 static bool set_frequency (const char *arg)
 {
   Modes.freq = ato_hertz (arg);
@@ -4338,13 +4375,9 @@ static bool set_frequency (const char *arg)
   return (true);
 }
 
-static bool set_if_mode (const char *arg)
+static bool set_bias_tee (const char *arg)
 {
-  if (!stricmp(arg, "zif"))
-       Modes.sdrplay.if_mode = false;
-  else if (!stricmp(arg, "lif"))
-       Modes.sdrplay.if_mode = true;
-  else printf ("%s(%u): Ignoring illegal '--if-mode': '%s'.\n", cfg_current_file(), cfg_current_line(), arg);
+  Modes.bias_tee = cfg_true (arg);
   return (true);
 }
 
@@ -4469,9 +4502,8 @@ static struct option long_options[] = {
 
 static bool parse_cmd_line (int argc, char **argv)
 {
-  int   c, show_ver = 0, idx = 0;
-  char *end;
-  bool  rc = true;
+  int  c, show_ver = 0, idx = 0;
+  bool rc = true;
 
   while ((c = getopt_long (argc, argv, "+hs:?V", long_options, &idx)) != EOF)
   {
@@ -4505,9 +4537,7 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 'm':
-           max_messages = strtoull (optarg, &end, 10);
-           if (end == optarg)
-              show_help ("Illegal value for `--max-messages %s'.\n", optarg);
+           max_messages_set = set_max_messages (optarg);
            break;
 
       case 'N':
@@ -4519,7 +4549,7 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 's':
-           set_sample_rate (optarg);
+           sample_rate_set = set_sample_rate (optarg);
            break;
 
       case 'S':
