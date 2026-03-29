@@ -21,8 +21,9 @@
 #include "sqlite3.h"
 #include "smartlist.h"
 #include "misc.h"
-#include "rtl-sdr/trace.h"
-#include "rtl-sdr/version.h"
+#include "RTLSDR/rtl-sdr.h"
+#include "RTLSDR/trace.h"
+#include "RTLSDR/version.h"
 
 #define __SpeechConstants_MODULE_DEFINED__
 #include <sapi.h>
@@ -1235,6 +1236,7 @@ const char *get_user_name (void)
 
 bool init_misc (void)
 {
+  memcpy (Modes.chk_marker, "DEAD", sizeof(Modes.chk_marker));
   init_timings();
   if (test_contains(Modes.tests, "misc"))
      test_asprintf();
@@ -1853,7 +1855,7 @@ static void print_LDFLAGS (void)
 #endif
 }
 
-static const char *__DATE__str (void)
+const char *__DATE__str (void)
 {
   /*
    * Convert `__DATE__ into `DD MMM YYYY`.

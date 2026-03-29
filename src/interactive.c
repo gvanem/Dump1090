@@ -18,8 +18,9 @@
 #include "smartlist.h"
 #include "net_io.h"
 #include "misc.h"
-#include "externals/AirSpy/airspy.h"
-#include "externals/SDRplay/sdrplay.h"
+#include "RTLSDR/rtl-sdr.h"
+#include "AirSpy/airspy.h"
+#include "SDRplay/sdrplay.h"
 
 #undef MOUSE_MOVED
 #include <curses.h>

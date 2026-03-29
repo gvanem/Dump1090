@@ -1,6 +1,6 @@
 /**\file    misc.h
  * \ingroup Misc
- * \brief   Various macros, definitions and prototypes for "misc.c".
+ * \brief   Various global macros, definitions and prototypes for "misc.c".
  */
 #pragma once
 
@@ -11,8 +11,6 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <wchar.h>
-#include <rtl-sdr/rtl-sdr.h>
-#include <SDRplay/sdrplay_api.h>
 
 #include "mongoose.h"
 #include "cfg_file.h"
@@ -48,8 +46,8 @@
 
 /**
  * \def DEF_WIN_FUNC
- * Handy macro to both define and declare the function-pointers
- * for WINAPI functions.
+ * Handy macro to both define and declare a function-pointer
+ * for a WINAPI function.
  */
 #define DEF_WIN_FUNC(ret, name, args)  typedef ret (WINAPI *func_##name) args; \
                                        static func_##name p_##name = NULL
@@ -60,7 +58,6 @@
  */
 #define DEF_C_FUNC(ret, name, args)  typedef ret (*func_##name) args; \
                                      static func_##name p_##name = NULL
-
 
 /**
  * Bits for `Modes.debug`:
@@ -218,7 +215,8 @@ typedef struct unrecognized_ME {
       } unrecognized_ME;
 
 /**
- * Statistics for HTTP4 / HTTP6 servers
+ * Statistics for HTTP4 / HTTP6 server.
+ * \todo Move to 'stats.h'
  */
 typedef struct HTTP_statistics {
         uint64_t  HTTP_get_requests;
@@ -334,7 +332,7 @@ typedef struct statistics {
 typedef struct rtlsdr_conf {
         char         *name;              /**< The manufacturer name of the RTLSDR device to use. As in e.g. `"--device silver"` */
         int           index;             /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"` */
-        rtlsdr_dev_t *device;            /**< The RTLSDR handle from `rtlsdr_open()` */
+        void         *device;            /**< The RTLSDR handle from `rtlsdr_open()` */
         int           ppm_error;         /**< Set RTLSDR frequency correction (negative or positive) */
         bool          calibrate;         /**< Enable calibration for R820T/R828D type devices */
         int          *gains;             /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
@@ -358,43 +356,41 @@ typedef struct rtltcp_conf {
  * The device configuration for a SDRplay device.
  */
 typedef struct sdrplay_conf {
-        mg_file_path                     dll_name;           /**< Name and (relative) path of the "sdrplay_api.dll" to use */
-        char                            *name;               /**< Name of the SDRplay device to use */
-        int                              index;              /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"` */
-        void                            *device;             /**< Device-handle from `sdrplay_init()` */
-        bool                             if_mode;
-        bool                             over_sample;
-        bool                             disable_broadcast_notch;
-        bool                             disable_DAB_notch;
-        bool                             USB_bulk_mode;
-        int                              gain_reduction;
-        int                              ADSB_mode;         /**< == sdrplay_api_ControlParamsT::adsbMode */
-        int                              BW_mode;
-        int                             *gains;
-        int                              gain_count;
-        float                            min_version;
-        sdrplay_api_Rsp2_AntennaSelectT  antenna_port;
-        sdrplay_api_RspDx_AntennaSelectT DX_antenna_port;
-        sdrplay_api_TunerSelectT         tuner;
-        sdrplay_api_RspDuoModeT          mode;
+        char  *name;               /**< Name of the SDRplay device to use */
+        int    index;              /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"` */
+        void  *device;             /**< Device-handle from `sdrplay_init()` */
+        bool   if_mode;
+        bool   over_sample;
+        bool   hearth_beat;       /**< Experimental, default == true */
+        int    BW_mode;
+        int   *gains;
+        int    gain_count;
+        bool   diversity_mode;    /**< \todo for RSPduo, enable 2 tuners in diversity mode */
+        int    antenna_port;      /**< -1, 'A', 'B' or 'C' */
+        int    tuner;             /**< -1, 'A' or 'B' */
       } sdrplay_conf;
 
 /**
  * The device configuration for a AirSpy device.
  */
 typedef struct airspy_conf {
-        mg_file_path     dll_name;           /**< Name and (relative) path of the "airspy.dll" to use */
-        char            *name;               /**< Name of the AirSpy device to use */
-        int              index;              /**< The index of the AirSpy device to use. As in e.g. `"--device airspy0"` */
-        void            *device;             /**< Device-handle from `airspy_init()` */
-        int             *gains;
-        int              gain_count;
+        char  *name;         /**< Name of the AirSpy device to use */
+        int    index;        /**< The index of the AirSpy device to use. As in e.g. `"--device airspy0"` */
+        void  *device;       /**< Device-handle from `airspy_init()` */
+        int   *gains;
+        int    gain_count;
       } airspy_conf;
 
 /**
- * Basenames of ".bin" files generated by `py -3 ../tools/gen_data.py`:
+ * Basenames of ".bin" files generated by `py -3 ../tools/gen_data.py`.
+ *
+ * It is "aircraft.bin" and not plural "aircrafts.bin" since
+ *   https://github.com/vradarserver/standing-data/archive/refs/heads/main.zip
+ *
+ * has the sub-directory `standing-data-main/aircraft/`. It would be non-trivial
+ * to remap to "aircrafts.csv" and "aircrafts.bin".
  */
-#define BIN_AIRCRAFT     "aircraft.bin"     /* Not plural "aircrafts.bin" */
+#define BIN_AIRCRAFT     "aircraft.bin"
 #define BIN_AIRPORTS     "airports.bin"
 #define BIN_ROUTES       "routes.bin"
 #define BIN_CODE_BLOCKS  "code-blocks.bin"
@@ -589,6 +585,7 @@ typedef struct global_data {
         airports_priv  *airports_priv;           /**< Private data for `airports.c`. */
         smartlist_t    *logfile_ignore;          /**< Messages to ignore when writing to`logfile`. A list of `log_ignore` */
         bin_data        bin;                     /**< For `USE_BIN_FILES` data */
+        char            chk_marker [4];          /**< To check if this structure is "out of wack" */
       } global_data;
 
 extern global_data Modes;
@@ -874,6 +871,7 @@ void        puts_long_line (const char *start, size_t indent);
 void        fputs_long_line (FILE *file, const char *start, size_t indent);
 const char *mz_version (void);                 /* in 'externals/zip.c' */
 void        show_version_info (bool verbose);
+const char *__DATE__str (void);
 
 /*
  * Various hex functions.
