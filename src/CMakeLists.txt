@@ -44,12 +44,12 @@ set(SOURCES
     externals/PDC-Mod/amalgamation.c
     externals/sqlite3.c
     externals/zip.c
-    externals/rtl-sdr/librtlsdr.c
-    externals/rtl-sdr/trace.c
-    externals/rtl-sdr/tuner_e4k.c
-    externals/rtl-sdr/tuner_fc001x.c
-    externals/rtl-sdr/tuner_fc2580.c
-    externals/rtl-sdr/tuner_r82xx.c
+    externals/RTLSDR/librtlsdr.c
+    externals/RTLSDR/trace.c
+    externals/RTLSDR/tuner_e4k.c
+    externals/RTLSDR/tuner_fc001x.c
+    externals/RTLSDR/tuner_fc2580.c
+    externals/RTLSDR/tuner_r82xx.c
     externals/SDRplay/sdrplay.c
 )
 
