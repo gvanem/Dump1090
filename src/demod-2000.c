@@ -365,7 +365,7 @@ static void dump_mag_vector (const uint16_t *m, uint32_t offset)
   uint32_t j;
 
   for (j = start; j <= end; j++)
-      dump_mag_bar (j-offset, m[j]);
+      dump_mag_bar (j - offset, m[j]);
 }
 
 /*
@@ -427,6 +427,9 @@ static void dump_raw_message (const char *descr, const uint8_t *msg, const uint1
   uint32_t   csum;
   int        j, len, msgtype = msg[0] >> 3;
 
+  if (Modes.sdrplay.device)
+     return;
+
   if (msgtype == 17)
   {
     len  = modeS_message_len_by_type (msgtype);
@@ -445,7 +448,7 @@ static void dump_raw_message (const char *descr, const uint8_t *msg, const uint1
   printf ("\n--- %s\n    ", descr);
   for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
   {
-    printf ("%02x",msg[j]);
+    printf ("%02x", msg[j]);
     if (j == MODES_SHORT_MSG_BYTES-1)
        printf (" ... ");
   }
