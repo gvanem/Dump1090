@@ -10,6 +10,7 @@ Aircraft radar display built with Python and Pygame. Visualises real-time aircra
 - Retro colour palette
 - Terminus TTF fonts for an authentic look
 - Default configuration is compatible with the [Hagibis Mini PC USB-C Hub](https://hagibis.com/products-p00288p1.html)
+- Live ATC audio streaming from a specified URL
 
 ![Retro ADS-B Radar Screenshot](screenshot.png)
 
@@ -60,6 +61,10 @@ FETCH_INTERVAL = 10                # Data fetch interval (seconds)
 MIL_PREFIX_LIST = 7CF              # Comma-separated list of military aircraft hex prefixes (e.g. 7CF,AE,43C)
 TAR1090_URL = http://localhost/data/aircraft.json  # tar1090 data source URL
 BLINK_MILITARY = true              # Toggle blinking effect for military aircraft (true/false)
+
+[Audio]
+ATC_STREAM_URL =                   # URL of live ATC audio stream (leave blank to disable)
+AUTO_START = false                 # Start ATC stream automatically (true/false)
 
 [Location]
 LAT = -31.9522                     # Radar centre latitude
