@@ -10,7 +10,7 @@ Aircraft radar display built with Python and Pygame. Visualises real-time aircra
 - Retro colour palette
 - Terminus TTF fonts for an authentic look
 - Default configuration is compatible with the [Hagibis Mini PC USB-C Hub](https://hagibis.com/products-p00288p1.html)
-- Live ATC audio streaming from a specified URL
+- Live ATC audio streaming from a specified URL. Ref: https://www.liveatc.net/
 
 ![Retro ADS-B Radar Screenshot](screenshot.png)
 
@@ -47,7 +47,7 @@ Configure the application:
 
 ### Run the Radar UI
 ```bash
-python3 radar.py
+python3 main.py
 ```
 
 To quit, press `Q` or `ESC` in the radar window.
@@ -59,11 +59,12 @@ The application is configured via `config.ini`. Edit `config.ini` and adjust as 
 [General]
 FETCH_INTERVAL = 10                # Data fetch interval (seconds)
 MIL_PREFIX_LIST = 7CF              # Comma-separated list of military aircraft hex prefixes (e.g. 7CF,AE,43C)
-TAR1090_URL = http://localhost/data/aircraft.json  # tar1090 data source URL
+TAR1090_URL     = http://127.0.0.1:8080/data/aircraft.json  # tar1090 data source URL
 BLINK_MILITARY = true              # Toggle blinking effect for military aircraft (true/false)
 
 [Audio]
 ATC_STREAM_URL =                   # URL of live ATC audio stream (leave blank to disable)
+ATC_VOLUME = 70                    # Volume percent
 AUTO_START = false                 # Start ATC stream automatically (true/false)
 
 [Location]
@@ -82,7 +83,7 @@ BACKGROUND_PATH =                  # Optional path to background image
 HEADER_FONT_SIZE = 32              # Font size for the header text
 RADAR_FONT_SIZE = 22               # Font size for radar labels and callsigns
 TABLE_FONT_SIZE = 22               # Font size for the data table
-INSTRUCTION_FONT_SIZE = 12         # Font size for instruction text
+BOTTOM_FONT_SIZE = 22              # Font size for bottom instruction text
 ```
 
 ## Pygame SDL Dependency Check and Troubleshooting
@@ -98,7 +99,7 @@ The availability of these modules is checked at startup. If dependencies are  in
 ```
 Checking Pygame module support...
   Video: Supported
-  Font: Supported
+  Font:  Supported
   Image: Supported
 ```
 
@@ -107,7 +108,7 @@ If modules are missing, the output will look like this:
 ```
 Checking Pygame module support...
   Video: Not available - install libsdl2-2.0-0
-  Font: Not available - install libsdl2-ttf-2.0-0
+  Font:  Not available - install libsdl2-ttf-2.0-0
   Image: Not available - install libsdl2-image-2.0-0
 ```
 
