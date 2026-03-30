@@ -1,32 +1,12 @@
 import os, configparser
 
 #
-# Fix a line like 'key = value # some trailing comment\n'
-# into 'key = value\n'
-#
-def strip_trailing_comment (s):
-  a = s.find ("#")
-  b = s.find ("=")
-  if a > 0 and a > b:
-     s = s[:a].rstrip (" ") + "\n"
-  return s
-
-def get_lines (file):
-  f = open (file, "rt")
-  lines = f.readlines()
-  lines2 = ""
-  f.close()
-  for l in lines:
-      lines2 += strip_trailing_comment (l)
-  return lines2
-
-#
 # Configuration Loading
 #
-config = configparser.ConfigParser (strict=False)
-
 script_dir = os.path.dirname (os.path.abspath(__file__)).replace ("\\", "/")
-config.read_string (get_lines(f"{script_dir}/config.ini"))
+
+config = configparser.ConfigParser (strict = False, inline_comment_prefixes = ("#"))
+config.read (f"{script_dir}/config.ini")
 
 #
 # General Settings
@@ -34,6 +14,7 @@ config.read_string (get_lines(f"{script_dir}/config.ini"))
 FETCH_INTERVAL  = config.getint ("General", "FETCH_INTERVAL", fallback=10)
 MIL_PREFIX_LIST = [ prefix.strip() for prefix in config.get("General", "MIL_PREFIX_LIST", fallback="7CF").split(",") ]
 TAR1090_URL     = config.get ("General", "TAR1090_URL", fallback="http://localhost/data/aircraft.json")
+USER_AGENT      = config.get ("General", "USER_AGENT", fallback=None)
 BLINK_MILITARY  = config.getboolean ("General", "BLINK_MILITARY", fallback=True)
 VERBOSE         = config.getboolean ("General", "VERBOSE", fallback=False)
 

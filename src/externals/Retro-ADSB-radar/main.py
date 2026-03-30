@@ -56,7 +56,12 @@ def main():
     # Display Setup
     #
     screen = pygame.display.set_mode ((config.SCREEN_WIDTH, config.SCREEN_HEIGHT), flags)
-    pygame.display.set_caption (f"{config.AREA_NAME} ADS-B RADAR")
+
+    win_caption = f"ADS-B RADAR, {config.AREA_NAME}"
+    if config.ATC_STREAM_URL:
+       win_caption += f", qAudio: {config.ATC_STREAM_URL}"
+    pygame.display.set_caption (win_caption)
+
     clock = pygame.time.Clock()
     if config.BACKGROUND_PATH:
        background = utils.load_background (config.BACKGROUND_PATH)
@@ -233,6 +238,7 @@ def main():
                   running = False
                last_mouse_move = time.time()
                pygame.mouse.set_visible (True)
+
             elif event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONUP):
                last_mouse_move = time.time()
                pygame.mouse.set_visible (True)

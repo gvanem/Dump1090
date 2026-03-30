@@ -16,9 +16,14 @@ class AircraftTracker:
     def fetch_data (self) -> List [Aircraft]:
       """Fetch aircraft from local tar1090"""
       try:
-        if 0:
+        if config.VERBOSE:
            print (f"Fetching aircraft data from {config.TAR1090_URL}...")
-        response = requests.get (config.TAR1090_URL, timeout=10)
+        if config.USER_AGENT:
+           headers = { "User-Agent": config.USER_AGENT }
+        else:
+           headers = None  # becomes default "python-requests/2.31.0"
+
+        response = requests.get (config.TAR1090_URL, timeout=10, headers=headers)
         response.raise_for_status()
         data = response.json()
         aircraft_list = []
