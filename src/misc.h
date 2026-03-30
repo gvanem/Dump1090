@@ -871,6 +871,7 @@ void        puts_long_line (const char *start, size_t indent);
 void        fputs_long_line (FILE *file, const char *start, size_t indent);
 const char *mz_version (void);                 /* in 'externals/zip.c' */
 void        show_version_info (bool verbose);
+const char *compiler_info (void);
 const char *__DATE__str (void);
 
 /*

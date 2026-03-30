@@ -561,7 +561,6 @@ static void modeS_init_log (void)
   size_t line_len, left = sizeof(args);
   int    i, n;
   bool   write_BOM = false;
-  static const BYTE BOM[] = { 0xEF, 0xBB, 0xBF };
 
   if (!modeS_log_init())
      return;
@@ -595,11 +594,16 @@ static void modeS_init_log (void)
     left -= n;
   }
 
-  snprintf (ptr, left, "\n%s Built on %s\n\n", FILLER, __DATE__str());
+  snprintf (ptr, left, "\n%s Build info: %s, built on: %s\n\n",
+            FILLER, compiler_info(), __DATE__str());
 
   if (write_BOM)
-       fwrite (&BOM, sizeof(BOM), 1, Modes.log);
-  else fputc ('\n', Modes.log);
+  {
+    static const BYTE BOM[] = { 0xEF, 0xBB, 0xBF };
+    fwrite (&BOM, sizeof(BOM), 1, Modes.log);
+  }
+  else
+    fputc ('\n', Modes.log);
 
   fputs ("---------------------------------------------------------------------------------\n", Modes.log);
   modeS_log (args);

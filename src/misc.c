@@ -1555,7 +1555,7 @@ static void print_SAPI_info (void)
 /**
  * Return the compiler info the program was built with.
  */
-static const char *compiler_info (void)
+const char *compiler_info (void)
 {
   static char buf [50];
 
