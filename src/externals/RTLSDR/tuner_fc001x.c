@@ -24,12 +24,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-
-#ifdef _WIN32
 #include <windows.h>
-#else
-#include <unistd.h>
-#endif
 
 #include "RTLSDR/rtlsdr_i2c.h"
 #include "RTLSDR/rtl-sdr.h"
@@ -182,7 +177,7 @@ int RSSI_Calibration(void *dev)
 	int ret;
 	ret = fc001x_write_reg_mask(dev, 0x09, 0x10, 0x10);	// set the register 9 bit4 EN_CAL_RSSI as 1
 	ret |= fc001x_write_reg_mask(dev, 0x06, 0x01, 0x01);	// set the register 6 bit 0 LNA_POWER_DOWN as 1
-	usleep(100000);									// delay 100ms
+	Sleep(100);									// delay 100ms
 	// read DC value from RSSI pin as rssi_calibration
 	RSSI_Calibration_Value = rtlsdr_demod_read_reg(dev, 3, 0x01, 1);
 	ret |= fc001x_write_reg_mask(dev, 0x09, 0x00, 0x10);	// set the register 9 bit4 EN_CAL_RSSI as 0

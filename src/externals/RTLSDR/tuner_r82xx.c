@@ -24,13 +24,7 @@
 
 #include <stdio.h>
 #include <string.h>
-
-#ifdef _WIN32
 #include <windows.h>
-#else
-#include <unistd.h>
-#include <sys/time.h>
-#endif
 
 #include "RTLSDR/rtl-sdr.h"
 #include "RTLSDR/rtlsdr_i2c.h"
@@ -1369,7 +1363,6 @@ static int r82xx_multi_read(struct r82xx_priv *priv)
 	uint8_t data[2];
 	int sum = 0;
 
-#ifdef _WIN32
 	LARGE_INTEGER StartingTime, EndingTime;
 	LARGE_INTEGER Frequency;
 	int64_t Microseconds = 0;
@@ -1384,9 +1377,7 @@ static int r82xx_multi_read(struct r82xx_priv *priv)
 		Microseconds *= 1000000;
 		Microseconds /= Frequency.QuadPart;
 	};
-#else
-	usleep(6000);
-#endif
+
 	for (i = 0; i < 2; i++) {
 		rc = r82xx_read(priv, data, sizeof(data));
 		if (rc < 0)

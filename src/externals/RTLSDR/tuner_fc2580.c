@@ -8,12 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-
-#ifndef _WIN32
-#include <unistd.h>
-#else
 #include <windows.h>
-#endif
 
 #include "RTLSDR/rtlsdr_i2c.h"
 #include "RTLSDR/rtl-sdr.h"

@@ -29,10 +29,6 @@
 extern "C" {
 #endif
 
-#if defined(_WIN32)
-#define usleep(usec) Sleep ((usec)/1000)
-#endif
-
 #define RTLSDR_OLD_DAB 1
 
 #include <stdint.h>
