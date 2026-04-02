@@ -195,10 +195,8 @@ static const char *event_name (int ev)
           ev == MG_EV_MQTT_OPEN  ? "MG_EV_MQTT_OPEN" :  /* Can never occur here */
           ev == MG_EV_SNTP_TIME  ? "MG_EV_SNTP_TIME" :  /* Can never occur here */
           ev == MG_EV_WAKEUP     ? "MG_EV_WAKEUP" :     /* Can never occur here */
-          ev == MG_EV_MDNS_A     ? "MG_EV_MDNS_A" :     /* Can never occur here */
-          ev == MG_EV_MDNS_PTR   ? "MG_EV_MDNS_PTR" :   /* Can never occur here */
-          ev == MG_EV_MDNS_SRV   ? "MG_EV_MDNS_SRV" :   /* Can never occur here */
-          ev == MG_EV_MDNS_TXT   ? "MG_EV_MDNS_TXT" :   /* Can never occur here */
+          ev == MG_EV_MDNS_REQ   ? "MG_EV_MDNS_REQ" :   /* Can never occur here */
+          ev == MG_EV_MDNS_RESP  ? "MG_EV_MDNS_REES" :  /* Can never occur here */
                                    "?");
 }
 
@@ -564,6 +562,35 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
     DEBUG (DEBUG_NET2, "Accept-Encoding: '%.*s'\n", (int)header->len, header->buf);
     cli->encoding_gzip = true;  /**\todo Add gzip compression */
   }
+
+#if 0
+  /**
+   * Log this only once per client.
+   */
+  unique_IP *unique_ip = NULL;
+  int        i, max = smartlist_len (g_unique_ips);
+
+  for (i = 0; i < max; i++)
+  {
+    unique_IP *unique = smartlist_get (g_unique_ips, i);
+
+    if (unique->service == HTTP_SERVICE(service) &&
+        !memcmp(&unique->addr, &cli->rem, sizeof(mg_addr)))
+    {
+      unique_ip = unique;
+      break;
+    }
+  }
+
+  if (unique_ip /* && unique_ip->accepted == 1 */)
+  {
+    header = mg_http_get_header (hm, "User-Agent");
+    LOG_FILEONLY2 ("%s: User-Agent: '%.*s'\n",
+                   net_str_addr_port(&c->rem, addr_buf, sizeof(addr_buf)),
+                   header ? (int)header->len : 1,
+                   header ? header->buf : "?");
+  }
+#endif
 
   /**
    * The below dynamically created `*.html` pages should contain some
@@ -1867,9 +1894,9 @@ static char *net_str_addr_port (const mg_addr *a, char *buf, size_t len)
     h_name = net_reverse_find (a);
     if (!h_name)
     {
-       mg_snprintf (ip_str, sizeof(ip_str), "%M", mg_print_ip, a);
-       h = gethostbyaddr ((char*)&a->addr.ip4, sizeof(a->addr.ip4), AF_INET);
-       net_reverse_add (ip_str, (h && h->h_name) ? h->h_name : "", time(NULL), 0, false);
+      mg_snprintf (ip_str, sizeof(ip_str), "%M", mg_print_ip, a);
+      h = gethostbyaddr ((char*)&a->addr.ip4, sizeof(a->addr.ip4), AF_INET);
+      net_reverse_add (ip_str, (h && h->h_name) ? h->h_name : "", time(NULL), 0, false);
     }
     h_name = h ? h->h_name : NULL;
   }
@@ -1897,6 +1924,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
 
   if (!strnicmp("tcp://", host_port, 6))
   {
+    is_udp = false;
     host_port += 6;
   }
   else if (!strnicmp("udp://", host_port, 6))
@@ -3426,34 +3454,42 @@ static bool rtl_tcp_command (mg_connection *c, uint8_t command, uint32_t param)
 }
 
 /**
+ * Convenience function for `MG_EV_CONNECT` handler.
+ */
+static bool _rtl_tcp_connect (mg_connection *c)
+{
+  DEBUG (DEBUG_NET, "Setting sample-rate: %.2f MS/s.\n", (double)Modes.sample_rate/1E6);
+  if (!rtl_tcp_command(c, RTL_SET_SAMPLE_RATE, Modes.sample_rate))
+     return (false);
+
+  DEBUG (DEBUG_NET, "Setting frequency: %.2f MHz.\n", (double)Modes.freq/1E6);
+  if (!rtl_tcp_command(c, RTL_SET_FREQUENCY, Modes.freq))
+     return (false);
+
+  DEBUG (DEBUG_NET, "Setting PPM: %d.\n", Modes.rtltcp.ppm_error);
+  if (!rtl_tcp_command(c, RTL_SET_FREQ_CORRECTION, Modes.rtltcp.ppm_error))
+     return (false);
+
+  return (true);
+}
+
+/**
  * The `MG_EV_CONNECT` handler for the RTL_TCP service.
  * Send the setup parameters to the remote server.
  */
 static bool rtl_tcp_connect (mg_connection *c)
 {
-  INT_PTR service = MODES_NET_SERVICE_RTL_TCP;
-
-  DEBUG (DEBUG_NET, "Setting sample-rate: %.2f MS/s.\n", (double)Modes.sample_rate/1E6);
-  if (!rtl_tcp_command (c, RTL_SET_SAMPLE_RATE, Modes.sample_rate))
-     goto failed;
-
-  DEBUG (DEBUG_NET, "Setting frequency: %.2f MHz.\n", (double)Modes.freq/1E6);
-  if (!rtl_tcp_command (c, RTL_SET_FREQUENCY, Modes.freq))
-     goto failed;
-
-  DEBUG (DEBUG_NET, "Setting PPM: %d.\n", Modes.rtltcp.ppm_error);
-  if (!rtl_tcp_command (c, RTL_SET_FREQ_CORRECTION, Modes.rtltcp.ppm_error))
-     goto failed;
+  if (!_rtl_tcp_connect(c))
+  {
+    c->is_closing = 1;
+    return (false);
+  }
 
   /* If we do not get the `RTL_TCP_MAGIC` welcome message.
    * Or if we stop getting data, add a timer to detect it.
    */
-  net_timer_add (service, MODES_DATA_TIMEOUT, MG_TIMER_REPEAT);
+  net_timer_add (MODES_NET_SERVICE_RTL_TCP, MODES_DATA_TIMEOUT, MG_TIMER_REPEAT);
   return (true);
-
-failed:
-  c->is_closing = 1;
-  return (false);
 }
 
 bool rtl_tcp_set_gain (mg_connection *c, int16_t gain)
