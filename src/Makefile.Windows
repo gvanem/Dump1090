@@ -20,7 +20,7 @@ USE_CRT_DEBUG ?= 0
 
 #
 # Use '../tools/gen_data.py' to generate these:
-#   $(TEMP)/dump1090/standing-data/results/aircrafts.bin
+#   $(TEMP)/dump1090/standing-data/results/aircraft.bin
 #   $(TEMP)/dump1090/standing-data/results/airports.bin
 #   $(TEMP)/dump1090/standing-data/results/routes.bin
 #   $(TEMP)/dump1090/standing-data/results/code-blocks.bin
