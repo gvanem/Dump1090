@@ -4,6 +4,8 @@
 
 * Fix the *SDRPlay* interface.
 
+* Fix the *AirSpy* interface.
+
 * Add *Hack-RF* support.
 
 * Improve the default web interface [`web_root/index.html`](web_root/index.html).
@@ -12,10 +14,13 @@
 
 * Add *zip* / *gzip* compression for Web-data.
 
-* Enhance the algorithm to reliably decode more messages (add a 2.4 MB/S decoder?).
+* Enhance the algorithm to reliably decode more messages.
 
-* Improve **SBS** (*Serving Base Station*) messages when we're it's client.
-  Ref: http://woodair.net/sbs/article/barebones42_socket_data.htm
+* Add support for [`USB/IP`](https://www.kernel.org/doc/html/latest/usb/usbip_protocol.html).
+  I.e. get the USB-data from a remote Linux host.
+
+* Improve **SBS** (*Serving Base Station*) messages when we're it's client. <br>
+  Ref: http://woodair.net/sbs/article/barebones42_socket_data.htm <br>
   Ref: https://wiki.jetvision.de/wiki/Mode-S_Beast:Data_Output_Formats
 
 * **UAT** (*Universal Access Transceiver*) for 978 MHz data-link.
@@ -25,10 +30,10 @@
    * `--web-page some.dll;1` for the 1st resource. :heavy_check_mark: *Done*
    * `--web-page some.dll;2` for the 2nd resource etc. :heavy_check_mark: *Done*
 
-* *SQLite3* features:
+* **SQLite3** features:
    * store `airport-codes.csv` into `airport-codes.csv.sqlite`.
    * store `aircraft-database.csv` into `aircraft-database.csv.sqlite`. :heavy_check_mark: *Done*
-   * add a build-time option to use `WinSqlite3.dll` as part of Win-10. :heavy_check_mark: *Removed*
+   * add a build-time option to use `WinSqlite3.dll` (included in Win-10). :heavy_check_mark: *Removed*
    * update the above `*.csv` files into `*.csv.sqlite` automatically or by an `--update` option.
 
 * Switch from `getopt_long()` to `yopt_init()` + `yopt_next()`.
@@ -36,9 +41,9 @@
 
 * Reception and decoding of **ACARS** (*Aircraft Communications Addressing and Reporting System*)
   using:
-    * libacars: `https://github.com/szpajder/libacars.git`.
-    * DumpVDL2:  `https://github.com/szpajder/dumpvdl2`.
-    * An intro:  `https://medium.com/@xesey/receiving-airplane-data-with-acars-353291cf2786`.
+    * libacars: https://github.com/szpajder/libacars
+    * DumpVDL2: https://github.com/szpajder/dumpvdl2
+    * An intro: https://medium.com/@xesey/receiving-airplane-data-with-acars-353291cf2786
 
   This will need a second RTLSDR/SDRPlay device.
 
@@ -72,9 +77,9 @@
     * `deny4 = 91.224.92.0/24` (a Lithuanian network).
 
 * Download Aircraft and Airport data from [Github](https://github.com/vradarserver/standing-data/archive/refs/heads/main.zip)
-  or use git (assume everybody has it):
-    * First time:   `git clone https://github.com/vradarserver/standing-data.git %TEMP%\dump1090\standing-data`.
+  or use git (assuming everybody has it):
+    * First time:   `git clone https://github.com/vradarserver/standing-data.git %TEMP%\dump1090\standing-data\standing-data`.
     * Periodically: `git -C %TEMP%\dump1090 pull`.
-  And use a Python-script to regenerate these files into some suitable .BIN-files.
-  Use them as memory-mapped files?
+  And use the Python-script [`tools/gen_data.py`](tools/gen_data.py) to regenerate these files into .BIN-files. <br>
+  (Perhaps use them as memory-mapped files?)
 
