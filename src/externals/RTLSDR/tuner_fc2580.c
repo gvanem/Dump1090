@@ -10,9 +10,9 @@
 #include <string.h>
 #include <windows.h>
 
-#include "RTLSDR/rtlsdr_i2c.h"
-#include "RTLSDR/rtl-sdr.h"
-#include "RTLSDR/tuner_fc2580.h"
+#include "rtlsdr_i2c.h"
+#include "rtl-sdr.h"
+#include "tuner_fc2580.h"
 
 /*
 Registers

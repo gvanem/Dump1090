@@ -26,7 +26,7 @@
  *  2. Faking some Pthread calls using Win-SDK function.
  *  3. Changed the code-style using Astyle.
  *
- * Hence nothing here depends on the libusb library.
+ * So nothing here depends on the libusb library.
  */
 #include <windows.h>
 #include <winusb.h>
@@ -38,13 +38,13 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#include "RTLSDR/rtl-sdr.h"
-#include "RTLSDR/tuner_e4k.h"
-#include "RTLSDR/tuner_fc001x.h"
-#include "RTLSDR/tuner_fc2580.h"
-#include "RTLSDR/tuner_r82xx.h"
-#include "RTLSDR/version.h"
-#include "RTLSDR/trace.h"
+#include "rtl-sdr.h"
+#include "tuner_e4k.h"
+#include "tuner_fc001x.h"
+#include "tuner_fc2580.h"
+#include "tuner_r82xx.h"
+#include "version.h"
+#include "trace.h"
 
 #define WINUSB_REQUEST_TYPE_VENDOR (0x02 << 5)
 #define WINUSB_ENDPOINT_IN          0x80
@@ -184,6 +184,11 @@ struct rtlsdr_dev {
   /* Concurrent lock for the periodic reading of I2C registers
    */
   CRITICAL_SECTION  cs_mutex;
+
+  /* GPIO stuff
+   */
+  uint32_t gpio_state_known;   /* bitmask over pins 0 .. 7 */
+  uint32_t gpio_state;         /* bitmask over pins 0 .. 7: = 0 == write, 1 == read */
 
   /* status */
   int  rc_active;
@@ -1079,16 +1084,83 @@ static int rtlsdr_demod_write_reg_mask (rtlsdr_dev_t *dev, uint8_t page, uint16_
   return rtlsdr_demod_write_reg (dev, page, addr, (uint16_t) val, 1);
 }
 
-void rtlsdr_set_gpio_bit (rtlsdr_dev_t *dev, uint8_t gpio, int val)
+int rtlsdr_set_gpio_bit (rtlsdr_dev_t *dev, uint8_t gpio, int val)
 {
-  rtlsdr_write_reg_mask (dev, SYSB, GPO, val << gpio, 1 << gpio);
+  return rtlsdr_write_reg_mask (dev, SYSB, GPO, val << gpio, 1 << gpio);
 }
 
-static void rtlsdr_set_gpio_output (rtlsdr_dev_t *dev, uint8_t gpio)
+int rtlsdr_set_gpio_byte (rtlsdr_dev_t *dev, int val)
 {
+  int retval = rtlsdr_write_reg (dev, SYSB, GPO, val, 1);
+  return retval;
+}
+
+int rtlsdr_set_gpio_input (rtlsdr_dev_t *dev, uint8_t gpio)
+{
+  int r, retval = 0;
+
   gpio = 1 << gpio;
-  rtlsdr_write_reg_mask (dev, SYSB, GPD, ~gpio, gpio);
-  rtlsdr_write_reg_mask (dev, SYSB, GPOE, gpio, gpio);
+
+  /* state: bitmask over pins 0 .. 7: = 0 == write, 1 == read
+   */
+  if (!(dev->gpio_state_known & gpio) || !(dev->gpio_state & gpio))
+  {
+    r = rtlsdr_read_reg (dev, SYSB, GPD);
+    retval = rtlsdr_write_reg (dev, SYSB, GPD, r | gpio, 1);
+    if (retval < 0)
+       return retval;
+
+    r = rtlsdr_read_reg (dev, SYSB, GPOE);
+    retval = rtlsdr_write_reg (dev, SYSB, GPOE, r & ~gpio, 1);
+    if (retval < 0)
+       return retval;
+
+    dev->gpio_state_known |= gpio;
+    dev->gpio_state |= ((uint32_t)gpio);
+  }
+  return retval;
+}
+
+int rtlsdr_set_gpio_output (rtlsdr_dev_t *dev, uint8_t gpio)
+{
+  int r;
+
+  gpio = 1 << gpio;
+  r = rtlsdr_write_reg_mask (dev, SYSB, GPD, ~gpio, gpio);
+  r |= rtlsdr_write_reg_mask (dev, SYSB, GPOE, gpio, gpio);
+
+  dev->gpio_state_known |= gpio;
+  dev->gpio_state &= ~((uint32_t)gpio);
+  return (r);
+}
+
+/*
+ * These extra GPIO functions are not really needed.
+ * They are implemented solely to make the code more similar
+ * to other RTLSDR libraries.
+ */
+int rtlsdr_set_gpio_status (rtlsdr_dev_t *dev, int *status )
+{
+  int r = rtlsdr_read_reg (dev, SYSB, GPD);
+
+  *status = r;
+  return (0); /* no way to determine error with rtlsdr_read_reg() for now! */
+}
+
+int rtlsdr_get_gpio_bit (rtlsdr_dev_t *dev, uint8_t gpio, int *val)
+{
+  uint16_t r;
+
+  gpio = 1 << gpio;
+  r = rtlsdr_read_reg (dev, SYSB, GPI);
+  *val = (r & gpio) ? 1 : 0;
+  return (0);   /* no way to determine error with rtlsdr_read_reg() for now! */
+}
+
+int rtlsdr_get_gpio_byte (rtlsdr_dev_t *dev, int *val)
+{
+  *val = rtlsdr_read_reg (dev, SYSB, GPI);
+  return (0);   /* no way to determine error with rtlsdr_read_reg() for now! */
 }
 
 static int rtlsdr_set_i2c_repeater (rtlsdr_dev_t *dev, int on)
@@ -1939,7 +2011,7 @@ int rtlsdr_set_sample_rate (rtlsdr_dev_t *dev, uint32_t samp_rate)
   real_rate = (dev->rtl_xtal * TWO_POW (22)) / real_rsamp_ratio;
 
   if ((double)samp_rate != real_rate)
-     RTL_TRACE (1, "Exact sample rate is: %f Hz\n", real_rate);
+     RTL_TRACE (1, "Exact sample rate is: %.6f Hz\n", real_rate);
 
   dev->rate = (uint32_t) real_rate;
 
@@ -3270,7 +3342,7 @@ uint32_t rtlsdr_get_version (void)
           ((uint32_t)RTLSDR_MICRO << 8) | (uint32_t)RTLSDR_NANO;
 }
 
-static void softagc_control_worker (void *arg)
+static unsigned int __stdcall softagc_control_worker (void *arg)
 {
   rtlsdr_dev_t         *dev = (rtlsdr_dev_t*) arg;
   struct softagc_state *agc = &dev->softagc;
@@ -3285,6 +3357,8 @@ static void softagc_control_worker (void *arg)
     else
       Sleep (10);
   }
+  _endthreadex (0);
+  return (0);
 }
 
 static void softagc_init (rtlsdr_dev_t *dev)
@@ -3302,15 +3376,16 @@ static void softagc_init (rtlsdr_dev_t *dev)
   agc->softAgcMode = SOFTAGC_OFF;
 
   /* Create thread */
-  agc->command_thread = _beginthread (softagc_control_worker, 0, dev);
-  RTL_TRACE (1, "%s(): agc->command_thread: %zu\n", __FUNCTION__, agc->command_thread);
-  if (agc->command_thread == -1)
-     agc->command_thread = 0;
+  agc->command_thread = _beginthreadex (NULL, 0, softagc_control_worker, dev, 0, NULL);
+
+  RTL_TRACE (1, "%s(): thread-handle: %zu\n", __FUNCTION__, agc->command_thread);
 }
 
 static void softagc_close (rtlsdr_dev_t *dev)
 {
   struct softagc_state *agc = &dev->softagc;
+
+  EnterCriticalSection (&dev->cs_mutex);
 
   agc->softAgcMode = SOFTAGC_OFF;
   agc->exit_command_thread = 1;
@@ -3324,6 +3399,7 @@ static void softagc_close (rtlsdr_dev_t *dev)
     CloseHandle ((HANDLE)agc->command_thread);
     agc->command_thread = 0;
   }
+  LeaveCriticalSection (&dev->cs_mutex);
 }
 
 static void softagc (rtlsdr_dev_t *dev, uint8_t *buf, int len)

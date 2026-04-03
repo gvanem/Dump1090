@@ -26,9 +26,9 @@
 #include <string.h>
 #include <windows.h>
 
-#include "RTLSDR/rtl-sdr.h"
-#include "RTLSDR/rtlsdr_i2c.h"
-#include "RTLSDR/tuner_r82xx.h"
+#include "rtl-sdr.h"
+#include "rtlsdr_i2c.h"
+#include "tuner_r82xx.h"
 
 #define MHZ(x)		((x)*1000*1000)
 

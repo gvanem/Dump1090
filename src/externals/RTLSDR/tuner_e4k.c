@@ -27,9 +27,9 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "RTLSDR/tuner_e4k.h"
-#include "RTLSDR/rtl-sdr.h"
-#include "RTLSDR/rtlsdr_i2c.h"
+#include "tuner_e4k.h"
+#include "rtl-sdr.h"
+#include "rtlsdr_i2c.h"
 
 /* If this is defined, the limits are somewhat relaxed compared to what the
  * vendor claims is possible */
