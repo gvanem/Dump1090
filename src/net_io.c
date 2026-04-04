@@ -3131,6 +3131,8 @@ bool net_init (void)
     }
     if (!connection_setup_active(MODES_NET_SERVICE_RTL_TCP, &Modes.rtl_tcp_in))
         return (false);
+
+    Modes.selected_dev = strdup (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].url);
   }
 
   /* If RAW-IN is UDP, rename description and protocol.
@@ -3143,6 +3145,8 @@ bool net_init (void)
 
   if (Modes.net_active)
   {
+    int s;
+
     if (!modeS_net_services [MODES_NET_SERVICE_RAW_IN].host [0] &&
         !modeS_net_services [MODES_NET_SERVICE_SBS_IN].host [0])
     {
@@ -3150,13 +3154,15 @@ bool net_init (void)
       return (false);
     }
 
-    if (modeS_net_services [MODES_NET_SERVICE_RAW_IN].host [0] &&
-        !connection_setup_active(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in))
+    s = MODES_NET_SERVICE_RAW_IN;
+    if (modeS_net_services [s].host [0] && !connection_setup_active(s, &Modes.raw_in))
        return (false);
 
-    if (modeS_net_services [MODES_NET_SERVICE_SBS_IN].host [0] &&
-        !connection_setup_active(MODES_NET_SERVICE_SBS_IN, &Modes.sbs_in))
+    s = MODES_NET_SERVICE_SBS_IN;
+    if (modeS_net_services [s].host [0] && !connection_setup_active(s, &Modes.sbs_in))
        return (false);
+
+    Modes.selected_dev = strdup (modeS_net_services [s].url);
   }
   else
   {
