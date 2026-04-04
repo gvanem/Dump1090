@@ -2683,7 +2683,7 @@ void aircraft_remove_stale (uint64_t now)
     num++;
   }
 
-  if (num > 0)
+  if (num > 0 && !(Modes.net_active || Modes.net_only))
      aircraft_check_dist (cpr_error_sum);
 }
 
