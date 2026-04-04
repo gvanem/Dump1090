@@ -27,7 +27,7 @@
  */
 #pragma once
 
-#include <stdint.h>
+#include "misc.h"
 
 #define airspy_dev void
 
@@ -52,13 +52,6 @@ extern const char *airspy_strerror (int rc);
 #define AIRSPY_VER_MAJOR    1
 #define AIRSPY_VER_MINOR    0
 #define AIRSPY_VER_REVISION 12
-
-/**
- * \def DEF_AIRSPY_FUNC
- * A typedef for *ALL* airspy_ functions below
- */
-#define DEF_AIRSPY_FUNC(ret, name, args)  typedef ret (__cdecl *func_##name) args; \
-                                          static func_##name p_##name = NULL
 
 /* Formerly in "airspy_commands.h"
  */
@@ -223,126 +216,125 @@ typedef struct {
 
 typedef int (*airspy_sample_block_cb_fn) (airspy_transfer_t *transfer);
 
-DEF_AIRSPY_FUNC (void, airspy_lib_version, (airspy_lib_version_t *lib_version));
+DEF_C_FUNC (void, airspy_lib_version, (airspy_lib_version_t *lib_version));
 
-DEF_AIRSPY_FUNC (int, airspy_init, (void));
-DEF_AIRSPY_FUNC (int, airspy_exit, (void));
+DEF_C_FUNC (int, airspy_init, (void));
+DEF_C_FUNC (int, airspy_exit, (void));
+DEF_C_FUNC (int, airspy_list_devices, (uint64_t *serials, int count));
 
-DEF_AIRSPY_FUNC (int, airspy_list_devices, (uint64_t *serials, int count));
-
-DEF_AIRSPY_FUNC (int, airspy_open_sn, (struct airspy_device **device, uint64_t serial_number));
-DEF_AIRSPY_FUNC (int, airspy_open_fd, (struct airspy_device **device, int fd));
-DEF_AIRSPY_FUNC (int, airspy_open, (struct airspy_device **device));
-DEF_AIRSPY_FUNC (int, airspy_close, (struct airspy_device *device));
+DEF_C_FUNC (int, airspy_open_sn, (struct airspy_device **device, uint64_t serial_number));
+DEF_C_FUNC (int, airspy_open_fd, (struct airspy_device **device, int fd));
+DEF_C_FUNC (int, airspy_open, (struct airspy_device **device));
+DEF_C_FUNC (int, airspy_close, (struct airspy_device *device));
 
 /* Use airspy_get_samplerates(device, buffer, 0) to get the number of available sample rates. It will be returned in the first element of buffer
  */
-DEF_AIRSPY_FUNC (int, airspy_get_samplerates, (struct airspy_device *device, uint32_t *buffer, const uint32_t len));
+DEF_C_FUNC (int, airspy_get_samplerates, (struct airspy_device *device, uint32_t *buffer, const uint32_t len));
 
 /* Parameter samplerate can be either the index of a samplerate or directly its value in Hz within the list returned by airspy_get_samplerates()
  */
-DEF_AIRSPY_FUNC (int, airspy_set_samplerate, (struct airspy_device *device, uint32_t samplerate));
-DEF_AIRSPY_FUNC (int, airspy_set_conversion_filter_float32, (struct airspy_device *device, const float *kernel, const uint32_t len));
-DEF_AIRSPY_FUNC (int, airspy_set_conversion_filter_int16, (struct airspy_device *device, const int16_t *kernel, const uint32_t len));
+DEF_C_FUNC (int, airspy_set_samplerate, (struct airspy_device *device, uint32_t samplerate));
+DEF_C_FUNC (int, airspy_set_conversion_filter_float32, (struct airspy_device *device, const float *kernel, const uint32_t len));
+DEF_C_FUNC (int, airspy_set_conversion_filter_int16, (struct airspy_device *device, const int16_t *kernel, const uint32_t len));
 
-DEF_AIRSPY_FUNC (int, airspy_start_rx, (struct airspy_device *device, airspy_sample_block_cb_fn callback, void *rx_ctx));
-DEF_AIRSPY_FUNC (int, airspy_stop_rx, (struct airspy_device *device));
+DEF_C_FUNC (int, airspy_start_rx, (struct airspy_device *device, airspy_sample_block_cb_fn callback, void *rx_ctx));
+DEF_C_FUNC (int, airspy_stop_rx, (struct airspy_device *device));
 
 /* return AIRSPY_TRUE if success
  */
-DEF_AIRSPY_FUNC (int, airspy_is_streaming, (struct airspy_device *device));
+DEF_C_FUNC (int, airspy_is_streaming, (struct airspy_device *device));
 
-DEF_AIRSPY_FUNC (int, airspy_si5351c_write, (struct airspy_device *device, uint8_t register_number, uint8_t value));
-DEF_AIRSPY_FUNC (int, airspy_si5351c_read, (struct airspy_device *device, uint8_t register_number, uint8_t *value));
+DEF_C_FUNC (int, airspy_si5351c_write, (struct airspy_device *device, uint8_t register_number, uint8_t value));
+DEF_C_FUNC (int, airspy_si5351c_read, (struct airspy_device *device, uint8_t register_number, uint8_t *value));
 
-DEF_AIRSPY_FUNC (int, airspy_config_write, (struct airspy_device *device, const uint8_t page_index, const uint16_t length, uint8_t *data));
-DEF_AIRSPY_FUNC (int, airspy_config_read, (struct airspy_device *device, const uint8_t page_index, const uint16_t length, uint8_t *data));
+DEF_C_FUNC (int, airspy_config_write, (struct airspy_device *device, const uint8_t page_index, const uint16_t length, uint8_t *data));
+DEF_C_FUNC (int, airspy_config_read, (struct airspy_device *device, const uint8_t page_index, const uint16_t length, uint8_t *data));
 
-DEF_AIRSPY_FUNC (int, airspy_r820t_write, (struct airspy_device *device, uint8_t register_number, uint8_t value));
-DEF_AIRSPY_FUNC (int, airspy_r820t_read, (struct airspy_device *device, uint8_t register_number, uint8_t *value));
+DEF_C_FUNC (int, airspy_r820t_write, (struct airspy_device *device, uint8_t register_number, uint8_t value));
+DEF_C_FUNC (int, airspy_r820t_read, (struct airspy_device *device, uint8_t register_number, uint8_t *value));
 
 /* Parameter value shall be 0=clear GPIO or 1=set GPIO
  */
-DEF_AIRSPY_FUNC (int, airspy_gpio_write, (struct airspy_device *device, airspy_gpio_port_t port, airspy_gpio_pin_t pin, uint8_t value));
+DEF_C_FUNC (int, airspy_gpio_write, (struct airspy_device *device, airspy_gpio_port_t port, airspy_gpio_pin_t pin, uint8_t value));
 
 /* Parameter value corresponds to GPIO state 0 or 1
  */
-DEF_AIRSPY_FUNC (int, airspy_gpio_read, (struct airspy_device *device, airspy_gpio_port_t port, airspy_gpio_pin_t pin, uint8_t *value));
+DEF_C_FUNC (int, airspy_gpio_read, (struct airspy_device *device, airspy_gpio_port_t port, airspy_gpio_pin_t pin, uint8_t *value));
 
 /* Parameter value shall be 0=GPIO Input direction or 1=GPIO Output direction
  */
-DEF_AIRSPY_FUNC (int, airspy_gpiodir_write, (struct airspy_device *device, airspy_gpio_port_t port, airspy_gpio_pin_t pin, uint8_t value));
-DEF_AIRSPY_FUNC (int, airspy_gpiodir_read, (struct airspy_device *device, airspy_gpio_port_t port, airspy_gpio_pin_t pin, uint8_t *value));
+DEF_C_FUNC (int, airspy_gpiodir_write, (struct airspy_device *device, airspy_gpio_port_t port, airspy_gpio_pin_t pin, uint8_t value));
+DEF_C_FUNC (int, airspy_gpiodir_read, (struct airspy_device *device, airspy_gpio_port_t port, airspy_gpio_pin_t pin, uint8_t *value));
 
-DEF_AIRSPY_FUNC (int, airspy_spiflash_erase, (struct airspy_device *device));
-DEF_AIRSPY_FUNC (int, airspy_spiflash_write, (struct airspy_device *device, const uint32_t address, const uint16_t length,
-                                              uint8_t *const data));
+DEF_C_FUNC (int, airspy_spiflash_erase, (struct airspy_device *device));
+DEF_C_FUNC (int, airspy_spiflash_write, (struct airspy_device *device, const uint32_t address, const uint16_t length,
+                                         uint8_t *const data));
 
-DEF_AIRSPY_FUNC (int, airspy_spiflash_read, (struct airspy_device *device, const uint32_t address, const uint16_t length, uint8_t *data));
+DEF_C_FUNC (int, airspy_spiflash_read, (struct airspy_device *device, const uint32_t address, const uint16_t length, uint8_t *data));
 
-DEF_AIRSPY_FUNC (int, airspy_board_id_read, (struct airspy_device *device, uint8_t *value));
+DEF_C_FUNC (int, airspy_board_id_read, (struct airspy_device *device, uint8_t *value));
 
 /* Parameter length shall be at least 128bytes to avoid possible string clipping
  */
-DEF_AIRSPY_FUNC (int, airspy_version_string_read, (struct airspy_device *device, char *version, uint8_t length));
+DEF_C_FUNC (int, airspy_version_string_read, (struct airspy_device *device, char *version, uint8_t length));
 
-DEF_AIRSPY_FUNC (int, airspy_board_partid_serialno_read, (struct airspy_device *device, airspy_read_partid_serialno_t *read_partid_serialno));
+DEF_C_FUNC (int, airspy_board_partid_serialno_read, (struct airspy_device *device, airspy_read_partid_serialno_t *read_partid_serialno));
 
-DEF_AIRSPY_FUNC (int, airspy_set_sample_type, (struct airspy_device *device, enum airspy_sample_type sample_type));
+DEF_C_FUNC (int, airspy_set_sample_type, (struct airspy_device *device, enum airspy_sample_type sample_type));
 
 /* Parameter freq_hz shall be between 24000000(24MHz) and 1750000000(1.75GHz)
  */
-DEF_AIRSPY_FUNC (int, airspy_set_freq, (struct airspy_device *device, const uint32_t freq_hz));
+DEF_C_FUNC (int, airspy_set_freq, (struct airspy_device *device, const uint32_t freq_hz));
 
 /* Parameter value shall be between 0 and 15
  */
-DEF_AIRSPY_FUNC (int, airspy_set_lna_gain, (struct airspy_device *device, uint8_t value));
+DEF_C_FUNC (int, airspy_set_lna_gain, (struct airspy_device *device, uint8_t value));
 
 /* Parameter value shall be between 0 and 15
  */
-DEF_AIRSPY_FUNC (int, airspy_set_mixer_gain, (struct airspy_device *device, uint8_t value));
+DEF_C_FUNC (int, airspy_set_mixer_gain, (struct airspy_device *device, uint8_t value));
 
 /* Parameter value shall be between 0 and 15
  */
-DEF_AIRSPY_FUNC (int, airspy_set_vga_gain, (struct airspy_device *device, uint8_t value));
+DEF_C_FUNC (int, airspy_set_vga_gain, (struct airspy_device *device, uint8_t value));
 
 /* Parameter value:
  * 0=Disable LNA Automatic Gain Control
  * 1=Enable LNA Automatic Gain Control
  */
-DEF_AIRSPY_FUNC (int, airspy_set_lna_agc, (struct airspy_device *device, uint8_t value));
+DEF_C_FUNC (int, airspy_set_lna_agc, (struct airspy_device *device, uint8_t value));
 
 /* Parameter value:
  * 0=Disable MIXER Automatic Gain Control
  * 1=Enable MIXER Automatic Gain Control
  */
-DEF_AIRSPY_FUNC (int, airspy_set_mixer_agc, (struct airspy_device *device, uint8_t value));
+DEF_C_FUNC (int, airspy_set_mixer_agc, (struct airspy_device *device, uint8_t value));
 
 /* Parameter value: 0..21
  */
-DEF_AIRSPY_FUNC (int, airspy_set_linearity_gain, (struct airspy_device *device, uint8_t value));
+DEF_C_FUNC (int, airspy_set_linearity_gain, (struct airspy_device *device, uint8_t value));
 
 /* Parameter value: 0..21
  */
-DEF_AIRSPY_FUNC (int, airspy_set_sensitivity_gain, (struct airspy_device *device, uint8_t value));
+DEF_C_FUNC (int, airspy_set_sensitivity_gain, (struct airspy_device *device, uint8_t value));
 
 /* Parameter value shall be:
  *  0=Disable BiasT or
  *  1=Enable BiasT
  */
-DEF_AIRSPY_FUNC (int, airspy_set_rf_bias, (struct airspy_device *dev, uint8_t value));
+DEF_C_FUNC (int, airspy_set_rf_bias, (struct airspy_device *dev, uint8_t value));
 
 /* Parameter value shall be:
  * 0=Disable Packing or
  * 1=Enable Packing
 */
-DEF_AIRSPY_FUNC (int, airspy_set_packing, (struct airspy_device *device, uint8_t value));
+DEF_C_FUNC (int, airspy_set_packing, (struct airspy_device *device, uint8_t value));
 
-DEF_AIRSPY_FUNC (const char *, airspy_error_name, (enum airspy_error errcode));
-DEF_AIRSPY_FUNC (const char *, airspy_board_id_name, (enum airspy_board_id board_id));
+DEF_C_FUNC (const char *, airspy_error_name, (enum airspy_error errcode));
+DEF_C_FUNC (const char *, airspy_board_id_name, (enum airspy_board_id board_id));
 
 /* Parameter sector_num shall be between 2 & 13 (sector 0 & 1 are reserved)
  */
-DEF_AIRSPY_FUNC (int, airspy_spiflash_erase_sector, (struct airspy_device *device, const uint16_t sector_num));
+DEF_C_FUNC (int, airspy_spiflash_erase_sector, (struct airspy_device *device, const uint16_t sector_num));
 
 #endif  /* INSIDE_AIRSPY_C */

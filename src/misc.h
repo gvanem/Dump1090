@@ -56,7 +56,7 @@
  * \def DEF_C_FUNC
  * As above, but for C-functions.
  */
-#define DEF_C_FUNC(ret, name, args)  typedef ret (*func_##name) args; \
+#define DEF_C_FUNC(ret, name, args)  typedef ret (__cdecl *func_##name) args; \
                                      static func_##name p_##name = NULL
 
 /**

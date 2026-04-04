@@ -6,7 +6,6 @@
  * Load all needed functions from "airspy.dll" dynamically.
  */
 #define INSIDE_AIRSPY_C
-#include "misc.h"
 #include "airspy.h"
 
 #define MODES_BUF_SIZE   (256*1024)   /**< 256k, same as MODES_ASYNC_BUF_SIZE */
