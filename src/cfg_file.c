@@ -75,18 +75,23 @@ static bool  cfg_parse_line    (cfg_context *ctx, char **key_p, char **value_p);
 static bool  cfg_parse_table   (cfg_context *ctx, const char *key, const char *value);
 static char *cfg_getenv_expand (cfg_context *ctx, const char *variable);
 
-char *cfg_current_file (void)
+static char *cfg_current_file (void)
 {
   if (g_idx > 0)
      return (g_ctx[g_idx-1].current_file);
   return (NULL);
 }
 
-unsigned cfg_current_line (void)
+static unsigned cfg_current_line (void)
 {
   if (g_idx > 0)
      return (g_ctx[g_idx-1].current_line);
   return (0);
+}
+
+void cfg_illegal_val (const char *key, const char *val)
+{
+  printf ("%s(%u): Illegal '%s': '%s'.\n", cfg_current_file(), cfg_current_line(), key, val);
 }
 
 /*
@@ -198,10 +203,13 @@ static int cfg_include_file (const char *value)
   if (!ignore)
   {
     const cfg_table *table = g_ctx [g_idx-1].table;
+    bool  rc;
 
     table = g_ctx [0].table;
     TRACE ("new_file \"%s\", ignore: %d, g_idx: %d, table: 0x%p\n", new_file, ignore, g_idx, table);
-     return cfg_open_and_parse (new_file, table);
+    rc = cfg_open_and_parse (new_file, table);
+    TRACE ("finished with new_file \"%s\", g_idx: %d, rc: %d\n", new_file, g_idx, rc);
+    return (rc ? 1 : 0);
   }
   return (1);
 }

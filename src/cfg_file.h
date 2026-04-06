@@ -29,8 +29,6 @@ typedef struct cfg_table {
 
 typedef bool (*cfg_callback) (const char *value);
 
-bool     cfg_open_and_parse (const char *fname, const cfg_table *cfg);
-bool     cfg_true           (const char *arg);
-char    *cfg_current_file   (void);
-unsigned cfg_current_line   (void);
-
+bool cfg_open_and_parse (const char *fname, const cfg_table *cfg);
+bool cfg_true           (const char *arg);
+void cfg_illegal_val    (const char *key, const char *val);
