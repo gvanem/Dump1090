@@ -1810,6 +1810,19 @@ int modeS_asprintf (char **bufp, _Printf_format_string_ const char *fmt, ...)
   return (ret);
 }
 
+int modeS_SetConsoleTitlef (_Printf_format_string_ const char *fmt, ...)
+{
+  char buf [500];
+  va_list args;
+  int     ret;
+
+  va_start (args, fmt);
+  ret = vsnprintf (buf, sizeof(buf), fmt, args);
+  SetConsoleTitleA (buf);
+  va_end (args);
+  return (ret);
+}
+
 /**
  * Print the CFLAGS and LDFLAGS we were built with.
  *

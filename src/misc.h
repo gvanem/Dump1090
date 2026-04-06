@@ -26,6 +26,7 @@
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define DIM(array)         (sizeof(array) / sizeof(array[0]))
 #define NONE_STR           "<none>"   /* None or "Not applicable" */
+#define NONE_VAL           "none"     /* A 'None' .cfg-file value */
 #define STDIN_FILENO       0
 
 /**
@@ -189,7 +190,7 @@ typedef struct net_service {
         mg_host_name     host;             /**< The host name/address if `Modes.net_active == true` */
         uint32_t         num_connections;  /**< Number of clients/servers connected to this service */
         mg_timer        *timer;            /**< For handling timeout in the network service. */
-        bool             active_send;      /**< We are the sending side. Never duplex */
+        bool             active_send;      /**< We are the sending side. Never duplex. */
         bool             is_ip6;           /**< The above `host` address is an IPv6 address */
         bool             is_udp;           /**< The above `host` address was prefixed with `udp://` */
         char            *url;              /**< The allocated url for `mg_listen()` or `mg_connect()` */
@@ -433,7 +434,6 @@ typedef struct global_data {
         SYSTEMTIME          start_SYSTEMTIME;         /**< The start-time on `SYSTEMTIME` form. */
         LONG                timezone;                 /**< Our time-zone in minutes. */
         HANDLE              reader_thread;            /**< Device reader thread handle. */
-        HANDLE              reader_event;             /**< Event to signal end of process (not used ATM). */
         CRITICAL_SECTION    data_mutex;               /**< Mutex to synchronize buffer access. */
         CRITICAL_SECTION    print_mutex;              /**< Mutex to synchronize printouts. */
         uint16_t           *mag_lut;                  /**< I/Q -> Magnitude lookup table. */
@@ -805,6 +805,7 @@ char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD);
 void  modeS_signal_handler (int sig);
 int   modeS_vasprintf (char **bufp, _Printf_format_string_ const char *format, va_list args);
 int   modeS_asprintf  (char **bufp, _Printf_format_string_ const char *format, ...)  ATTR_PRINTF(2, 3);
+int   modeS_SetConsoleTitlef (_Printf_format_string_ const char *fmt, ...);
 
 /**
  * Decoding functions in `dump1090.c` needed by the various
