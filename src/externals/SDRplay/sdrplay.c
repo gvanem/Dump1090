@@ -7,7 +7,7 @@
  */
 #include "misc.h"
 #include "sdrplay.h"
-#include <SDRplay/sdrplay_api.h>
+#include "sdrplay_api.h"
 
 #define MODES_RSP_BUF_SIZE   (256*1024)   /**< 256k, same as MODES_ASYNC_BUF_SIZE */
 #define MODES_RSP_BUFFERS     16          /**< Must be power of 2 */
@@ -79,6 +79,7 @@ typedef struct sdrplay_priv {
         int                            curr_gain;
         int                            ADSB_mode;      /**< == sdrplay_api_ControlParamsT::adsbMode */
         int                            gain_reduction;
+        int                            ppm_value;
 
         sdrplay_api_RspDuoModeT        mode;
         sdrplay_api_CallbackFnsT       callbacks;
@@ -827,15 +828,6 @@ static int sdrplay_init_async (sdrplay_dev *device,
   sdr.ch_params->tunerParams.gain.LNAstate = 0;
   sdr.ch_params->tunerParams.rfFreq.rfHz   = Modes.freq;
 
-#if 1  // !! update each change or use a bitmask of reasons?
-  CALL_FUNC (sdrplay_api_Update, SDRPLAY_HANDLE, sdr.chosen_dev->tuner,
-             sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
-#endif
-
-  if (sdr.last_rc != sdrplay_api_Success)
-     return (sdr.last_rc);
-
-
   sdr.ch_params->tunerParams.dcOffsetTuner.dcCal     = 4;
   sdr.ch_params->tunerParams.dcOffsetTuner.speedUp   = 0;
   sdr.ch_params->tunerParams.dcOffsetTuner.trackTime = 63;
@@ -977,6 +969,33 @@ int sdrplay_read_async (sdrplay_dev *device,
 }
 
 /**
+ * Set the frequency correction value for the device.
+ *
+ * \param[in] device  the device handle given by sdrplay_init()
+ * \param[in] ppm     correction value in parts per million (ppm)
+ * \retval 0     on success
+ * \retval != 0  on failure
+ */
+int sdrplay_set_freq_correction (sdrplay_dev *device, int ppm)
+{
+  assert (device && device == sdr.chosen_dev);
+
+  sdr.dev_params->devParams->ppm = ppm;
+
+  CALL_FUNC (sdrplay_api_Update, SDRPLAY_HANDLE, sdr.chosen_dev->tuner,
+             sdrplay_api_Update_Dev_Ppm, sdrplay_api_Update_Ext1_None);
+
+  if (sdr.last_rc == sdrplay_api_Success)
+  {
+    sdr.ppm_value = ppm;
+    TRACE ("PPM: %d OK\n", ppm);
+    return (0);
+  }
+  TRACE ("PPM: %d not OK\n", ppm);
+  return (sdr.last_rc);
+}
+
+/**
  * \todo fix this.
  */
 int sdrplay_set_gain (sdrplay_dev *device, int gain)
@@ -1088,7 +1107,7 @@ static bool sdrplay_check_cfg_tuner (void)
 }
 
 typedef struct legal_antenna {
-               int ID;
+               int         ID;
                const char *match;
                const char *legal;
              } legal_antenna;
@@ -1424,7 +1443,7 @@ bool sdrplay_set_tuner (const char *arg)
     Modes.sdrplay.tuner = tuner;
     return (true);
   }
-  printf ("%s(%u): Illegal 'sdrplay-tuner': '%s'.\n", cfg_current_file(), cfg_current_line(), arg);
+  cfg_illegal_val  ("sdrplay-tuner", arg);
   return (false);
 }
 
@@ -1438,7 +1457,8 @@ bool sdrplay_set_if_mode (const char *arg)
        Modes.sdrplay.if_mode = false;
   else if (!stricmp(arg, "lif"))
        Modes.sdrplay.if_mode = true;
-  else printf ("%s(%u): Ignoring illegal 'sdrplay-if-mode': '%s'.\n", cfg_current_file(), cfg_current_line(), arg);
+  else cfg_illegal_val ("sdrplay-if-mode", arg);
+
   return (true);
 }
 
@@ -1455,7 +1475,7 @@ bool sdrplay_set_antenna (const char *arg)
     Modes.sdrplay.antenna_port = antenna;
     return (true);
   }
-  printf ("%s(%u): Illegal 'sdrplay-antenna': '%s'.\n", cfg_current_file(), cfg_current_line(), arg);
+  cfg_illegal_val ("sdrplay-antenna", arg);
   return (false);
 }
 
