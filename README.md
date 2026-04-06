@@ -79,6 +79,7 @@ and added some more references and screen-shots. But in the source-code I've don
 
  **Building with Visual Studio tools:**
 
+  * Ensure you have a `PlatformToolset=v143` or similar in your environment.
   * `c:\dev\Dump1090\src> msbuild -p:Configuration=Release -p:Platform="x86" Dump1090.sln`.
   * or start the Visual Studio IDE, open `Dump1090.sln`, right-click and `Build Solution`. <nl>
     The project may have to be retargeted. *Devenv* would do this automatically and print <nl>
