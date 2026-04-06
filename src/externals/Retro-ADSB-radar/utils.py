@@ -1,7 +1,7 @@
 import math, pygame, config
 from typing import Optional, Tuple
 
-_font_cache = {}
+_font_cache = { }
 
 def calculate_distance_bearing (lat1: float, lon1: float, lat2: float, lon2: float) -> Tuple [float, float]:
   """Calculate distance in nautical miles and bearing in degrees
@@ -31,12 +31,13 @@ def load_background (path: str) -> Optional [pygame.Surface]:
   """
   try:
     print (f"\nLoading background image from {path}...")
-    bg = pygame.image.load (path)
+    img = pygame.image.load (path)
     print (" - Background image loaded successfully")
-    if bg.get_size() != (config.SCREEN_WIDTH, config.SCREEN_HEIGHT):
-       print (f" - Warning: Resizing background from {bg.get_size()} to display resolution")
-       bg = pygame.transform.scale (bg, (config.SCREEN_WIDTH, config.SCREEN_HEIGHT))
-    return bg
+    if img.get_size() != (config.SCREEN_WIDTH, config.SCREEN_HEIGHT):
+       print (f" - Warning: Resizing background from {img.get_size()} to display resolution")
+       img = pygame.transform.scale (img, (config.SCREEN_WIDTH, config.SCREEN_HEIGHT))
+    return img
+
   except (pygame.error, FileNotFoundError) as e:
     print (f" - Warning: Couldn't load background image: {e}")
     return None
@@ -48,7 +49,7 @@ def load_font (size: int) -> pygame.font.Font:
      return _font_cache [size]
 
   try:
-    font = pygame.font.Font(config.FONT_PATH, size)
+    font = pygame.font.Font (config.FONT_PATH, size)
     print (f" - Loaded font {config.FONT_PATH} at size {size}")
   except (pygame.error, FileNotFoundError):
     print (f" - Warning: Could not load {config.FONT_PATH}, falling back to default font")
