@@ -665,18 +665,31 @@ static void get_est_home_distance (aircraft *a, const char **km_nmiles)
 }
 
 /*
- * Called every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`) while
- * in interactive mode to update the Console Windows Title.
+ * Called every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`) to update
+ * the Console Windows Title.
  *
  * Called from `background_tasks()` in the main thread.
+ * Show special statistics for RAW-IN / SBS.
  */
 void interactive_title_stats (void)
 {
+  if (Modes.raw_in)
+  {
+    modeS_SetConsoleTitlef ("Dev: %s. RAW: %llu, SBS: %llu",
+                            Modes.selected_dev, Modes.stat.RAW_good + Modes.stat.RAW_unrecognized + Modes.stat.RAW_empty);
+    return;
+  }
+  if (Modes.sbs_in)
+  {
+    modeS_SetConsoleTitlef ("Dev: %s. SBS: %llu, SBS: %llu",
+                            Modes.selected_dev, Modes.stat.SBS_good + Modes.stat.SBS_unrecognized);
+    return;
+  }
+
   #define GAIN_TOO_LOW   " (too low?)"
   #define GAIN_TOO_HIGH  " (too high?)"
   #define GAIN_ERASE     "            "
 
-  char            buf [100];
   char            gain [10];
   static uint64_t last_good_CRC, last_bad_CRC;
   static int      overload_count = 0;
@@ -706,13 +719,11 @@ void interactive_title_stats (void)
   }
 #endif
 
-  snprintf (buf, sizeof(buf), "Dev: %s. CRC: %llu / %llu. Gain: %s%s",
-            Modes.selected_dev, good_CRC, bad_CRC, gain, overload);
-
   last_good_CRC = good_CRC;
   last_bad_CRC  = bad_CRC;
 
-  SetConsoleTitleA (buf);
+  modeS_SetConsoleTitlef ("Dev: %s. CRC: %llu / %llu. Gain: %s%s",
+                          Modes.selected_dev, good_CRC, bad_CRC, gain, overload);
 }
 
 /*
@@ -745,11 +756,6 @@ void interactive_other_stats (void)
   {
     /** \todo */
   }
-}
-
-void interactive_raw_SBS_stats (void)
-{
-  /** \todo */
 }
 
 static int gain_increase (int gain_idx)
@@ -818,6 +824,9 @@ void interactive_update_gain (void)
 {
   static int gain_idx = -1;
   int    i, ch;
+
+  if (Modes.net_only)  /* No meaning here */
+     return;
 
   if (gain_idx == -1)
   {
