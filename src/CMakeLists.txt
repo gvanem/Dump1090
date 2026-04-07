@@ -37,6 +37,7 @@ set(SOURCES
     misc.c
     net_io.c
     pconsole.c
+    raw-sbs.c
     smartlist.c
     speech.c
     externals/mongoose.c
