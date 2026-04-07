@@ -66,8 +66,8 @@ if %LOCAL_TEST% == 1 (
 ::
 if %LOCAL_TEST% == 0 (
   set PIP_NO_COLOR=1
-  %_ECHO% "\e[1;33mUpgrading the Python 'certifi package':\e[0m"
-  %PYTHON% -m pip install certifi -U
+  %_ECHO% "\e[1;33mUpgrading the Python 'pip-system-certs' package:\e[0m"
+  %PYTHON% -m pip install pip-system-certs -U
 )
 
 %_ECHO% "\e[1;33m--------------------------------------------------------------------------------------------------\e[0m"
