@@ -8,8 +8,8 @@
 #include <windows.h>
 #include <windns.h>
 
-#include "misc.h"
 #include "aircraft.h"
+#include "raw-sbs.h"
 #include "smartlist.h"
 #include "net_io.h"
 #include "RTLSDR/rtl-sdr.h"
@@ -301,8 +301,10 @@ quit:
 
 /**
  * This function reads client/server data for services:
- *  \li `MODES_NET_SERVICE_RAW_IN` or
- *  \li `MODES_NET_SERVICE_SBS_IN`
+ *  \li `MODES_NET_SERVICE_RAW_IN`,
+ *  \li `MODES_NET_SERVICE_SBS_IN`,
+ *  \li `MODES_NET_SERVICE_RTL_TCP` or
+ *  \li `MODES_NET_SERVICE_DNS`
  *
  * when the event `MG_EV_READ` is received in `net_handler()`.
  *
@@ -593,6 +595,8 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
 #endif
 
   /**
+   * \todo
+   *
    * The below dynamically created `*.html` pages should contain some
    * "303 Redirect" tag. Like:
    * `<meta http-equiv="Refresh" content="1; url="newURL" />`.
@@ -790,7 +794,7 @@ static void net_timer_del_all (void)
       net_timer_del (service);
 }
 
-static bool net_setsockopt (mg_connection *c, int opt, int len)
+static bool net_setsockopt (mg_connection *c, int opt, int val_len)
 {
   SOCKET sock;
 
@@ -799,7 +803,7 @@ static bool net_setsockopt (mg_connection *c, int opt, int len)
   sock = (SOCKET) ((size_t) c->fd);
   if (sock == INVALID_SOCKET)
      return (false);
-  return (setsockopt (sock, SOL_SOCKET, opt, (const char*)&len, len) == 0);
+  return (setsockopt (sock, SOL_SOCKET, opt, (const char*)&val_len, val_len) == 0);
 }
 
 static char *net_error_details (const mg_connection *c, const char *in_out, const void *ev_data)
@@ -1062,7 +1066,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 
   if (ev == MG_EV_ACCEPT)
   {
-    if (!client_handler(c, service, MG_EV_ACCEPT))    /* Drop this remote? */
+    if (!client_handler(c, service, ev))    /* Drop this remote? */
     {
       shutdown ((SOCKET) ((size_t)c->fd), SD_BOTH);
       c->is_closing = 1;
@@ -1100,15 +1104,15 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
       conn = connection_get (c, service, false);
-      net_connection_recv (conn, decode_RAW_message, false);
+      net_connection_recv (conn, raw_decode_message, false);
 
       conn = connection_get (c, service, true);
-      net_connection_recv (conn, decode_RAW_message, true);
+      net_connection_recv (conn, raw_decode_message, true);
     }
     else if (service == MODES_NET_SERVICE_SBS_IN)
     {
       conn = connection_get (c, service, true);
-      net_connection_recv (conn, decode_SBS_message, true);
+      net_connection_recv (conn, sbs_decode_message, true);
     }
     else if (service == MODES_NET_SERVICE_RTL_TCP)
     {
@@ -1144,6 +1148,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     conn = connection_get (c, service, true);
     net_conn_free (conn, service);
     modeS_net_services [service].num_connections--;
+    modeS_net_services [service].active_send = false;  // !!
     return;
   }
 
@@ -1191,8 +1196,10 @@ static bool connection_setup_active (intptr_t service, mg_connection **c)
 
 /**
  * Setup a listen connection for a service.
+ *
+ * If `ignore_err == true`, return `true` anyway.
  */
-static bool connection_setup_listen (intptr_t service, mg_connection **c, bool sending, bool is_ipv6)
+static bool connection_setup_listen (intptr_t service, mg_connection **c, bool sending, bool is_ipv6, bool ignore_err)
 {
   *c = connection_setup (service, true, sending, is_ipv6);
   if (!*c)
@@ -1201,9 +1208,10 @@ static bool connection_setup_listen (intptr_t service, mg_connection **c, bool s
 #if 0
     net_store_error (service, err);
 #else
-    LOG_STDERR ("Listen socket for \"%s\" failed; %s.\n", net_handler_descr(service), err);
+    LOG_STDERR ("Listen socket for \"%s\" / \"%s\" failed; %s.\n",
+                net_handler_url(service), net_handler_descr(service), err);
 #endif
-    return (false);
+    return (ignore_err ? true : false);
   }
   return (true);
 }
@@ -2291,51 +2299,25 @@ static int net_show_server_errors (void)
   return (num);
 }
 
-static bool show_raw_common (int s)
+bool net_stat_common (intptr_t service)
 {
-  const char *url = net_handler_url (s);
+  const char *url = net_handler_url (service);
 
   LOG_STDOUT ("! \n");
-  LOG_STDOUT ("  %s (%s):\n", net_handler_descr(s), url ? url : "none");
+  LOG_STDOUT ("  %s (%s):\n", net_handler_descr(service), url ? url : "none");
 
-  if (Modes.stat.bytes_recv [s] == 0)
+  if (Modes.stat.bytes_recv [service] == 0)
   {
     LOG_STDOUT ("    nothing.\n");
     return (false);
   }
-  LOG_STDOUT ("    %s bytes.\n", qword_str(Modes.stat.bytes_recv [s]));
+  LOG_STDOUT ("    %s bytes.\n", qword_str(Modes.stat.bytes_recv [service]));
   return (true);
 }
 
-/*
- * Show decoder statistics for a RAW_IN service.
- * Only if we had a connection with such a server.
- */
-static void show_raw_RAW_IN_stats (void)
+static void rtl_tcp_IN_stats (void)
 {
-  if (show_raw_common(MODES_NET_SERVICE_RAW_IN))
-  {
-    LOG_STDOUT ("  %8llu good messages.\n", Modes.stat.RAW_good);
-    LOG_STDOUT ("  %8llu empty messages.\n", Modes.stat.RAW_empty);
-    LOG_STDOUT ("  %8llu unrecognized messages.\n", Modes.stat.RAW_unrecognized);
-  }
-}
-
-static void show_raw_SBS_IN_stats (void)
-{
-  if (show_raw_common(MODES_NET_SERVICE_SBS_IN))
-  {
-    LOG_STDOUT ("  %8llu good messages.\n", Modes.stat.SBS_good);
-    LOG_STDOUT ("  %8llu MSG messages.\n", Modes.stat.SBS_MSG_msg);
-    LOG_STDOUT ("  %8llu AIR messages.\n", Modes.stat.SBS_AIR_msg);
-    LOG_STDOUT ("  %8llu STA messages.\n", Modes.stat.SBS_STA_msg);
-    LOG_STDOUT ("  %8llu unrecognized messages.\n", Modes.stat.SBS_unrecognized);
-  }
-}
-
-static void show_rtl_tcp_IN_stats (void)
-{
-  if (show_raw_common(MODES_NET_SERVICE_RTL_TCP))
+  if (net_stat_common(MODES_NET_SERVICE_RTL_TCP))
   {
 //  LOG_STDOUT ("  %8llu packets.\n", Modes.stat.rtltcp.packets);
   }
@@ -2412,9 +2394,9 @@ void net_show_stats (void)
   }
 
   EnterCriticalSection (&Modes.print_mutex);
-  show_raw_SBS_IN_stats();
-  show_raw_RAW_IN_stats();
-  show_rtl_tcp_IN_stats();
+  sbs_in_stats();
+  raw_in_stats();
+  rtl_tcp_IN_stats();
 
   net_show_server_errors();
   LeaveCriticalSection (&Modes.print_mutex);
@@ -3122,7 +3104,7 @@ bool net_init (void)
 
   /* Setup the RTL_TCP service and possibly rename if '--device udp://host:port' was used.
    */
-  if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].host [0])
+  if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].host[0])
   {
     if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].is_udp)
     {
@@ -3145,44 +3127,56 @@ bool net_init (void)
 
   if (Modes.net_active)
   {
-    int s;
+    int  s;
+    bool raw_none = !modeS_net_services [MODES_NET_SERVICE_RAW_IN].host[0] ||
+                    !stricmp(modeS_net_services [MODES_NET_SERVICE_RAW_IN].host, NONE_VAL);
 
-    if (!modeS_net_services [MODES_NET_SERVICE_RAW_IN].host [0] &&
-        !modeS_net_services [MODES_NET_SERVICE_SBS_IN].host [0])
+    bool sbs_none = !modeS_net_services [MODES_NET_SERVICE_SBS_IN].host[0] ||
+                    !stricmp(modeS_net_services [MODES_NET_SERVICE_SBS_IN].host, NONE_VAL);
+
+    if (raw_none && sbs_none && !modeS_net_services [MODES_NET_SERVICE_SBS_IN].host[0])
     {
       LOG_STDERR ("No hosts for any `--net-active' services specified.\n");
       return (false);
     }
 
     s = MODES_NET_SERVICE_RAW_IN;
-    if (modeS_net_services [s].host [0] && !connection_setup_active(s, &Modes.raw_in))
-       return (false);
+    if (!raw_none)
+    {
+      if (!connection_setup_active(s, &Modes.raw_in))
+         return (false);
+    }
 
     s = MODES_NET_SERVICE_SBS_IN;
-    if (modeS_net_services [s].host [0] && !connection_setup_active(s, &Modes.sbs_in))
-       return (false);
-
-    Modes.selected_dev = strdup (modeS_net_services [s].url);
+    if (!sbs_none)
+    {
+      if (!connection_setup_active(s, &Modes.sbs_in))
+         return (false);
+    }
   }
-  else
-  {
-    if (!connection_setup_listen(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in, false, false))
-       return (false);
 
-    if (!connection_setup_listen(MODES_NET_SERVICE_RAW_OUT, &Modes.raw_out, true, false))
-       return (false);
+  bool raw_ignore = net_handler_port (MODES_NET_SERVICE_RAW_IN) == net_handler_port(MODES_NET_SERVICE_RAW_OUT);
+  bool sbs_ignore = net_handler_port (MODES_NET_SERVICE_SBS_IN) == net_handler_port(MODES_NET_SERVICE_SBS_OUT);
 
-    if (!connection_setup_listen(MODES_NET_SERVICE_SBS_OUT, &Modes.sbs_out, true, false))
-       return (false);
+  LOG_FILEONLY ("raw_ignore: %d, sbs_ignore: %d\n", raw_ignore, sbs_ignore);
 
-    if (!Modes.http_ipv6_only &&
-        !connection_setup_listen(MODES_NET_SERVICE_HTTP4, &Modes.http4_out, true, false))
-       return (false);
+  if (!Modes.raw_in &&
+      !connection_setup_listen(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in, false, false, raw_ignore))
+     return (false);
 
-    if (Modes.http_ipv6 &&
-        !connection_setup_listen(MODES_NET_SERVICE_HTTP6, &Modes.http6_out, true, true))
-       return (false);
-  }
+  if (!connection_setup_listen(MODES_NET_SERVICE_RAW_OUT, &Modes.raw_out, true, false, raw_ignore))
+     return (false);
+
+  if (!connection_setup_listen(MODES_NET_SERVICE_SBS_OUT, &Modes.sbs_out, true, false, sbs_ignore))
+     return (false);
+
+  if (!Modes.http_ipv6_only &&
+      !connection_setup_listen(MODES_NET_SERVICE_HTTP4, &Modes.http4_out, true, false, false))
+     return (false);
+
+  if (Modes.http_ipv6 &&
+      !connection_setup_listen(MODES_NET_SERVICE_HTTP6, &Modes.http6_out, true, true, false))
+     return (false);
 
   if ((Modes.http4_out || Modes.http6_out) && !check_packed_web_page() && !check_web_page())
      return (false);

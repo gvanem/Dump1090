@@ -153,11 +153,12 @@ typedef struct aircraft {
         int       altitude_C;             /**< Altitude for Mode-C */
         int       altitude_HAE;           /**< Altitude for HAE */
         uint64_t  seen_altitude;          /**< Time (msec) at which altitude was measured */
-        double    speed;                  /**< Velocity computed from EW and NS components. In Knots */
         uint64_t  seen_speed;             /**< Tick-time (in milli-sec) at which speed was measured */
+        double    speed;                  /**< Velocity computed from EW and NS components. In Knots */
         double    heading;                /**< Horizontal angle of flight; [0 ... 360] */
         bool      is_helicopter;          /**< It is a helicopter */
         bool      done_flight_info;       /**< Have we shown the flight-info? */
+        bool      from_SBS;               /**< The info came from a SBS-IN message */
 
         uint64_t  seen_first;             /**< Tick-time (in milli-sec) at which the first packet was received */
         uint64_t  seen_last;              /**< Tick-time (in milli-sec) at which the last packet was received */

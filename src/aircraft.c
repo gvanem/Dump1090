@@ -244,7 +244,7 @@ bool aircraft_valid (const aircraft *a)
      valid = false;
 
 #if 1
-  if (!memcmp(a->call_sign, "TEST1234", 8))
+  if (!Modes.sbs_in && !memcmp(a->call_sign, "TEST1234", 8))
      LOG_FILEONLY ("TEST1234: valid: %d, mode_AC: 0x%08X, msgs: %d\n", valid, mode_AC, msgs);
 #endif
 
@@ -3000,6 +3000,7 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
   }
 
   a->seen_last = now;
+  a->from_SBS  = mm->SBS_in;
   a->messages++;
 
   if (is_new)
@@ -3040,10 +3041,25 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
   if ((mm->AC_flags & MODES_ACFLAGS_AOG_VALID) && ((a->AC_flags ^ mm->AC_flags) & MODES_ACFLAGS_AOG))
      a->AC_flags &= ~(MODES_ACFLAGS_LLBOTH_VALID | MODES_ACFLAGS_AOG);
 
-  /* If we've got a new CPR_lat or CPR_lon
+  /* No CPR processing for SBS-IN messages.
    */
-  if (mm->AC_flags & MODES_ACFLAGS_LLEITHER_VALID)
-     aircraft_update_pos (a, mm, now);
+  if (mm->SBS_in)
+  {
+    if (mm->AC_flags & MODES_ACFLAGS_LATLON_VALID)
+    {
+      a->seen_pos_EST = now;
+      a->position     = mm->position;
+      a->position_EST = a->position;
+      a->distance = geo_great_circle_dist (&Modes.home_pos, &a->position);
+    }
+  }
+  else
+  {
+    /* Do the CPR processing in `aircraft_update_pos()`.
+     */
+    if (mm->AC_flags & MODES_ACFLAGS_LLEITHER_VALID)
+       aircraft_update_pos (a, mm, now);
+  }
 
   /* If a (new) CALLSIGN has been received, copy it to the aircraft structure
    */
@@ -3051,7 +3067,7 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
   {
     memcpy (a->call_sign, mm->flight, sizeof(a->call_sign));
 #if 1
-    if (!memcmp(a->call_sign, "TEST1234", 8))
+    if (!Modes.sbs_in && !memcmp(a->call_sign, "TEST1234", 8))
        LOG_FILEONLY ("TEST1234: AC_flags: 0x%08X\n", mm->AC_flags);
 #endif
   }
@@ -3142,7 +3158,7 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
     a->heading = mm->heading;
     a->AC_flags |= MODES_ACFLAGS_HEADING_VALID;
 
-    if (a->AC_flags &  MODES_ACFLAGS_LATLON_VALID)
+    if (a->AC_flags & MODES_ACFLAGS_LATLON_VALID)
        LOG_BEARING (a);
   }
 

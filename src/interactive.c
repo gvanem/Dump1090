@@ -673,16 +673,18 @@ static void get_est_home_distance (aircraft *a, const char **km_nmiles)
  */
 void interactive_title_stats (void)
 {
-  if (Modes.raw_in)
-  {
-    modeS_SetConsoleTitlef ("Dev: %s. RAW: %llu, SBS: %llu",
-                            Modes.selected_dev, Modes.stat.RAW_good + Modes.stat.RAW_unrecognized + Modes.stat.RAW_empty);
-    return;
-  }
   if (Modes.sbs_in)
   {
-    modeS_SetConsoleTitlef ("Dev: %s. SBS: %llu, SBS: %llu",
-                            Modes.selected_dev, Modes.stat.SBS_good + Modes.stat.SBS_unrecognized);
+    modeS_SetConsoleTitlef ("Dev: %s. SBS: %llu",
+                            net_handler_url(MODES_NET_SERVICE_SBS_IN),
+                            Modes.stat.SBS_good + Modes.stat.SBS_unrecognized);
+    return;
+  }
+  if (Modes.raw_in)
+  {
+    modeS_SetConsoleTitlef ("Dev: %s. RAW: %llu",
+                            net_handler_url(MODES_NET_SERVICE_RAW_IN),
+                            Modes.stat.RAW_good + Modes.stat.RAW_unrecognized + Modes.stat.RAW_empty);
     return;
   }
 
@@ -723,7 +725,8 @@ void interactive_title_stats (void)
   last_bad_CRC  = bad_CRC;
 
   modeS_SetConsoleTitlef ("Dev: %s. CRC: %llu / %llu. Gain: %s%s",
-                          Modes.selected_dev, good_CRC, bad_CRC, gain, overload);
+                          Modes.rtl_tcp_in ? net_handler_url(MODES_NET_SERVICE_RTL_TCP) : Modes.selected_dev,
+                          good_CRC, bad_CRC, gain, overload);
 }
 
 /*
@@ -1439,7 +1442,7 @@ static bool curses_init (void)
   {
     fg = bg = 0;
     pair_content (pair, &fg, &bg);
-    LOG_FILEONLY ("!  pair[%d] -> fg: %2d, bg: %3d\n", pair, fg, bg);
+    LOG_FILEONLY ("!pair[%d] -> fg: %2d, bg: %3d\n", pair, fg, bg);
   }
 
   noecho();

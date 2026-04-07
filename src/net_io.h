@@ -26,12 +26,6 @@
 #define MODES_CONTENT_TYPE_PNG    "image/png"
 
 /**
- * The `readsb` program will send 5 heart-beats like this
- * in RAW mode.
- */
-#define MODES_RAW_HEART_BEAT      "*0000;\n*0000;\n*0000;\n*0000;\n*0000;\n"
-
-/**
  * The max length of an IPv4/6 address or ACL spec.
  */
 #define MAX_ADDRESS 50
@@ -72,6 +66,7 @@ bool      net_set_host_port (const char *host_port, net_service *serv, uint16_t 
 void      net_show_stats (void);
 bool      net_deny4 (const char *val);
 bool      net_deny6 (const char *val);
+bool      net_stat_common (intptr_t service);
 
 /**
  * Timeout for reception of RTL_TCP data.

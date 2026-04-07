@@ -29,6 +29,7 @@
 #include "RTLSDR/rtl-sdr.h"
 #include "AirSpy/airspy.h"
 #include "SDRplay/sdrplay.h"
+#include "raw-sbs.h"
 #include "speech.h"
 #include "location.h"
 #include "airports.h"
@@ -106,10 +107,9 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
  */
 static void  modeS_cleanup (void);
 static void  __declspec(noreturn) modeS_exit (int rc);
-static void  modeS_send_raw_output (const modeS_message *mm);
-static void  modeS_send_SBS_output (const modeS_message *mm);
 static void  add_unrecognized_ME (int type, int subtype, bool test);
 static void  test_print_unrecognized_ME (void);
+static bool  launch_setup_exe (void);
 
 static bool  set_bandwidth (const char *arg);
 static bool  set_bias_tee (const char *arg);
@@ -118,17 +118,10 @@ static bool  set_gain (const char *arg);
 static bool  set_interactive_ttl (const char *arg);
 static bool  set_home_pos (const char *arg);
 static bool  set_home_pos_from_location_API (const char *arg);
-static bool  launch_setup_exe (void);
-static bool  set_host_port_raw_in (const char *arg);
-static bool  set_host_port_raw_out (const char *arg);
-static bool  set_host_port_sbs_in (const char *arg);
 static bool  set_logfile (const char *arg);
 static bool  set_loops (const char *arg);
 static bool  set_max_messages (const char *arg);
 static bool  set_port_http (const char *arg);
-static bool  set_port_raw_in (const char *arg);
-static bool  set_port_raw_out (const char *arg);
-static bool  set_port_sbs (const char *arg);
 static bool  set_prefer_adsb_lol (const char *arg);
 static bool  set_ppm (const char *arg);
 static bool  set_sample_rate (const char *arg);
@@ -190,9 +183,9 @@ static const cfg_table config[] = {
     { "measure-noise",        ARG_ATOB,    (void*) &Modes.measure_noise },
     { "net-http-port",        ARG_FUNC,    (void*) set_port_http },
     { "net-poll",             ARG_ATO_U32, (void*) &Modes.net_poll_ms },
-    { "net-ri-port",          ARG_FUNC,    (void*) set_port_raw_in },
-    { "net-ro-port",          ARG_FUNC,    (void*) set_port_raw_out },
-    { "net-sbs-port",         ARG_FUNC,    (void*) set_port_sbs },
+    { "net-ri-port",          ARG_FUNC,    (void*) raw_in_set_port },
+    { "net-ro-port",          ARG_FUNC,    (void*) raw_out_set_port },
+    { "net-sbs-port",         ARG_FUNC,    (void*) sbs_out_set_port },
     { "prefer-adsb-lol",      ARG_FUNC,    (void*) set_prefer_adsb_lol },
     { "reverse-resolve",      ARG_ATOB,    (void*) &Modes.reverse_resolve },
     { "rtlsdr-calibrate",     ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
@@ -207,9 +200,9 @@ static const cfg_table config[] = {
     { "https-enable",         ARG_ATOB,    (void*) &Modes.https_enable },
     { "silent",               ARG_ATOB,    (void*) &Modes.silent },
     { "phase-enhance",        ARG_ATOB,    (void*) &Modes.phase_enhance },
-    { "host-raw-in",          ARG_FUNC,    (void*) set_host_port_raw_in },
-    { "host-raw-out",         ARG_FUNC,    (void*) set_host_port_raw_out },
-    { "host-sbs-in",          ARG_FUNC,    (void*) set_host_port_sbs_in },
+    { "host-raw-in",          ARG_FUNC,    (void*) raw_in_set_host_port },
+    { "host-raw-out",         ARG_FUNC,    (void*) raw_out_set_host_port },
+    { "host-sbs-in",          ARG_FUNC,    (void*) sbs_in_set_host_port },
     { "error-correct1",       ARG_ATOB,    (void*) &Modes.error_correct_1 },
     { "error-correct2",       ARG_ATOB,    (void*) &Modes.error_correct_2 },
     { "web-send-rssi",        ARG_ATOB,    (void*) &Modes.web_send_rssi },
@@ -783,6 +776,7 @@ static bool modeS_init (void)
   if (strcmp(Modes.cfg_file, "NUL") && !cfg_open_and_parse(Modes.cfg_file, config))
      return (false);
 
+#if 0
   /* Check if homepos is unconfigured (-1,-1) and launch setup.exe
    */
   if (Modes.home_pos_ok && Modes.home_pos.lat == -1.0 && Modes.home_pos.lon == -1.0)
@@ -812,6 +806,7 @@ static bool modeS_init (void)
     }
     LOG_STDERR ("Home position configured: %.6f,%.6f\n", Modes.home_pos.lat, Modes.home_pos.lon);
   }
+#endif
 
   if (Modes.http_ipv6_only)
      Modes.http_ipv6 = true;
@@ -1145,7 +1140,7 @@ void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
 }
 
 /**
- * We read RTLSDR, SDRplay or remote RTL_TCP data using a separate thread,
+ * We read RTLSDR, SDRplay, AirSpy or remote RTL_TCP data using a separate thread,
  * so the main thread only handles decoding without caring about data acquisition.
  *
  * \ref `main_data_loop()` below.
@@ -2835,14 +2830,11 @@ static void display_addr (const modeS_message *mm, int extra_space)
 /**
  * This function gets a decoded Mode S Message and prints it on the screen
  * in a human readable format.
+ *
+ * Not called for `--interactive` mode or with the `--silent` option.
  */
 static bool modeS_message_display (modeS_message *mm)
 {
-  char   buf [200];
-  char  *p = buf;
-  size_t left = sizeof(buf);
-  int    i;
-
   /* Did we specify a filter?
    */
   if (!aircraft_match(mm->addr))
@@ -2856,20 +2848,29 @@ static bool modeS_message_display (modeS_message *mm)
   if (Modes.only_addr)
      return display_brief_message (mm);
 
-  /* Show the raw message.
+  /* Show the raw message unless `mm->msg_bits = 0`.
+   * `SBS_decode_msg()` does not set `mm->msg_bits > 0`.
    */
-  *p++ = '*';
-  left--;
-  for (i = 0; i < mm->msg_bits/8 && left > 5; i++)
+  if (mm->msg_bits > 0)
   {
-    snprintf (p, left, "%02x", mm->msg[i]);
-    p    += 2;
-    left -= 2;
+    char   buf [200];
+    char  *p = buf;
+    size_t left = sizeof(buf);
+    int    i;
+
+    *p++ = '*';
+    left--;
+    for (i = 0; i < mm->msg_bits/8 && left > 5; i++)
+    {
+      snprintf (p, left, "%02x", mm->msg[i]);
+      p    += 2;
+      left -= 2;
+    }
+    *p++ = ';';
+    *p++ = '\n';
+    *p = '\0';
+    LOG_STDOUT ("%s", buf);
   }
-  *p++ = ';';
-  *p++ = '\n';
-  *p = '\0';
-  LOG_STDOUT ("%s", buf);
 
   if (Modes.raw)
      return (true);       /* Enough for --raw mode */
@@ -3151,7 +3152,7 @@ void modeS_user_message (modeS_message *mm)
   if (a &&
       Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS_OUT] > 0 &&  /* If we have accepted >=1 client */
       net_handler_sending(MODES_NET_SERVICE_SBS_OUT))             /* and we're still sending */
-     modeS_send_SBS_output (mm);                                  /* Feed SBS output clients. */
+     sbs_out_send (mm);                                           /* Feed SBS output clients. */
 
   /* In non-interactive mode, display messages on standard output.
    * In silent-mode, do nothing just to consentrate on network traces.
@@ -3171,7 +3172,7 @@ void modeS_user_message (modeS_message *mm)
    * In `--net-active` mode we have no clients.
    */
   if (Modes.net && a)
-     modeS_send_raw_output (mm);
+     raw_out_send (mm);
 }
 
 /**
@@ -3205,432 +3206,6 @@ static bool strip_mode (int level)
   _setmode (_fileno(stdin), O_TEXT);
   _setmode (_fileno(stdout), O_TEXT);
   return (true);
-}
-
-/**
- * Write raw output to TCP clients.
- */
-static void modeS_send_raw_output (const modeS_message *mm)
-{
-  char  msg [10 + 2*MODES_LONG_MSG_BYTES];
-  char *p = msg;
-
-  if (!net_handler_sending(MODES_NET_SERVICE_RAW_OUT))
-     return;
-
-  *p++ = '*';
-  mg_hex_lower (&mm->msg, mm->msg_bits/8, p);
-  p = strchr (p, '\0');
-  *p++ = ';';
-  *p++ = '\n';
-  net_handler_send (MODES_NET_SERVICE_RAW_OUT, msg, p - msg);
-}
-
-/**
- * Return a double-timestamp for the SBS output.
- */
-static const char *get_SBS_timestamp (void)
-{
-  int         ts_len;
-  char        ts_buf [30];
-  static char timestamp [2*sizeof(ts_buf)];
-  FILETIME    ft;
-  SYSTEMTIME  st;
-
-  get_FILETIME_now (&ft);
-  FileTimeToSystemTime (&ft, &st);
-  ts_len = snprintf (ts_buf, sizeof(ts_buf), "%04u/%02u/%02u,%02u:%02u:%02u.%03u,",
-                     st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-
-  /* Since the date,time,date,time is just a repeat, build the whole string once and
-   * then add it to each MSG output.
-   */
-  strcpy (timestamp, ts_buf);
-  strcat (timestamp, ts_buf);
-
-  if (ts_len >= 1)
-     timestamp [strlen(timestamp) - 1] = '\0';    /* remove last ',' */
-  return (timestamp);
-}
-
-/**
- * Write SBS output to TCP clients (Base Station format).
- */
-static void modeS_send_SBS_output (const modeS_message *mm)
-{
-  char  msg [MODES_MAX_SBS_SIZE], *p = msg;
-  int   emergency = 0, ground = 0, alert = 0, spi = 0;
-  const char *date_str;
-
-  if (mm->msg_type == 4 || mm->msg_type == 5 || mm->msg_type == 21)
-  {
-    /**\note
-     * identity is calculated/kept in base10 but is actually
-     * octal (07500 is represented as 7500)
-     */
-    if (mm->identity == 7500 || mm->identity == 7600 || mm->identity == 7700)
-       emergency = -1;
-    if (mm->flight_status == 1 || mm->flight_status == 3)
-       ground = -1;
-    if (mm->flight_status == 2 || mm->flight_status == 3 || mm->flight_status == 4)
-       alert = -1;
-    if (mm->flight_status == 4 || mm->flight_status == 5)
-       spi = -1;
-  }
-
-  /* Field 11 could contain the call-sign we can get from `aircraft_find_or_create()::reg_num`.
-   *
-   * Need to output the current date and time into the SBS output
-   *          1   2 3 4 5      6 7          8            9          10           11 12   13 14  15       16       17 18 19 20 21 22
-   * example: MSG,3,1,1,4CA7B6,1,2023/10/20,22:33:49.364,2023/10/20,22:33:49.403,  ,7250,  ,   ,53.26917,-2.17755,  ,  ,  ,  ,  ,0
-   */
-  date_str = get_SBS_timestamp();
-
-  if (mm->msg_type == 0)
-  {
-    p += sprintf (p, "MSG,5,1,1,%06X,1,%s,,%d,,,,,,,,,,",
-                  mm->addr, date_str, mm->altitude);
-  }
-  else if (mm->msg_type == 4)
-  {
-    p += sprintf (p, "MSG,5,1,1,%06X,1,%s,,%d,,,,,,,%d,%d,%d,%d",
-                  mm->addr, date_str, mm->altitude, alert, emergency, spi, ground);
-  }
-  else if (mm->msg_type == 5)
-  {
-    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%04X,%d,%d,%d,%d",
-                  mm->addr, date_str, mm->identity, alert, emergency, spi, ground);
-  }
-  else if (mm->msg_type == 11)
-  {
-    p += sprintf (p, "MSG,8,1,1,%06X,1,%s,,,,,,,,,,,,%d",
-                  mm->addr, date_str, ground);
-  }
-  else if (mm->msg_type == 17 && mm->ME_type == 4)
-  {
-    p += sprintf (p, "MSG,1,1,1,%06X,1,%s,%s,,,,,,,,,,,",
-                  mm->addr, date_str, mm->flight);
-  }
-  else if (mm->msg_type == 17 && mm->ME_type >= 9 && mm->ME_type <= 18)
-  {
-    if (mm->AC_flags & MODES_ACFLAGS_LATLON_VALID)
-         p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,%1.5f,%1.5f,,,%d,%d,%d,%d",
-                       mm->addr, date_str, mm->altitude, mm->position.lat, mm->position.lon, alert, emergency, spi, ground);
-    else p += sprintf (p, "MSG,3,1,1,%06X,1,%s,,%d,,,,,,,%d,%d,%d,%d",
-                       mm->addr, date_str, mm->altitude, alert, emergency, spi, ground);
-  }
-  else if (mm->msg_type == 17 && mm->ME_type == 19 && mm->ME_subtype == 1)
-  {
-    int vr = (mm->vert_rate_sign == 0 ? 1 : -1) * mm->vert_rate;
-
-    p += sprintf (p, "MSG,4,1,1,%06X,1,%s,,,%d,%d,,,%i,,,,,",
-                  mm->addr, date_str, (int)round(mm->velocity), (int)round(mm->heading), vr);
-  }
-  else if (mm->msg_type == 21)
-  {
-    p += sprintf (p, "MSG,6,1,1,%06X,1,%s,,,,,,,,%04X,%d,%d,%d,%d",
-                  mm->addr, date_str, mm->identity, alert, emergency, spi, ground);
-  }
-  else
-    return;
-
-  *p++ = '\n';
-  net_handler_send (MODES_NET_SERVICE_SBS_OUT, msg, p - msg);
-}
-
-/**
- * \def LOG_GOOD_RAW()
- *      if `--debug g` is active, log a good RAW message.
- */
-#define LOG_GOOD_RAW(fmt, ...)  TRACE ("RAW(%d): " fmt, \
-                                       loop_cnt, ## __VA_ARGS__)
-
-/**
- * \def LOG_BOGUS_RAW()
- *      if `--debug g` is active, log a bad / bogus RAW message.
- */
-#define LOG_BOGUS_RAW(_msg, fmt, ...)  TRACE ("RAW(%d), Bogus msg %d: " fmt,   \
-                                              loop_cnt, _msg, ## __VA_ARGS__); \
-                                       Modes.stat.RAW_unrecognized++
-
-/**
- * This function decodes a string representing a Mode S message in
- * raw hex format like: `*8D4B969699155600E87406F5B69F;<eol>`
- *
- * The string is supposed to be at the start of the client buffer
- * and NUL-terminated. It accepts both `\n` and `\r\n` terminated records.
- *
- * The message is passed to the higher level layers, so it feeds
- * the selected screen output, the network output and so forth.
- *
- * If the message looks invalid, it is silently discarded.
- *
- * The `readsb` program will send 5 heart-beats like this:
- *  `*0000;\n*0000;\n*0000;\n*0000;\n*0000;\n` (35 bytes)
- *
- * on accepting a new client. Hence check for that too.
- */
-bool decode_RAW_message (mg_iobuf *msg, int loop_cnt)
-{
-  modeS_message mm;
-  uint8_t       bin_msg [MODES_LONG_MSG_BYTES];
-  int           len, j;
-  uint8_t      *hex, *end;
-
-  if (msg->len == 0)  /* all was consumed */
-     return (false);
-
-  end = memchr (msg->buf, '\n', msg->len);
-  if (!end)
-  {
-    mg_iobuf_del (msg, 0, msg->len);
-    return (false);
-  }
-
-  *end++ = '\0';
-  hex = msg->buf;
-  len = end - msg->buf - 1;
-
-  if (msg->len >= 2 && end[-2] == '\r')
-  {
-    end [-2] = '\0';
-    len--;
-  }
-
-  /* Remove spaces on the left and on the right.
-   */
-  if (!strcmp((const char*)hex, MODES_RAW_HEART_BEAT))
-  {
-    LOG_GOOD_RAW ("Got heart-beat signal\n");
-    Modes.stat.RAW_good++;
-    mg_iobuf_del (msg, 0, msg->len);
-    return (true);
-  }
-
-  while (len && isspace(hex[len-1]))
-  {
-    hex [len-1] = '\0';
-    len--;
-  }
-  while (isspace(*hex))
-  {
-    hex++;
-    len--;
-  }
-
-  /* Check it's format.
-   */
-  if (len < 2)
-  {
-    Modes.stat.RAW_empty++;
-    LOG_BOGUS_RAW (1, "'%.*s'\n", (int)msg->len, msg->buf);
-    mg_iobuf_del (msg, 0, end - msg->buf);
-    return (false);
-  }
-
-  if (hex[0] != '*' || !memchr(msg->buf, ';', len))
-  {
-    LOG_BOGUS_RAW (2, "hex[0]: '%c', '%.*s'\n", hex[0], (int)msg->len, msg->buf);
-    mg_iobuf_del (msg, 0, end - msg->buf);
-    return (false);
-  }
-
-  /* Turn the message into binary.
-   */
-  hex++;     /* Skip `*` and `;` */
-  len -= 2;
-
-  if (len > 2 * MODES_LONG_MSG_BYTES)   /* Too long message (> 28 bytes)... broken. */
-  {
-    LOG_BOGUS_RAW (3, "len=%d, '%.*s'\n", len, len, hex);
-    mg_iobuf_del (msg, 0, end - msg->buf);
-    return (false);
-  }
-
-  for (j = 0; j < len; j += 2)
-  {
-    int high = hex_digit_val (hex[j]);
-    int low  = hex_digit_val (hex[j+1]);
-
-    if (high == -1 || low == -1)
-    {
-      LOG_BOGUS_RAW (4, "high='%c', low='%c'\n", hex[j], hex[j+1]);
-      mg_iobuf_del (msg, 0, end - msg->buf);
-      return (false);
-    }
-    bin_msg [j/2] = (high << 4) | low;
-  }
-
-  mg_iobuf_del (msg, 0, end - msg->buf);
-  Modes.stat.RAW_good++;
-
-  decode_mode_S_message (&mm, bin_msg);
-  if (mm.CRC_ok)
-     modeS_user_message (&mm);
-  return (true);
-}
-
-/**
- * The decoder for SBS input of `MSG,x` messages.
- * Details at: http://woodair.net/sbs/article/barebones42_socket_data.htm
- */
-static void modeS_recv_SBS_input (char *msg, modeS_message *mm)
-{
-  char  *fields [23]; /* leave 0 indexed entry empty, place 22 tokens into array */
-  char  *p = msg;
-  size_t i;
-
-  fields [0] = "?";
-
-  /* E.g.:
-   *   MSG,5,111,11111,45D068,111111,2024/03/16,18:53:45.000,2024/03/16,18:53:45.000,,7125,,,,,,,,,,0
-   */
-  for (i = 1; i < DIM(fields); i++)
-  {
-    fields [i] = str_sep (&p, ",");
-    if (!p && i < DIM(fields) - 1)
-    {
-      TRACE ("Missing field %zd\n", i);
-      goto SBS_invalid;
-    }
-  }
-
-/*TRACE ("field-2: '%s', field-5: '%s'\n", fields[2], fields[5]); */
-
-  memset (mm, '\0', sizeof(*mm));
-  mm->CRC_ok = true;
-  Modes.stat.SBS_good++;
-
-  /**
-   *\todo
-   * Decode `msg` and fill `mm` using `decodeSbsLine()` from readsb.
-   */
-#if 0
-  modeS_user_message (&mm);
-#else
-  MODES_NOTUSED (msg);
-#endif
-  return;
-
-SBS_invalid:
-  Modes.stat.SBS_unrecognized++;
-}
-
-/**
- * \def LOG_GOOD_SBS()
- *      if `--debug g` is active, log a good SBS message.
- */
-#define LOG_GOOD_SBS(fmt, ...)  TRACE ("SBS(%d): " fmt, loop_cnt, __VA_ARGS__)
-
-/**
- * \def LOG_BOGUS_SBS()
- *      if `--debug g` is active, log a bad / bogus SBS message.
- */
-#define LOG_BOGUS_SBS(fmt, ...)  TRACE ("SBS(%d), Bogus msg: " fmt, loop_cnt, __VA_ARGS__); \
-                                 Modes.stat.SBS_unrecognized++
-
-/**
- * From http://woodair.net/sbs/article/barebones42_socket_data.htm:
- * ```
- *  Message Types:
- *  There are six message types - MSG, SEL, ID, AIR, STA, CLK
- * ```
- */
-static bool modeS_SBS_valid_msg (const mg_iobuf *io, bool *ignore)
-{
-  const char *m = (const char*) io->buf;
-
-  *ignore = true;   /* Assume we ignore all */
-
-  if (io->len < 4)
-     return (false);
-
-  if (!strncmp(m, "MSG,", 4))
-  {
-    *ignore = false;
-    Modes.stat.SBS_MSG_msg++;
-  }
-
-  if (!strncmp(m, "AIR,", 4))
-  {
-    Modes.stat.SBS_AIR_msg++;
-    return (true);
-  }
-
-  if (!strncmp(m, "STA,", 4))
-  {
-    Modes.stat.SBS_STA_msg++;
-    return (true);
-  }
-
-  return (!strncmp(m, "MSG,", 4) || !strncmp(m, "SEL,", 4) ||
-          !strncmp(m, "CLK,", 4) || !strncmp(m, "ID,", 3));
-}
-
-/**
- * This function is called from `net_io.c` on a `MG_EV_READ` event
- * from Mongoose. Potentially multiple times until all lines in the
- * event-chunk gets consumes; `loop_cnt` is at-least 0.
- *
- * This function shall decode a string representing a Mode S message
- * in SBS format (Base Station) like:
- * ```
- * MSG,5,1,1,4CC52B,1,2021/09/20,23:30:43.897,2021/09/20,23:30:43.901,,38000,,,,,,,0,,0,
- * ```
- *
- * It accepts both `\n` and `\r\n` terminated records.
- * It checks for all 6 valid Message Types, but it handles only `"MSG"` records.
- *
- * \todo Move the handling of SBS-IN data to the `data_thread_fn()`.
- *       Add a `struct mg_queue *sbs_in_data` to `ModeS.sbs_in::fn_data`?
- */
-bool decode_SBS_message (mg_iobuf *msg, int loop_cnt)
-{
-  modeS_message mm;
-  uint8_t      *end;
-  bool          ignore;
-
-  if (Modes.debug & DEBUG_NET2)
-  {
-    /* with '--debug N', the trace will look like this
-     *   net_io.c(938): MG_EV_READ: 703 bytes from 127.0.0.1:30003 (service "SBS TCP input")
-     *   0000   4d 53 47 2c 35 2c 31 31 31 2c 31 31 31 31 31 2c   MSG,5,111,11111,
-     *   0010   33 43 36 35 38 36 2c 31 31 31 31 31 31 2c 32 30   3C6586,111111,20
-     *   0020   32 34 2f 30 33 2f 31 36 2c 30 36 3a 31 35 3a 33   24/03/16,06:15:3
-     *   0030   39 2e 30 30 30 2c 32 30 32 34 2f 30 33 2f 31 36   9.000,2024/03/16
-     *   0040   2c 30 36 3a 31 35 3a 33 39 2e 30 30 30 2c 2c 34   ,06:15:39.000,,4
-     *   0050   31 37 35 2c 2c 2c 2c 2c 2c 2c 2c 2c 2c 30 0d 0a   175,,,,,,,,,,0..
-     *                                                    ^_ end of this line
-     *   0060   4d 53 47 2c 36 2c 31 31 31 2c 31 31 31 31 31 2c   MSG,6,111,11111,
-     */
-    mg_hexdump (msg->buf, msg->len);
-  }
-
-  if (msg->len == 0)  /* all was consumed */
-     return (false);
-
-  end = memchr (msg->buf, '\n', msg->len);
-  if (!end)
-     return (true);   /* The end-of-line could come in next message */
-
-  *end++ = '\0';
-  if ((end - 2 > msg->buf) && end [-2] == '\r')
-     end [-2] = '\0';
-
-  if (modeS_SBS_valid_msg(msg, &ignore))
-  {
-    if (!ignore)
-    {
-      LOG_GOOD_SBS ("'%.*s'", (int)(end - msg->buf), msg->buf);
-      modeS_recv_SBS_input ((char*) msg->buf, &mm);
-    }
-    mg_iobuf_del (msg, 0, end - msg->buf);
-    return (true);
-  }
-
-  LOG_BOGUS_SBS ("'%.*s'", (int)(end - msg->buf), msg->buf);
-  mg_iobuf_del (msg, 0, msg->len);  /* recover */
-  return (false);
 }
 
 /**
@@ -3785,19 +3360,18 @@ void background_tasks (void)
   aircraft_remove_stale (now);
   airports_background (now);
 
-  /* Refresh screen and console-title when in interactive mode
+  /* Refresh aircraft-data when in interactive mode
    */
   if (Modes.interactive)
      interactive_show_data (now);
 
-  if (Modes.rtlsdr.device || Modes.rtl_tcp_in || Modes.sdrplay.device || Modes.airspy.device || Modes.raw_in)
+  if (Modes.rtlsdr.device || Modes.rtl_tcp_in || Modes.sdrplay.device ||
+      Modes.airspy.device || Modes.raw_in || Modes.sbs_in)
   {
     interactive_title_stats();
     interactive_update_gain();
-    interactive_other_stats();  /* Only effective if 'tui = curses' was used */
+    interactive_other_stats();   /* Only effective if 'tui = curses' was used */
   }
-  else
-    interactive_raw_SBS_stats();
 }
 
 /**
@@ -3853,8 +3427,6 @@ void modeS_signal_handler (int sig)
   {
     rc = sdrplay_cancel_async (Modes.sdrplay.device);
     TRACE ("sdrplay_cancel_async(): rc: %d / %s.\n", rc, sdrplay_strerror(rc));
-
- /* SetEvent (Modes.reader_event); */
   }
   else if (Modes.airspy.device)
   {
@@ -4412,45 +3984,6 @@ static bool set_port_http (const char *arg)
   return (true);
 }
 
-static bool set_port_raw_in (const char *arg)
-{
-  modeS_net_services [MODES_NET_SERVICE_RAW_IN].port = (uint16_t) atoi (arg);
-  return (true);
-}
-
-static bool set_port_raw_out (const char *arg)
-{
-  modeS_net_services [MODES_NET_SERVICE_RAW_OUT].port = (uint16_t) atoi (arg);
-  return (true);
-}
-
-static bool set_port_sbs (const char *arg)
-{
-  modeS_net_services [MODES_NET_SERVICE_SBS_OUT].port = (uint16_t) atoi (arg);
-  return (true);
-}
-
-static bool set_host_port_raw_in (const char *arg)
-{
-  if (!net_set_host_port(arg, &modeS_net_services [MODES_NET_SERVICE_RAW_IN], MODES_NET_PORT_RAW_IN))
-     return (false);
-  return (true);
-}
-
-static bool set_host_port_raw_out (const char *arg)
-{
-  if (!net_set_host_port(arg, &modeS_net_services [MODES_NET_SERVICE_RAW_OUT], MODES_NET_PORT_RAW_OUT))
-     return (false);
-  return (true);
-}
-
-static bool set_host_port_sbs_in (const char *arg)
-{
-  if (!net_set_host_port(arg, &modeS_net_services [MODES_NET_SERVICE_SBS_IN], MODES_NET_PORT_SBS))
-     return (false);
-  return (true);
-}
-
 static bool set_ppm (const char *arg)
 {
   Modes.rtlsdr.ppm_error = atoi (arg);
@@ -4694,20 +4227,17 @@ int main (int argc, char **argv)
   }
   else if (Modes.strip_level == 0)
   {
-    /* Create the thread that will read the data from a RTLSDR device,
-     * SDRplay device or a remote RTL_TCP service.
+    /* Create the thread that will read the data from a
+     * physical device or a remote RTL_TCP service.
      */
-    Modes.reader_thread = CreateThread (NULL, 0, data_thread_fn, NULL, 0, NULL);
-    if (!Modes.reader_thread)
+    if (!Modes.net_only)
     {
-      LOG_STDERR ("CreateThread() failed; err=%lu", GetLastError());
-      goto quit;
-    }
-    Modes.reader_event = CreateEvent (NULL, FALSE, FALSE, NULL);
-    if (!Modes.reader_event)
-    {
-      LOG_STDERR ("CreateEvent() failed; err=%lu", GetLastError());
-      goto quit;
+      Modes.reader_thread = CreateThread (NULL, 0, data_thread_fn, NULL, 0, NULL);
+      if (!Modes.reader_thread)
+      {
+        LOG_STDERR ("CreateThread() failed; err=%lu", GetLastError());
+        goto quit;
+      }
     }
 
     main_data_loop();

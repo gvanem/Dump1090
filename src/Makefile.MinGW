@@ -1,7 +1,7 @@
 #
 # GNU Makefile for dump1090 / MinGW.
 #
-# By G. Vanem <gvanem@yahoo.no> 2025.
+# By G. Vanem <gvanem@yahoo.no>.
 #
 # Ref: https://github.com/gvanem/Dump1090.git
 #
@@ -88,6 +88,7 @@ SOURCES = aircraft.c     \
           misc.c         \
           net_io.c       \
           pconsole.c     \
+          raw-sbs.c      \
           smartlist.c    \
           speech.c
 
@@ -169,7 +170,7 @@ clean_gen_data: ../tools/gen_data.py
 	$(call link_web_DLL, $@, $^, $(WEB_SUFFIXES))
 
 $(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
-	$(call generate_c, $@, $(web_pages_RC))
+	$(call generate_c, $@, $(WEB_PAGES_RC))
 
 $(OBJ_DIR)/%.res: %.rc
 	$(call create_res_file, $@, $<)
@@ -341,7 +342,7 @@ define C_preprocess
   $(CC) -E @$(CC).args $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(C_FORMATER) >> $(1)
 endef
 
-define web_pages_RC
+define WEB_PAGES_RC
   #include <winver.h>
   #include "dump1090_config.h"
 

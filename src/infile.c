@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "misc.h"
+#include "raw-sbs.h"
 #include "demod.h"
 #include "infile.h"
 
@@ -272,7 +272,7 @@ static bool csv_add_record (double timestamp, const char *msg, double delta_us)
 
 /*
  * Parsing of a .CSV-file used as `--infile`.
- * Handy for testing the `decode_RAW_message()` and higher level functions.
+ * Handy for testing the `raw_decode_message()` and higher level functions.
  */
 static int csv_callback (struct CSV_context *ctx, const char *value)
 {
@@ -394,7 +394,7 @@ static int csv_read (void)
       msg.buf = (unsigned char*) rec->raw_msg;
       msg.len = strlen ((const char*)rec->raw_msg);
 
-      rc = (int) decode_RAW_message (&msg, 0);
+      rc = (int) raw_decode_message (&msg, 0);
       TRACE ("  msg: %3d, rc: %d, Modes.stat.RAW_good: %llu\n",
              num, rc, Modes.stat.RAW_good);
 

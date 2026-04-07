@@ -313,12 +313,15 @@ typedef struct statistics {
          */
         HTTP_statistics HTTP_stat [2];
 
-        /* Network statistics for receiving RAW and SBS messages:
+        /* Network statistics for receiving SBS and RAW messages:
          */
         uint64_t  SBS_good;
         uint64_t  SBS_unrecognized;
         uint64_t  SBS_MSG_msg;
         uint64_t  SBS_AIR_msg;
+        uint64_t  SBS_CLK_msg;
+        uint64_t  SBS_ID_msg;
+        uint64_t  SBS_SEL_msg;
         uint64_t  SBS_STA_msg;
 
         uint64_t  RAW_good;
@@ -748,7 +751,6 @@ typedef struct modeS_message {
         /** For messages from a TCP SBS source (basestation input)
          */
         bool SBS_in;          /**< true for a basestation input message */
-        int  SBS_msg_type;    /**< "MSG,[1-8],...". \sa http://woodair.net/sbs/article/barebones42_socket_data.htm */
         bool SBS_pos_valid;
 
       } modeS_message;
@@ -813,8 +815,6 @@ int   modeS_SetConsoleTitlef (_Printf_format_string_ const char *fmt, ...);
  */
 int  decode_mode_S_message (modeS_message *mm, const uint8_t *_msg);
 void decode_mode_A_message (modeS_message *mm, int mode_A);
-bool decode_RAW_message (mg_iobuf *msg, int loop_cnt);
-bool decode_SBS_message (mg_iobuf *msg, int loop_cnt);
 void modeS_user_message (modeS_message *mm);
 int  modeS_message_len_by_type (int type);
 int  modeS_message_score (const uint8_t *msg, int valid_bits);

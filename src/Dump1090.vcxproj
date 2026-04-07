@@ -167,6 +167,7 @@
     <ClCompile Include="misc.c" />
     <ClCompile Include="net_io.c" />
     <ClCompile Include="pconsole.c" />
+    <ClCompile Include="raw-sbs.c" />
     <ClCompile Include="smartlist.c" />
     <ClCompile Include="speech.c" />
     <ClCompile Include="externals\mongoose.c" />
@@ -198,6 +199,7 @@
     <ClInclude Include="location.h" />
     <ClInclude Include="misc.h" />
     <ClInclude Include="net_io.h" />
+    <ClInclude Include="raw-sbs.h" />
     <ClInclude Include="routes.h" />
     <ClInclude Include="smartlist.h" />
     <ClInclude Include="speech.h" />
