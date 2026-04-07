@@ -60,6 +60,16 @@ if %LOCAL_TEST% == 1 (
   if not exist "%APPVEYOR_BUILD_FOLDER%" (echo No '%APPVEYOR_BUILD_FOLDER%'. Edit this .bat-file & exit /b 1)
 )
 
+::
+:: A Certificate Authority (CA) bundle is needed for
+:: 'tools/gen_data.py' to download from Github.com
+::
+if %LOCAL_TEST% == 0 (
+  set PIP_NO_COLOR=1
+  %_ECHO% "\e[1;33mUpgrading the Python 'certifi package':\e[0m"
+  %PYTHON% -m pip install certifi -U
+)
+
 %_ECHO% "\e[1;33m--------------------------------------------------------------------------------------------------\e[0m"
 
 if %BUILDER%. == MSVC. (
