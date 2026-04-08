@@ -108,7 +108,7 @@ static void         net_timer_add (intptr_t service, int timeout_ms, int flag);
 static void         net_timer_del (intptr_t service);
 static void         net_conn_free (connection *conn, intptr_t service);
 static char        *net_store_error (intptr_t service, const char *err);
-static char        *net_error_details (const mg_connection *c, const char *in_out, const void *ev_data);
+static char        *net_error_details (intptr_t service, const mg_connection *c, const char *in_out, const void *ev_data);
 static char        *net_str_addr (const mg_addr *a, char *buf, size_t len);
 static char        *net_str_addr_port (const mg_addr *a, char *buf, size_t len);
 static reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name, time_t timestamp, DNS_STATUS status, bool pending);
@@ -806,7 +806,7 @@ static bool net_setsockopt (mg_connection *c, int opt, int val_len)
   return (setsockopt (sock, SOL_SOCKET, opt, (const char*)&val_len, val_len) == 0);
 }
 
-static char *net_error_details (const mg_connection *c, const char *in_out, const void *ev_data)
+static char *net_error_details (intptr_t service, const mg_connection *c, const char *in_out, const void *ev_data)
 {
   const char *err = (const char*) ev_data;
   char        orig_err [60] = "";
@@ -831,7 +831,7 @@ static char *net_error_details (const mg_connection *c, const char *in_out, cons
 
     if (bind)
     {
-      val = strtod (bind+6, &end);  /* point to the WSAEx error-number */
+      val = strtoul (bind+6,  &end, 10);  /* point to the WSAEx error-number */
       if (end > bind+6)
       {
         wsa_err_num = val;
@@ -906,6 +906,9 @@ static char *net_error_details (const mg_connection *c, const char *in_out, cons
   }
   *ptr++ = ')';
   *ptr = '\0';
+
+  if (wsa_err_num != 0)
+     modeS_net_services [service].last_wsa_err = wsa_err_num;
   return (err_buf);
 }
 
@@ -914,7 +917,7 @@ static char *net_error_details (const mg_connection *c, const char *in_out, cons
  */
 static void connection_failed_active (const mg_connection *c, intptr_t service, const void *ev_data)
 {
-  const char *err = net_error_details (c, "Connection out ", ev_data);
+  const char *err = net_error_details (service, c, "Connection out ", ev_data);
 
   net_store_error (service, err);
   rtl_tcp_no_stats (service);
@@ -930,7 +933,7 @@ static void connection_failed_accepted (const mg_connection *c, intptr_t service
   connection *conn = connection_get (c, service, true);
   const char *err;
 
-  err = net_error_details (c, "Connection in ", ev_data);
+  err = net_error_details (service, c, "Connection in ", ev_data);
   net_store_error (service, err);
   net_conn_free (conn, service);
 }
@@ -1183,7 +1186,7 @@ static bool connection_setup_active (intptr_t service, mg_connection **c)
   *c = connection_setup (service, false, false, false);
   if (!*c)
   {
-    char *err = net_error_details (NULL, "", modeS_err_get());
+    char *err = net_error_details (service, NULL, "", modeS_err_get());
 #if 0
     net_store_error (service, err);
 #else
@@ -1196,22 +1199,21 @@ static bool connection_setup_active (intptr_t service, mg_connection **c)
 
 /**
  * Setup a listen connection for a service.
- *
- * If `ignore_err == true`, return `true` anyway.
  */
-static bool connection_setup_listen (intptr_t service, mg_connection **c, bool sending, bool is_ipv6, bool ignore_err)
+static bool connection_setup_listen (intptr_t service, mg_connection **c, bool sending, bool is_ipv6)
 {
   *c = connection_setup (service, true, sending, is_ipv6);
   if (!*c)
   {
-    char *err = net_error_details (NULL, "", modeS_err_get());
+    char *err = net_error_details (service, NULL, "", modeS_err_get());
+
 #if 0
     net_store_error (service, err);
 #else
     LOG_STDERR ("Listen socket for \"%s\" / \"%s\" failed; %s.\n",
                 net_handler_url(service), net_handler_descr(service), err);
 #endif
-    return (ignore_err ? true : false);
+    return (false);
   }
   return (true);
 }
@@ -1276,7 +1278,7 @@ static uint32_t net_conn_free_all (void)
       num++;
     }
     free (net_handler_url(service));
-    free (net_handler_error(service));
+    free (net_handler_error(service, NULL));
   }
   return (num);
 }
@@ -1331,9 +1333,11 @@ char *net_handler_url (intptr_t service)
   return (modeS_net_services [service].url);
 }
 
-char *net_handler_error (intptr_t service)
+char *net_handler_error (intptr_t service, DWORD *wsa_err)
 {
   ASSERT_SERVICE (service);
+  if (wsa_err)
+     *wsa_err = modeS_net_services [service].last_wsa_err;
   return (modeS_net_services [service].last_err);
 }
 
@@ -1750,6 +1754,17 @@ static size_t deny_list_num4 (void)
 static size_t deny_list_num6 (void)
 {
   return deny_list_numX (true);
+}
+
+/**
+ * \todo
+ * Figure out if `*addr` is inside our LAN.
+ * Need to obtain the netmask for correct adapter for this check.
+ */
+static bool client_on_LAN (const mg_addr *addr)
+{
+  MODES_NOTUSED (addr);
+  return (true);
 }
 
 static bool client_is_extern (const mg_addr *addr)
@@ -2287,7 +2302,7 @@ static int net_show_server_errors (void)
 
   for (service = MODES_NET_SERVICE_FIRST; service <= MODES_NET_SERVICE_LAST; service++)
   {
-    const char *err = net_handler_error (service);
+    const char *err = net_handler_error (service, NULL);
 
     if (!err)
        continue;
@@ -2394,11 +2409,12 @@ void net_show_stats (void)
   }
 
   EnterCriticalSection (&Modes.print_mutex);
+
   sbs_in_stats();
   raw_in_stats();
   rtl_tcp_IN_stats();
-
   net_show_server_errors();
+
   LeaveCriticalSection (&Modes.print_mutex);
 }
 
@@ -2667,7 +2683,7 @@ static int net_reverse_callback (struct CSV_context *ctx, const char *value)
   }
   else if (ctx->field_num == 3)   /* "status" and last field */
   {
-    rr.status = strtold (value, NULL);
+    rr.status = strtoul (value, NULL, 10);
     net_reverse_add (rr.ip_str, rr.ptr_name, rr.timestamp, rr.status, rr.pending);
     memset (&rr, '\0', sizeof(rr));
   }
@@ -3127,7 +3143,7 @@ bool net_init (void)
 
   if (Modes.net_active)
   {
-    int  s;
+    int  serv;
     bool raw_none = !modeS_net_services [MODES_NET_SERVICE_RAW_IN].host[0] ||
                     !stricmp(modeS_net_services [MODES_NET_SERVICE_RAW_IN].host, NONE_VAL);
 
@@ -3140,42 +3156,62 @@ bool net_init (void)
       return (false);
     }
 
-    s = MODES_NET_SERVICE_RAW_IN;
+    serv = MODES_NET_SERVICE_RAW_IN;
     if (!raw_none)
     {
-      if (!connection_setup_active(s, &Modes.raw_in))
+      if (!connection_setup_active(serv, &Modes.raw_in))
          return (false);
     }
 
-    s = MODES_NET_SERVICE_SBS_IN;
+    serv = MODES_NET_SERVICE_SBS_IN;
     if (!sbs_none)
     {
-      if (!connection_setup_active(s, &Modes.sbs_in))
+      if (!connection_setup_active(serv, &Modes.sbs_in))
          return (false);
     }
   }
 
-  bool raw_ignore = net_handler_port (MODES_NET_SERVICE_RAW_IN) == net_handler_port(MODES_NET_SERVICE_RAW_OUT);
-  bool sbs_ignore = net_handler_port (MODES_NET_SERVICE_SBS_IN) == net_handler_port(MODES_NET_SERVICE_SBS_OUT);
+  /**
+   * Work around the issue of `WSAEADDRINUSE` from a `listen()` call.
+   * Ignore this if  with `raw_ingore` and/or `sbs_ignore`.
+   */
 
-  LOG_FILEONLY ("raw_ignore: %d, sbs_ignore: %d\n", raw_ignore, sbs_ignore);
+  bool  raw_ignore = net_handler_port (MODES_NET_SERVICE_RAW_IN) == net_handler_port (MODES_NET_SERVICE_RAW_OUT);
+  bool  sbs_ignore = net_handler_port (MODES_NET_SERVICE_SBS_IN) == net_handler_port (MODES_NET_SERVICE_SBS_OUT);
+  DWORD wsa_err;
 
-  if (!Modes.raw_in &&
-      !connection_setup_listen(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in, false, false, raw_ignore))
-     return (false);
+  DEBUG (DEBUG_NET, "raw_ignore: %d, sbs_ignore: %d\n", raw_ignore, sbs_ignore);
 
-  if (!connection_setup_listen(MODES_NET_SERVICE_RAW_OUT, &Modes.raw_out, true, false, raw_ignore))
-     return (false);
+  if (!Modes.raw_in && !connection_setup_listen(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in, false, false))
+  {
+    net_handler_error (MODES_NET_SERVICE_RAW_IN, &wsa_err);
+    DEBUG (DEBUG_NET, "raw_ignore: %d, wsa_err: %lu\n", raw_ignore, wsa_err);
+    if (!raw_ignore && wsa_err != WSAEADDRINUSE)
+       return (false);
+  }
 
-  if (!connection_setup_listen(MODES_NET_SERVICE_SBS_OUT, &Modes.sbs_out, true, false, sbs_ignore))
-     return (false);
+  if (!connection_setup_listen(MODES_NET_SERVICE_RAW_OUT, &Modes.raw_out, true, false))
+  {
+    net_handler_error (MODES_NET_SERVICE_RAW_OUT, &wsa_err);
+    DEBUG (DEBUG_NET, "raw_ignore: %d, wsa_err: %lu\n", raw_ignore, wsa_err);
+    if (!raw_ignore && wsa_err != WSAEADDRINUSE)
+       return (false);
+  }
+
+  if (!connection_setup_listen(MODES_NET_SERVICE_SBS_OUT, &Modes.sbs_out, true, false))
+  {
+    net_handler_error (MODES_NET_SERVICE_SBS_OUT, &wsa_err);
+    DEBUG (DEBUG_NET, "sbs_ignore: %d, wsa_err: %lu\n", sbs_ignore, wsa_err);
+    if (!sbs_ignore && wsa_err != WSAEADDRINUSE)
+       return (false);
+  }
 
   if (!Modes.http_ipv6_only &&
-      !connection_setup_listen(MODES_NET_SERVICE_HTTP4, &Modes.http4_out, true, false, false))
+      !connection_setup_listen(MODES_NET_SERVICE_HTTP4, &Modes.http4_out, true, false))
      return (false);
 
   if (Modes.http_ipv6 &&
-      !connection_setup_listen(MODES_NET_SERVICE_HTTP6, &Modes.http6_out, true, true, false))
+      !connection_setup_listen(MODES_NET_SERVICE_HTTP6, &Modes.http6_out, true, true))
      return (false);
 
   if ((Modes.http4_out || Modes.http6_out) && !check_packed_web_page() && !check_web_page())

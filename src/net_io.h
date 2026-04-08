@@ -59,7 +59,7 @@ char     *net_handler_host (intptr_t service);
 char     *net_handler_protocol (intptr_t service);
 char     *net_handler_url (intptr_t service);
 char     *net_handler_descr (intptr_t service);
-char     *net_handler_error (intptr_t service);
+char     *net_handler_error (intptr_t service, DWORD *wsa_err);
 bool      net_handler_sending (intptr_t service);
 void      net_handler_send (intptr_t service, const void *msg, size_t len);
 bool      net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
