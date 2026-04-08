@@ -2,20 +2,21 @@
 
 """
 Simple Python script for Dump1090 testing:
-Supported modes: RAW-OUT, RAW-IN and SBS.
+Supported modes: RAW-OUT, RAW-IN and SBS-IN.
 
 RAW-OUT server: Connect to host at port 30001 and send '*...;' messages and print it to console.
 RAW-IN client:  Connect to host at port 30002, receive '*...;' messages and print it to console.
-SBS client:     Connect to host at port 30003, listen for 'MSG,' text and print it to console.
+SBS-IN client:  Connect to host at port 30003, listen for 'MSG,' text and print it to console.
 """
 
-import sys, os, time, argparse, socket
+import sys, os, time, argparse, atexit, socket
 
 REMOTE_HOST  = "localhost"
 RAW_OUT_PORT = 30001
 RAW_IN_PORT  = 30002
-SBS_PORT     = 30003
+SBS_IN_PORT  = 30003
 RAW_OUT_MSG  = b"*8d4b969699155600e87406f5b69f;\n"
+MODES        = [ "RAW-IN", "RAW-OUT", "SBS-IN" ]
 
 class cfg():
   logf     = None
@@ -26,6 +27,10 @@ class cfg():
   sleep    = 1
   quit     = False
 
+def logf_close():
+  if cfg.logf:
+     cfg.logf.close()
+
 #
 # Print to both stdout and log-file
 #
@@ -34,6 +39,7 @@ def modes_log (s):
      fname = os.path.dirname(__file__) + "\\SBS_client.log"
      cfg.logf = open (fname, "a+t")
      cfg.logf.write ("\n%s: --- Starting -------\n" % time.strftime("%d-%B-%Y %H:%M:%S"))
+     atexit.register (logf_close)
   else:
      os.write (1, bytes(s, encoding="ascii"))
      cfg.logf.write ("%s: %s" % (time.strftime("%H:%M:%S"), str(s)))
@@ -44,7 +50,7 @@ def show_help (error=None):
      sys.exit (1)
 
   print (__doc__[1:])
-  print ("""Usage: %s [options] [RAW-OUT | RAW-IN | SBS]
+  print ("""Usage: %s [options] [RAW-OUT | RAW-IN | SBS-IN]
   -h, --help: Show this help.
   --host      Host to connect to.
   --port      TCP port to connect to.
@@ -53,10 +59,11 @@ def show_help (error=None):
 
 def parse_cmdline():
   parser = argparse.ArgumentParser (add_help = False)
-  parser.add_argument ("-h", "--help", dest = "help", action = "store_true")
-  parser.add_argument ("--host",       dest = "host", type = str, default = REMOTE_HOST)
-  parser.add_argument ("--port",       dest = "port", type = int, default = 0)
-  parser.add_argument ("--wait",       dest = "wait", type = int, default = 0)
+  parser.add_argument ("-h", "--help",  dest = "help", action = "store_true")
+  parser.add_argument ("--host",        dest = "host", type = str, default = REMOTE_HOST)
+  parser.add_argument ("--port",        dest = "port", type = int, default = 0)
+  parser.add_argument ("--wait",        dest = "wait", type = int, default = 0)
+  parser.add_argument ("--verbose, -v", dest = "verbose", action = "count", default = 0)
   parser.add_argument ("mode", nargs = argparse.REMAINDER)
   return parser.parse_args()
 
@@ -65,11 +72,11 @@ def connect_to_host (opt):
     s = socket.socket (socket.AF_INET, socket.SOCK_STREAM)
     # print (dir(s))
     s.connect ((opt.host, opt.port))
-    modes_log ("Connected to %s:%d\n" % (opt.host, opt.port))
+    modes_log (f"Connected to {opt.host}:{opt.port}\n")
     return s
   except:
     modes_log ("Connection refused\n")
-    cfg.logf.close()
+    logf_close()
     sys.exit (1)
 
 #
@@ -78,11 +85,8 @@ def connect_to_host (opt):
 def raw_in_loop (sock):
   do_sleep = True
   try:
-    if 1:
-       data = sock.readline (10)
-    else:
-       data = sock.recv (100, socket.MSG_WAITALL)
-    # print (data)
+    #sock.settimeout (5.0)
+    data = sock.readline (10)
   except:
     do_sleep = False
     print ("do_sleep = False")
@@ -99,7 +103,7 @@ def raw_in_loop (sock):
      cfg.quit = True
 
 #
-# For receiving SBS messages.
+# For receiving SBS-IN messages.
 #
 def sbs_in_loop (sock):
   data = sock.readline()
@@ -143,19 +147,19 @@ if len(opt.mode) == 0:
    show_help ("Missing 'mode'. Use '%s -h' for usage" % __file__)
 
 mode = opt.mode[0].upper()
-if mode != "SBS" and mode != "RAW-IN" and mode != "RAW-OUT":
+if mode not in MODES:
    show_help ("Unknown 'mode = %s'. Use '%s -h' for usage" % (opt.mode[0], __file__))
 
 if opt.port == 0:
-  if mode == "SBS":
-     opt.port = SBS_PORT
+  if mode == "SBS-IN":
+     opt.port = SBS_IN_PORT
   elif mode == "RAW-IN":
      opt.port = RAW_IN_PORT
   elif mode == "RAW-OUT":
      opt.port = RAW_OUT_PORT
 
 modes_log (None)
-modes_log ("Connecting to %s:%d\n" % (opt.host, opt.port))
+modes_log (f"Connecting to {opt.host}:{opt.port}\n")
 
 if opt.wait:
    modes_log ("Waiting %d sec before connecting\n" % opt.wait)
@@ -187,7 +191,7 @@ try:
     cfg.loop (cfg.sock)
 
 except (ConnectionResetError, ConnectionAbortedError):
-  modes_log ("Connection reset.\n")
+  modes_log ("Connection was reset.\n")
   cfg.quit = True
 
 except KeyboardInterrupt:
@@ -196,4 +200,4 @@ except KeyboardInterrupt:
 
 modes_log (cfg.format % cfg.data_len)
 cfg.sock.close()
-cfg.logf.close()
+logf_close()
