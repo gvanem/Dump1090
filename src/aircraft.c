@@ -3050,6 +3050,7 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
       a->seen_pos_EST = now;
       a->position     = mm->position;
       a->position_EST = a->position;
+      a->distance_ok  = true;
       a->distance = geo_great_circle_dist (&Modes.home_pos, &a->position);
     }
   }
