@@ -762,7 +762,7 @@ void demod_2000 (const mag_buf *mag)
     /* We should have 4 'bits' of 0/1 and 1/0 samples in the preamble,
      * so include these in the signal strength
      */
-    sig_level = preamble[0] + preamble[2] + preamble[7] + preamble[9];
+    sig_level   = preamble[0] + preamble[2] + preamble[7] + preamble[9];
     noise_level = preamble[1] + preamble[3] + preamble[4] + preamble[6] + preamble[8];
 
     msg_len = scan_len = MODES_LONG_MSG_BITS;
@@ -939,7 +939,7 @@ void demod_2000 (const mag_buf *mag)
      * we may have a Mode S message on our hands. It may still be broken and the CRC may not
      * be correct, but this can be handled by the next layer.
      */
-    if (msg_len && ((2 * snr) > (int) (MODES_MSG_SQUELCH_DB * 10)) &&  errors <= MODES_MSG_ENCODER_ERRS)
+    if (msg_len && ((2 * snr) > (int) (MODES_MSG_SQUELCH_DB * 10)) && errors <= MODES_MSG_ENCODER_ERRS)
     {
       int result;
 
