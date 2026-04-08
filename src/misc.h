@@ -63,21 +63,23 @@
 /**
  * Bits for `Modes.debug`:
  */
-#define DEBUG_BADCRC     0x0001
-#define DEBUG_GOODCRC    0x0002
-#define DEBUG_DEMOD      0x0004
-#define DEBUG_DEMODERR   0x0008
-#define DEBUG_GENERAL    0x0010
-#define DEBUG_GENERAL2   0x0020
-#define DEBUG_MONGOOSE   0x0040
-#define DEBUG_MONGOOSE2  0x0080
-#define DEBUG_NOPREAMBLE 0x0100
-#define DEBUG_JS         0x0200
-#define DEBUG_NET        0x0400
-#define DEBUG_NET2       0x0800
-#define DEBUG_ADSB_LOL   0x1000
-#define DEBUG_CFG_FILE   0x2000
-#define DEBUG_PLANE      0x4000
+#define DEBUG_BADCRC     0x00001
+#define DEBUG_GOODCRC    0x00002
+#define DEBUG_DEMOD      0x00004
+#define DEBUG_DEMODERR   0x00008
+#define DEBUG_GENERAL    0x00010
+#define DEBUG_GENERAL2   0x00020
+#define DEBUG_MONGOOSE   0x00040
+#define DEBUG_MONGOOSE2  0x00080
+#define DEBUG_NOPREAMBLE 0x00100
+#define DEBUG_JS         0x00200
+#define DEBUG_NET        0x00400
+#define DEBUG_NET2       0x00800
+#define DEBUG_ADSB_LOL   0x01000
+#define DEBUG_CFG_FILE   0x02000
+#define DEBUG_PLANE      0x04000
+#define DEBUG_RAW_SBS1   0x08000
+#define DEBUG_RAW_SBS2   0x10000
 
 /**
  * \def DEBUG(bit, fmt, ...)
@@ -195,6 +197,7 @@ typedef struct net_service {
         bool             is_udp;           /**< The above `host` address was prefixed with `udp://` */
         char            *url;              /**< The allocated url for `mg_listen()` or `mg_connect()` */
         char            *last_err;         /**< Last error from a `MG_EV_ERROR` event */
+        DWORD            last_wsa_err;     /**< Last WSA-error from `net_error_details()` */
       } net_service;
 
 typedef enum metric_unit_t {
@@ -316,7 +319,7 @@ typedef struct statistics {
         /* Network statistics for receiving SBS and RAW messages:
          */
         uint64_t  SBS_good;
-        uint64_t  SBS_unrecognized;
+        uint64_t  SBS_bad;
         uint64_t  SBS_MSG_msg;
         uint64_t  SBS_AIR_msg;
         uint64_t  SBS_CLK_msg;
@@ -325,7 +328,8 @@ typedef struct statistics {
         uint64_t  SBS_STA_msg;
 
         uint64_t  RAW_good;
-        uint64_t  RAW_unrecognized;
+        uint64_t  RAW_bad;
+        uint64_t  RAW_heartbeat;
         uint64_t  RAW_empty;
       } statistics;
 

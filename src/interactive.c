@@ -677,14 +677,14 @@ void interactive_title_stats (void)
   {
     modeS_SetConsoleTitlef ("Dev: %s. SBS: %llu",
                             net_handler_url(MODES_NET_SERVICE_SBS_IN),
-                            Modes.stat.SBS_good + Modes.stat.SBS_unrecognized);
+                            Modes.stat.SBS_good + Modes.stat.SBS_bad);
     return;
   }
   if (Modes.raw_in)
   {
     modeS_SetConsoleTitlef ("Dev: %s. RAW: %llu",
                             net_handler_url(MODES_NET_SERVICE_RAW_IN),
-                            Modes.stat.RAW_good + Modes.stat.RAW_unrecognized + Modes.stat.RAW_empty);
+                            Modes.stat.RAW_good + Modes.stat.RAW_bad + Modes.stat.RAW_empty);
     return;
   }
 

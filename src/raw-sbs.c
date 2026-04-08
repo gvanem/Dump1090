@@ -7,36 +7,48 @@
 #include "raw-sbs.h"
 
 /**
- * \def LOG_GOOD_RAW()
- *      if `--debug g` is active, log a good RAW message.
+ * \def LOG_RAW_GOOD()
+ * if `--debug R` is active, log a good RAW message.
  */
-#define LOG_GOOD_RAW(fmt, ...)  TRACE2 ("RAW(%d): " fmt, \
-                                        loop_cnt, ## __VA_ARGS__)
+#define LOG_RAW_GOOD(fmt, ...)   DEBUG (DEBUG_RAW_SBS2, "RAW(%d): " fmt, \
+                                        loop_cnt, __VA_ARGS__)
 
 /**
- * \def LOG_BOGUS_RAW()
- *      if `--debug g` is active, log a bad / bogus RAW message.
+ * \def LOG_RAW_BAD()
+ * if `--debug r` is active, log a bad RAW message.
  */
-#define LOG_BOGUS_RAW(num, fmt, ...)  TRACE ("RAW(%d), Bogus msg %d: " fmt, \
-                                             loop_cnt, num, ## __VA_ARGS__)
+#define LOG_RAW_BAD(fmt, ...)  DEBUG (DEBUG_RAW_SBS1, "RAW(%d), Bad msg: " fmt, \
+                                      loop_cnt, __VA_ARGS__)
 
 /**
- * \def LOG_GOOD_SBS()
- *      if `--debug g` is active, log a good SBS message.
+ * \def LOG_SBS_GOOD()
+ * if `--debug R` is active, log a good SBS message.
  */
-#define LOG_GOOD_SBS(fmt, ...)  TRACE ("SBS(%d): " fmt, loop_cnt, __VA_ARGS__)
+#define LOG_SBS_GOOD(fmt, ...)  DEBUG (DEBUG_RAW_SBS2, "SBS(%d): " fmt, \
+                                       loop_cnt, __VA_ARGS__)
 
 /**
- * \def LOG_BOGUS_SBS()
- *      if `--debug g` is active, log a bad / bogus SBS message.
+ * \def LOG_SBS_BAD()
+ * if `--debug r` is active, log a bad SBS message.
  */
-#define LOG_BOGUS_SBS(fmt, ...)  TRACE ("SBS(%d), Bogus msg: " fmt, loop_cnt, __VA_ARGS__)
+#define LOG_SBS_BAD(fmt, ...)  DEBUG (DEBUG_RAW_SBS1, "SBS(%d), Bad msg: " fmt, \
+                                      loop_cnt, __VA_ARGS__)
 
 /**
+ * \def RAW_HEART_BEAT
  * The `readsb` program will send 5 heart-beats like this
  * in RAW mode.
  */
 #define RAW_HEART_BEAT  "*0000;\n*0000;\n*0000;\n*0000;\n*0000;\n"
+
+/**
+ * \def FEET_PER_MIN_TO_MS(x)
+ * Convert a feet/min value to meter/sec.
+ *
+ * A typical climb rate is 1.000 -- 2.000 feet per minute (fpm).
+ * A typical descend rate is around 800 -- 1.300 fpm.
+ */
+#define FEET_PER_MIN_TO_MS(x) (0.00508 * (x))
 
 /**
  * \typedef SBS_msg_t
@@ -158,8 +170,9 @@ void raw_in_stats (void)
   if (net_stat_common(MODES_NET_SERVICE_RAW_IN))
   {
     LOG_STDOUT ("  %8llu good messages.\n", Modes.stat.RAW_good);
+    LOG_STDOUT ("  %8llu bad messages.\n", Modes.stat.RAW_bad);
     LOG_STDOUT ("  %8llu empty messages.\n", Modes.stat.RAW_empty);
-    LOG_STDOUT ("  %8llu unrecognized messages.\n", Modes.stat.RAW_unrecognized);
+    LOG_STDOUT ("  %8llu heart-beats.\n", Modes.stat.RAW_heartbeat);
   }
 }
 
@@ -168,20 +181,23 @@ void sbs_in_stats (void)
   if (net_stat_common(MODES_NET_SERVICE_SBS_IN))
   {
     LOG_STDOUT ("  %8llu good messages.\n", Modes.stat.SBS_good);
+    LOG_STDOUT ("  %8llu bad messages.\n", Modes.stat.SBS_bad);
     LOG_STDOUT ("  %8llu AIR messages.\n", Modes.stat.SBS_AIR_msg);
     LOG_STDOUT ("  %8llu CLK messages.\n", Modes.stat.SBS_CLK_msg);
     LOG_STDOUT ("  %8llu ID  messages.\n", Modes.stat.SBS_ID_msg);
     LOG_STDOUT ("  %8llu MSG messages.\n", Modes.stat.SBS_MSG_msg);
     LOG_STDOUT ("  %8llu SEL messages.\n", Modes.stat.SBS_SEL_msg);
     LOG_STDOUT ("  %8llu STA messages.\n", Modes.stat.SBS_STA_msg);
-    LOG_STDOUT ("  %8llu unrecognized messages.\n", Modes.stat.SBS_unrecognized);
   }
 }
 
 /**
  * This is a `net_msg_handler` function.
  *
- * Called from `net_io.c` to decode a RAW-IN message.
+ * It is called from `net_io.c` on a `MG_EV_READ` event from Mongoose.
+ * Potentially multiple times until all lines in the event-chunk gets
+ * consumes; `loop_cnt` is at-least 0.
+ *
  * If OK, calls `decode_mode_S_message()` to fill `&mm` and then
  * calls `modeS_user_message (&mm)` for further handling.
  */
@@ -222,7 +238,8 @@ bool raw_decode_message (mg_iobuf *msg, int loop_cnt)
    */
   if (!strcmp((const char*)hex, RAW_HEART_BEAT))
   {
-    LOG_GOOD_RAW ("Got heart-beat signal\n");
+    LOG_RAW_GOOD ("Got heart-beat signal\n");
+    Modes.stat.RAW_heartbeat++;
     Modes.stat.RAW_good++;
     mg_iobuf_del (msg, 0, msg->len);
     return (true);
@@ -246,16 +263,16 @@ bool raw_decode_message (mg_iobuf *msg, int loop_cnt)
   if (len < 2)
   {
     Modes.stat.RAW_empty++;
-    Modes.stat.RAW_unrecognized++;
-    LOG_BOGUS_RAW (1, "'%.*s'\n", (int)msg->len, msg->buf);
+    Modes.stat.RAW_bad++;
+    LOG_RAW_BAD ("'%.*s'\n", (int)msg->len, msg->buf);
     mg_iobuf_del (msg, 0, end - msg->buf);
     return (false);
   }
 
   if (hex[0] != '*' || !memchr(msg->buf, ';', len))
   {
-    Modes.stat.RAW_unrecognized++;
-    LOG_BOGUS_RAW (2, "hex[0]: '%c', '%.*s'\n", hex[0], (int)msg->len, msg->buf);
+    Modes.stat.RAW_bad++;
+    LOG_RAW_BAD ("hex[0]: '%c', '%.*s'\n", hex[0], (int)msg->len, msg->buf);
     mg_iobuf_del (msg, 0, end - msg->buf);
     return (false);
   }
@@ -267,8 +284,8 @@ bool raw_decode_message (mg_iobuf *msg, int loop_cnt)
 
   if (len > 2 * MODES_LONG_MSG_BYTES)   /* Too long message (> 28 bytes)... broken. */
   {
-    Modes.stat.RAW_unrecognized++;
-    LOG_BOGUS_RAW (3, "len=%d, '%.*s'\n", len, len, hex);
+    Modes.stat.RAW_bad++;
+    LOG_RAW_BAD ("len=%d, '%.*s'\n", len, len, hex);
     mg_iobuf_del (msg, 0, end - msg->buf);
     return (false);
   }
@@ -280,15 +297,15 @@ bool raw_decode_message (mg_iobuf *msg, int loop_cnt)
 
     if (high == -1 || low == -1)
     {
-      Modes.stat.RAW_unrecognized++;
-      LOG_BOGUS_RAW (4, "high='%c', low='%c'\n", hex[j], hex[j+1]);
+      Modes.stat.RAW_bad++;
+      LOG_RAW_BAD ("high='%c', low='%c'\n", hex[j], hex[j+1]);
       mg_iobuf_del (msg, 0, end - msg->buf);
       return (false);
     }
     bin_msg [j/2] = (high << 4) | low;
   }
 
-  LOG_GOOD_RAW ("'%.*s'\n", len, hex);
+  LOG_RAW_GOOD ("'*%.*s;'\n", len, hex);
   Modes.stat.RAW_good++;
 
   mg_iobuf_del (msg, 0, end - msg->buf);
@@ -323,7 +340,7 @@ static bool SBS_recv_input (char *msg)
     fields [i] = str_sep (&p, ",");
     if (!p && i < DIM(fields) - 1)
     {
-      TRACE ("Missing field %zd\n", i);
+      DEBUG (DEBUG_RAW_SBS1, "Missing field %zd\n", i);
       return (false);
     }
   }
@@ -331,7 +348,7 @@ static bool SBS_recv_input (char *msg)
   int rc = SBS_decode_msg (fields + 1, &mm);
   if (rc == 0)
        modeS_user_message (&mm);
-  else TRACE ("field-error %d\n", rc);
+  else DEBUG (DEBUG_RAW_SBS1, "field-error %d\n", rc);
   return (true);
 }
 
@@ -349,7 +366,7 @@ static bool SBS_recv_input (char *msg)
  * ```
  *
  * It accepts both `\n` and `\r\n` terminated records.
- * It checks for all 6 valid Message Types, but it handles only `"MSG"` records.
+ * It checks for all 6 `SBS_msg_t`, but it handles only `"MSG"` records.
  *
  * \todo Move the handling of SBS-IN data to the `data_thread_fn()`.
  *       Add a `struct mg_queue *sbs_in_data` to `Modes.sbs_in::fn_data`?
@@ -394,34 +411,35 @@ bool sbs_decode_message (mg_iobuf *msg, int loop_cnt)
   switch (SBS_message_type(msg))
   {
     case SBS_UNKNOWN:
-         Modes.stat.SBS_unrecognized++;
-         LOG_BOGUS_SBS ("'%.*s'\n", (int)(end - msg->buf), msg->buf);
+         Modes.stat.SBS_bad++;
+         LOG_SBS_BAD ("'%.*s'\n", (int)(end - msg->buf), msg->buf);
          mg_iobuf_del (msg, 0, msg->len);  /* recover by deleting the complete msg */
          return (false);
 
     case SBS_MSG:
          Modes.stat.SBS_MSG_msg++;
-         LOG_GOOD_SBS ("'%.*s'\n", (int)(end - msg->buf), msg->buf);
+         LOG_SBS_GOOD ("'%.*s'\n", (int)(end - msg->buf), msg->buf);
          if (SBS_recv_input((char*)msg->buf))
               Modes.stat.SBS_good++;
-         else Modes.stat.SBS_unrecognized++;
+         else Modes.stat.SBS_bad++;
          break;
 
     case SBS_AIR:
          Modes.stat.SBS_AIR_msg++;
          Modes.stat.SBS_good++;
-//       LOG_GOOD_SBS ("'%.*s'\n", (int)(end - msg->buf), msg->buf);
+         LOG_SBS_GOOD ("'%.*s'\n", (int)(end - msg->buf), msg->buf);
          break;
 
     case SBS_STA:
          Modes.stat.SBS_STA_msg++;
          Modes.stat.SBS_good++;
-//       LOG_GOOD_SBS ("'%.*s'\n", (int)(end - msg->buf), msg->buf);
+//       LOG_SBS_GOOD ("'%.*s'\n", (int)(end - msg->buf), msg->buf);
          break;
 
     case SBS_ID:
          Modes.stat.SBS_ID_msg++;
          Modes.stat.SBS_good++;
+         LOG_SBS_GOOD ("'%.*s'\n", (int)(end - msg->buf), msg->buf);
          break;
 
     case SBS_SEL:
@@ -558,7 +576,7 @@ static int SBS_decode_msg (const char *fields[], modeS_message *mm)
    */
 
   p = fields [2];    /* MSG sub types 1 to 8 */
-  i_val = strtod (p, &end);
+  i_val = strtol (p, &end, 10);
   if (strlen(p) != 1 || end == p || *end != '\0' || i_val < 1 || i_val > 8)
      return (2);
 
@@ -586,7 +604,7 @@ static int SBS_decode_msg (const char *fields[], modeS_message *mm)
   p = fields [12];
   if (*p)
   {
-    i_val = strtod (p, &end);
+    i_val = strtol (p, &end, 10);
     if (end == p || *end != '\0')
        return (12);
 
@@ -646,14 +664,19 @@ static int SBS_decode_msg (const char *fields[], modeS_message *mm)
   p = fields [17];
   if (*p)
   {
-    i_val = strtod (p, &end);
+    f_val = strtof (p, &end);
     if (end == p || *end != '\0')
        return (17);
 
-    if (i_val < 0)
-       mm->vert_rate_sign = -1;
-    mm->vert_rate = abs (i_val);
+    mm->vert_rate_sign = f_val < 0.0 ? -1 : 1;
+    mm->vert_rate = (int) f_val;       /* unit is feet/min? */
     mm->AC_flags |= MODES_ACFLAGS_VERTRATE_VALID;
+
+#if 0  /* test */
+    if (fabs(mm->vert_rate) > 0.0)
+       DEBUG (DEBUG_RAW_SBS1, "SBS: %06X, f_val: %.2f m/sec, vert_rate_sign: %d\n",
+              mm->addr, FEET_PER_MIN_TO_MS(f_val), mm->vert_rate_sign);
+#endif
   }
 
   p = fields [18];
@@ -664,15 +687,17 @@ static int SBS_decode_msg (const char *fields[], modeS_message *mm)
   }
 
 #if 0  // \todo
-  mm->msg_bits = ...;
-  snprintf (p, left, "%02x", mm->msg[i])
+  mm->msg_bits = ... ;
+  for (int i = 0; i < mm->msg_bits / 8; i++)
+      mm->msg[i] = ... ;
 
   mm->CRC = crc_checksum (msg, mm->msg_bits);
+#else
+  mm->msg_bits = 0;
 #endif
 
-  mm->msg_bits = 0;
-  mm->source   = SOURCE_MODE_S;
-  mm->CRC_ok   = mm->SBS_in = true;
+  mm->source = SOURCE_MODE_S;
+  mm->CRC_ok = mm->SBS_in = true;
   return (0);
 }
 
