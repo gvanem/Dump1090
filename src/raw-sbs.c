@@ -345,7 +345,7 @@ static bool SBS_recv_input (char *msg)
     }
   }
 
-  int rc = SBS_decode_msg (fields + 1, &mm);
+  int rc = SBS_decode_msg ((const char**) (fields + 1), &mm);
   if (rc == 0)
        modeS_user_message (&mm);
   else DEBUG (DEBUG_RAW_SBS1, "field-error %d\n", rc);
@@ -555,7 +555,7 @@ void sbs_out_send (const modeS_message *mm)
  * \retval 0  on success.
  * \retval N  failure in field N.
  */
-static int SBS_decode_msg (const char *fields[], modeS_message *mm)
+static int SBS_decode_msg (const char **fields, modeS_message *mm)
 {
   const char *p;
   char  *end;
