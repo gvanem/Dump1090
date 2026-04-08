@@ -1121,7 +1121,7 @@ static void airports_API_show_stats (void)
 {
   flight_info_stats fs;
 
-  if (g_data.test_mode || (Modes.debug & DEBUG_ADSB_LOL) || Modes.raw)
+  if (g_data.test_mode || (Modes.debug & DEBUG_ADSB_LOL))
   {
     flight_stats_now (&fs);
     API_TRACE ("stats now: total=%u, live=%u, pending=%u, dead=%u, unknown=%u\n",
