@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
+#
+# Requirements:
+#   py -3 -m pip install colorama winrt-Windows.Devices.Geolocation
+#
 """
 An alternative to a 'run.bat'.
 Easier to customise for Pythonistas.
 """
 
-import os, sys, argparse
-
-class Colour():
-  RESET = RED = GREEN = ""
-
-try:
-  from colorama import init, Fore, Style
-  init()
-  Colour.RESET = Style.RESET_ALL
-  Colour.RED   = Fore.RED + Style.BRIGHT
-  Colour.GREEN = Fore.GREEN + Style.BRIGHT
-except:
-  pass
+import os, sys, argparse, asyncio, colorama
+import winrt.windows.devices.geolocation as wdg
 
 my_dir   = os.path.dirname (__file__)
 web_page = my_dir + r"\web_root\gmap.html"
@@ -25,7 +18,6 @@ os.putenv ("LIBUSB_DEBUG", "3")
 os.putenv ("RTLSDR_TRACE", "0")
 
 mode     = " --interactive"
-logfile  = ""
 infile   = ""
 net_mode = ""
 sbs_mode = ""
@@ -36,29 +28,24 @@ sbs_port = ""
 #
 rtl_tcp_arg = "tcp://localhost:1234"
 
-#
-# Print with colours if 'colorama' was imported OK.
-#
+colorama.init()
+
+class Colour:
+  RED   = colorama.Fore.RED   + colorama.Style.BRIGHT
+  GREEN = colorama.Fore.GREEN + colorama.Style.BRIGHT
+
 def cprint (colour, s):
-  print ("%s%s%s" % (colour, s, Colour.RESET))
+  print ("%s%s%s" % (colour, s, colorama.Style.RESET_ALL))
 
 #
-# 'dump1090.exe' uses this to calculate the distance to
-# planes. Try to use 'winsdk.windows.devices.geolocation' if not set.
+# 'dump1090.exe' uses this to calculate the distance to planes.
 #
 def check_home_pos():
   home_pos = os.getenv ("DUMP1090_HOMEPOS")
   if home_pos:
      return True
 
-  #
-  # From:
-  #   https://stackoverflow.com/questions/44400560/using-windows-gps-location-service-in-a-python-script/44462120#44462120
-  #
   try:
-    import asyncio
-    import winsdk.windows.devices.geolocation as wdg
-
     async def get_coords():
       locator = wdg.Geolocator()
       pos     = await locator.get_geoposition_async()
@@ -71,8 +58,7 @@ def check_home_pos():
         cprint (Colour.RED, "ERROR: You need to allow applications to access you location in Windows settings")
         return None, None
 
-    cprint (Colour.GREEN, "Looking up your position using 'Windows Geolocation'...", end="")
-    os.flush (sys.stdout)
+    cprint (Colour.GREEN, "Looking up your position using 'Windows Geolocation'...")
 
     lat, lon = get_location()
     if lat and lon:
@@ -80,7 +66,8 @@ def check_home_pos():
        os.putenv ("DUMP1090_HOMEPOS", "%s" % pos)
        print (" Found pos: %s" % pos)
        return True
-  except:
+  except Exception as e:
+    cprint (Colour.RED, f"ERROR: {e}")
     return False
 
 #
@@ -95,10 +82,9 @@ def show_help():
   -d, --debug:    enable '--debug gn' (not '--interactive').
       --demo:     enable demo-mode (read from generated .BIN-file)
       --infile:   read from '%s\\testfiles\\modes1.bin'
-      --log:      log details to '%s\\dump1090.log'
       --sdrplay:  use SDRPlay (not a RTLSDR device)
-      --sbs:      enable SBS-mode
-      --raw:      enable RAW-mode
+      --sbs:      enable SBS-IN mode
+      --raw:      enable RAW-IN mode
       --rtl_tcp:  use a remote RTLSDR device (via already running 'rtl_tcp.exe')
       --rtl2_tcp: use a remote RTLSDR device (via already running 'rtl2_tcp.exe')
   -h, --help:     Show this help.""" % (__file__, my_dir, my_dir))
@@ -106,7 +92,6 @@ def show_help():
 
 parser = argparse.ArgumentParser (add_help = False)
 parser.add_argument ("-d", "--debug", dest = "debug",    action = "store_true")
-parser.add_argument ("--log",         dest = "log",      action = "store_true")
 parser.add_argument ("--sdrplay",     dest = "sdrplay",  action = "store_true")
 parser.add_argument ("--sbs",         dest = "sbs",      action = "store_true")
 parser.add_argument ("--raw",         dest = "raw",      action = "store_true")
@@ -127,9 +112,6 @@ if opt.help:
 if not check_home_pos():
    os.putenv ("DUMP1090_HOMEPOS", "60.3016821,5.3208769")
 
-if opt.log:
-   logfile = "--logfile %s\\dump1090.log" % my_dir
-
 if opt.sdrplay:
    device = "--device sdrplay"
 elif opt.rtl_tcp or opt.rtl2_tcp:
@@ -139,7 +121,7 @@ else:
    device = "--device 0"  # defaults to 1st RTLSDR device
 
 if opt.sbs:
-   sbs_mode = " SBS"
+   sbs_mode = " SBS-IN"
    sbs_port = " 30003"
 
 elif opt.raw:
@@ -168,7 +150,7 @@ if opt.rest:
 else:
    rest = ""
 
-dump1090_cmd = "%s\\dump1090.exe --net %s%s%s%s %s %s" % (my_dir, mode, logfile, infile, net_mode, device, rest)
+dump1090_cmd = "%s\\dump1090.exe --net %s%s%s %s %s" % (my_dir, mode, infile, net_mode, device, rest)
 
 if opt.sbs or opt.raw:
    dump1090_cmd = "start %s" % dump1090_cmd
