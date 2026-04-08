@@ -1834,7 +1834,7 @@ static void decode_extended_squitter (modeS_message *mm)
              vert_rate--;
              if (msg[8] & 0x08)
                 vert_rate = 0 - vert_rate;
-             mm->vert_rate =  (vert_rate - 1) * 64;
+             mm->vert_rate = (vert_rate - 1) * 64;
              mm->AC_flags |= MODES_ACFLAGS_VERTRATE_VALID;
            }
          }
@@ -2848,29 +2848,30 @@ static bool modeS_message_display (modeS_message *mm)
   if (Modes.only_addr)
      return display_brief_message (mm);
 
-  /* Show the raw message unless `mm->msg_bits = 0`.
-   * `SBS_decode_msg()` does not set `mm->msg_bits > 0`.
-   */
-  if (mm->msg_bits > 0)
-  {
-    char   buf [200];
-    char  *p = buf;
-    size_t left = sizeof(buf);
-    int    i;
+  if (mm->SBS_in)
+     return (true);     /* Enough for a SBS-IN message */
 
-    *p++ = '*';
-    left--;
-    for (i = 0; i < mm->msg_bits/8 && left > 5; i++)
-    {
-      snprintf (p, left, "%02x", mm->msg[i]);
-      p    += 2;
-      left -= 2;
-    }
-    *p++ = ';';
-    *p++ = '\n';
-    *p = '\0';
-    LOG_STDOUT ("%s", buf);
+  /* Show the raw message.
+   */
+  assert (mm->msg_bits > 0);
+
+  char   buf [200];
+  char  *p = buf;
+  size_t left = sizeof(buf);
+  int    i;
+
+  *p++ = '*';
+  left--;
+  for (i = 0; i < mm->msg_bits / 8 && left > 5; i++)
+  {
+    snprintf (p, left, "%02x", mm->msg[i]);
+    p    += 2;
+    left -= 2;
   }
+  *p++ = ';';
+  *p++ = '\n';
+  *p = '\0';
+  LOG_STDOUT ("%s", buf);
 
   if (Modes.raw)
      return (true);       /* Enough for --raw mode */
@@ -3137,11 +3138,14 @@ int modeS_message_score (const uint8_t *msg, int valid_bits)
 /**
  * When a new message is available, because it was decoded from the
  * RTLSDR/SDRplay device, file, or received on a TCP input port
- * (from a SBS-IN or RAW-IN service), we call this function in order
+ * from a RAW-IN service, we call this function in order
  * to use the message.
  *
  * Basically this function passes a raw message to the upper layers for
  * further processing and visualization.
+ *
+ * But since SBS-IN decoding does not generate raw messages, this
+ * function does little for `mm->SBS_in == true`.
  */
 void modeS_user_message (modeS_message *mm)
 {
@@ -3241,6 +3245,8 @@ static void show_help (const char *fmt, ...)
             "                        N = A bit more network information than flag `n'.\n"
             "                        p = Log frames with bad preamble.\n"
             "                        P = Log a single plane at a time with details (ref `LOG_FOLLOW()`).\n"
+            "                        r = Log RAW-IN / SBS-IN details.\n"
+            "                        R = Log more RAW-IN / SBS-IN details.\n"
             "  --device <N / name>   Select RTLSDR/SDRPlay device (default: 0; first found).\n"
             "                        e.g. `--device 1'               - select on RTLSDR index.\n"
             "                             `--device RTL2838-silver'  - select on RTLSDR name.\n"
@@ -3833,19 +3839,25 @@ static void set_debug_bits (const char *flags)
            Modes.debug |= DEBUG_MONGOOSE;
            break;
       case 'M':
-           Modes.debug |= DEBUG_MONGOOSE2;
+           Modes.debug |= (DEBUG_MONGOOSE | DEBUG_MONGOOSE2);
            break;
       case 'n':
            Modes.debug |= DEBUG_NET;
            break;
       case 'N':
-           Modes.debug |= (DEBUG_NET2 | DEBUG_NET);  /* A bit more network details */
+           Modes.debug |= (DEBUG_NET | DEBUG_NET2);  /* A bit more network details */
            break;
       case 'p':
            Modes.debug |= DEBUG_NOPREAMBLE;
            break;
       case 'P':
            Modes.debug |= DEBUG_PLANE;
+           break;
+      case 'r':
+           Modes.debug |= DEBUG_RAW_SBS1;
+           break;
+      case 'R':
+           Modes.debug |= (DEBUG_RAW_SBS1 | DEBUG_RAW_SBS2);
            break;
       default:
            p = buf;
