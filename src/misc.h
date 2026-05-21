@@ -228,9 +228,11 @@ typedef struct HTTP_statistics {
         uint64_t  HTTP_keep_alive_sent;
         uint64_t  HTTP_websockets;
         uint64_t  HTTP_tls_handshakes;
+        uint64_t  HTTP_301_responses;
         uint64_t  HTTP_400_responses;
         uint64_t  HTTP_404_responses;
         uint64_t  HTTP_500_responses;
+        uint64_t  HTTP_505_responses;
       } HTTP_statistics;
 
 /**

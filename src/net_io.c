@@ -144,6 +144,12 @@ static void rtl_tcp_no_stats (intptr_t service);
 #define HTTP_SERVICE(s) (s == MODES_NET_SERVICE_HTTP4 || s == MODES_NET_SERVICE_HTTP6)
 
 /**
+ * \def IS_WEBSOCKET_EVENT(ev)
+ * Return true if event is a Websocket event.
+ */
+#define IS_WEBSOCKET_EVENT(ev)   ((ev) == MG_EV_WS_OPEN || (ev) == MG_EV_WS_MSG || (ev) == MG_EV_WS_CTL)
+
+/**
  * \def HEX_DUMP(data, len)
  * Do a hex-dump of network data if option `--debug M` was used.
  */
@@ -512,6 +518,8 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   intptr_t     service = (c->loc.is_ip6 ? MODES_NET_SERVICE_HTTP6 : MODES_NET_SERVICE_HTTP4);
   int          s_idx   = (service == MODES_NET_SERVICE_HTTP6 ? 1 : 0);
 
+  HTTP_statistics *hs = &Modes.stat.HTTP_stat [s_idx];
+
   /* Make a copy of the URI for the caller
    */
   len = min (sizeof(mg_http_uri) - 1, hm->uri.len);
@@ -546,7 +554,10 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
 
   cli = connection_get (c, service, false);
   if (!cli)
-     return (505);
+  {
+    Modes.stat.HTTP_stat [s_idx].HTTP_505_responses++;
+    return (505);
+  }
 
   Modes.stat.HTTP_stat [s_idx].HTTP_get_requests++;
 
@@ -611,11 +622,13 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   if (cli->rem_addr.is_ip6 && Modes.http_ipv4_only)
   {
     send_file (c, cli, "404-http-ipv4-only.html", s_idx);
+    Modes.stat.HTTP_stat [s_idx].HTTP_404_responses++;
     return (404);
   }
   else if (!cli->rem_addr.is_ip6 && Modes.http_ipv6_only)
   {
     send_file (c, cli, "404-http-ipv6-only.html", s_idx);
+    Modes.stat.HTTP_stat [s_idx].HTTP_404_responses++;
     return (404);
   }
 #endif
@@ -629,6 +642,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
                   "Content-Length: 0\r\n\r\n", Modes.web_page);
 
     DEBUG (DEBUG_NET2, "301 redirect to: '%s/%s'\n", Modes.web_root, Modes.web_page);
+    Modes.stat.HTTP_stat [s_idx].HTTP_301_responses++;
     return (301);
   }
 
@@ -697,6 +711,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
 
   mg_http_reply (c, 404, set_headers(cli, NULL, s_idx), "Not found\n");
   DEBUG (DEBUG_NET, "Unhandled URI '%.20s' (conn-id: %lu).\n", uri, c->id);
+  Modes.stat.HTTP_stat [s_idx].HTTP_404_responses++;
   return (404);
 }
 
@@ -938,14 +953,17 @@ static void connection_failed_accepted (const mg_connection *c, intptr_t service
   net_conn_free (conn, service);
 }
 
-static void tls_handler (mg_connection *c, const char *host)
+static bool tls_handler (mg_connection *c, const char *host)
 {
-  struct mg_tls_opts opts;
+#if (MG_TLS == MG_TLS_NONE || MG_TLS != MG_TLS_BUILTIN)
+  MODES_NOTUSED (c);
+  MODES_NOTUSED (host);
 
-#if (MG_TLS != MG_TLS_BUILTIN)
   puts ( "tls_handler() needs 'MG_TLS == MG_TLS_BUILTIN'");
-  return;
-#endif
+  return (false);
+
+#else
+  struct mg_tls_opts opts;
 
   memset (&opts, '\0', sizeof(opts));
   if (host)
@@ -962,6 +980,8 @@ static void tls_handler (mg_connection *c, const char *host)
   mg_tls_init (c, &opts);
   LOG_FILEONLY2 ("%s (\"%s\"): conn-id: %lu.\n",
                  __FUNCTION__, host ? host : "NULL", c->id);
+  return (true);
+#endif
 }
 
 static void tls_error (intptr_t service, const char *err)
@@ -980,6 +1000,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
   mg_host_name remote_buf;
   long         bytes;         /* bytes read or written */
   INT_PTR      service;
+  int          s_idx;
 
   if (Modes.exit)
      return;
@@ -991,10 +1012,8 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
 
   if (ev == MG_EV_TLS_HS)
   {
-    if (service == MODES_NET_SERVICE_HTTP4)
-       Modes.stat.HTTP_stat[0].HTTP_tls_handshakes++;
-    else if (service == MODES_NET_SERVICE_HTTP6)
-       Modes.stat.HTTP_stat[1].HTTP_tls_handshakes++;
+    s_idx = (service == MODES_NET_SERVICE_HTTP6 ? 1 : 0);
+    Modes.stat.HTTP_stat [s_idx].HTTP_tls_handshakes++;
     return;
   }
 
@@ -1047,11 +1066,8 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     conn->service = service;
     strcpy (conn->rem_buf, remote_buf);
 
-    if (Modes.https_enable && HTTP_SERVICE(service))
-    {
-      tls_handler (c, remote);
-      is_tls = ", TLS";
-    }
+    if (Modes.https_enable && HTTP_SERVICE(service) && tls_handler(c, remote))
+       is_tls = ", TLS";
 
     DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\"%s).\n",
            remote, net_handler_descr(service), is_tls);
@@ -1162,7 +1178,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     mg_http_uri      request_uri;
     int              status;
 
-    if (ev == MG_EV_WS_OPEN || ev == MG_EV_WS_MSG || ev == MG_EV_WS_CTL)
+    if (IS_WEBSOCKET_EVENT(ev)
     {
       status = net_handler_websocket (c, ws, ev);
     }
@@ -1795,11 +1811,8 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
     if (client_is_unique(addr, service, &unique))  /* Have we seen this address before? */
        Modes.stat.unique_clients [service]++;
 
-    if (Modes.https_enable && HTTP_SERVICE(service))
-    {
-      tls_handler (c, NULL);
-      is_tls = ", TLS";
-    }
+    if (Modes.https_enable && HTTP_SERVICE(service) && tls_handler(c, NULL))
+       is_tls = ", TLS";
 
     if (client_is_extern(addr))           /* Not from '127.x.y.z' or '::1' */
     {
@@ -2375,11 +2388,7 @@ void net_show_stats (void)
 
     if (HTTP_SERVICE(s))
     {
-      const HTTP_statistics *hs;
-
-      if (s == MODES_NET_SERVICE_HTTP4)
-           hs = &Modes.stat.HTTP_stat [0];
-      else hs = &Modes.stat.HTTP_stat [1];
+      const HTTP_statistics *hs = &Modes.stat.HTTP_stat [s == MODES_NET_SERVICE_HTTP6 ? 1 : 0];
 
       LOG_STDOUT ("    %8llu HTTP GET requests received.\n", hs->HTTP_get_requests);
       LOG_STDOUT ("    %8llu HTTP 400 replies sent.\n", hs->HTTP_400_responses);
@@ -2424,9 +2433,9 @@ static void unique_ip_add_hostile (const char *ip_str, int service)
   unique_IP *ip;
   mg_str     str;
 
-  if (service == MODES_NET_SERVICE_HTTP4)
-       DENY_LIST_ADD4 (&addr, ip_str);
-  else DENY_LIST_ADD6 (&addr, ip_str);
+  if (service == MODES_NET_SERVICE_HTTP6)
+       DENY_LIST_ADD6 (&addr, ip_str);
+  else DENY_LIST_ADD4 (&addr, ip_str);
 
   if (client_is_unique(&addr, service, &ip))
      Modes.stat.unique_clients [service]++;
@@ -2910,6 +2919,7 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
    * Fake alert:
    *   If a `system ("ping.exe -6 -n 1 ipv6.google.com")` works, just assume that
    *   the `Reply from <ping6_addr> time=zz sec' will work as the DNS6 address.
+   *
    * Note:
    *   `ipv6.google.com` does not have IPv4 address, only IPv6.
    *   Therefore it is guaranteed to hit IPv6 resolution path.
