@@ -48,8 +48,13 @@
   /*
    * Cause a compile-error for these warnings:
    */
-  #pragma clang diagnostic error "-Wformat"
-  #pragma clang diagnostic error "-Wformat-insufficient-args"
+  #pragma gcc diagnostic error "-Wformat"
+  #pragma gcc diagnostic error "-Wformat-insufficient-args"
+
+  /*
+   * Assume MinGW-w64 do have `bsearch_s()`.
+   */
+  #define HAVE_BSEARCH_S 1
 
 #elif defined(_MSC_VER)
  /*
@@ -176,22 +181,13 @@
  */
 #define _USE_MATH_DEFINES 1
 
-/** Support various features in `externals/mongoose.c`:
+/** To pull in 'rand_s()'
  */
-#define MG_ENABLE_ASSERT        1  /* Enable `assert()` calls */
-#define MG_ENABLE_IPV6          1  /* Enable IPv6 */
-#define MG_ENABLE_MD5           0  /* No need for MD5 code */
-#define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
-#define MG_ENABLE_DIRLIST       0  /* No need for directory listings in HTTP */
-#define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
-#define MG_TLS                  3  /* Enable MG_TLS_BUILTIN code */
-#define MG_TLS_SSLKEYLOGFILE    1  /* Enable logging to `$(SSLKEYLOGFILE)` */
-
-#define _CRT_RAND_S             1  /* To pull in 'rand_s()' */
+#define _CRT_RAND_S  1
 
 /** Drop some stuff not needed in `externals/zip.c`:
  */
-#define MINIZ_NO_ZLIB_APIS      1
+#define MINIZ_NO_ZLIB_APIS  1
 
 /**
  * clang-cl with `ASAN` may not like this in `externals/miniz.h`:
@@ -235,6 +231,18 @@
    */
   #define strdup(s)  _strdup (s)
 #endif
+
+/**
+ * Defines for `externals/mongoose.c`:
+ */
+#define MG_ENABLE_ASSERT        1  /* Enable `assert()` calls */
+#define MG_ENABLE_IPV6          1  /* Enable IPv6 */
+#define MG_ENABLE_MD5           0  /* No need for MD5 code */
+#define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
+#define MG_ENABLE_DIRLIST       0  /* No need for directory listings in HTTP */
+#define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
+#define MG_TLS                  3  /* Enable MG_TLS_BUILTIN code */
+#define MG_TLS_SSLKEYLOGFILE    1  /* Enable logging to `$(SSLKEYLOGFILE)` */
 
 /**
  * Showing airport names correctly in `--interactive' mode needs
