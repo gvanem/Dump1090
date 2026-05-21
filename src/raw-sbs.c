@@ -10,8 +10,17 @@
  * \def LOG_RAW_GOOD()
  * if `--debug R` is active, log a good RAW message.
  */
-#define LOG_RAW_GOOD(fmt, ...)   DEBUG (DEBUG_RAW_SBS2, "RAW(%d): " fmt, \
-                                        loop_cnt, __VA_ARGS__)
+#if defined(__MINGW64__)
+  #define LOG_RAW_GOOD(fmt, ...)    do {                                               \
+                                      if (Modes.debug & DEBUG_RAW_SBS2)                \
+                                         modeS_flogf (stdout, "%s(%u): RAW(%d): " fmt, \
+                                              __FILE__, __LINE__, loop_cnt,            \
+                                              ## __VA_ARGS__);                         \
+                                    } while (0)
+#else
+  #define LOG_RAW_GOOD(fmt, ...)   DEBUG (DEBUG_RAW_SBS2, "RAW(%d): " fmt, \
+                                          loop_cnt, __VA_ARGS__)
+#endif
 
 /**
  * \def LOG_RAW_BAD()
