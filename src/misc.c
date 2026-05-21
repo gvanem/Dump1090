@@ -981,12 +981,23 @@ bool test_add (char **spec, const char *which)
   return (s ? true : false);
 }
 
+#if defined(__clang__) || defined(__GNUC__)
+  #define strdupa(s)  (__extension__ ({ \
+                       const char *s_in = (s);                \
+                       size_t      s_len = strlen (s_in) + 1; \
+                       char       *s_out = alloca (s_len);    \
+                       (char*) memcpy (s_out, s_in, s_len);   \
+                      }))
+#else
+  #define strdupa(s)  strcpy (alloca(strlen(s) + 1), s)
+#endif
+
 /**
  * Check if the test-list at `spec` contains the test `which`.
  */
 bool test_contains (const char *spec, const char *which)
 {
-  char *p, *end, spec2 [100];
+  char *p, *end, *spec2;
 
   assert (which);
 
@@ -996,7 +1007,8 @@ bool test_contains (const char *spec, const char *which)
   if (!strcmp(spec, "*"))
      return (true);      /* a '*' test-spec enables all */
 
-  strcpy_s (spec2, sizeof(spec2), spec);
+  spec2 = strdupa (spec);
+
   for (p = str_tokenize(spec2, ",", &end); p; p = str_tokenize(NULL, ",", &end))
   {
     if (!stricmp(which, p))
