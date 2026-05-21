@@ -62,9 +62,10 @@ USE_MP_COMPILE ?= 0
 USE_WSOCK_TRACE ?= 0
 
 #
-# Enable 'astyle' in .c-file preprocessing.
+# Enable 'astyle' and/or more PreProcess-debug in .c-file preprocessing.
 #
-USE_ASTYLE ?= 1
+USE_ASTYLE   ?= 1
+USE_PP_DEBUG ?= 0
 
 #
 # Enable code generation mitigations for speculative execution side-channel
@@ -149,7 +150,7 @@ CFLAGS += -volatile:iso
 #
 CFLAGS += -GF
 
-LDFLAGS = -nologo -map -debug -verbose    \
+LDFLAGS = -nologo -debug -verbose         \
           -incremental:no -machine:$(CPU) \
           -nodefaultlib:oldnames.lib      \
           -nodefaultlib:libcmt.lib        \
@@ -162,7 +163,11 @@ ifeq ($(USE_CRT_DEBUG),1)
   CFLAGS  += -MDd -Oy- -RTCu -RTCs
   RCFLAGS += -D_DEBUG
 else
-  CFLAGS += -MD -Zo -Oy- -Ox -Gs0
+  #
+  # Disable calls to '__chkstk()' by assuming no local variable is
+  # larger than 100000 bytes.
+  #
+  CFLAGS += -MD -Zo -Oy- -Ox -Gs100000
 endif
 
 ifeq ($(CC),clang-cl)
@@ -487,7 +492,7 @@ $(OBJ_DIR)/sqlite3-shell.obj: externals/sqlite3-shell.c | $(CC).args $(OBJ_DIR)
 	$(call link_web_DLL, $@, $^ oldnames.lib $(ASAN_LIBS), $(WEB_SUFFIXES))
 
 $(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
-	$(call generate_c, $@, $(web_pages_RC))
+	$(call generate_c, $@, $(WEB_PAGES_RC))
 
 $(OBJ_DIR)/%.res: %.rc
 	$(call RC_compile, $@, $<)
@@ -627,17 +632,16 @@ clean_VS:
 #
 # '$(sort ..)' will create a unique list.
 #
-TARGETS_JUNK = $(sort $(TARGETS:.exe=.map)     \
-                      $(TARGETS:.exe=.pdb)     \
-                      $(TARGETS:.exe=.exp)     \
-                      $(TARGETS:.exe=.lib)     \
-                      ../blocks_test.{map,pdb} \
-                      ../color_test.{map,pdb}  \
-                      ../packed_test.{map,pdb} \
-                      ../speech_test.{map,pdb} \
-                      ../utf8_test.{map,pdb}   \
-                      ../sqlite3.{map,pdb}     \
-                      ../web-pages.{map,pdb})
+TARGETS_JUNK = $(sort $(TARGETS:.exe=.pdb) \
+                      $(TARGETS:.exe=.exp) \
+                      $(TARGETS:.exe=.lib) \
+                      ../blocks_test.pdb   \
+                      ../color_test.pdb    \
+                      ../packed_test.pdb   \
+                      ../speech_test.pdb   \
+                      ../utf8_test.pdb     \
+                      ../sqlite3.pdb       \
+                      ../web-pages.pdb)
 
 OTHER_JUNK = link.tmp link.args cl.args clang-cl.args
 
@@ -682,15 +686,18 @@ define create_resp_file
   $(foreach f, $(2), $(file >> $(1),$(strip $(f))) )
 endef
 
-define link_EXE
+define link_common
+  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
   $(file  > $(OBJ_DIR)/check-for-unused-libs.py,if 1:)
   $(file >> $(OBJ_DIR)/check-for-unused-libs.py,$(CHECK_FOR_UNUSED_LIBS_PY))
-  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
   $(call create_resp_file, link.args, $(LDFLAGS) $(2))
   link -out:$(strip $(1)) @link.args > link.tmp
-  @cat link.tmp >> $(1:.exe=.map)
-  @rm -f $(1:.exe=.exp) $(1:.exe=.lib)
   @$(PYTHON) $(OBJ_DIR)/check-for-unused-libs.py link.tmp
+endef
+
+define link_EXE
+  $(call link_common, $(1), $(2))
+  @rm -f $(1:.exe=.exp) $(1:.exe=.lib)
 endef
 
 define func_exports
@@ -699,10 +706,7 @@ define func_exports
 endef
 
 define link_web_DLL
-  $(call green_msg, Linking $(BRIGHT_WHITE)$(strip $(1)))
-  $(call create_resp_file, link.args, -dll $(LDFLAGS) $(call func_exports, $(3)) $(2))
-  link -out:$(strip $(1)) @link.args > link.tmp
-  @cat link.tmp >> $(1:.dll=.map)
+  $(call link_common, $(1), -dll $(call func_exports, $(3)) $(2))
   @rm -f $(1:.dll=.exp) $(1:.dll=.lib)
 endef
 
@@ -750,28 +754,36 @@ endef
 
 #
 # clang-cl: /d1PP  Retain macro definitions in /E mode
+# cl:       /PD print all macro definitions.
+#           Needs '-Zc:preprocessor'; enable standard conforming preprocessor.
 #
-ifeq ($(CC),clang-clX)
-  d1PP = -d1PP
-else
-  d1PP =
+CPP_CMD = $(_CC) -E
+
+ifeq ($(USE_PP_DEBUG),1)
+  ifeq ($(CC),clang-cl)
+    CPP_CMD += -d1PP
+  else
+    CPP_CMD += -PD -Zc:preprocessor
+  endif
 endif
 
 ifeq ($(USE_ASTYLE),1)
-  C_FORMATER = | astyle
+  pp_filter  = | astyle
+  pp_comment = The preprocessed and AStyled output of '$(strip $(1))'
+
 else
-  C_FORMATER =
+  pp_filter  =
+  pp_comment = The raw preprocessed output of '$(strip $(1))'
 endif
 
 define C_preprocess
   $(call green_msg, Preprocessing $(BRIGHT_WHITE)$(strip $(2)))
-  $(file  > $(1),/* The result of preprocessing '$(strip $(2))' (USE_ASTYLE=$(USE_ASTYLE)):)
-  $(file >> $(1), *  $(CC) -E)
-  $(foreach f, $(CFLAGS) $(d1PP), $(file >> $(1), *  $(f)))
+  $(file  > $(1),/* $(call pp_comment, $(2)):)
+  $(file >> $(1), *  $(CPP_CMD))
+  $(foreach f, $(CFLAGS), $(file >> $(1), *    $(f)))
   $(file >> $(1), *---------------------------------------------------------)
-  $(file >> $(1), * Try to compile this output.)
   $(file >> $(1), */)
-  $(strip $(_CC) -E @$(CC).args $(d1PP) $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(C_FORMATER) >> $(1))
+  $(strip $(CPP_CMD) @$(CC).args $(2) | $(PYTHON) $(OBJ_DIR)/cpp-filter.py $(pp_filter) >> $(1))
 endef
 
 #
@@ -839,7 +851,7 @@ define DUMP1090_DOXYFILE
   CHM_FILE              = dump1090.chm
 endef
 
-define web_pages_RC
+define WEB_PAGES_RC
   #include <winver.h>
   #include "dump1090_config.h"
 
@@ -876,7 +888,8 @@ define web_pages_RC
 endef
 
 define CPP_FILTER_PY
- import sys, os
+
+  import sys, os
 
   empty_lines = 0
   while True:
@@ -908,12 +921,12 @@ endef
 
 define CHECK_FOR_UNUSED_LIBS_PY
   #
-  # Check for unused libraries in a MSVC link .map file.
+  # Check for unused libraries in the 'link.tmp' file.
   # Prints with some colours using 'colorama'.
   #
   import os, sys
 
-  link_tmp = sys.argv[1]
+  link_tmp = sys.argv [1]
 
   class State():
     IDLE   = 0
