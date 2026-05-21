@@ -1178,7 +1178,7 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     mg_http_uri      request_uri;
     int              status;
 
-    if (IS_WEBSOCKET_EVENT(ev)
+    if (IS_WEBSOCKET_EVENT(ev))
     {
       status = net_handler_websocket (c, ws, ev);
     }
