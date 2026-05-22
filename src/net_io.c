@@ -548,24 +548,24 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
            (int)hm->method.len, hm->method.buf, uri,
            net_str_addr_port(&c->rem, addr_buf, sizeof(addr_buf)), c->id);
 
-    Modes.stat.HTTP_stat [s_idx].HTTP_400_responses++;
+    hs->HTTP_400_responses++;
     return (400);
   }
 
   cli = connection_get (c, service, false);
   if (!cli)
   {
-    Modes.stat.HTTP_stat [s_idx].HTTP_505_responses++;
+    hs->HTTP_505_responses++;
     return (505);
   }
 
-  Modes.stat.HTTP_stat [s_idx].HTTP_get_requests++;
+  hs->HTTP_get_requests++;
 
   header = mg_http_get_header (hm, "Connection");
   if (header && !strnicmp(header->buf, "keep-alive", header->len))
   {
     DEBUG (DEBUG_NET2, "Connection: '%.*s'\n", (int)header->len, header->buf);
-    Modes.stat.HTTP_stat [s_idx].HTTP_keep_alive_recv++;
+    hs->HTTP_keep_alive_recv++;
     cli->keep_alive = true;
   }
 
@@ -622,13 +622,13 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
   if (cli->rem_addr.is_ip6 && Modes.http_ipv4_only)
   {
     send_file (c, cli, "404-http-ipv4-only.html", s_idx);
-    Modes.stat.HTTP_stat [s_idx].HTTP_404_responses++;
+    hs->HTTP_404_responses++;
     return (404);
   }
   else if (!cli->rem_addr.is_ip6 && Modes.http_ipv6_only)
   {
     send_file (c, cli, "404-http-ipv6-only.html", s_idx);
-    Modes.stat.HTTP_stat [s_idx].HTTP_404_responses++;
+    hs->HTTP_404_responses++;
     return (404);
   }
 #endif
@@ -642,7 +642,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
                   "Content-Length: 0\r\n\r\n", Modes.web_page);
 
     DEBUG (DEBUG_NET2, "301 redirect to: '%s/%s'\n", Modes.web_root, Modes.web_page);
-    Modes.stat.HTTP_stat [s_idx].HTTP_301_responses++;
+    hs->HTTP_301_responses++;
     return (301);
   }
 
@@ -683,7 +683,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
     if (!data)
     {
       c->is_closing = 1;
-      Modes.stat.HTTP_stat [s_idx].HTTP_500_responses++;   /* malloc() failed -> "Internal Server Error" */
+      hs->HTTP_500_responses++;   /* malloc() failed -> "Internal Server Error" */
       return (500);
     }
 
@@ -711,7 +711,7 @@ static int net_handler_http (mg_connection *c, mg_http_message *hm, mg_http_uri 
 
   mg_http_reply (c, 404, set_headers(cli, NULL, s_idx), "Not found\n");
   DEBUG (DEBUG_NET, "Unhandled URI '%.20s' (conn-id: %lu).\n", uri, c->id);
-  Modes.stat.HTTP_stat [s_idx].HTTP_404_responses++;
+  hs->HTTP_404_responses++;
   return (404);
 }
 
@@ -2630,15 +2630,16 @@ static int net_reverse_pending (void)
 static reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name,
                                      time_t timestamp, DNS_STATUS status, bool pending)
 {
-  static uint16_t txnid = 0; /* Transaction ID */
+  static uint16_t txnid = 0;   /* Transaction ID */
   reverse_rec    *rr;
+  int             i, max;
 
   if (timestamp < g_reverse_maxage)  /* too old; ignore */
      return (NULL);
 
   /* Check if the `ptr_name` has changed.
    */
-  int i, max = smartlist_len (g_reverse_rec);
+  max = smartlist_len (g_reverse_rec);
   for (i = 0; i < max; i++)
   {
     rr = smartlist_get (g_reverse_rec, i);
@@ -3640,7 +3641,8 @@ static bool dns_send_PTR (mg_connection *c, const reverse_rec *rr)
   assert (rr->addr.is_ip6 == false);
 
   snprintf (request, sizeof(request), "%d.%d.%d.%d.in-addr.arpa",
-            rr->addr.ip[3], rr->addr.ip[2], rr->addr.ip[1], rr->addr.ip[0]);
+            rr->addr.addr.ip[3], rr->addr.addr.ip[2],
+            rr->addr.addr.ip[1], rr->addr.addr.ip[0]);
 
   rc = DnsWriteQuestionToBuffer_UTF8 (dm, &size, request, DNS_TYPE_PTR, rr->txnid, TRUE);
 
