@@ -559,6 +559,7 @@ static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
       var      = buf1;
       variable = buf1;
     }
+
     if (strchr(variable, '%'))
     {
       /* buf2 == variable if not expanded.
@@ -567,10 +568,14 @@ static char *cfg_getenv_expand (cfg_context *ctx, const char *variable)
 
       strncpy (var2, variable, sizeof(var2)-1);
       p1 = strrchr (var2, '\0') - 1;
-      if (p1 > var2 && *p1 != '%')     /* Turn `%FOO` into `%FOO%` */
+      p2 = strrchr (var2 + 1, '%');
+
+      if (!p2 && *p1 != '%')           /* Turn `%FOO` into `%FOO%` */
       {
+        p1++;
         *p1++ = '%';
         *p1 = '\0';
+        TRACE ("var2: '%s'\n", var2);
       }
       ret = ExpandEnvironmentStrings (var2, buf2, sizeof(buf2));
       TRACE ("var2: '%s', buf2: '%s'\n", var2, buf2);
