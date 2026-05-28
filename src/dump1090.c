@@ -173,6 +173,8 @@ static const cfg_table config[] = {
     { "http-ipv6",            ARG_ATOB,    (void*) &Modes.http_ipv6 },
     { "http-ipv6-only",       ARG_ATOB,    (void*) &Modes.http_ipv6_only },
     { "http2",                ARG_ATOB,    (void*) &Modes.wininet_HTTP2 },
+    { "http-log",             ARG_ATOB,    (void*) &Modes.http_log_enable },
+    { "http-log-name",        ARG_STRDUP,  (void*) &Modes.http_log_name },
     { "logfile",              ARG_FUNC,    (void*) set_logfile },
     { "logfile-daily",        ARG_ATOB,    (void*) &Modes.logfile_daily },
     { "logfile-ignore",       ARG_FUNC,    (void*) modeS_log_add_ignore },
@@ -538,6 +540,7 @@ static void modeS_set_defaults (void)
   Modes.FIFO_bufs        = MODES_MAG_BUFFERS;  /* # of buffers for `fifo_init()` */
   Modes.error_correct_1 = true;
   Modes.error_correct_2 = false;
+  Modes.http_log_enable = false;
 
   InitializeCriticalSection (&Modes.data_mutex);
   InitializeCriticalSection (&Modes.print_mutex);
@@ -3153,10 +3156,18 @@ void modeS_user_message (modeS_message *mm)
 
   Modes.stat.messages_total++;
 
-  if (a &&
-      Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS_OUT] > 0 &&  /* If we have accepted >=1 client */
-      net_handler_sending(MODES_NET_SERVICE_SBS_OUT))             /* and we're still sending */
-     sbs_out_send (mm);                                           /* Feed SBS output clients. */
+  /* In `--net-active` mode we have no clients.
+   */
+  if (a && Modes.net)
+  {
+    if (Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS_OUT] > 0 &&  /* If we have accepted >=1 client */
+        net_handler_sending(MODES_NET_SERVICE_SBS_OUT))             /* and we're still sending */
+       sbs_out_send (mm);                                           /* Feed SBS output clients. */
+
+    if (Modes.stat.cli_accepted [MODES_NET_SERVICE_RAW_OUT] > 0 &&  /* If we have accepted >=1 client */
+        net_handler_sending(MODES_NET_SERVICE_RAW_OUT))             /* and we're still sending */
+       raw_out_send (mm);                                           /* Feed RAW output clients. */
+  }
 
   /* In non-interactive mode, display messages on standard output.
    * In silent-mode, do nothing just to consentrate on network traces.
@@ -3171,12 +3182,6 @@ void modeS_user_message (modeS_message *mm)
       modeS_log ("\n\n");
     }
   }
-
-  /* Send data to connected RAW clients.
-   * In `--net-active` mode we have no clients.
-   */
-  if (Modes.net && a)
-     raw_out_send (mm);
 }
 
 /**
@@ -3280,17 +3285,26 @@ static void show_help (const char *fmt, ...)
 }
 
 /**
- * Periodically flushes the `Modes.log` file.
+ * Periodically flushes the `Modes.log` and `Modes.http_log` files.
  */
-static void flush_log (uint64_t now)
+static void flush_logs (uint64_t now)
 {
   static uint64_t tc_last = 0;
 
-  if (Modes.log && (now - tc_last >= 30000))  /* approx. every 30 sec */
+  if (now - tc_last >= 30000)  /* approx. every 30 sec */
   {
     tc_last = now;
-    fflush (Modes.log);
-    _commit (fileno(Modes.log));
+
+    if (Modes.log)
+    {
+      fflush (Modes.log);
+      _commit (fileno(Modes.log));
+    }
+    if (Modes.http_log)
+    {
+      fflush (Modes.http_log);
+      _commit (fileno(Modes.http_log));
+    }
   }
 }
 
@@ -3331,7 +3345,7 @@ static void poll_location (void)
  * This background function is called continously by `main_data_loop()`.
  * It does:
  *  \li Polls the network for events blocking less than 125 msec.
- *  \li Flushes the `Modes.log` file every 30 sec.
+ *  \li Flushes the `Modes.log` and `Modes.http_log` file every 30 sec.
  *  \li Polls the `Windows Location API` for a location every 250 msec.
  *  \li Print the FIFO-full delta-count.
  *  \li Removes inactive aircrafts from the list.
@@ -3353,7 +3367,7 @@ void background_tasks (void)
 
   now = MSEC_TIME();
 
-  flush_log (now);
+  flush_logs (now);
 
   refresh = (now - Modes.last_update_ms) >= MODES_INTERACTIVE_REFRESH_TIME;
   if (!refresh)

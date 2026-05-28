@@ -556,6 +556,9 @@ typedef struct global_data {
         bool          web_root_touch;             /**< Touch all files in `web_root` first. */
         bool          web_send_rssi;              /**< Send the "RSSI" in the JSON-data to the web-server */
         bool          web_page_is_FA;             /**< True if `web_page_full` is from FlightAware */
+        bool          http_log_enable;            /**< Enable log-file for HTTP server. */
+        char         *http_log_name;              /**< The full path of the HTTP server log-file. */
+        FILE         *http_log;                   /**< The `FILE*` the HTTP server log-file. */
         mg_file_path  aircraft_db;                /**< The `aircraft-database.csv` file. */
         char        *aircraft_db_url;             /**< Value of key `aircrafts-update = url` */
         int           strip_level;                /**< For '--strip X' mode. */

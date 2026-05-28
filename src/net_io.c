@@ -36,7 +36,7 @@ net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
           { &Modes.sbs_in,     "SBS TCP input",  "tcp", MODES_NET_PORT_SBS     },  // MODES_NET_SERVICE_SBS_IN
           { &Modes.http4_out,  "HTTP4 server",   "tcp", MODES_NET_PORT_HTTP    },  // MODES_NET_SERVICE_HTTP4
           { &Modes.http6_out,  "HTTP6 server",   "tcp", MODES_NET_PORT_HTTP    },  // MODES_NET_SERVICE_HTTP6
-          { &Modes.rtl_tcp_in, "RTL-TCP input",  "tcp", MODES_NET_PORT_RTL_TCP },  // MODES_NET_SERVICE_RTL_TCP
+          { &Modes.rtl_tcp_in, "RTLTCP input",   "tcp", MODES_NET_PORT_RTL_TCP },  // MODES_NET_SERVICE_RTL_TCP
           { &Modes.dns_in,     "DNS client",     "udp", MODES_NET_PORT_DNS_UDP }   // MODES_NET_SERVICE_DNS
         };
 
@@ -103,7 +103,7 @@ typedef struct unique_IP {
 
 static smartlist_t *g_unique_ips = NULL;
 
-static void         net_handler (mg_connection *c, int ev, void *ev_data);
+static void         net_ev_handler (mg_connection *c, int ev, void *ev_data);
 static void         net_timer_add (intptr_t service, int timeout_ms, int flag);
 static void         net_timer_del (intptr_t service);
 static void         net_conn_free (connection *conn, intptr_t service);
@@ -115,6 +115,7 @@ static reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name, t
 static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str);
 static bool         client_is_extern (const mg_addr *addr);
 static bool         client_handler (mg_connection *c, intptr_t service, int ev);
+static int          http_logf (const mg_connection *c, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
 const char         *mg_unpack (const char *path, size_t *size, time_t *mtime);
 
 /**
@@ -260,8 +261,8 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     modeS_net_services [service].url = url;
 
     if (HTTP_SERVICE(service))
-         c = mg_http_listen (&Modes.mgr, url, net_handler, (void*)service);
-    else c = mg_listen (&Modes.mgr, url, net_handler, (void*)service);
+         c = mg_http_listen (&Modes.mgr, url, net_ev_handler, (void*)service);
+    else c = mg_listen (&Modes.mgr, url, net_ev_handler, (void*)service);
   }
   else
   {
@@ -285,7 +286,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
            url, net_handler_descr(service));
 
     net_timer_add (service, timeout, MG_TIMER_ONCE);
-    c = mg_connect (&Modes.mgr, url, net_handler, (void*)service);
+    c = mg_connect (&Modes.mgr, url, net_ev_handler, (void*)service);
   }
 
   if (Modes.https_enable)
@@ -990,9 +991,60 @@ static void tls_error (intptr_t service, const char *err)
 }
 
 /**
+ * The HTTP log-handler called from `net_ev_handler()` and `client_handler()`.
+ * Log only external clients and show lines like:
+ * ```
+ *  ip-addr  [28/May/2026:10:27:10]: < accept | error | GET /xxx >
+ * ```
+ */
+static int http_logf (const mg_connection *c, const char *fmt, ...)
+{
+  char        buf [1000];
+  char       *p = buf;
+  char       *end = p + sizeof(buf) - 1;
+  ip_address  ip_buf;
+  time_t      now;
+  va_list     args;
+
+  if (!Modes.http_log || !client_is_extern(&c->rem))
+     return (0);
+
+  p += snprintf (p, end - p, "%-16s ", net_str_addr(&c->rem, ip_buf, sizeof(ip_buf)));
+
+  now = time (NULL);
+  p += strftime (p, end - p, "[%d/%b/%Y:%X]: ", localtime(&now));
+
+  va_start (args, fmt);
+  p += vsnprintf (p, end - p, fmt, args);
+  va_end (args);
+
+  if (p < end)
+     *p++ = '\n';
+
+  return fwrite (buf, 1, p - buf, Modes.http_log);
+}
+
+static void http_log_open (void)
+{
+  if (Modes.http_log_enable && Modes.http_log_name)
+     Modes.http_log = fopen_excl (Modes.http_log_name, "at");
+}
+
+static void http_log_close (void)
+{
+  if (Modes.http_log)
+     fclose (Modes.http_log);
+
+  free (Modes.http_log_name);
+  Modes.http_log        = NULL;
+  Modes.http_log_name   = NULL;
+  Modes.http_log_enable = false;
+}
+
+/**
  * The event handler for ALL network I/O.
  */
-static void net_handler (mg_connection *c, int ev, void *ev_data)
+static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
 {
   connection  *conn;
   char        *remote;
@@ -1167,7 +1219,10 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     conn = connection_get (c, service, true);
     net_conn_free (conn, service);
     modeS_net_services [service].num_connections--;
-    modeS_net_services [service].active_send = false;  // !!
+
+    /* TODO: if there are 0 clients, set this to false
+     */
+//  modeS_net_services [service].active_send = false;
     return;
   }
 
@@ -1177,6 +1232,8 @@ static void net_handler (mg_connection *c, int ev, void *ev_data)
     mg_ws_message   *ws = ev_data;
     mg_http_uri      request_uri;
     int              status;
+
+    http_logf (c, "%.*s %.*s", (int)hm->method.len, hm->method.buf, (int)hm->uri.len, hm->uri.buf);
 
     if (IS_WEBSOCKET_EVENT(ev))
     {
@@ -1813,6 +1870,9 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
 
     if (Modes.https_enable && HTTP_SERVICE(service) && tls_handler(c, NULL))
        is_tls = ", TLS";
+
+    if (HTTP_SERVICE(service))
+       http_logf (c, "accept");
 
     if (client_is_extern(addr))           /* Not from '127.x.y.z' or '::1' */
     {
@@ -3001,6 +3061,8 @@ bool net_init (void)
 
   test_mode = test_contains (Modes.tests, "net");
 
+  http_log_open();
+
   snprintf (web_dll, sizeof(web_dll), "%s/%s", Modes.web_root, Modes.web_page);
   strlwr (web_dll);
 
@@ -3112,6 +3174,7 @@ bool net_init (void)
 
   if (Modes.dns4)
      Modes.mgr.dns4.url = Modes.dns4;
+
   if (Modes.dns6)
      Modes.mgr.dns6.url = Modes.dns6;
 
@@ -3184,7 +3247,7 @@ bool net_init (void)
 
   /**
    * Work around the issue of `WSAEADDRINUSE` from a `listen()` call.
-   * Ignore this if  with `raw_ingore` and/or `sbs_ignore`.
+   * Ignore this with `raw_ignore` and/or `sbs_ignore`.
    */
 
   bool  raw_ignore = net_handler_port (MODES_NET_SERVICE_RAW_IN) == net_handler_port (MODES_NET_SERVICE_RAW_OUT);
@@ -3249,6 +3312,8 @@ bool net_exit (void)
   unload_web_dll();
   free (lookup_table);
 #endif
+
+  http_log_close();
 
   net_flush_all();
   net_timer_del_all();
@@ -3636,13 +3701,13 @@ static bool dns_send_PTR (mg_connection *c, const reverse_rec *rr)
   DWORD size = sizeof(packet);
   BOOL  rc;
 
+  const mg_addr      *a = &rr->addr;
   DNS_MESSAGE_BUFFER *dm = (DNS_MESSAGE_BUFFER*) &packet;
 
   assert (rr->addr.is_ip6 == false);
 
   snprintf (request, sizeof(request), "%d.%d.%d.%d.in-addr.arpa",
-            rr->addr.addr.ip[3], rr->addr.addr.ip[2],
-            rr->addr.addr.ip[1], rr->addr.addr.ip[0]);
+            a->addr.ip[3], a->addr.ip[2], a->addr.ip[1], a->addr.ip[0]);
 
   rc = DnsWriteQuestionToBuffer_UTF8 (dm, &size, request, DNS_TYPE_PTR, rr->txnid, TRUE);
 
