@@ -98,9 +98,6 @@ void raw_out_send (const modeS_message *mm)
   char  msg [10 + 2*MODES_LONG_MSG_BYTES];
   char *p = msg;
 
-  if (!net_handler_sending(MODES_NET_SERVICE_RAW_OUT))
-     return;
-
   *p++ = '*';
   mg_hex_lower (&mm->msg, mm->msg_bits/8, p);
   p = strchr (p, '\0');
