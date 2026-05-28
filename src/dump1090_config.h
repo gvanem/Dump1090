@@ -2,8 +2,8 @@
  * A simple config-file that gets force-included for *all*
  * .c-files in Dump1090.
  *
- * Ref. option `-FI./dump1090_config.h` in 'Makefile.Windows'
- *      or `--include ./dump1090_config.h` in 'Makefile.MinGW'.
+ * Ref. option `-FI./dump1090_config.h` in `Makefile.Windows`
+ *      or `--include ./dump1090_config.h` in `Makefile.MinGW`.
  */
 #pragma once
 
@@ -53,8 +53,10 @@
 
   /*
    * Assume MinGW-w64 do have `bsearch_s()`.
+   * But ignore if not found in a header.
    */
   #define HAVE_BSEARCH_S 1
+  #pragma gcc diagnostic ignored "-Wimplicit-function-declaration"
 
 #elif defined(_MSC_VER)
  /*
@@ -181,7 +183,7 @@
  */
 #define _USE_MATH_DEFINES 1
 
-/** To pull in 'rand_s()'
+/** To pull in `rand_s()`
  */
 #define _CRT_RAND_S  1
 
@@ -227,7 +229,7 @@
   #include <crtdbg.h>
 #else
   /**
-   * Drop the dependency on 'oldnames.lib'
+   * Drop the dependency on `oldnames.lib`
    */
   #define strdup(s)  _strdup (s)
 #endif
@@ -245,7 +247,7 @@
 #define MG_TLS_SSLKEYLOGFILE    1  /* Enable logging to `$(SSLKEYLOGFILE)` */
 
 /**
- * Showing airport names correctly in `--interactive' mode needs
+ * Showing airport names correctly in `--interactive` mode needs
  * Wide-string and UTF8 in PDCurses.
  */
 #define PDC_WIDE       1
@@ -306,7 +308,7 @@
   #endif
 
   /**
-   * 'RC_BITS' is defined 'Makefile.Windows' or 'Makefile.MinGW' to '32' or '64'.
+   * `RC_BITS` is defined `Makefile.Windows` or `Makefile.MinGW` to `32` or `64`.
    */
   #define RC_VER_STRING  PROG_VERSION  " (" RC_BUILDER ", " _STR(RC_BITS) "-bits, " RC_DBG_REL ")"
   #define RC_VERSION     VER_MAJOR, VER_MINOR, VER_MICRO, 0

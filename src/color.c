@@ -52,10 +52,7 @@
 #define DISABLE_NEWLINE_AUTO_RETURN 0x0008
 #endif
 
-static bool  c_use_colours      = true;
-static bool  c_use_ansi_colours = false;
-static bool  c_raw_mode         = false;
-
+static bool  c_use_colours, c_use_ansi_colours, c_raw_mode;
 static char  c_buf [C_BUF_SIZE];
 static char *c_head = NULL, *c_tail = NULL;
 static FILE *c_out = NULL;
@@ -184,18 +181,22 @@ static void C_exit (void)
  *
  *  + Get the console-buffer information from Windows Console.
  *  + If the console is not redirected:
- *      1. get the screen height and width.
- *      2. setup the colour_map[] array and the
- *         colour_map_ansi[] array. Even if ANSI output is \b not wanted.
- *  + Set c_out to default `stdout` and setup buffer head and tail.
+ *      1. Get the screen height and width.
+ *      2. Setup the `colour_map[]` and `colour_map_ansi[]` arrays.
+ *         Even if ANSI output is \b not wanted.
+ *  + Set `c_out` to default `stdout` and setup buffer head and tail.
  *  + Initialise the critical-section structure `c_crit`.
  */
 static void C_init (void)
 {
-  bool okay;
+  bool  okay;
+  DWORD mode;
+  BOOL  rc;
 
-  if (c_head && c_out)  /* already done this */
+  if (c_head && c_out)    /* already done this */
      return;
+
+  c_use_colours = false;  /* assume stdout is redirected */
 
   c_handle = GetStdHandle (STD_OUTPUT_HANDLE);
   okay = (c_handle != INVALID_HANDLE_VALUE &&
@@ -206,6 +207,8 @@ static void C_init (void)
   {
     WORD bg = console_info.wAttributes & ~7;
 
+    c_use_colours = true;
+
     C_init_colour_map ((bg + 3) | FOREGROUND_INTENSITY,    /* "~1" -> bright cyan */
                        (bg + 2) | FOREGROUND_INTENSITY,    /* "~2" -> bright green */
                        (bg + 6) | FOREGROUND_INTENSITY,    /* "~3" -> bright yellow */
@@ -215,16 +218,9 @@ static void C_init (void)
                        (bg + 3),                           /* "~7" -> dark cyan */
                        (16*4 + 7) | FOREGROUND_INTENSITY,  /* "~8" -> white on red background */
                        0);
-  }
-  else
-    c_use_colours = false;
 
-  if (c_use_colours)
-  {
-    DWORD mode = 0;
-    BOOL  rc;
-
-    if (GetConsoleMode (c_handle, &mode) && (mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING))
+    mode = 0;
+    if (GetConsoleMode(c_handle, &mode) && (mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING))
     {
       c_use_ansi_colours = true;
 
