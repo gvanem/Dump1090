@@ -665,29 +665,10 @@ static void get_est_home_distance (aircraft *a, const char **km_nmiles)
 }
 
 /*
- * Called every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`) to update
- * the Console Windows Title.
- *
- * Called from `background_tasks()` in the main thread.
- * Show special statistics for RAW-IN / SBS.
+ * Show statistics for a physical or a RTL-TCP device.
  */
-void interactive_title_stats (void)
+static int interactive_phys_stats (void)
 {
-  if (Modes.sbs_in)
-  {
-    modeS_SetConsoleTitlef ("Dev: %s. SBS: %llu",
-                            net_handler_url(MODES_NET_SERVICE_SBS_IN),
-                            Modes.stat.SBS_good + Modes.stat.SBS_bad);
-    return;
-  }
-  if (Modes.raw_in)
-  {
-    modeS_SetConsoleTitlef ("Dev: %s. RAW: %llu",
-                            net_handler_url(MODES_NET_SERVICE_RAW_IN),
-                            Modes.stat.RAW_good + Modes.stat.RAW_bad + Modes.stat.RAW_empty);
-    return;
-  }
-
   #define GAIN_TOO_LOW   " (too low?)"
   #define GAIN_TOO_HIGH  " (too high?)"
   #define GAIN_ERASE     "            "
@@ -698,6 +679,7 @@ void interactive_title_stats (void)
   static char    *overload = GAIN_ERASE;
   uint64_t        good_CRC = Modes.stat.CRC_good + Modes.stat.CRC_fixed;
   uint64_t        bad_CRC  = Modes.stat.CRC_bad;
+  const char     *dev = Modes.rtl_tcp_in ? net_handler_url(MODES_NET_SERVICE_RTL_TCP) : Modes.selected_dev;
 
   if (Modes.gain_auto)
        strcpy (gain, "Auto");
@@ -724,9 +706,34 @@ void interactive_title_stats (void)
   last_good_CRC = good_CRC;
   last_bad_CRC  = bad_CRC;
 
-  modeS_SetConsoleTitlef ("Dev: %s. CRC: %llu / %llu. Gain: %s%s",
-                          Modes.rtl_tcp_in ? net_handler_url(MODES_NET_SERVICE_RTL_TCP) : Modes.selected_dev,
-                          good_CRC, bad_CRC, gain, overload);
+  return modeS_SetConsoleTitlef ("Dev: %s. CRC: %llu / %llu. Gain: %s%s",
+                                 dev, good_CRC, bad_CRC, gain, overload);
+}
+
+/*
+ * Called every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`) to update
+ * the Console Windows Title.
+ *
+ * Called from `background_tasks()` in the main thread.
+ * Show special statistics for RAW-IN / SBS.
+ */
+int interactive_title_stats (void)
+{
+  bool have_phys_dev = (Modes.rtlsdr.device || Modes.rtl_tcp_in ||
+                        Modes.sdrplay.device || Modes.airspy.device);
+
+  if (have_phys_dev)
+     return interactive_phys_stats();
+
+  if (Modes.sbs_in)
+     return modeS_SetConsoleTitlef ("Dev: %s. SBS: %llu",
+                                    net_handler_url(MODES_NET_SERVICE_SBS_IN),
+                                    Modes.stat.SBS_good + Modes.stat.SBS_bad);
+  if (Modes.raw_in)
+     return modeS_SetConsoleTitlef ("Dev: %s. RAW: %llu",
+                                    net_handler_url(MODES_NET_SERVICE_RAW_IN),
+                                    Modes.stat.RAW_good + Modes.stat.RAW_bad + Modes.stat.RAW_empty);
+  return (0);
 }
 
 /*
@@ -763,59 +770,63 @@ void interactive_other_stats (void)
 
 static int gain_increase (int gain_idx)
 {
-  if (Modes.rtlsdr.device && gain_idx < Modes.rtlsdr.gain_count-1)
+  uint16_t old_gain = Modes.gain;
+
+  if (Modes.rtlsdr.device && gain_idx < Modes.rtlsdr.gain_count - 1)
   {
     Modes.gain = Modes.rtlsdr.gains [++gain_idx];
     rtlsdr_set_tuner_gain (Modes.rtlsdr.device, Modes.gain);
-    LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
-  else if (Modes.rtl_tcp_in && gain_idx < Modes.rtltcp.gain_count-1)
+  else if (Modes.rtl_tcp_in && gain_idx < Modes.rtltcp.gain_count - 1)
   {
     Modes.gain = Modes.rtltcp.gains [++gain_idx];
     rtl_tcp_set_gain (Modes.rtl_tcp_in, Modes.gain);
-    LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
-  else if (Modes.sdrplay.device && gain_idx < Modes.sdrplay.gain_count-1)
+  else if (Modes.sdrplay.device && gain_idx < Modes.sdrplay.gain_count - 1)
   {
     Modes.gain = Modes.sdrplay.gains [++gain_idx];
     sdrplay_set_gain (Modes.sdrplay.device, Modes.gain);
-    LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
-  else if (Modes.airspy.device && gain_idx < Modes.airspy.gain_count-1)
+  else if (Modes.airspy.device && gain_idx < Modes.airspy.gain_count - 1)
   {
     Modes.gain = Modes.airspy.gains [++gain_idx];
     airspy_set_gain (Modes.airspy.device, Modes.gain);
-    LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
+
+  if (Modes.gain != old_gain)
+     LOG_FILEONLY ("Increasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
+
   return (gain_idx);
 }
 
 static int gain_decrease (int gain_idx)
 {
+  uint16_t old_gain = Modes.gain;
+
   if (Modes.rtlsdr.device && gain_idx > 0)
   {
     Modes.gain = Modes.rtlsdr.gains [--gain_idx];
     rtlsdr_set_tuner_gain (Modes.rtlsdr.device, Modes.gain);
-    LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
   else if (Modes.rtl_tcp_in && gain_idx > 0)
   {
     Modes.gain = Modes.rtltcp.gains [--gain_idx];
     rtl_tcp_set_gain (Modes.rtl_tcp_in, Modes.gain);
-    LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
   else if (Modes.sdrplay.device && gain_idx > 0)
   {
     Modes.gain = Modes.sdrplay.gains [--gain_idx];
     sdrplay_set_gain (Modes.sdrplay.device, Modes.gain);
-    LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
   else if (Modes.airspy.device && gain_idx > 0)
   {
     Modes.gain = Modes.airspy.gains [--gain_idx];
     airspy_set_gain (Modes.airspy.device, Modes.gain);
-    LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
   }
+
+  if (Modes.gain != old_gain)
+     LOG_FILEONLY ("Decreasing gain to %.1f dB.\n", (double)Modes.gain / 10.0);
+
   return (gain_idx);
 }
 
