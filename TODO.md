@@ -8,6 +8,9 @@
 
 * Add *Hack-RF* support.
 
+* Add support for [**SDRConnect**](https://www.sdrplay.com/sdrconnect-module-system-and-examples/) via WebSocket.
+  I.e. get the raw-data from a machine running **SDRConnect**.
+
 * Improve the default web interface [`web_root/index.html`](web_root/index.html).
 
 * Make a working web-socket implementation for the Web-clients.
@@ -16,7 +19,7 @@
 
 * Enhance the algorithm to reliably decode more messages.
 
-* Add support for [`USB/IP`](https://www.kernel.org/doc/html/latest/usb/usbip_protocol.html).
+* Add support for [**USB/IP**](https://www.kernel.org/doc/html/latest/usb/usbip_protocol.html).
   I.e. get the USB-data from a remote Linux host.
 
 * Improve **SBS** (*Serving Base Station*) messages when we're it's client. <br>
