@@ -35,6 +35,12 @@ USE_BIN_FILES ?= 0
 USE_NET_POLLER ?= WSAPOLL
 
 #
+# Enable SDRConnect code in 'externals/SDRconnect' which let
+# a (remote) SDRConnect program feed 'net_io.c' with data over WebSocket.
+#
+USE_SDRCONNECT ?= 0
+
+#
 # Enable bundling *all* web_root pages inside '../web-pages.dll' as multiple resources.
 # Use e.g. as '../web-pages.dll;2' for '../web_root-FlightAware/*' as web-root.
 #
@@ -165,9 +171,14 @@ ifeq ($(USE_CRT_DEBUG),1)
 else
   #
   # Disable calls to '__chkstk()' by assuming no local variable is
-  # larger than 100000 bytes.
+  # larger than 800000 bytes. Otherwise it bombs at runtime.
   #
-  CFLAGS += -MD -Zo -Oy- -Ox -Gs100000
+  CFLAGS += -MD -Zo -Oy- -Ox -Gs1000000
+
+  #
+  # And reserve 2 Mbyte stack.
+  #
+  LDFLAGS += -stack:2000000,2000000
 endif
 
 ifeq ($(CC),clang-cl)
@@ -332,6 +343,13 @@ SOURCES += $(addprefix externals/RTLSDR/, \
 
 vpath %.c  externals/PDC-Mod
 SOURCES += externals/PDC-Mod/amalgamation.c
+
+ifeq ($(USE_SDRCONNECT),1)
+  vpath %.c  externals/SDRconnect
+  SOURCES += externals/SDRconnect/sdrconnect.c
+  CFLAGS  += -DUSE_SDRCONNECT
+  RCFLAGS += -DUSE_SDRCONNECT
+endif
 
 #
 # For '../web-pages.dll':
@@ -569,10 +587,10 @@ gen_favicons: favicon.png favicon.ico
 # For '../dump1090.exe -VV':
 #
 $(OBJ_DIR)/cflags_$(CC).h: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate_cflags_h, $@, $(_CC) $(CFLAGS))
+	$(call generate_c, $@, const char *cflags = "$(_CC) $(CFLAGS)";)
 
 $(OBJ_DIR)/ldflags_$(CC).h: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate_ldflags_h, $@, link $(LDFLAGS) -out:dump1090.exe $(OBJECTS) $(OBJ_DIR)/dump1090.res $(OS_LIBS) $(ASAN_LIBS))
+	$(call generate_c, $@, const char *ldflags = "link $(LDFLAGS) -out:dump1090.exe $(OBJECTS) $(OBJ_DIR)/dump1090.res $(OS_LIBS) $(ASAN_LIBS)";)
 
 docs: doxy-docs doxy-docs/Doxyfile
 	$(call green_white_msg, Running, doxygen doxy-docs/Doxyfile)
@@ -588,7 +606,7 @@ clean_docs:
 
 doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call generate, $@, #)
-	$(file >> $@,$(DUMP1090_DOXYFILE))
+	$(file >> $@, $(DUMP1090_DOXYFILE))
 
 speech_test.i: speech.c $(OBJ_DIR)/cpp-filter.py $(CC).args FORCE
 	$(call C_preprocess, $@, -DTEST $<)
@@ -734,14 +752,6 @@ define generate_py
   $(file >> $(1),$(2))
 endef
 
-define generate_cflags_h
-  $(call generate_c, $(1), const char *cflags = "$(strip $(2))";)
-endef
-
-define generate_ldflags_h
-  $(call generate_c, $(1), const char *ldflags = "$(strip $(2))";)
-endef
-
 #
 # Ignore any "README*" file and temp-files matching "t.*"
 #
@@ -795,30 +805,34 @@ DOXY_SOURCES = $(filter-out externals/sqlite3.c               \
 
 DOXY_SOURCES := $(addprefix ../, $(DOXY_SOURCES))
 
-DOXY_HEADERS = ../aircraft.h                 \
-               ../airports.h                 \
-               ../cfg_file.h                 \
-               ../convert.h                  \
-               ../cpr.h                      \
-               ../csv.h                      \
-               ../crc.h                      \
-               ../demod.h                    \
-               ../dump1090_config.h          \
-               ../fifo.h                     \
-               ../geo.h                      \
-               ../interactive.h              \
-               ../location.h                 \
-               ../misc.h                     \
-               ../net_io.h                   \
-               ../raw-sbs.h                  \
-               ../sdrplay.h                  \
-               ../smartlist.h                \
-               ../speech.h                   \
-               ../externals/RTLSDR/rtl-sdr.h \
-               ../externals/RTLSDR/rtl-tcp.h \
-               ../externals/zip.h
+DOXY_HEADERS = ../aircraft.h                  \
+               ../airports.h                  \
+               ../cfg_file.h                  \
+               ../color.h                     \
+               ../convert.h                   \
+               ../cpr.h                       \
+               ../crc.h                       \
+               ../csv.h                       \
+               ../demod.h                     \
+               ../dump1090_config.h           \
+               ../fifo.h                      \
+               ../geo.h                       \
+               ../infile.h                    \
+               ../interactive.h               \
+               ../location.h                  \
+               ../misc.h                      \
+               ../net_io.h                    \
+               ../raw-sbs.h                   \
+               ../smartlist.h                 \
+               ../speech.h                    \
+               ../externals/zip.h             \
+               ../externals/AirSpy/airspy.h   \
+               ../externals/RTLSDR/rtl-sdr.h  \
+               ../externals/RTLSDR/rtl-tcp.h  \
+               ../externals/SDRplay/sdrplay.h
 
 define DUMP1090_DOXYFILE
+
   PROJECT_NAME          = "Dump1090"
   PROJECT_LOGO          = ../dump1090.ico
   STRIP_FROM_PATH       = $(CURDIR)/
@@ -852,6 +866,7 @@ define DUMP1090_DOXYFILE
 endef
 
 define WEB_PAGES_RC
+
   #include <winver.h>
   #include "dump1090_config.h"
 
