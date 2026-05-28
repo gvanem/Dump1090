@@ -7,7 +7,7 @@ Inspired by Mongoose' 'test/pack.c' program.
 import os, sys, stat, time, fnmatch, argparse, inspect
 
 try:
-  import csscompressor, htmlmin, jsmin, io
+  import csscompressor, jsmin, io, minify_html as htmlmin
   have_minify = True
 except ImportError:
   have_minify = False
@@ -86,10 +86,10 @@ def dump_hex (in_file, out_file, data, data_len, len_in, num):
   out_file.write ("static const unsigned char file%d [] = {\n" % num)
   for i in range(0, data_len):
       c = data [i]
-      if ord(c) > 0xFF:
-         _abort (f"ord(c) > 0xFF at file: {in_file}, pos: {n}")
-       # out_file.write ("0x%02X," % (ord(c) >> 8))
-      out_file.write ("0x%02X," % ord(c))
+      if ord(c) >= 0x100:
+         out_file.write ("0x%02X,0x%02X," % (ord(c) >> 8, ord(c) & 256))
+      else:
+         out_file.write ("0x%02X," % ord(c))
       if (i + 1) % 16 == 0:
          out_file.write ("\n")
   out_file.write ("0x00\n};\n\n")
@@ -106,7 +106,7 @@ def generate_array_css (in_file, out_file, num):
 def generate_array_html (in_file, out_file, num):
   with open (in_file, "r") as f:
        data_in  = f.read (-1)
-       data_out = htmlmin.minify (data_in, remove_comments = True, remove_empty_space = False)
+       data_out = htmlmin.minify (data_in, minify_js = True, remove_processing_instructions = True)
        len_in   = len(data_in)
        len_out  = len(data_out)
        dump_hex (in_file, out_file, data_out, len_out, len_in, num)
