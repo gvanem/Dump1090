@@ -11,7 +11,8 @@
 #define VER_MINOR 4
 #define VER_MICRO 8
 
-/* Warning control:
+/**
+ * Warning control:
  */
 #define BUILD_WINDOWS                   1
 #define _WINSOCK_DEPRECATED_NO_WARNINGS 1
@@ -166,30 +167,37 @@
 
 #define PROG_VERSION  _STR(VER_MAJOR) "." _STR(VER_MINOR) "." _STR(VER_MICRO)
 
-/** Do not add `__declspec(dllexport)` on `externals/RTLSDR/` functions.
+/**
+ * Do not add `__declspec(dllexport)` on `externals/RTLSDR/` functions.
  */
-#define rtlsdr_STATIC    1
+#define rtlsdr_STATIC  1
 
-/** Prefer `_gettimeofday` over `GetTickCount64()`.
+/**
+ * Prefer `_gettimeofday` over `GetTickCount64()`.
  */
-#define USE_gettimeofday 1
+#define USE_gettimeofday  1
 
 #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0602)
   #undef  _WIN32_WINNT
   #define _WIN32_WINNT 0x0602   /* == _WIN32_WINNT_WIN8 */
 #endif
 
-/** To pull in `M_PI` in `<math.h>`
+/**
+ * To pull in `M_PI` in `<math.h>`
  */
-#define _USE_MATH_DEFINES 1
+#define _USE_MATH_DEFINES  1
 
-/** To pull in `rand_s()`
+/**
+ * To pull in `rand_s()`
  */
 #define _CRT_RAND_S  1
 
-/** Drop some stuff not needed in `externals/zip.c`:
+/**
+ * Drop some stuff not needed in `externals/zip.c`.
+ * We need no compression support. Only decompression.
  */
 #define MINIZ_NO_ZLIB_APIS  1
+#define ZIP_ENABLE_DEFLATE  0
 
 /**
  * clang-cl with `ASAN` may not like this in `externals/miniz.h`:
