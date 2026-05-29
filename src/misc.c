@@ -30,6 +30,17 @@
 
 #define TSIZE (int)(sizeof("HH:MM:SS.MMM: ") - 1)
 
+#if defined(__clang__) || defined(__GNUC__)
+  #define strdupa(s)  (__extension__ ({ \
+                       const char *s_in = (s);                \
+                       size_t      s_len = strlen (s_in) + 1; \
+                       char       *s_out = alloca (s_len);    \
+                       (char*) memcpy (s_out, s_in, s_len);   \
+                      }))
+#else
+  #define strdupa(s)  strcpy (alloca(strlen(s) + 1), s)
+#endif
+
 static bool modeS_log_reinit (const SYSTEMTIME *st);
 static bool modeS_log_ignore (const char *msg);
 static void warnx (const char *fmt, ...);
@@ -964,33 +975,31 @@ const wchar_t *u8_format (const char *s, int min_width)
 
 /**
  * Add or initialize a test-list at `*spec` from `which`.
+ * First check if `which` contains commas. If so, split it into words.
  */
 bool test_add (char **spec, const char *which)
 {
-  char *s;
+  char *s = NULL;
+  char *p, *end, *which2;
 
   assert (spec);
   assert (which);
 
-  if (!*spec)
-       s = mg_mprintf ("%s", which);
-  else s = mg_mprintf ("%s,%s", *spec, which);
+  which2 = strdupa (which);
 
-  free (*spec);
-  *spec = s;
+  for (p = str_tokenize(which2, ", ", &end); p; p = str_tokenize(NULL, ", ", &end))
+  {
+    DEBUG (DEBUG_GENERAL, "test_add(): '%s'\n", p);
+
+    if (!*spec)
+         s = mg_mprintf ("%s", p);
+    else s = mg_mprintf ("%s,%s", *spec, p);
+
+    free (*spec);
+    *spec = s;
+  }
   return (s ? true : false);
 }
-
-#if defined(__clang__) || defined(__GNUC__)
-  #define strdupa(s)  (__extension__ ({ \
-                       const char *s_in = (s);                \
-                       size_t      s_len = strlen (s_in) + 1; \
-                       char       *s_out = alloca (s_len);    \
-                       (char*) memcpy (s_out, s_in, s_len);   \
-                      }))
-#else
-  #define strdupa(s)  strcpy (alloca(strlen(s) + 1), s)
-#endif
 
 /**
  * Check if the test-list at `spec` contains the test `which`.
