@@ -809,36 +809,20 @@ static int API_cache_callback (struct CSV_context *ctx, const char *value)
 
 static void API_trace (unsigned line, const char *fmt, ...)
 {
-  char    buf [200], *ptr = buf;
-  int     len, left = (int)sizeof(buf);
+  char    buf [200], *p = buf;
+  char   *end = buf + sizeof(buf) - 1;
   va_list args;
 
   EnterCriticalSection (&Modes.print_mutex);
 
-#if 0
-  char *buf2 = NULL;
-
-  modeS_asprintf (&buf2, "%s(%u, %s): ", __FILE__, line,
-                  GetCurrentThreadId() == g_data.thread_id ? "API-thread" : "main-thread");
+  p += snprintf (p, end - p, "%s(%u, %s): ",
+                 __FILE__, line, GetCurrentThreadId() == g_data.thread_id ?
+                 "API-thread" : "main-thread");
 
   va_start (args, fmt);
-  modeS_vasprintf (&buf2, fmt, args);
-  va_end (args);
-  modeS_flog (stdout, buf2);
-  free (buf2);
-
-#else
-  len = snprintf (ptr, left, "%s(%u, %s): ",
-                  __FILE__, line, GetCurrentThreadId() == g_data.thread_id ?
-                  "API-thread" : "main-thread");
-  ptr  += len;
-  left -= len;
-
-  va_start (args, fmt);
-  vsnprintf (ptr, left, fmt, args);
+  vsnprintf (p, end - p, fmt, args);
   va_end (args);
   modeS_flog (stdout, buf);
-#endif
 
   LeaveCriticalSection (&Modes.print_mutex);
 }
@@ -1026,7 +1010,7 @@ static bool airports_API_parse_response (flight_info *f, char *resp)
  *
  * \ref https://github.com/vradarserver/standing-data/blob/main/routes/schema-01/README.md?plain=1#L18-L26
  */
-static bool normalize_callsign (char *normalized, const char *call_sign)
+static bool normalize_callsign (char *normalized, size_t normalized_sz, const char *call_sign)
 {
   char alpha1 [10];
   char alpha2 [10] = { '\0' };
@@ -1034,10 +1018,10 @@ static bool normalize_callsign (char *normalized, const char *call_sign)
 
   if (sscanf(call_sign, "%[A-Z]%d%[A-Z]", alpha1, &num, alpha2) < 2)
   {
-    strcpy (normalized, call_sign);
+    strncpy (normalized, call_sign, normalized_sz - 1);
     return (false);
   }
-  snprintf (normalized, 10, "%s%d%s", alpha1, num, alpha2);
+  snprintf (normalized, normalized_sz, "%s%d%s", alpha1, num, alpha2);
   return (true);
 }
 
@@ -1060,7 +1044,7 @@ static bool API_thread_worker (flight_info *f)
    *
    * The call-sign in the request must be normalized first.
    */
-  f->normalized = normalize_callsign (normalized, f->call_sign);
+  f->normalized = normalize_callsign (normalized, sizeof(normalized), f->call_sign);
 
   snprintf (request, sizeof(request), API_SERVICE_URL, f->call_sign, normalized);
 
@@ -1995,7 +1979,7 @@ static void airport_normalize_test (void)
     char norm [10];
     bool okay;
 
-    normalize_callsign (norm, t->before);
+    normalize_callsign (norm, sizeof(norm), t->before);
     okay = (strcmp (norm, tests[i].after) == 0);
     printf ("  %-8s -> %-8s  %s", tests [i].before, norm, okay ? "OK" : "FAIL");
     if (!okay)
