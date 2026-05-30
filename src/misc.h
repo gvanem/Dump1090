@@ -30,6 +30,13 @@
 #define STDIN_FILENO       0
 
 /**
+ * \def PHYS_DEVICE()
+ * Using a physical device.
+ */
+#define PHYS_DEVICE() (Modes.rtlsdr.device || Modes.sdrplay.device || \
+                       Modes.airspy.device || Modes.infile_fd > -1)
+
+/**
  * Network services indices; `global_data::connections [N]`:
  */
 #define MODES_NET_SERVICE_RAW_OUT   0
@@ -164,7 +171,7 @@ typedef struct mg_ws_message      mg_ws_message;
 typedef struct mg_http_serve_opts mg_http_serve_opts;
 typedef char                      mg_file_path [MG_PATH_MAX];
 typedef char                      mg_host_name [200];
-typedef char                      mg_http_uri [256];
+typedef char                      mg_http_uri [512];
 
 /**
  * Structure used to describe a network connection,
@@ -178,6 +185,7 @@ typedef struct connection {
         ULONG              id;                /**< copy of `mg_connection::id` */
         bool               keep_alive;        /**< client request contains "Connection: keep-alive" */
         bool               encoding_gzip;     /**< gzip compressed client data (not yet) */
+        uint64_t           HTTP_bytes_sent;   /**< Bytes in body sent to this HTTP-client. For `http_logf()` */
         struct connection *next;              /**< next connection in this list for this service */
       } connection;
 
@@ -191,8 +199,8 @@ typedef struct net_service {
         uint16_t         port;             /**< The port number */
         mg_host_name     host;             /**< The host name/address if `Modes.net_active == true` */
         uint32_t         num_connections;  /**< Number of clients/servers connected to this service */
-        mg_timer        *timer;            /**< For handling timeout in the network service. */
-        bool             active_send;      /**< We are the sending side. Never duplex. */
+        mg_timer        *timer;            /**< For handling timeout in the network service */
+        bool             active_send;      /**< We are the sending side. Never duplex */
         bool             is_ip6;           /**< The above `host` address is an IPv6 address */
         bool             is_udp;           /**< The above `host` address was prefixed with `udp://` */
         char            *url;              /**< The allocated url for `mg_listen()` or `mg_connect()` */

@@ -719,10 +719,7 @@ static int interactive_phys_stats (void)
  */
 int interactive_title_stats (void)
 {
-  bool have_phys_dev = (Modes.rtlsdr.device || Modes.rtl_tcp_in ||
-                        Modes.sdrplay.device || Modes.airspy.device);
-
-  if (have_phys_dev)
+  if (PHYS_DEVICE() || Modes.rtl_tcp_in)
      return interactive_phys_stats();
 
   if (Modes.sbs_in)
