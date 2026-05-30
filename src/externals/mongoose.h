@@ -1116,10 +1116,10 @@ struct timeval {
 //   make -C tutorials/http/http-server/ CFLAGS_EXTRA=-DMG_ENABLE_PROFILE=1
 //   curl localhost:8000
 // Output:
-//   1ea1f1e7 2 net.c:150:mg_close_conn      3 profile:                                                            
-//   1ea1f1e8 2 net.c:150:mg_close_conn      1ea1f1e6 init                                                         
+//   1ea1f1e7 2 net.c:150:mg_close_conn      3 profile:
+//   1ea1f1e8 2 net.c:150:mg_close_conn      1ea1f1e6 init
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_OPEN
-//   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_ACCEPT 
+//   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_ACCEPT
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_READ
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_HTTP_MSG
 //   1ea1f1e8 2 net.c:150:mg_close_conn          0 EV_WRITE
@@ -2458,8 +2458,8 @@ typedef uint64_t mg_uecc_word_t;
 #ifndef _UECC_VLI_H_
 #define _UECC_VLI_H_
 
-// 
-// 
+//
+//
 
 /* Functions for raw large-integer manipulation. These are only available
    if uECC.c is compiled with MG_UECC_ENABLE_VLI_API defined to 1. */

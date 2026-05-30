@@ -19020,7 +19020,7 @@ cleanup:
 #define REPEATM(N, macro) EVAL(REPEATM_SOME(N, macro))
 #endif
 
-// 
+//
 
 #if (MG_UECC_WORD_SIZE == 1)
 #if MG_UECC_SUPPORTS_secp160r1
@@ -24747,7 +24747,7 @@ static bool mg_tcpip_driver_imxrt_init(struct mg_tcpip_if *ifp) {
   int cr = (d == NULL || d->mdc_cr < 0) ? 24 : d->mdc_cr;
   ENET->MSCR = (1 << 8) | ((cr & 0x3f) << 1);  // HOLDTIME 2 clks
   struct mg_phy phy = {enet_read_phy, enet_write_phy};
-  mg_phy_init(&phy, d->phy_addr, MG_PHY_LEDS_ACTIVE_HIGH); // MAC clocks PHY  
+  mg_phy_init(&phy, d->phy_addr, MG_PHY_LEDS_ACTIVE_HIGH); // MAC clocks PHY
   // Select RMII mode, 100M, keep CRC, set max rx length, disable loop
   ENET->RCR = (1518 << 16) | MG_BIT(8) | MG_BIT(2);
   // ENET->RCR |= MG_BIT(3);     // Receive all
@@ -28019,13 +28019,13 @@ struct tms570_mdio {
 #define ETH_PKT_SIZE 1540  // Max frame size
 #define ETH_DESC_CNT 4     // Descriptors count
 #define ETH_DS 4           // Descriptor size (words)
-static uint32_t s_txdesc[ETH_DESC_CNT][ETH_DS] 
+static uint32_t s_txdesc[ETH_DESC_CNT][ETH_DS]
   __attribute__((section(".ETH_CPPI"), aligned(4)));      // TX descriptors
-static uint32_t s_rxdesc[ETH_DESC_CNT][ETH_DS] 
+static uint32_t s_rxdesc[ETH_DESC_CNT][ETH_DS]
   __attribute__((section(".ETH_CPPI"), aligned(4)));      // RX descriptors
-static uint8_t s_rxbuf[ETH_DESC_CNT][ETH_PKT_SIZE] 
+static uint8_t s_rxbuf[ETH_DESC_CNT][ETH_PKT_SIZE]
   __attribute__((aligned(4)));  // RX ethernet buffers
-static uint8_t s_txbuf[ETH_DESC_CNT][ETH_PKT_SIZE] 
+static uint8_t s_txbuf[ETH_DESC_CNT][ETH_PKT_SIZE]
   __attribute__((aligned(4)));  // TX ethernet buffers
 static struct mg_tcpip_if *s_ifp;                    // MIP interface
 static uint16_t emac_read_phy(uint8_t addr, uint8_t reg) {
@@ -28106,7 +28106,7 @@ static bool mg_tcpip_driver_tms570_init(struct mg_tcpip_if *ifp) {
   }
   s_txdesc[ETH_DESC_CNT - 1][0] = 0;
   s_rxdesc[ETH_DESC_CNT - 1][0] = 0;
-  
+
   EMAC->MACCONTROL = MG_BIT(5) | MG_BIT(0); // Enable MII, Full-duplex
   //EMAC->TXINTMASKSET = 1; // Enable TX interrupt
   EMAC->RXINTMASKSET = 1; // Enable RX interrupt
@@ -28133,7 +28133,7 @@ static size_t mg_tcpip_driver_tms570_tx(const void *buf, size_t len,
     s_txdesc[s_txno][2] = SWAP32((uint32_t) len);  // Set data len
     s_txdesc[s_txno][3] =
         SWAP32(MG_BIT(31) | MG_BIT(30) | MG_BIT(29) | len);  // SOP, EOP, OWN, length
-    
+
     while(EMAC->TXHDP[0] != 0) (void) 0;
     EMAC->TXHDP[0] = (uint32_t) &s_txdesc[s_txno][0];
     if(++s_txno == ETH_DESC_CNT) {
