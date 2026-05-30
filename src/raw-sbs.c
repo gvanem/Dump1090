@@ -85,7 +85,6 @@ static const search_list SBS_types[] = {
                      };
 
 static SBS_msg_t   SBS_message_type (const mg_iobuf *msg);
-static bool        SBS_recv_input (char *msg);
 static const char *SBS_set_timestamp (char *ts);
 static uint64_t    SBS_get_timestamp (const char *ts);
 static int         SBS_decode_msg (const char *fields[], modeS_message *mm);
@@ -202,7 +201,7 @@ void sbs_in_stats (void)
  *
  * It is called from `net_io.c` on a `MG_EV_READ` event from Mongoose.
  * Potentially multiple times until all lines in the event-chunk gets
- * consumes; `loop_cnt` is at-least 0.
+ * consumed; `loop_cnt` is at-least 0.
  *
  * If OK, calls `decode_mode_S_message()` to fill `&mm` and then
  * calls `modeS_user_message (&mm)` for further handling.
@@ -353,9 +352,12 @@ static bool SBS_recv_input (char *msg)
 
   int rc = SBS_decode_msg ((const char**) (fields + 1), &mm);
   if (rc == 0)
-       modeS_user_message (&mm);
-  else DEBUG (DEBUG_RAW_SBS1, "field-error %d\n", rc);
-  return (true);
+  {
+    modeS_user_message (&mm);
+    return (true);
+  }
+  DEBUG (DEBUG_RAW_SBS1, "field-error %d\n", rc);
+  return (false);
 }
 
 /**
@@ -363,7 +365,7 @@ static bool SBS_recv_input (char *msg)
  *
  * It is called from `net_io.c` on a `MG_EV_READ` event from Mongoose.
  * Potentially multiple times until all lines in the event-chunk gets
- * consumes; `loop_cnt` is at-least 0.
+ * consumed; `loop_cnt` is at-least 0.
  *
  * This function shall decode a string representing a Mode S message
  * in SBS format (Base Station) like:
