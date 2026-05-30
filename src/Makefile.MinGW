@@ -42,7 +42,7 @@ ifeq ($(USE_BIN_FILES),1)
   CFLAGS += -DUSE_BIN_FILES
 endif
 
-LDFLAGS =
+LDFLAGS = -s
 
 #
 # If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
@@ -204,10 +204,10 @@ gcc.args: $(THIS_FILE)
 # For '../dump1090.exe -VV':
 #
 $(OBJ_DIR)/cflags_gcc.h: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate_cflags_h, $@, $(CC) -c $(CFLAGS))
+	$(call generate_c, $@, const char *cflags = "$(CC) -c $(CFLAGS)";)
 
 $(OBJ_DIR)/ldflags_gcc.h: $(THIS_FILE) | $(OBJ_DIR)
-	$(call generate_ldflags_h, $@, $(CC) $(LDFLAGS) -o dump1090.exe $(OBJECTS) $(OBJ_DIR)/dump1090.res $(OS_LIBS))
+	$(call generate_c, $@, const char *ldflags = "$(CC) $(LDFLAGS) -o dump1090.exe $(OBJECTS) $(OBJ_DIR)/dump1090.res $(OS_LIBS)";)
 
 $(OBJ_DIR)/dump1090.res: dump1090_config.h
 
@@ -305,14 +305,6 @@ define generate_py
   $(call generate, $(1),#)
   $(file >> $(1),if 1:)
   $(file >> $(1),$(2))
-endef
-
-define generate_cflags_h
-  $(call generate_c, $(1), const char *cflags = "$(strip $(2))";)
-endef
-
-define generate_ldflags_h
-  $(call generate_c, $(1), const char *ldflags = "$(strip $(2))";)
 endef
 
 #
