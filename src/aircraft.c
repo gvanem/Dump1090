@@ -1028,8 +1028,8 @@ static void aircraft_test_3 (void)
 
   Modes.stat.messages_total = num;
 
-  aircraft_dump_json (aircraft_make_json(false), "json-1.txt");
-  aircraft_dump_json (aircraft_make_json(true), "json-2.txt");
+  aircraft_dump_json (aircraft_make_json(false, NULL), "json-1.txt");
+  aircraft_dump_json (aircraft_make_json(true, NULL), "json-2.txt");
 
   /* Test empty json-data too.
    */
@@ -1038,8 +1038,8 @@ static void aircraft_test_3 (void)
   Modes.aircrafts = smartlist_new();
   if (Modes.aircrafts)
   {
-    aircraft_dump_json (aircraft_make_json(false), "json-3.txt");
-    aircraft_dump_json (aircraft_make_json(true), "json-4.txt");
+    aircraft_dump_json (aircraft_make_json(false, NULL), "json-3.txt");
+    aircraft_dump_json (aircraft_make_json(true, NULL), "json-4.txt");
   }
 }
 
@@ -2370,7 +2370,7 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
  *
  * \sa https://github.com/wiedehopf/readsb/blob/dev/README-json.md
  */
-char *aircraft_make_json (bool extended_client)
+char *aircraft_make_json (bool extended_client, size_t *size_p)
 {
   static uint32_t json_file_num = 0;
   struct timeval  tv_now;
@@ -2383,6 +2383,9 @@ char *aircraft_make_json (bool extended_client)
 
   if (Modes.internal_error)
      return (NULL);
+
+  if (size_p)
+     *size_p = 0;
 
   buf = p = malloc (left);
   if (!buf)
@@ -2461,6 +2464,10 @@ char *aircraft_make_json (bool extended_client)
   if (Modes.log && (Modes.debug & DEBUG_GENERAL2))
      fprintf (Modes.log, "\nJSON dump of file-number %u for %u aircrafts, extended_client: %d:\n%s\n\n",
               json_file_num++, aircrafts, extended_client, buf);
+
+  if (size_p)
+     *size_p = p - buf;
+
   return (buf);
 }
 
@@ -2469,9 +2476,9 @@ char *aircraft_make_json (bool extended_client)
  * describes the receiver:
  *  { "version" : "0.3", "refresh" : 1000, "history" : 3 }
  */
-void aircraft_receiver_json (mg_connection *c)
+void aircraft_receiver_json (mg_connection *c, size_t *size_p)
 {
-  int  history_size = DIM (Modes.json_aircraft_history) - 1;
+  int  len, history_size = DIM (Modes.json_aircraft_history) - 1;
   char buf [200];
 
   /* work out number of valid history entries
@@ -2479,21 +2486,23 @@ void aircraft_receiver_json (mg_connection *c)
   if (!Modes.json_aircraft_history [history_size].buf)
      history_size = Modes.json_aircraft_history_next;
 
-  snprintf (buf, sizeof(buf),
-            "{\"version\": \"%s\", "
-            "\"refresh\": %llu, "
-            "\"history\": %d, "
-            "\"lat\": %.8g, "       /* if 'Modes.home_pos_ok == false', this is 0. */
-            "\"lon\": %.8g}",       /* ditto */
-            PROG_VERSION,
-            Modes.json_interval,
-            history_size,
-            Modes.home_pos.lat,
-            Modes.home_pos.lon);
+  len = snprintf (buf, sizeof(buf),
+                  "{\"version\": \"%s\", "
+                  "\"refresh\": %llu, "
+                  "\"history\": %d, "
+                  "\"lat\": %.8g, "       /* if 'Modes.home_pos_ok == false', this is 0. */
+                  "\"lon\": %.8g}",       /* ditto */
+                  PROG_VERSION,
+                  Modes.json_interval,
+                  history_size,
+                  Modes.home_pos.lat,
+                  Modes.home_pos.lon);
 
   DEBUG (DEBUG_NET2, "Feeding conn-id %lu with receiver-data:\n%.100s\n", c->id, buf);
 
   mg_http_reply (c, 200, MODES_CONTENT_TYPE_JSON "\r\n", buf);
+  if (size_p)
+     *size_p = len;
 }
 
 /**
