@@ -9,7 +9,7 @@
 
 #define VER_MAJOR 0
 #define VER_MINOR 4
-#define VER_MICRO 8
+#define VER_MICRO 9
 
 /**
  * Warning control:
@@ -195,9 +195,11 @@
 /**
  * Drop some stuff not needed in `externals/zip.c`.
  * We need no compression support. Only decompression.
+ * For MinGW-w64, drop support for symlinks.
  */
 #define MINIZ_NO_ZLIB_APIS  1
 #define ZIP_ENABLE_DEFLATE  0
+#define ZIP_HAVE_SYMLINK    0
 
 /**
  * clang-cl with `ASAN` may not like this in `externals/miniz.h`:
