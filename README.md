@@ -221,6 +221,11 @@ You can also run `pyw src/externals/Retro-ADSB-radar/main.py` alongside `dump109
 It could look like in this vide-snippet:
 ![Retro-ADSB-radar](img/dump1090-retro-radar.mp4)
 
+<video width="800" height="600" controls autoplay muted loop>
+<source src="img/dump1090-retro-radar.mp4" type="video/mp4">
+ Your browser does not support the video tag.
+</video>
+
 
 ## Using RTL1090 as RAW source
 
