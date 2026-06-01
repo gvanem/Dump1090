@@ -223,7 +223,7 @@ It could look like in this video-snippet:
 
 <div>
   <video width="800" height="600" controls autoplay muted loop>
-  <source src="img/dump1090-retro-radar.mp4" type="video/mp4">
+  <source src="https://rawcdn.githack.com/gvanem/Dump1090/bfb4075f6d71f60651aef4ccf15ed904bf370466/img/dump1090-retro-radar.mp4" type="video/mp4">
    Your browser does not support the video tag.
   </video>
 </div>
