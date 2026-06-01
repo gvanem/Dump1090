@@ -74,7 +74,7 @@ if %LOCAL_TEST% == 0 (
 
 if %BUILDER%. == MSVC. (
   %_ECHO% "\e[1;33mBuilding for MSVC/x64:\e[0m"
-  make -f Makefile.Windows CC=cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 USE_MP_COMPILE=1 USE_MG_DNS=1 clean all
+  call make -f Makefile.Windows CC=cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 USE_MP_COMPILE=1 USE_MG_DNS=1 clean all
   if not ERRORLEVEL == 0 exit /b 1
   goto run_tests
 )
@@ -85,7 +85,7 @@ if %BUILDER%. == MSVC. (
 if %BUILDER%. == clang. (
   call :install_clang
   %_ECHO% "\e[1;33mBuilding for clang-cl/x64:\e[0m"
-  make -f Makefile.Windows CC=clang-cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 USE_MG_DNS=1 clean all
+  call make -f Makefile.Windows CC=clang-cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 USE_MG_DNS=1 clean all
   if not ERRORLEVEL == 0 exit /b 1
   goto run_tests
 )
@@ -94,7 +94,7 @@ if %BUILDER%. == MinGW. (
   %_ECHO% "\e[1;33mgcc info:\e[0m"
   gcc -v
   %_ECHO% "\e[1;33mBuilding for MinGW/x64:\e[0m"
-  make -f Makefile.MinGW CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 USE_MG_DNS=1 clean all
+  call make -f Makefile.MinGW CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=0 USE_MG_DNS=1 clean all
   if not ERRORLEVEL == 0 exit /b 1
   goto run_tests
 )

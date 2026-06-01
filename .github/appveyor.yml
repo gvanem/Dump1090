@@ -22,7 +22,7 @@ install:
   # Build and do some tests
   #
 build_script:
-    - cmd: cd .github & appveyor-build.bat
+    cmd: cd .github & appveyor-build.bat
 
 #
 # Try to preserve previously 'CI-temp' dir and clang compiler
