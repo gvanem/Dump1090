@@ -975,7 +975,7 @@ const wchar_t *u8_format (const char *s, int min_width)
 
 /**
  * Add or initialize a test-list at `*spec` from `which`.
- * First check if `which` contains commas. If so, split it into words.
+ * Also handle a `which` list containing commas. If so, split it into words at `p`.
  */
 bool test_add (char **spec, const char *which)
 {
@@ -1889,35 +1889,22 @@ static void print_LDFLAGS (void)
 #endif
 }
 
+/*
+ * Convert `__DATE__ into `DD MMM YYYY`.
+ * Based on:
+ *   https://bytes.com/topic/c/answers/215378-convert-__date__-unsigned-int
+ */
 const char *__DATE__str (void)
 {
-  /*
-   * Convert `__DATE__ into `DD MMM YYYY`.
-   * Based on:
-   *   https://bytes.com/topic/c/answers/215378-convert-__date__-unsigned-int
-   */
   #define YEAR() ((((__DATE__[7] - '0') * 10 + (__DATE__[8] - '0')) * 10 + \
                     (__DATE__[9] - '0')) * 10 + (__DATE__[10] - '0'))
-
-  #define MONTH() ( __DATE__[2] == 'n' ? 0 \
-                  : __DATE__[2] == 'b' ? 1 \
-                  : __DATE__[2] == 'r' ? (__DATE__[0] == 'M' ? 2 : 3) \
-                  : __DATE__[2] == 'y' ? 4 \
-                  : __DATE__[2] == 'n' ? 5 \
-                  : __DATE__[2] == 'l' ? 6 \
-                  : __DATE__[2] == 'g' ? 7 \
-                  : __DATE__[2] == 'p' ? 8 \
-                  : __DATE__[2] == 't' ? 9 \
-                  : __DATE__[2] == 'v' ? 10 : 11)
 
   #define DAY() ((__DATE__[4] == ' ' ? 0 : __DATE__[4] - '0') * 10 + \
                  (__DATE__[5] - '0'))
 
   static char buf [30];
-  static char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
 
-  snprintf (buf, sizeof(buf), "%d %.3s %04d",
-            DAY(), months + 3*MONTH(), YEAR());
+  snprintf (buf, sizeof(buf), "%d %.3s %04d", DAY(), __DATE__, YEAR());
   return (buf);         /* e.g. "2 Mar 2024" */
 }
 
