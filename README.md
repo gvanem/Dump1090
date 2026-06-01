@@ -214,6 +214,13 @@ This increases the accuracy and sensitivety of detection. The detection range (d
 [**Tar1090**](https://github.com/wiedehopf/tar1090/) here:
 ![2.4MHz sampler](img/dump1090-24MSs.png)
 
+## Running with Retro-ADSB-radar
+
+You can also run `pyw src/externals/Retro-ADSB-radar/main.py` alongside `dump1090.exe`.
+
+It could look like in this vide-snippet:
+![Retro-ADSB-radar](img/dump1090-retro-radar.mp4)
+
 
 ## Using RTL1090 as RAW source
 
