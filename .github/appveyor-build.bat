@@ -60,6 +60,8 @@ if %LOCAL_TEST% == 1 (
   if not exist "%APPVEYOR_BUILD_FOLDER%" (echo No '%APPVEYOR_BUILD_FOLDER%'. Edit this .bat-file & exit /b 1)
 )
 
+set MAKE_ARGS=CPU=x64 USE_MP_COMPILE=1 USE_PACKED_DLL=0 USE_BIN_FILES=1 USE_MG_DNS=1
+
 ::
 :: A Certificate Authority (CA) bundle is needed for
 :: 'tools/gen_data.py' to download from Github.com
@@ -74,7 +76,7 @@ if %LOCAL_TEST% == 0 (
 
 if %BUILDER%. == MSVC. (
   %_ECHO% "\e[1;33mBuilding for MSVC/x64:\e[0m"
-  call make -f Makefile.Windows CC=cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=1 USE_MP_COMPILE=1 USE_MG_DNS=1 vclean all
+  make -f Makefile.Windows CC=cl %MAKE_ARGS% vclean all
   if not ERRORLEVEL == 0 exit /b 1
   goto run_tests
 )
@@ -85,7 +87,7 @@ if %BUILDER%. == MSVC. (
 if %BUILDER%. == clang. (
   call :install_clang
   %_ECHO% "\e[1;33mBuilding for clang-cl/x64:\e[0m"
-  call make -f Makefile.Windows CC=clang-cl CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=1 USE_MG_DNS=1 vclean all
+  make -f Makefile.Windows CC=clang-cl %MAKE_ARGS% vclean all
   if not ERRORLEVEL == 0 exit /b 1
   goto run_tests
 )
@@ -94,7 +96,7 @@ if %BUILDER%. == MinGW. (
   %_ECHO% "\e[1;33mgcc info:\e[0m"
   gcc -v
   %_ECHO% "\e[1;33mBuilding for MinGW/x64:\e[0m"
-  call make -f Makefile.MinGW CPU=x64 USE_PACKED_DLL=1 USE_BIN_FILES=1 USE_MG_DNS=1 vclean all
+  make -f Makefile.MinGW %MAKE_ARGS% vclean all
   if not ERRORLEVEL == 0 exit /b 1
   goto run_tests
 )
