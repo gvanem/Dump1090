@@ -218,15 +218,9 @@ This increases the accuracy and sensitivety of detection. The detection range (d
 
 You can also run `pyw src/externals/Retro-ADSB-radar/main.py` alongside `dump1090.exe`.
 
-It could look like in this video-snippet:
-![Retro-ADSB-radar](https://raw.githack.com/gvanem/Dump1090/main/img/dump1090-retro-radar.mp4)
+It could look like in this video-snippet: <br>
+  https://github.com/gvanem/Dump1090/blob/main/img/dump1090-retro-radar.mp4
 
-<div>
-  <video width="800" height="600" controls autoplay muted loop>
-  <source src="https://raw.githack.com/gvanem/Dump1090/main/img/dump1090-retro-radar.mp4" type="video/mp4">
-   Your browser does not support the video tag.
-  </video>
-</div>
 
 ## Using RTL1090 as RAW source
 
