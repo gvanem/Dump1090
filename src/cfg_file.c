@@ -34,7 +34,7 @@
 #define MAX_VALUE_LEN 300
 #endif
 
-static_assert (MAX_VALUE_LEN >= sizeof(mg_file_path), "MAX_VALUE_LEN too small");
+static_assert (MAX_VALUE_LEN >= sizeof(MAX_PATH), "MAX_VALUE_LEN too small");
 
 /**
  * \def MAX_ENV_LEN
@@ -57,11 +57,11 @@ static_assert (MAX_VALUE_LEN >= sizeof(mg_file_path), "MAX_VALUE_LEN too small")
 typedef struct cfg_context {
         const cfg_table *table;
         FILE            *file;
-        mg_file_path     current_file;    /**< Current config-file; Possibly included from context above us. */
-        mg_file_path     current_dir;     /**< Directory of current config-file; Not CWD. */
+        char             current_file [MAX_PATH];    /**< Current config-file; Possibly included from context above us. */
+        char             current_dir  [MAX_PATH];    /**< Directory of current config-file; Not CWD. */
         unsigned         current_line;
         char             current_key [256];
-        char             current_val [512];
+        char             current_val [MAX_LINE_LEN];
       } cfg_context;
 
 /**
@@ -107,7 +107,7 @@ void cfg_illegal_val (const char *key, const char *val)
  */
 bool cfg_open_and_parse (const char *fname, const cfg_table *table)
 {
-  mg_file_path full_name = "?";
+  char full_name [MAX_PATH] = "?";
   cfg_context *ctx;
   FILE        *file;
   DWORD        len;
@@ -329,6 +329,25 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
         } while (0)
 
 /**
+ * Parse and store a `ARG_ATOB` value.
+ */
+static bool parse_and_set_bool (const char *value, void *arg)
+{
+  if (*value == '1' || !stricmp(value, "true") || !stricmp(value, "yes") || !stricmp(value, "on"))
+  {
+    *(bool*) arg = true;
+    return (true);
+  }
+  if (*value == '0' || !stricmp(value, "false") || !stricmp(value, "no") || !stricmp(value, "off"))
+  {
+    *(bool*) arg = false;
+    return (true);
+  }
+  CFG_WARN ("failed to match '%s' as a 'bool'.\n", value);
+  return (false);
+}
+
+/**
  * Parse and store a `ARG_ATOx` value.
  */
 static bool parse_and_set_value (const char *key, const char *value, void *arg, int size)
@@ -338,20 +357,7 @@ static bool parse_and_set_value (const char *key, const char *value, void *arg, 
   TRACE ("parsing key: '%s', value: '%s'\n", key, value);
 
   if (size == -1)  /* parse and set a `bool` */
-  {
-    if (*value == '1' || !stricmp(value, "true") || !stricmp(value, "yes") || !stricmp(value, "on"))
-    {
-      *(bool*) arg = true;
-      return (true);
-    }
-    if (*value == '0' || !stricmp(value, "false") || !stricmp(value, "no") || !stricmp(value, "off"))
-    {
-      *(bool*) arg = false;
-      return (true);
-    }
-    CFG_WARN ("failed to match '%s' as a 'bool'.\n", value);
-    return (false);
-  }
+     return parse_and_set_bool (value, arg);
 
   if (sscanf(value, "%lld", &val) != 1)
   {
@@ -423,6 +429,7 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
   const cfg_table *table;
   bool  rc    = false;
   bool  found = false;
+  char *old;
 
   for (table = ctx->table; table->key; table++)
   {
@@ -485,8 +492,9 @@ static bool cfg_parse_table (cfg_context *ctx, const char *key, const char *valu
       case ARG_STRDUP:
            TRACE_ARG (ARG_STRDUP);
            str = strdup (value);
-           if (str)
-             *(char**)arg = str;
+           old = *(char**)arg;
+           free (old);          /* in case it was already strdup()-ed */
+           *(char**)arg = str;
            rc = true;
            break;
 
