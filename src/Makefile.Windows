@@ -531,6 +531,11 @@ $(OBJ_DIR)/%_test.obj: %.c | $(CC).args $(OBJ_DIR)
 $(OBJ_DIR)/%.obj: %.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile, $@, $<)
 
+.DELETE_ON_ERROR: $(OBJ_DIR)/web-page-1.c \
+                  $(OBJ_DIR)/web-page-2.c \
+                  $(OBJ_DIR)/web-page-3.c \
+                  $(OBJ_DIR)/web-page-4.c
+
 $(OBJ_DIR)/web-page-1.c: ../tools/gen_packed_fs.py
 	$(call generate_web_page, $@, ../web_root, 1, )
 
