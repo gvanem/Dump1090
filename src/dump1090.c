@@ -434,8 +434,6 @@ static void modeS_init_temp (void)
     Modes.tmp_dir = strdup ("c:\\dump1090");   /* use this as '%TEMP%' */
   }
 
-  LOG_STDERR ("Modes.tmp_dir: '%s'\n", Modes.tmp_dir);
-
   if (!CreateDirectory(Modes.tmp_dir, 0) && GetLastError() != ERROR_ALREADY_EXISTS)
      LOG_STDERR ("'CreateDirectory(\"%s\")' failed; %s.\n", Modes.tmp_dir, win_strerror(GetLastError()));
 
