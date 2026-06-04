@@ -14,7 +14,7 @@
 #define INDEX_HTML   "web_root/index.html"
 
 /**
- * Timeout for an active connect.
+ * Timeout for an active connect. 5 sec.
  */
 #define MODES_CONNECT_TIMEOUT      5000
 
@@ -30,7 +30,8 @@
  */
 #define MAX_ADDRESS 50
 
-typedef char ip_address [MAX_ADDRESS];
+typedef char ip_address   [MAX_ADDRESS];
+typedef char ip_addr_port [MAX_ADDRESS+10];
 
 /**
  * Default network port numbers:
@@ -38,7 +39,8 @@ typedef char ip_address [MAX_ADDRESS];
 #define MODES_NET_PORT_RAW_IN   30001
 #define MODES_NET_PORT_RAW_OUT  30002
 #define MODES_NET_PORT_SBS      30003
-#define MODES_NET_PORT_HTTP      8080
+#define MODES_NET_PORT_HTTP4     8080
+#define MODES_NET_PORT_HTTP6     8080
 #define MODES_NET_PORT_RTL_TCP   1234
 #define MODES_NET_PORT_DNS_UDP     53
 
@@ -51,22 +53,32 @@ extern net_service modeS_net_services [MODES_NET_SERVICES_NUM];
  */
 typedef bool (*net_msg_handler) (mg_iobuf *msg, int loop_cnt);
 
-bool      net_init (void);
-bool      net_exit (void);
-void      net_poll (void);
-uint16_t  net_handler_port (intptr_t service);
-char     *net_handler_host (intptr_t service);
-char     *net_handler_protocol (intptr_t service);
-char     *net_handler_url (intptr_t service);
-char     *net_handler_descr (intptr_t service);
-char     *net_handler_error (intptr_t service, DWORD *wsa_err);
-bool      net_handler_sending (intptr_t service);
-void      net_handler_send (intptr_t service, const void *msg, size_t len);
-bool      net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
-void      net_show_stats (void);
-bool      net_deny4 (const char *val);
-bool      net_deny6 (const char *val);
-bool      net_stat_common (intptr_t service);
+bool     net_init (void);
+bool     net_exit (void);
+void     net_poll (void);
+uint16_t net_handler_port (intptr_t service);
+char    *net_handler_host (intptr_t service);
+char    *net_handler_protocol (intptr_t service);
+char    *net_handler_url (intptr_t service);
+char    *net_handler_descr (intptr_t service);
+char    *net_handler_error (intptr_t service, DWORD *wsa_err);
+bool     net_handler_sending (intptr_t service);
+void     net_handler_send (intptr_t service, const void *msg, size_t len);
+bool     net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+void     net_show_stats (void);
+bool     net_deny4 (const char *val);
+bool     net_deny6 (const char *val);
+bool     net_stat_common (intptr_t service);
+
+/**
+ * Used by config-parser callbacks.
+ *
+ * Parses a "host-X-Y = [tcp|udp]://host:port" and sets
+ * `&modeS_net_services [serv].host` and
+ * `&modeS_net_services [serv].port`.
+ */
+#define NET_SET_HOST_PORT(arg, serv, def_port) \
+        net_set_host_port (arg, &modeS_net_services [serv], def_port)
 
 /**
  * Timeout for reception of RTL_TCP data.
@@ -75,3 +87,9 @@ bool      net_stat_common (intptr_t service);
 
 bool rtl_tcp_set_gain      (mg_connection *c, int16_t gain);
 bool rtl_tcp_set_gain_mode (mg_connection *c, bool autogain);
+bool rtl_tcp_set_bias_tee  (mg_connection *c, bool enable);
+
+/**
+ * Config-file callback for "http-log-ignore = addr"
+ */
+bool http_log_add_ignore (const char *addr);

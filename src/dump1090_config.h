@@ -60,10 +60,15 @@
   #pragma gcc diagnostic ignored "-Wimplicit-function-declaration"
 
 #elif defined(_MSC_VER)
- /*
-  * airports.c(1502): warning C4102:
-  *   'done': unreferenced label
-  */
+  /*
+   * warning C4100: 'device': unreferenced formal parameter
+   */
+  #pragma warning (disable: 4100)
+
+  /*
+   * airports.c(1502): warning C4102:
+   *   'done': unreferenced label
+   */
   #pragma warning (disable: 4102)
 
   /*
@@ -115,11 +120,6 @@
   #endif
 
   #if defined(COMPILING_SQLITE3_SHELL)
-    /*
-     * warning C4100: 'argv': unreferenced formal parameter
-     */
-    #pragma warning (disable: 4100)
-
     /*
      * warning C4456: declaration of 'i' hides previous local declaration
      */
@@ -305,6 +305,15 @@
   #else
     #define RC_DBG_REL    "release"
     #define RC_FILEFLAGS  0
+  #endif
+
+  #define RC_BUILD_ASAN       ""
+  #define RC_BUILD_SDRCONNECT ""
+  #define RC_BUILD_SPECTRE    ""
+
+  #if defined(USE_SDRCONNECT)
+    #undef  RC_BUILD_SDRCONNECT
+    #define RC_BUILD_SDRCONNECT "SDRConnect,"
   #endif
 
   #if defined(USE_ASAN) && defined(USE_SPECTRE)

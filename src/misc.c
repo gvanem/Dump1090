@@ -229,12 +229,11 @@ void modeS_log_set (void)
 static bool modeS_log_reinit (const SYSTEMTIME *st)
 {
   static const char *dot = NULL;
-  bool   first_time = (st == NULL);
+  bool       first_time = (st == NULL);
+  SYSTEMTIME now;
 
   if (first_time)
   {
-    SYSTEMTIME now;
-
     GetLocalTime (&now);
     st = &now;
     if (Modes.logfile_daily)
@@ -251,14 +250,11 @@ static bool modeS_log_reinit (const SYSTEMTIME *st)
 
   /* Force a name-change from 'x.log' to 'x-YYYY-MM-DD.log'?
    */
-  if (Modes.logfile_daily)
-       snprintf (Modes.logfile_current, sizeof(Modes.logfile_current),
-                 "%.*s-%04d-%02d-%02d.log",
-                 (int) (dot - Modes.logfile_initial), Modes.logfile_initial,
-                 st->wYear, st->wMonth, st->wDay);
-
-  else strcpy_s (Modes.logfile_current, sizeof(Modes.logfile_current),
-                 Modes.logfile_initial);
+  if (Modes.logfile_daily && dot)
+       Modes.logfile_current = mg_mprintf ("%.*s-%04d-%02d-%02d.log",
+                                           (int) (dot - Modes.logfile_initial), Modes.logfile_initial,
+                                           st->wYear, st->wMonth, st->wDay);
+  else Modes.logfile_current = strdup (Modes.logfile_initial);
 
   if (Modes.log)
      fclose (Modes.log);
@@ -281,7 +277,7 @@ bool modeS_log_init (void)
 }
 
 /**
- * Close the current .log-file and free the `Modes.logfile_ignore` list.
+ * Close the current .log-file and free the memory allocated here.
  */
 void modeS_log_exit (void)
 {
@@ -297,6 +293,8 @@ void modeS_log_exit (void)
     smartlist_wipe (Modes.logfile_ignore, free);
     Modes.logfile_ignore = NULL;
   }
+  free (Modes.logfile_current);
+  free (Modes.logfile_initial);
 }
 
 typedef struct log_ignore {
@@ -847,7 +845,7 @@ char *dirname (const char *fname)
   const char *p = fname;
   const char *slash = NULL;
   size_t      dirlen;
-  static mg_file_path dir;
+  static char dir [MAX_PATH];
 
   if (!fname)
      return (NULL);
@@ -915,34 +913,29 @@ char *slashify (char *fname)
 }
 
 /**
- * Copies `in_path` to `out_path` and replaces `/` with `\\`.
- */
-char *copy_path (char *out_path, const char *in_path)
-{
-  char *p = strncpy (out_path, in_path, sizeof(mg_file_path));
-
-  while (*p)
-  {
-    if (*p == '/')
-        *p = '\\';
-    p++;
-  }
-  return (out_path);
-}
-
-/**
  * Turns `path` into a canonical path.
  *
- * \note Assumes `path` is of type `mg_file_path` or at-least that long.
  * \note the `path` doesn't have to exist.
  */
-char *true_path (char *path)
+char *true_path (const char *path)
 {
-  mg_file_path copy, result;
+  static char result [MAX_PATH];
+  char        copy   [MAX_PATH];
+  char       *out = copy;
+  const char *in = path;
 
-  copy_path (copy, path);
+  while (*in && out < copy + sizeof(copy) - 1)
+  {
+    if (*in == '/')
+         *out++ = '\\';
+    else *out++ = *in;
+    in++;
+  }
+  *out = '\0';
+  out = result;
+
   PathCanonicalizeA (result, copy);
-  return strncpy (path, result, sizeof(mg_file_path));
+  return (result);
 }
 
 /**
@@ -1077,7 +1070,7 @@ FILE *fopen_excl (const char *file, const char *mode)
  * Internals of 'externals/mongoose.c':
  */
 typedef struct dirent {
-        mg_file_path d_name;
+        char d_name [MAX_PATH];
       } dirent;
 
 typedef struct win32_dir {
@@ -1108,9 +1101,9 @@ int touch_dir (const char *directory, bool recurse)
 
   while ((d = readdir(dir)) != NULL)
   {
-    mg_file_path full_name;
-    DWORD        attrs;
-    bool         is_dir;
+    char  full_name [MAX_PATH];
+    DWORD attrs;
+    bool  is_dir;
 
     if (!strcmp(d->d_name, ".") || !strcmp(d->d_name, ".."))
        continue;
@@ -1255,7 +1248,7 @@ const char *get_user_name (void)
   return (user);
 }
 
-bool init_misc (void)
+bool misc_init (void)
 {
   memcpy (Modes.chk_marker, "DEAD", sizeof(Modes.chk_marker));
   init_timings();
@@ -1594,7 +1587,7 @@ const char *compiler_info (void)
 
 #elif defined(_MSC_VER)
   snprintf (buf, sizeof(buf), "Microsoft cl %d.%d",
-            (_MSC_VER / 100), _MSC_VER % 100);
+            _MSC_VER / 100, _MSC_VER % 100);
 
 #else
   #error "Unknown compiler!?"
@@ -1925,8 +1918,8 @@ static void print_BIN_files (void)
 
   for (i = 0; i < DIM(bin_files); i++)
   {
-    struct stat  st;
-    mg_file_path file;
+    struct stat st;
+    char   file [MAX_PATH];
 
     snprintf (file, sizeof(file), "%s\\%s", Modes.results_dir, bin_files[i]);
     if (stat(file, &st) == 0)

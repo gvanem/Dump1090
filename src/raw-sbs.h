@@ -13,11 +13,6 @@ void sbs_out_send (const modeS_message *mm);
 
 bool raw_in_set_host_port (const char *arg);
 bool raw_out_set_host_port (const char *arg);
-
-bool raw_in_set_port (const char *arg);
-bool raw_out_set_port (const char *arg);
-
-bool sbs_out_set_port (const char *arg);
 bool sbs_in_set_host_port (const char *arg);
 
 void raw_in_stats (void);

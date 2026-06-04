@@ -105,33 +105,36 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * ```
  */
-static void  modeS_cleanup (void);
-static void  __declspec(noreturn) modeS_exit (int rc);
-static void  add_unrecognized_ME (int type, int subtype, bool test);
-static void  test_print_unrecognized_ME (void);
-static bool  launch_setup_exe (void);
+static void modeS_cleanup (void);
+static void __declspec(noreturn) modeS_exit (int rc);
+static void add_unrecognized_ME (int type, int subtype, bool test);
+static void test_print_unrecognized_ME (void);
+static bool launch_setup_exe (void);
 
-static bool  set_bandwidth (const char *arg);
-static bool  set_bias_tee (const char *arg);
-static bool  set_frequency (const char *arg);
-static bool  set_gain (const char *arg);
-static bool  set_interactive_ttl (const char *arg);
-static bool  set_home_pos (const char *arg);
-static bool  set_home_pos_from_location_API (const char *arg);
-static bool  set_logfile (const char *arg);
-static bool  set_loops (const char *arg);
-static bool  set_max_messages (const char *arg);
-static bool  set_port_http (const char *arg);
-static bool  set_prefer_adsb_lol (const char *arg);
-static bool  set_ppm (const char *arg);
-static bool  set_sample_rate (const char *arg);
-static bool  set_tui (const char *arg);
-static bool  set_web_page (const char *arg);
+static bool set_bandwidth (const char *arg);
+static bool set_bias_tee (const char *arg);
+static bool set_frequency (const char *arg);
+static bool set_gain (const char *arg);
+static bool set_interactive_ttl (const char *arg);
+static bool set_home_pos (const char *arg);
+static bool set_home_pos_from_location_API (const char *arg);
+static bool set_loops (const char *arg);
+static bool set_max_messages (const char *arg);
+static bool set_http_url4 (const char *arg);
+static bool set_http_url6 (const char *arg);
+static bool set_port_http (const char *arg);
+static bool set_prefer_adsb_lol (const char *arg);
+static bool set_ppm (const char *arg);
+static bool set_sample_rate (const char *arg);
+static bool set_strip_level (const char *arg);
+static bool set_tui (const char *arg);
+static bool set_web_page (const char *arg);
 
 /*
  * Already called this from `parse_cmd_line()` ?
  */
 static bool sample_rate_set  = false;
+static bool strip_level_set  = false;
 static bool max_messages_set = false;
 
 static const cfg_table config[] = {
@@ -158,8 +161,8 @@ static const cfg_table config[] = {
     { "web-page",             ARG_FUNC,    (void*) set_web_page },
     { "web-touch",            ARG_ATOB,    (void*) &Modes.web_root_touch },
     { "tui",                  ARG_FUNC,    (void*) set_tui },
-    { "airports",             ARG_STRCPY,  (void*) &Modes.airport_db },
-    { "aircrafts",            ARG_STRCPY,  (void*) &Modes.aircraft_db },
+    { "airports",             ARG_STRDUP,  (void*) &Modes.airport_db },
+    { "aircrafts",            ARG_STRDUP,  (void*) &Modes.aircraft_db },
     { "aircrafts-url",        ARG_STRDUP,  (void*) &Modes.aircraft_db_url },
     { "bandwidth",            ARG_FUNC,    (void*) set_bandwidth },
     { "fifo-bufs",            ARG_ATO_U32, (void*) &Modes.FIFO_bufs },
@@ -169,13 +172,13 @@ static const cfg_table config[] = {
     { "agc",                  ARG_ATOB,    (void*) &Modes.dig_agc },
     { "interactive-ttl",      ARG_FUNC,    (void*) set_interactive_ttl },
     { "keep-alive",           ARG_ATOB,    (void*) &Modes.keep_alive },
-    { "http-ipv4-only",       ARG_ATOB,    (void*) &Modes.http_ipv4_only },
-    { "http-ipv6",            ARG_ATOB,    (void*) &Modes.http_ipv6 },
-    { "http-ipv6-only",       ARG_ATOB,    (void*) &Modes.http_ipv6_only },
     { "http2",                ARG_ATOB,    (void*) &Modes.wininet_HTTP2 },
     { "http-log",             ARG_ATOB,    (void*) &Modes.http_log_enable },
     { "http-log-name",        ARG_STRDUP,  (void*) &Modes.http_log_name },
-    { "logfile",              ARG_FUNC,    (void*) set_logfile },
+    { "http-log-ignore",      ARG_FUNC,    (void*) http_log_add_ignore },
+    { "http-url4",            ARG_FUNC,    (void*) set_http_url4 },
+    { "http-url6",            ARG_FUNC,    (void*) set_http_url6 },
+    { "logfile",              ARG_STRDUP,  (void*) &Modes.logfile_initial },
     { "logfile-daily",        ARG_ATOB,    (void*) &Modes.logfile_daily },
     { "logfile-ignore",       ARG_FUNC,    (void*) modeS_log_add_ignore },
     { "loops",                ARG_FUNC,    (void*) set_loops },
@@ -183,11 +186,7 @@ static const cfg_table config[] = {
     { "max-messages",         ARG_FUNC,    (void*) set_max_messages },
     { "max-frames",           ARG_ATO_U64, (void*) &Modes.max_frames },
     { "measure-noise",        ARG_ATOB,    (void*) &Modes.measure_noise },
-    { "net-http-port",        ARG_FUNC,    (void*) set_port_http },
     { "net-poll",             ARG_ATO_U32, (void*) &Modes.net_poll_ms },
-    { "net-ri-port",          ARG_FUNC,    (void*) raw_in_set_port },
-    { "net-ro-port",          ARG_FUNC,    (void*) raw_out_set_port },
-    { "net-sbs-port",         ARG_FUNC,    (void*) sbs_out_set_port },
     { "prefer-adsb-lol",      ARG_FUNC,    (void*) set_prefer_adsb_lol },
     { "reverse-resolve",      ARG_ATOB,    (void*) &Modes.reverse_resolve },
     { "rtlsdr-calibrate",     ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
@@ -195,6 +194,7 @@ static const cfg_table config[] = {
     { "rtlsdr-ppm",           ARG_FUNC,    (void*) set_ppm },
     { "samplerate",           ARG_FUNC,    (void*) set_sample_rate },
     { "sample-rate",          ARG_FUNC,    (void*) set_sample_rate },
+    { "strip-level",          ARG_FUNC,    (void*) set_strip_level },  /* not in .cfg file yet */
     { "show-hostname",        ARG_ATOB,    (void*) &Modes.show_host_name },
     { "sort",                 ARG_FUNC,    (void*) aircraft_set_sort },
     { "speech-enable",        ARG_ATOB,    (void*) &Modes.speech_enable },
@@ -413,35 +413,43 @@ static uint16_t *gen_log10_lut (void)
  */
 static void modeS_init_temp (void)
 {
-  DWORD len_temp  = GetTempPath (sizeof(Modes.tmp_dir)-1, Modes.tmp_dir);
-  bool  have_temp = false;
+  char  path [MAX_PATH];
+  DWORD len_temp  = GetTempPath (sizeof(path)-1, path);
 
-  if (len_temp > 0 && len_temp < sizeof(Modes.tmp_dir) - sizeof("dump1090") - 1)
-     have_temp = true;
-
-  if (!have_temp)
+  if (len_temp > 0)
   {
-    LOG_STDERR ("have_temp == false!\n");
-    strcpy (Modes.tmp_dir, "c:\\dump1090");   /* use this as '%TEMP%'! */
+    char *p = path + len_temp - 1;
+    if (*p == '\\')    /* remove trailing '\\' */
+       *p = '\0';
+
+    p = path;
+    if (isalpha(p[0]) && p[1] == ':' && p[2] == '\\') /* Lower case 'c:\' is nicer */
+       *p = tolower (*p);
+
+    Modes.tmp_dir = mg_mprintf ("%s\\dump1090", path);
   }
   else
-    strcat_s (Modes.tmp_dir, sizeof(Modes.tmp_dir), "dump1090");
+  {
+    LOG_STDERR ("No %%TEMP%%!\n");
+    Modes.tmp_dir = strdup ("c:\\dump1090");   /* use this as '%TEMP%' */
+  }
+
+  LOG_STDERR ("Modes.tmp_dir: '%s'\n", Modes.tmp_dir);
 
   if (!CreateDirectory(Modes.tmp_dir, 0) && GetLastError() != ERROR_ALREADY_EXISTS)
      LOG_STDERR ("'CreateDirectory(\"%s\")' failed; %s.\n", Modes.tmp_dir, win_strerror(GetLastError()));
 
   /* And now 'results_dir'
    */
-  strcpy (Modes.results_dir, Modes.tmp_dir);
-  strcat_s (Modes.results_dir, sizeof(Modes.results_dir), "\\standing-data\\results");
+  Modes.results_dir = mg_mprintf ("%s\\standing-data\\results", Modes.tmp_dir);
 
   /* Do not call `CreateDirectory (Modes.results_dir, 0)`.
-   * That should be done by `Modes.where_am_I/tools/gen_data.py`.
+   * That should be done by `../tools/gen_data.py`.
    */
 }
 
 /*
- * Check that the `Modes.chk_marker` set by `init_misc()` is the same.
+ * Check that the `Modes.chk_marker` set by `misc_init()` is the same.
  */
 static bool check_global_data (void)
 {
@@ -483,23 +491,33 @@ static void dummy_demod (const mag_buf *mag)
  */
 static void modeS_set_defaults (void)
 {
-  memset (&Modes, '\0', sizeof(Modes));
-  GetModuleFileNameA (NULL, Modes.who_am_I, sizeof(Modes.who_am_I));
-  snprintf (Modes.where_am_I, sizeof(Modes.where_am_I), "%s", dirname(Modes.who_am_I));
+  char *p, path [MAX_PATH];
 
-  GetSystemDirectory (Modes.sys_dir, sizeof(Modes.sys_dir));
+  memset (&Modes, '\0', sizeof(Modes));
+
+  GetModuleFileNameA (NULL, path, sizeof(path));
+  p = path;
+  if (isalpha(p[0]) && p[1] == ':' && p[2] == '\\') /* Lower case 'c:\' is nicer */
+     *p = tolower (*p);
+  Modes.who_am_I   = strdup (path);
+  Modes.where_am_I = strdup (dirname(Modes.who_am_I));
+
+  GetSystemDirectory (path, sizeof(path));
+  Modes.sys_dir = strdup (path);
 
   modeS_init_temp();
 
-  snprintf (Modes.cfg_file, sizeof(Modes.cfg_file), "%s\\dump1090.cfg", Modes.where_am_I);
-  strcpy (Modes.web_page, basename(INDEX_HTML));
-  snprintf (Modes.web_root, sizeof(Modes.web_root), "%s\\web_root", Modes.where_am_I);
+  /* Set file-names:
+   */
+  Modes.cfg_file      = mg_mprintf ("%s\\dump1090.cfg", Modes.where_am_I);
+  Modes.web_page      = strdup (basename(INDEX_HTML));
+  Modes.web_root      = mg_mprintf ("%s\\web_root", Modes.where_am_I);
+  Modes.web_page_full = mg_mprintf ("%s/%s", Modes.web_root, Modes.web_page);
 
-  snprintf (Modes.aircraft_db, sizeof(Modes.aircraft_db), "%s\\%s", Modes.where_am_I, AIRCRAFT_DATABASE_CSV);
-  snprintf (Modes.airport_db, sizeof(Modes.airport_db), "%s\\%s", Modes.where_am_I, AIRPORT_DATABASE_CSV);
-
-  snprintf (Modes.airport_freq_db, sizeof(Modes.airport_freq_db), "%s\\%s", Modes.where_am_I, AIRPORT_FREQ_CSV);
-  snprintf (Modes.airport_cache, sizeof(Modes.airport_cache), "%s\\%s", Modes.tmp_dir, AIRPORT_DATABASE_CACHE);
+  Modes.aircraft_db     = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRCRAFT_DATABASE_CSV);
+  Modes.airport_db      = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRPORT_DATABASE_CSV);
+  Modes.airport_freq_db = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRPORT_FREQ_CSV);
+  Modes.airport_cache   = mg_mprintf ("%s\\%s", Modes.tmp_dir, AIRPORT_DATABASE_CACHE);
 
   /* No device selected yet
    */
@@ -538,9 +556,9 @@ static void modeS_set_defaults (void)
   Modes.FIFO_acquire_ms  = 100;                /* timeout for `fifo_acquire()` */
   Modes.FIFO_dequeue_ms  = 100;                /* timeout for `fifo_dequeue()` */
   Modes.FIFO_bufs        = MODES_MAG_BUFFERS;  /* # of buffers for `fifo_init()` */
-  Modes.error_correct_1 = true;
-  Modes.error_correct_2 = false;
-  Modes.http_log_enable = false;
+  Modes.error_correct_1  = true;
+  Modes.error_correct_2  = false;
+  Modes.http_log_enable  = false;
 
   InitializeCriticalSection (&Modes.data_mutex);
   InitializeCriticalSection (&Modes.print_mutex);
@@ -552,11 +570,13 @@ static void modeS_set_defaults (void)
  */
 static void modeS_init_log (void)
 {
-  char   args [2000] = "";
-  char  *ptr = args;
-  size_t line_len, left = sizeof(args);
-  int    i, n;
-  bool   write_BOM = false;
+  char        args [2000] = "";
+  char       *ptr = args;
+  const char *debug_mode = "";
+  const char *using_asan = "";
+  size_t      line_len, left = sizeof(args);
+  int         i, n;
+  bool        write_BOM = false;
 
   if (!modeS_log_init())
      return;
@@ -590,8 +610,16 @@ static void modeS_init_log (void)
     left -= n;
   }
 
-  snprintf (ptr, left, "\n%s Build info: %s, built on: %s\n\n",
-            FILLER, compiler_info(), __DATE__str());
+#if defined(_DEBUG)
+  debug_mode = ", debug";
+#endif
+
+#if defined(USE_ASAN)
+  using_asan = ", -DUSE_ASAN";
+#endif
+
+  snprintf (ptr, left, "\n%s Build info: %s%s%s, built on: %s\n\n",
+            FILLER, compiler_info(), debug_mode, using_asan, __DATE__str());
 
   if (write_BOM)
   {
@@ -662,7 +690,7 @@ static bool modeS_init_hardware (void)
 
   Modes.trailing_samples = (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS + 16) * 1E-6 * Modes.sample_rate;
 
-  if (Modes.infile[0])
+  if (Modes.infile)
   {
     /* Unless not set, use whatever '--informat' was set to 'Modes.input_format'
      */
@@ -773,7 +801,7 @@ static bool modeS_init (void)
 {
   bool rc = true;
 
-  if (!init_misc() || !check_global_data())
+  if (!misc_init() || !check_global_data())
      return (false);
 
   if (strcmp(Modes.cfg_file, "NUL") && !cfg_open_and_parse(Modes.cfg_file, config))
@@ -811,13 +839,7 @@ static bool modeS_init (void)
   }
 #endif
 
-  if (Modes.http_ipv6_only)
-     Modes.http_ipv6 = true;
-
-  if (Modes.http_ipv4_only)
-     Modes.http_ipv6 = Modes.http_ipv6_only = false;
-
-  if (Modes.logfile_initial[0] && stricmp(Modes.logfile_initial, "NUL"))
+  if (Modes.logfile_initial && stricmp(Modes.logfile_initial, "NUL"))
      modeS_init_log();
 
   if (Modes.speech_enable && !speak_init(0, Modes.speech_volume))
@@ -1142,6 +1164,8 @@ void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
   }
 }
 
+#define PROCESS_BOOST() SetProcessPriorityBoost (GetCurrentProcess(), FALSE)
+
 /**
  * We read RTLSDR, SDRplay, AirSpy or remote RTL_TCP data using a separate thread,
  * so the main thread only handles decoding without caring about data acquisition.
@@ -1155,7 +1179,7 @@ static DWORD WINAPI data_thread_fn (void *arg)
 //SetThreadPriority (GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
 #if 0  /** \todo see below */
-  if (Modes.infile[0])
+  if (Modes.infile)
   {
     rc = infile_read_async (Modes.infile, rx_callback, (void*)&Modes.exit,
                             MODES_ASYNC_BUF_NUMBERS, MODES_ASYNC_BUF_SIZE);
@@ -1213,6 +1237,9 @@ static DWORD WINAPI data_thread_fn (void *arg)
  */
 static void main_data_loop (void)
 {
+  if (Modes.silent)
+     LOG_STDERR ("Running in silent mode\7\n");
+
   while (!Modes.exit)
   {
     background_tasks();
@@ -2846,7 +2873,7 @@ static bool modeS_message_display (modeS_message *mm)
     return (false);
   }
 
-  /* Handle only addresses mode first.
+  /* Show only addresses?
    */
   if (Modes.only_addr)
      return display_brief_message (mm);
@@ -3153,6 +3180,7 @@ int modeS_message_score (const uint8_t *msg, int valid_bits)
 void modeS_user_message (modeS_message *mm)
 {
   aircraft *a = aircraft_update_from_message (mm);
+  bool ignore;
 
   Modes.stat.messages_total++;
 
@@ -3160,11 +3188,11 @@ void modeS_user_message (modeS_message *mm)
    */
   if (a && Modes.net)
   {
-    if (Modes.stat.cli_accepted [MODES_NET_SERVICE_SBS_OUT] > 0 &&  /* If we have accepted >=1 client */
-        net_handler_sending(MODES_NET_SERVICE_SBS_OUT))             /* and we're still sending */
+    if (net_handler_sending(MODES_NET_SERVICE_SBS_OUT))             /* We're still sending */
        sbs_out_send (mm);                                           /* Feed SBS output clients. */
 
-    if (Modes.stat.cli_accepted [MODES_NET_SERVICE_RAW_OUT] > 0 &&  /* If we have accepted >=1 client */
+    ignore = (mm->source == SOURCE_MLAT) || (mm->error_bits >= 2);
+    if (!ignore &&                                                  /* If not ignore for RAW */
         net_handler_sending(MODES_NET_SERVICE_RAW_OUT))             /* and we're still sending */
        raw_out_send (mm);                                           /* Feed RAW output clients. */
   }
@@ -3172,7 +3200,8 @@ void modeS_user_message (modeS_message *mm)
   /* In non-interactive mode, display messages on standard output.
    * In silent-mode, do nothing just to consentrate on network traces.
    */
-  if (!Modes.interactive && !Modes.silent)
+  ignore = Modes.interactive || Modes.silent;
+  if (!ignore)
   {
     if (modeS_message_display (mm))
        Modes.stat.messages_shown++;
@@ -3271,7 +3300,7 @@ static void show_help (const char *fmt, ...)
             "  --raw                 Output raw hexadecimal messages only.\n"
             "  --samplerate/-s <S/s> Sample-rate (2M, 2.4M, 8M). Overrides setting in config-file.\n"
             "  --strip <level>       Output missing the I/Q parts that are below the specified level.\n"
-            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `console', `cpr', `locale', `misc`, `net' or `*')\n"
+            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `console', `cpr', `locale', `misc`, `me`, `net' or `*')\n"
             "  --update              Update missing or old \"*.csv\" files and exit.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
@@ -3385,8 +3414,7 @@ void background_tasks (void)
   if (Modes.interactive)
      interactive_show_data (now);
 
-  if (Modes.rtlsdr.device || Modes.rtl_tcp_in || Modes.sdrplay.device ||
-      Modes.airspy.device || Modes.raw_in || Modes.sbs_in)
+  if (PHYS_DEVICE() || Modes.rtl_tcp_in || Modes.raw_in || Modes.sbs_in)
   {
     interactive_title_stats();
     interactive_update_gain();
@@ -3560,13 +3588,7 @@ static void show_decoder_stats (void)
  */
 static void show_statistics (void)
 {
-  bool any_device = (Modes.rtlsdr.device || Modes.sdrplay.device ||
-                     Modes.airspy.device || Modes.infile_fd > -1);
-
-  if (Modes.rtl_tcp_in)
-     any_device = true;  /* connect() OK */
-
-  if (any_device)        /* assume we got some data */
+  if (PHYS_DEVICE() || Modes.rtl_tcp_in)
      show_decoder_stats();
 
   if (Modes.net)
@@ -3630,12 +3652,10 @@ static void modeS_cleanup (void)
   if (Modes.reader_thread)
      CloseHandle (Modes.reader_thread);
 
-  if (Modes.infile_fd > -1)
-     infile_exit();
-
   if (Modes.interactive)
      interactive_exit();
 
+  infile_exit();
   aircraft_exit (true);
   airports_exit (true);
   crc_exit();
@@ -3648,9 +3668,20 @@ static void modeS_cleanup (void)
   free (Modes.rtltcp.remote);
   free (Modes.sdrplay.name);
   free (Modes.airspy.name);
-  free (Modes.aircraft_db_url);
+
+  free (Modes.http_log_name);
+  free (Modes.web_root);
+  free (Modes.web_page);
+  free (Modes.web_page_full);
+
+  free (Modes.where_am_I);
+  free (Modes.who_am_I);
+  free (Modes.tmp_dir);
+  free (Modes.cfg_file);
+  free (Modes.sys_dir);
+  free (Modes.results_dir);
+
   free (Modes.tests);
-  free (Modes.icao_spec);
 
   demod_8000_free();
 
@@ -3695,7 +3726,7 @@ static void set_device (const char *arg)
   }
   else if (!strnicmp(arg, "tcp://", 6) || !strnicmp(arg, "udp://", 6))
   {
-    net_set_host_port (arg, &modeS_net_services [MODES_NET_SERVICE_RTL_TCP], MODES_NET_PORT_RTL_TCP);
+    NET_SET_HOST_PORT (arg, MODES_NET_SERVICE_RTL_TCP, MODES_NET_PORT_RTL_TCP);
     Modes.selected_dev = mg_mprintf ("%s", modeS_net_services [MODES_NET_SERVICE_RTL_TCP].descr);
     Modes.rtlsdr.index = -1;      /* select on host+port only */
     Modes.net = true;
@@ -3715,7 +3746,7 @@ static void set_device (const char *arg)
   if (!strnicmp(arg, "sdrplay", 7))
   {
     Modes.sdrplay.name = strdup (arg);
-    if (isdigit(arg[7]))
+    if (strlen(arg) > 7 && isdigit(arg[7]))
     {
       Modes.sdrplay.index   = atoi (arg + 7);
       Modes.sdrplay.name[7] = '\0';
@@ -3723,10 +3754,23 @@ static void set_device (const char *arg)
     else
       Modes.sdrplay.index = -1;
   }
+#if 0     /** \todo */
+  else if (!strnicmp(arg, "sdrconnect", 10))
+  {
+    Modes.sdrconnect.name = strdup (arg);
+    if (strlen(arg) > 10 && isdigit(arg[10]))
+    {
+      Modes.sdrconnect.index   = atoi (arg + 10);
+      Modes.sdrconnect.name[10] = '\0';
+    }
+    else
+      Modes.sdrconnect.index = -1;
+  }
+#endif
   else if (!strnicmp(arg, "airspy", 6))
   {
     Modes.airspy.name = strdup (arg);
-    if (isdigit(arg[6]))
+    if (strlen(arg) > 6 && isdigit(arg[6]))
     {
       Modes.airspy.index   = atoi (arg + 6);
       Modes.airspy.name[6] = '\0';
@@ -3777,6 +3821,20 @@ static bool set_sample_rate (const char *arg)
         Modes.sample_rate != 2400000            &&
         Modes.sample_rate != 8000000)
        show_help ("Illegal sample_rate: %s. Use '2M, 2.4M or 8M (for SDRPlay)'.\n", arg);
+  }
+  return (true);
+}
+
+static bool set_strip_level (const char *arg)
+{
+  if (!strip_level_set)
+  {
+    char    *end;
+    uint64_t level = strtoull (arg, &end, 10);
+
+    Modes.strip_level = (int) level;
+    if (end == arg || *end != '\0')
+       show_help ("Illegal level for `--strip %s'.\n", optarg);
   }
   return (true);
 }
@@ -3893,8 +3951,8 @@ static void set_debug_bits (const char *flags)
  */
 static bool launch_setup_exe (void)
 {
-  mg_file_path setup_path;
-  intptr_t     exit_code;
+  char     setup_path [MAX_PATH];
+  intptr_t exit_code;
 
   /* Construct path to setup.exe in the same directory as the executable
    */
@@ -3909,12 +3967,12 @@ static bool launch_setup_exe (void)
     return (false);
   }
 
-  LOG_STDERR ("Launching setup.exe...\n");
+  LOG_STDERR ("Launching %s...\n", setup_path);
 
   exit_code = _spawnl (_P_WAIT, setup_path, setup_path, NULL);
   if (exit_code == -1)
   {
-    LOG_STDERR ("Failed to launch setup.exe\n");
+    LOG_STDERR ("Failed to launch %s\n", setup_path);
     return (false);
   }
   if (exit_code != 0)
@@ -3989,16 +4047,20 @@ static bool set_interactive_ttl (const char *arg)
   return (true);
 }
 
-static bool set_logfile (const char *arg)
-{
-  strcpy_s (Modes.logfile_initial, sizeof(Modes.logfile_initial), arg);
-  return (true);
-}
-
 static bool set_loops (const char *arg)
 {
   Modes.loops = arg ? _atoi64 (arg) : LLONG_MAX;
   return (true);
+}
+
+static bool set_http_url4 (const char *arg)
+{
+  return NET_SET_HOST_PORT (arg, MODES_NET_SERVICE_HTTP4, MODES_NET_PORT_HTTP4);
+}
+
+static bool set_http_url6 (const char *arg)
+{
+  return NET_SET_HOST_PORT (arg, MODES_NET_SERVICE_HTTP6, MODES_NET_PORT_HTTP6);
 }
 
 static bool set_port_http (const char *arg)
@@ -4032,10 +4094,20 @@ static bool set_prefer_adsb_lol (const char *arg)
 
 static bool set_web_page (const char *arg)
 {
-  strcpy_s (Modes.web_root, sizeof(Modes.web_root), dirname(arg));
-  strcpy_s (Modes.web_page, sizeof(Modes.web_page), basename(arg));
-  snprintf (Modes.web_page_full, sizeof(Modes.web_page_full), "%s/%s", Modes.web_root, Modes.web_page);
-  true_path (Modes.web_page_full);
+  char *page;
+
+  /* Free these set in `modeS_set_defaults()`
+   */
+  free (Modes.web_root);
+  free (Modes.web_page);
+  free (Modes.web_page_full);
+
+  Modes.web_root = strdup (dirname(arg));
+  Modes.web_page = strdup (basename(arg));
+
+  page = mg_mprintf ("%s/%s", Modes.web_root, Modes.web_page);
+  Modes.web_page_full = strdup (true_path(page));
+  free (page);
 
   TRACE ("Full-name of web_page: '%s'\n", Modes.web_page_full);
   return (true);
@@ -4073,7 +4145,8 @@ static bool parse_cmd_line (int argc, char **argv)
     switch (c)
     {
       case 'c':
-           strcpy_s (Modes.cfg_file, sizeof(Modes.cfg_file), optarg);
+           free (Modes.cfg_file);
+           Modes.cfg_file = strdup (optarg);
            break;
 
       case 'd':
@@ -4116,9 +4189,7 @@ static bool parse_cmd_line (int argc, char **argv)
            break;
 
       case 'S':
-           Modes.strip_level = atoi (optarg);
-           if (Modes.strip_level == 0)
-              show_help ("Illegal level for `--strip %s'.\n", optarg);
+           strip_level_set = set_strip_level (optarg);
            break;
 
       case 'T':
@@ -4189,7 +4260,7 @@ int main (int argc, char **argv)
   {
     rc = strip_mode (Modes.strip_level);
   }
-  else if (Modes.infile[0])
+  else if (Modes.infile)
   {
     rc = infile_init();
     if (!rc)
@@ -4246,7 +4317,7 @@ int main (int argc, char **argv)
    * Move processing of `Modes.infile` to the same thread
    * for consistent handling of all sample-sources.
    */
-  if (Modes.infile[0])
+  if (Modes.infile)
   {
     if (infile_read() == 0)
        LOG_STDERR ("No good messages found in '%s'.\n", Modes.infile);

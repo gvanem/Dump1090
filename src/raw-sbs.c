@@ -106,19 +106,11 @@ void raw_out_send (const modeS_message *mm)
 }
 
 /**
- * Common for all config-parser callbacks.
- *
- * Parses a "host-X-Y = [tcp|udp]://host:port" and sets
- * `serv->host` and serv->port`.
- */
-#define SET_HOST_PORT(arg, serv, def_port) net_set_host_port (arg, serv, def_port)
-
-/**
  * Parses "host-raw-in = tcp://host:port"
  */
 bool raw_in_set_host_port (const char *arg)
 {
-  return SET_HOST_PORT (arg, &modeS_net_services [MODES_NET_SERVICE_RAW_IN], MODES_NET_PORT_RAW_IN);
+  return NET_SET_HOST_PORT (arg, MODES_NET_SERVICE_RAW_IN, MODES_NET_PORT_RAW_IN);
 }
 
 /**
@@ -126,7 +118,7 @@ bool raw_in_set_host_port (const char *arg)
  */
 bool raw_out_set_host_port (const char *arg)
 {
-  return SET_HOST_PORT (arg, &modeS_net_services [MODES_NET_SERVICE_RAW_OUT], MODES_NET_PORT_RAW_OUT);
+  return NET_SET_HOST_PORT (arg, MODES_NET_SERVICE_RAW_OUT, MODES_NET_PORT_RAW_OUT);
 }
 
 /**
@@ -134,34 +126,7 @@ bool raw_out_set_host_port (const char *arg)
  */
 bool sbs_in_set_host_port (const char *arg)
 {
-  return SET_HOST_PORT (arg, &modeS_net_services [MODES_NET_SERVICE_SBS_IN], MODES_NET_PORT_SBS);
-}
-
-/**
- * Parses "net-ro-port = port"
- */
-bool raw_out_set_port (const char *arg)
-{
-  modeS_net_services [MODES_NET_SERVICE_RAW_OUT].port = (uint16_t) atoi (arg);
-  return (true);
-}
-
-/**
- * Parses "net-ri-port = port"
- */
-bool raw_in_set_port (const char *arg)
-{
-  modeS_net_services [MODES_NET_SERVICE_RAW_IN].port = (uint16_t) atoi (arg);
-  return (true);
-}
-
-/**
- * Parses "net-sbs-port = port"
- */
-bool sbs_out_set_port (const char *arg)
-{
-  modeS_net_services [MODES_NET_SERVICE_SBS_OUT].port = (uint16_t) atoi (arg);
-  return (true);
+  return NET_SET_HOST_PORT (arg, MODES_NET_SERVICE_SBS_IN, MODES_NET_PORT_SBS);
 }
 
 /*

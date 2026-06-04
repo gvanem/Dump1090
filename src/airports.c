@@ -554,7 +554,7 @@ static bool airports_init_CSV (void)
   }
 
   TRACE ("Parsed %u records in %.3f msec from: \"%s\"\n",
-         g_data.ap_stats.CSV_numbers, (get_usec_now() - start_t) / 1E3, true_path(Modes.airport_db));
+         g_data.ap_stats.CSV_numbers, (get_usec_now() - start_t) / 1E3, Modes.airport_db);
 
   TRACE ("ICAO names: %u, IATA names: %u\n",
          g_data.ap_stats.CSV_num_ICAO, g_data.ap_stats.CSV_num_IATA);
@@ -1421,7 +1421,7 @@ static bool airports_update_BIN_file (const char *fname)
  * Check if the `airports.bin` or `routes.bin` databases needs update.
  * If so, run `py.exe -3 ../tools/gen_data.py` to update all of them.
  */
-bool airports_update_BIN (void)
+static bool airports_update_BIN (void)
 {
   int  need_update = 0;
   bool rc = true;
@@ -1449,21 +1449,25 @@ bool airports_update_BIN (void)
   return (rc);
 }
 
-static int airports_set_BIN_file (mg_file_path *file, const char *bin_file)
+static int airports_set_BIN_file (char **result_bin_file, const char *relative_bin_file)
 {
   struct stat st;
   bool   exist, truncated = false;
+  char  *fname = mg_mprintf ("%s\\%s", Modes.results_dir, relative_bin_file);
 
-  snprintf (*file, sizeof(*file), "%s\\%s", Modes.results_dir, bin_file);
-  exist = (stat(*file, &st) == 0);
+  exist = (stat(fname, &st) == 0);
 
   if (exist)
      truncated = (st.st_size < sizeof(BIN_header));
 
   if (!exist)
-     LOG_STDERR ("file: '%s' is missing.\n", *file);
+     LOG_STDERR ("file: '%s' is missing.\n", fname);
   if (truncated)
-     LOG_STDERR ("file: '%s' is truncated.\n", *file);
+     LOG_STDERR ("file: '%s' is truncated.\n", fname);
+
+  TRACE ("fname: '%s', exist: %d, size: %ld\n", fname, exist, st.st_size);
+
+  *result_bin_file = fname;
 
   return (exist && !truncated);
 }
@@ -1658,6 +1662,12 @@ void airports_exit (bool free_airports)
   g_data.airports     = NULL;
   Modes.airports_priv = NULL;
 
+  free (Modes.airport_db);
+  free (Modes.airport_freq_db);
+  free (Modes.airport_cache);
+
+  Modes.airport_db = Modes.airport_freq_db = Modes.airport_cache = NULL;
+
 #if defined(USE_BIN_FILES)
   free (Modes.bin.route_records);
   free (Modes.bin.airports_records);
@@ -1666,6 +1676,9 @@ void airports_exit (bool free_airports)
   Modes.bin.route_records_num = 0;
   Modes.bin.airports_records = NULL;
   Modes.bin.airports_records_num = 0;
+
+  free (Modes.bin.airports_bin);
+  free (Modes.bin.routes_bin);
 #endif
 }
 

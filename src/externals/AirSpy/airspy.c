@@ -43,7 +43,7 @@
  * Data private for AirSpy.
  */
 typedef struct airspy_priv {
-        mg_file_path                dll_name;
+        char                        dll_name [MAX_PATH];
         airspy_lib_version_t        version;
         volatile bool               cancelling;
         volatile bool               uninit_done;
@@ -110,8 +110,8 @@ static struct dyn_struct airspy_funcs [] = {
  */
 static bool airspy_load_funcs (void)
 {
-  mg_file_path full_name;
-  size_t       i, num;
+  char   full_name [MAX_PATH];
+  size_t i, num;
 
   for (i = 0; i < DIM(airspy_funcs); i++)
       airspy_funcs[i].mod_name = sdr.dll_name;
@@ -566,8 +566,8 @@ int airspy_exit (airspy_dev *device)
  */
 bool airspy_set_dll_name (const char *arg)
 {
-  mg_file_path dll = "?";
-  DWORD        len, attr;
+  char  dll [MAX_PATH] = { "?" };
+  DWORD len, attr;
 
   if (!strpbrk(arg, "/\\"))  /* not absolute or relative; assume on PATH */
   {

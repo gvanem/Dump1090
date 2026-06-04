@@ -667,7 +667,7 @@ static void get_est_home_distance (aircraft *a, const char **km_nmiles)
 /*
  * Show statistics for a physical or a RTL-TCP device.
  */
-static int interactive_phys_stats (void)
+static int interactive_phys_stats (const char *silent)
 {
   #define GAIN_TOO_LOW   " (too low?)"
   #define GAIN_TOO_HIGH  " (too high?)"
@@ -706,28 +706,32 @@ static int interactive_phys_stats (void)
   last_good_CRC = good_CRC;
   last_bad_CRC  = bad_CRC;
 
-  return modeS_SetConsoleTitlef ("Dev: %s. CRC: %llu / %llu. Gain: %s%s",
-                                 dev, good_CRC, bad_CRC, gain, overload);
+  return modeS_SetConsoleTitlef ("%sDev: %s. CRC: %llu / %llu. Gain: %s%s",
+                                 silent, dev, good_CRC, bad_CRC, gain, overload);
 }
 
 /*
  * Called every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`) to update
- * the Console Windows Title.
+ * the Console Window Title.
  *
  * Called from `background_tasks()` in the main thread.
  * Show special statistics for RAW-IN / SBS.
  */
 int interactive_title_stats (void)
 {
+  const char *silent = (Modes.silent && !Modes.interactive) ? "SILENT-MODE, " : "";
+
   if (PHYS_DEVICE() || Modes.rtl_tcp_in)
-     return interactive_phys_stats();
+     return interactive_phys_stats (silent);
 
   if (Modes.sbs_in)
-     return modeS_SetConsoleTitlef ("Dev: %s. SBS: %llu",
+     return modeS_SetConsoleTitlef ("%sDev: %s. SBS: %llu",
+                                    silent,
                                     net_handler_url(MODES_NET_SERVICE_SBS_IN),
                                     Modes.stat.SBS_good + Modes.stat.SBS_bad);
   if (Modes.raw_in)
-     return modeS_SetConsoleTitlef ("Dev: %s. RAW: %llu",
+     return modeS_SetConsoleTitlef ("%sDev: %s. RAW: %llu",
+                                    silent,
                                     net_handler_url(MODES_NET_SERVICE_RAW_IN),
                                     Modes.stat.RAW_good + Modes.stat.RAW_bad + Modes.stat.RAW_empty);
   return (0);
@@ -1127,7 +1131,8 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
 }
 
 /**
- * Show the currently captured aircraft information on screen.
+ * Called every 250 msec from `background_tasks()`. <br>
+ * Shows the current aircraft information in a Curses/Wincon window.
  *
  * \param in now  the currect tick-timer in milli-seconds
  */
@@ -1193,7 +1198,7 @@ void interactive_show_data (uint64_t now)
 }
 
 /**
- * "Windows Console" API functions
+ * "Window Console" API functions
  */
 static bool wincon_init (void)
 {
@@ -1370,7 +1375,7 @@ static void wincon_print_header (void)
 }
 
 /**
- * PDCurses API functions
+ * Curses API functions
  */
 static bool curses_init (void)
 {

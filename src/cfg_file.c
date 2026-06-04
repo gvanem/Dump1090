@@ -107,7 +107,7 @@ void cfg_illegal_val (const char *key, const char *val)
  */
 bool cfg_open_and_parse (const char *fname, const cfg_table *table)
 {
-  char full_name [MAX_PATH] = "?";
+  char full_name [MAX_PATH] = { "?" };
   cfg_context *ctx;
   FILE        *file;
   DWORD        len;

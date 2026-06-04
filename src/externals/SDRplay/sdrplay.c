@@ -55,7 +55,7 @@
  * Private data for SDRPlay.
  */
 typedef struct sdrplay_priv {
-        mg_file_path                   dll_name;
+        char                           dll_name [MAX_PATH];
         float                          version;
         float                          reg_version;
         float                          min_version;
@@ -75,7 +75,7 @@ typedef struct sdrplay_priv {
         unsigned int                   num_devices;
         char                           last_err [256];
         int                            last_rc;
-        int                            max_sig_acc;    /**< accumulated max-signal for `dsr.decay_filter` */
+        int                            max_sig_acc;    /**< accumulated max-signal for `sdr.decay_filter` */
         int                            curr_gain;
         int                            ADSB_mode;      /**< == sdrplay_api_ControlParamsT::adsbMode */
         int                            gain_reduction;
@@ -179,13 +179,13 @@ static struct dyn_struct sdrplay_funcs [] = {
  *  SubVersion   REG_SZ    1
  * ```
  */
-static bool sdrplay_check_registry (mg_file_path *full_name)
+static bool sdrplay_check_registry (char *full_name)
 {
-  bool         found = false;
-  HKEY         hnd = NULL;
-  DWORD        rc, attrs, len;
-  char         ver [10];
-  mg_file_path dir = { '\0' };
+  bool  found = false;
+  HKEY  hnd = NULL;
+  DWORD rc, attrs, len;
+  char  ver [10];
+  char  dir [MAX_PATH] = { '\0' };
 
   rc = RegOpenKeyExA (HKEY_LOCAL_MACHINE, SDRPLAY_REG_NAME, KEY_QUERY_VALUE, KEY_READ, &hnd);
   if (rc != ERROR_SUCCESS)
@@ -219,9 +219,9 @@ static bool sdrplay_check_registry (mg_file_path *full_name)
     return (false);
   }
 
-  snprintf (*full_name, sizeof(mg_file_path), "%s\\%s\\sdrplay_api.dll",
+  snprintf (full_name, MAX_PATH, "%s\\%s\\sdrplay_api.dll",
             dir, sizeof(void*) == 8 ? "x64": "x86");
-  attrs = GetFileAttributes (*full_name);
+  attrs = GetFileAttributes (full_name);
 
   /* found it
    */
@@ -250,14 +250,14 @@ static bool sdrplay_check_registry (mg_file_path *full_name)
  */
 static bool sdrplay_load_funcs (void)
 {
-  mg_file_path full_name = { '\0' };
-  size_t       i, num;
-  DWORD        err;
+  char   full_name [MAX_PATH] = { '\0' };
+  size_t i, num;
+  DWORD  err;
 
   /* Unless set from config-handler, search Registry to find the absolute
    * path of `sdrplay_api.dll`. But ignore any failure.
    */
-  if (!sdr.set_from_cfg && sdrplay_check_registry (&full_name))
+  if (!sdr.set_from_cfg && sdrplay_check_registry(full_name))
      strcpy_s (sdr.dll_name, sizeof(sdr.dll_name), full_name);
 
   for (i = 0; i < DIM(sdrplay_funcs); i++)
@@ -1513,8 +1513,8 @@ fail:
  */
 bool sdrplay_set_dll_name (const char *arg)
 {
-  mg_file_path dll = "?";
-  DWORD        len, attr;
+  char  dll [MAX_PATH] = { "?" };
+  DWORD len, attr;
 
   /* If not absolute or relative we must assume it's on PATH.
    * Hence cannot know if this is a valid DLL until we call `LoadLibraryA()`

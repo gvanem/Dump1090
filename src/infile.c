@@ -56,11 +56,11 @@ bool infile_init (void)
   const char *file = Modes.infile;
   bool        rc = true;
 
-  assert (file[0]);
+  assert (file && file[0]);
 
   if (g_data.ctx.file_name)
   {
-    Modes.infile_fd = 0;   /* fake it for `any_device` in dump1090.c */
+    Modes.infile_fd = 0;   /* fake it for `PHYS_DEVICE()` in dump1090.c */
     return csv_parse_file();
   }
 
@@ -188,6 +188,10 @@ int infile_read (void)
  */
 void infile_exit (void)
 {
+  if (Modes.infile)
+     free (Modes.infile);
+  Modes.infile = NULL;
+
   if (g_data.records)
   {
     free (g_data.records);
@@ -208,9 +212,9 @@ void infile_exit (void)
 
 bool infile_set (const char *arg)
 {
-  mg_file_path copy;
+  char copy [MAX_PATH];
 
-  strcpy_s (Modes.infile, sizeof(Modes.infile), arg);
+  Modes.infile = strdup (arg);
   strcpy_s (copy, sizeof(copy), Modes.infile);
   strlwr (copy);
 
