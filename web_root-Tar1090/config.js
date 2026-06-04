@@ -33,7 +33,7 @@
 // Update GPS location (keep map centered on GPS location)
 //updateLocation = false;
 
-// Color controls for the range outline
+// Color controls for the heywhatsthat upintheair range outline
 //range_outline_color = '#0000DD';
 //range_outline_alpha = 1.0;
 //range_outline_width = 1.7;
@@ -42,7 +42,7 @@
 //range_outline_dash = [5, 5]; // null - solid line, [5, 5] - dashed line with 5 pixel lines and spaces in between
 //
 //
-// Style controls for the actal range outline:
+// Style controls for the actual range outline (dynamic, by default 24h retention, see readsb options)
 // actual_range_outline_color = '#00596b';
 // actual_range_outline_width = 1.7;
 // NOTE: dashed lines cause slowdown when zooming in, not recommended
@@ -73,10 +73,6 @@
 // VFR_Terminal: "Terminal Area Charts",
 // IFR_AreaLow: "IFR Area Charts",
 // IFR_High: "IFR Enroute High Charts"
-//
-// only with bing key:
-// bing_aerial
-// bing_roads
 
 
 // default these overlays to on for visitors which haven't disabled them in the browser in a previous session
@@ -209,15 +205,6 @@ ColorByAlt = {
 // Show country flags by ICAO addresses?
 //ShowFlags = true;
 
-// Provide a Bing Maps API key here to enable the Bing imagery layer.
-// You can obtain a free key (with usage limits) at
-// https://www.bingmapsportal.com/ (you need a "basic key")
-//
-// Be sure to quote your key:
-//   BingMapsAPIKey = "your key here";
-//
-BingMapsAPIKey = null;
-
 // Provide a Mapbox API key here to enable the Mapbox vector layers.
 // You can obtain a free key (with usage limits) at
 // https://www.mapbox.com/
@@ -225,7 +212,7 @@ BingMapsAPIKey = null;
 // Be sure to quote your key:
 //   MapboxAPIKey = "your key here";
 //
-MapboxAPIKey = null;
+//MapboxAPIKey = null;
 
 // This determines what is up, default is north (0 degrees)
 //mapOrientation = 0;
