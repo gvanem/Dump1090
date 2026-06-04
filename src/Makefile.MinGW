@@ -162,6 +162,12 @@ $(BIN_DIR)/code-blocks.bin: ../tools/gen_data.py | $(OBJ_DIR)
 	$(PYTHON) $< --mingw --gen-c $(OBJ_DIR)/gen-code-blocks.c
 	$(COPY) $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
 
+../blocks_test.exe: $(OBJ_DIR)/gen-code-blocks.o
+	$(call link_EXE, $@, $^)
+
+$(OBJ_DIR)/gen-code-blocks.o: $(OBJ_DIR)/gen-code-blocks.c | $(CC).args
+	$(call C_compile, $@, -DTEST_CODE_BLOCKS $<)
+
 clean_gen_data: ../tools/gen_data.py
 	$(call green_msg, Cleaning generated data)
 	$(PYTHON) $< --clean
