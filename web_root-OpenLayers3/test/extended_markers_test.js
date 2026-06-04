@@ -4,7 +4,7 @@ var MarkerLayer;
 var NextLon = 0;
 var NextLat = 0;
 
-function setup_markers_test() {
+function setup_extended_markers_test() {
     MarkerLayer = new ol.layer.Vector({
         source: new ol.source.Vector(),
     });
