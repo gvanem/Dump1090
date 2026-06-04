@@ -374,32 +374,6 @@ function createBaseLayers() {
         }
     }
 
-    if (loStore['bingKey'] != undefined)
-        BingMapsAPIKey = loStore['bingKey'];
-
-    if (BingMapsAPIKey) {
-        world.push(new ol.layer.Tile({
-            source: new ol.source.BingMaps({
-                key: BingMapsAPIKey,
-                imagerySet: 'Aerial',
-                transition: tileTransition,
-            }),
-            name: 'bing_aerial',
-            title: 'Bing Aerial',
-            type: 'base',
-        }));
-        world.push(new ol.layer.Tile({
-            source: new ol.source.BingMaps({
-                key: BingMapsAPIKey,
-                imagerySet: 'RoadOnDemand',
-                transition: tileTransition,
-            }),
-            name: 'bing_roads',
-            title: 'Bing Roads',
-            type: 'base',
-        }));
-    }
-
     if (loStore['mapboxKey'] != undefined)
         MapboxAPIKey = loStore['mapboxKey'];
 
@@ -720,6 +694,12 @@ function createBaseLayers() {
             extent: naExtent,
         });
 
+        let refreshNoaaRadar = function () {
+            noaaRadarSource.refresh();
+        }
+        refreshNoaaRadar();
+        window.setInterval(refreshNoaaRadar, 5 * 60 * 1000);
+
         us.push(noaaRadar);
     }
 
@@ -774,10 +754,9 @@ function createBaseLayers() {
     }
 
     if (true) {
-        g.getRainviewerLayers = async function(key) {
+        g.getRainviewerMaps = async function() {
             const response = await fetch("https://api.rainviewer.com/public/weather-maps.json", {credentials: "omit",});
-            const jsonData = await response.json();
-            return jsonData[key];
+            return await response.json();
         }
 
         const rainviewerRadar = new ol.layer.Tile({
@@ -789,9 +768,10 @@ function createBaseLayers() {
             zIndex: 99,
         });
         g.refreshRainviewerRadar = async function() {
-            const latestLayer = await g.getRainviewerLayers('radar');
+            const maps = await g.getRainviewerMaps();
+            const past = maps.radar.past;
             const rainviewerRadarSource = new ol.source.XYZ({
-                url: 'https://tilecache.rainviewer.com/v2/radar/' + latestLayer.past[latestLayer.past.length - 1].time + '/512/{z}/{x}/{y}/6/1_1.png',
+                url: maps.host + past[past.length - 1].path + '/512/{z}/{x}/{y}/6/1_1.png',
                 attributions: '<a href="https://www.rainviewer.com/api.html" target="_blank">RainViewer.com</a>',
                 attributionsCollapsible: false,
                 maxZoom: 7,
