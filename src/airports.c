@@ -1506,8 +1506,8 @@ static bool airports_init_BIN (void)
   BIN_header hdr;
   FILE      *f;
 
-  if (airports_set_BIN_file(&Modes.bin.airports_bin, BIN_AIRPORTS) +
-      airports_set_BIN_file(&Modes.bin.routes_bin, BIN_ROUTES) == 0)
+  if (airports_set_BIN_file(&Modes.bin.airports_bin, AIRPORTS_BIN) +
+      airports_set_BIN_file(&Modes.bin.routes_bin, ROUTES_BIN) == 0)
      return (false);
 
   f = airports_init_one_BIN (Modes.bin.routes_bin, &hdr);

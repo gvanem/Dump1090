@@ -409,10 +409,15 @@ typedef struct airspy_conf {
    * has the sub-directory `standing-data-main/aircraft/`. It would be non-trivial
    * to remap to "aircrafts.csv" and "aircrafts.bin".
    */
-  #define BIN_AIRCRAFT     "aircraft.bin"
-  #define BIN_AIRPORTS     "airports.bin"
-  #define BIN_ROUTES       "routes.bin"
-  #define BIN_CODE_BLOCKS  "code-blocks.bin"
+  #define AIRCRAFT_BIN     "aircraft.bin"
+  #define AIRPORTS_BIN     "airports.bin"
+  #define ROUTES_BIN       "routes.bin"
+
+  /**
+   * Currently not used; the data is included as `$(OBJ_DIR)/gen-code-blocks.c`
+   * in `aircraft.c`.
+   */
+  #define CODE_BLOCKS_BIN  "code-blocks.bin"
 
   /**
    * Structure for `USE_BIN_FILES`:
@@ -421,17 +426,17 @@ typedef struct airspy_conf {
    *  *) header timestamp of when .BIN-file was created.
    */
   typedef struct bin_data {
-          char     *routes_bin;             /**< Full path to `Modes.results_dir + "\\" + BIN_ROUTES` */
+          char     *routes_bin;             /**< Full path to `Modes.results_dir + "\\" + ROUTES_BIN` */
           void     *route_records;          /**< An array of `route_record2`. \ref "gen_data.h" */
           size_t    route_records_num;
           time_t    routes_created;
 
-          char     *aircrafts_bin;          /**< Full path to `Modes.results_dir + "\\" + BIN_AIRCRAFT` */
+          char     *aircrafts_bin;          /**< Full path to `Modes.results_dir + "\\" + AIRCRAFT_BIN` */
           void     *aircrafts_records;      /**< An array of `aircraft_record`. \ref "gen_data.h" */
           size_t    aircrafts_records_num;
           time_t    aircrafts_created;
 
-          char     *airports_bin;           /**< Full path to `Modes.results_dir + "\\" + BIN_AIRPORTS` */
+          char     *airports_bin;           /**< Full path to `Modes.results_dir + "\\" + AIRPORTS_BIN` */
           void     *airports_records;       /**< An array of `airport_record`. \ref "gen_data.h" */
           size_t    airports_records_num;
           time_t    airports_created;

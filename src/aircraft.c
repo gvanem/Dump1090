@@ -40,6 +40,9 @@ typedef bool         (*func_is_military) (uint32_t addr, const char **country);
    */
   #include "gen_data.h"
 
+  /*
+   * Currently these func-pointers are used in `aircraft_test_1()` only.
+   */
   static func_get_country  p_get_country = aircraft_get_country2;
   static func_is_military  p_is_military = aircraft_is_military2;
 
@@ -638,15 +641,22 @@ static void aircraft_test_1 (void)
                { 0x00A78C, "ZS-OYT",  "Bell", "H1P" }  /* test for a Helicopter */
              };
   const aircraft_info *t = a_tests + 0;
-  char         sql_file [MAX_PATH] = { "" };
+  char         sql_file    [MAX_PATH] = { "" };
+  char         blocks_file [MAX_PATH] = { "" };
   bool         heli_found = false;
   const char  *heli_type  = "?";
 
   if (have_sql_file)
-     snprintf (sql_file, sizeof(sql_file), " and \"%s\"", basename(aircraft_sql));
+     snprintf (sql_file, sizeof(sql_file),
+               "\n                   %s", aircraft_sql);
 
-  LOG_STDOUT ("%s(): Checking %zu fixed records against \"%s\"%s:\n",
-              __FUNCTION__, DIM(a_tests), basename(Modes.aircraft_db), sql_file);
+  if (p_is_military != aircraft_is_military)
+     snprintf (blocks_file, sizeof(blocks_file),
+                "\n                   %s", "$(OBJ_DIR)/gen-code-blocks.c");
+
+  LOG_STDOUT ("\n%s(): Checking %zu fixed records against:\n"
+              "                   %s%s%s\n",
+              __FUNCTION__, DIM(a_tests), Modes.aircraft_db, sql_file, blocks_file);
 
   for (i = num_ok = 0; i < DIM(a_tests); i++, t++)
   {
@@ -712,7 +722,7 @@ static bool aircraft_init_BIN (void)
   bool        exist;
   bool        truncated = false;
 
-  Modes.bin.aircrafts_bin = mg_mprintf ("%s\\%s", Modes.results_dir, BIN_AIRCRAFT);
+  Modes.bin.aircrafts_bin = mg_mprintf ("%s\\%s", Modes.results_dir, AIRCRAFT_BIN);
   fname = Modes.bin.aircrafts_bin;
   exist = (stat(fname, &st) == 0);
 
