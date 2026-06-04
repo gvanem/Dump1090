@@ -159,7 +159,7 @@ $(OBJ_DIR)/gen-code-blocks.c \
 $(BIN_DIR)/gen_data.h        \
 $(BIN_DIR)/code-blocks.bin: ../tools/gen_data.py | $(OBJ_DIR)
 	$(call green_msg, Generating $(BRIGHT_WHITE)$@)
-	$(PYTHON) $< --gen-c $(OBJ_DIR)/gen-code-blocks.c
+	$(PYTHON) $< --mingw --gen-c $(OBJ_DIR)/gen-code-blocks.c
 	$(COPY) $(BIN_DIR)/gen_data.h $(OBJ_DIR)/
 
 clean_gen_data: ../tools/gen_data.py
