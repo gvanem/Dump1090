@@ -15,6 +15,7 @@
 #include "interactive.h"
 #include "smartlist.h"
 #include "speech.h"
+#include "aircraft.h"
 #include "airports.h"
 
 #if defined(USE_BIN_FILES)
@@ -24,14 +25,38 @@
 #define API_SERVICE_URL     "https://vrs-standing-data.adsb.lol/routes/%.2s/%s.json"
 #define API_SERVICE_503     "<html><head><title>503 Service Temporarily Unavailable"
 
-#define API_SERVICE_URL2    "https://adsb.im/api/0/routeset"  /* not used */
+#define API_SERVICE_URL2    "https://adsb.im/api/0/routeset" /* not used */
 
-#define API_AIRPORT_IATA    "\"_airport_codes_iata\": "    /* what to look for in response */
-#define API_AIRPORT_ICAO    "\"airport_codes\": "          /* todo: look for these ICAO codes too */
-#define API_SLEEP_MS        100                            /* Sleep() granularity */
-#define API_MAX_AGE         (10 * 60 * 10000000ULL)        /* 10 min in 100 nsec units */
-#define API_CACHE_PERIOD    (5 * 60 * 1000)                /* Save the cache every 5 min */
-#define ICAO_UNKNOWN        0xFFFFFFFF                     /* mark an unused ICAO address */
+#define API_AIRPORT_IATA    "\"_airport_codes_iata\": "      /* what to look for in response */
+#define API_AIRPORT_ICAO    "\"airport_codes\": "            /* todo: look for these ICAO codes too */
+#define API_SLEEP_MS        100                              /* Sleep() granularity */
+#define API_MAX_AGE         (10 * 60 * 10000000ULL)          /* 10 min in 100 nsec units */
+#define API_CACHE_PERIOD    (5 * 60 * 1000)                  /* Save the cache every 5 min */
+#define ICAO_UNKNOWN        0xFFFFFFFF                       /* mark an unused ICAO address */
+
+/**
+ * \def AIRPORT_DATABASE_CSV
+ * Our default airport-database relative to `Modes.where_am_I`.
+ */
+#define AIRPORT_DATABASE_CSV   "airport-codes.csv"
+
+/**
+ * \def AIRPORT_DATABASE_CACHE
+ * Our airport API cache in the `%TEMP%\\dump1090` directory.
+ */
+#define AIRPORT_DATABASE_CACHE  "airport-api-cache.csv"
+
+/**
+ * \def AIRPORT_FREQ_CSV
+ * Our airport-frequency database relative to `Modes.where_am_I`.
+ */
+#define AIRPORT_FREQ_CSV  "airport-frequencies.csv"
+
+/**
+ * \def AIRPORT_CODE_URL
+ * The URL for `g_data.csv_url`. Not effective yet.
+ */
+#define AIRPORT_CODE_URL   "https://datahub.io/core/airport-codes/datapackage.json"
 
 /**
  * \enum airport_t
@@ -50,9 +75,9 @@ typedef enum airport_t {
  * \typedef airport
  *
  * Describes an airport. Data can be from these sources:
- *  \li A .CSV-file         (`Mode.airport_db == "airport-codes.csv"`)
+ *  \li A .CSV-file         (`Mode.csv_file == "airport-codes.csv"`)
  *  \li A live API request.
- *  \li A cached API request (`Mode.airport_api_cache == "%TEMP%\\dump1090\\airport-api-cache.csv"`).
+ *  \li A cached API request (`Mode.tmp_cache == "%TEMP%\\dump1090\\airport-api-cache.csv"`).
  *
  * These are NOT on the same order as in `airport-codes.csv`. <br>
  * CSV header:
@@ -124,7 +149,7 @@ typedef struct flight_info_stats {
  * Statistics for airports + routes handling.
  */
 typedef struct airports_stats {
-        uint32_t  CSV_numbers;         /**< Count of CSV records in Modes.airport_db file */
+        uint32_t  CSV_numbers;         /**< Count of CSV records in `g_data.csv_file` file */
         uint32_t  CSV_num_ICAO;        /**< of which was ICAO records (there are most dominant) */
         uint32_t  CSV_num_IATA;        /**< or which was IATA records */
         uint32_t  API_requests_sent;   /**< Count of requests sent in API-thread  */
@@ -147,27 +172,46 @@ typedef struct airport_names {
       } airport_names;
 
 /**
+ * \typedef search_stats
+ *
+ * Search statistics.
+ */
+typedef struct search_stats {
+        uint32_t num_lookups;
+        uint32_t num_misses;
+        double   hit_rate;
+      } search_stats;
+
+/**
  * \typedef airports_priv
  *
  * Private data for this module.
  */
 typedef struct airports_priv {
-        smartlist_t      *airports;       /**< smartlist of airports */
-        airport          *airport_CSV;    /**< List of airports sorted on ICAO address. From CSV-file only */
-        char            **IATA_to_ICAO;   /**< List of IATA to ICAO airport codes sorted on IATA address */
-
-        smartlist_t      *flight_info;    /**< A smartlist of flight information */
-        airport_freq     *freq_CSV;       /**< List of airport frequency information. Not yet */
-        CSV_context       csv_ctx;        /**< Structure for the CSV parser */
-        airports_stats    ap_stats;       /**< Accumulated statistics for airports */
-        flight_info_stats fs_stats;       /**< Accumulated statistics for flight-info */
-        uintptr_t         thread_hnd;     /**< Thread-handle from `_beginthreadex()` */
-        HANDLE            thread_event;   /**< Thread-event for `API_thread_func()` to signal on */
-        unsigned          thread_id;      /**< Thread-ID from `_beginthreadex()` */
-        bool              do_trace;       /**< Use `API_TRACE()` macro? */
-        bool              do_trace_LOL;   /**< or use `API_TRACE_LOL()` macro? */
-        bool              no_db;          /**< Running w/o `Modes.airport_db' */
-        bool              test_mode;
+        char             *csv_file;        /**< The `airports-codes.csv` file. */
+        char             *freq_csv_file;   /**< The `airports-frequencies.csv` file. Not used yet. */
+        char             *csv_url;         /**< Value of key `airports-update = url`. Not effective yet. */
+        char             *tmp_cache;       /**< The `%%TEMP%%\\dump1090\\airport-api-cache.csv`. */
+        smartlist_t      *airports;        /**< smartlist of airports */
+        airport          *airport_CSV;     /**< List of airports sorted on ICAO address. From CSV-file only. */
+        airport           current_rec;     /**< Current record for `CSV_callback()` */
+        char            **IATA_to_ICAO;    /**< List of IATA to ICAO airport codes sorted on IATA address. */
+        smartlist_t      *flight_info;     /**< A smartlist of flight information. */
+        airport_freq     *freq_CSV;        /**< List of airport frequency information. Not yet. */
+        CSV_context       csv_ctx;         /**< Structure for the CSV parser of `g_data.csv_file`. */
+        airports_stats    ap_stats;        /**< Accumulated statistics for airports. */
+        flight_info_stats fs_stats;        /**< Accumulated statistics for flight-info. */
+        search_stats      sc_stats;        /**< Search statistics for `qsort_s()` and `bsearch_s()`. */
+        uintptr_t         thread_hnd;      /**< Thread-handle from `_beginthreadex()`. */
+        HANDLE            thread_event;    /**< Thread-event for `API_thread_func()` to signal on. */
+        unsigned          thread_id;       /**< Thread-ID from `_beginthreadex()`. */
+        bool              do_trace;        /**< Use `API_TRACE()` macro? */
+        bool              do_trace_LOL;    /**< Or use `API_TRACE_LOL()` macro? */
+        bool              prefer_LOL;      /**< Prefer using ADSB-LOL API even with '-DUSE_BIN_FILES'. */
+        bool              secure_LOL;      /**< Enable Mongoose's TLS (MG_TLS_BUILTIN) over WinInet. Not yet. */
+        bool              no_db;           /**< Running without `g_data.csv_file'. */
+        bool              test_mode;       /**< Running with "--test airport". */
+        const char       *usec_fmt;        /**< Use micro-second format in `airport_print_header()`? */
         uint32_t          last_rc;
 
         /**
@@ -189,14 +233,12 @@ static void         airport_CSV_test_4 (void);
 static void         airport_loc_test_1 (void);
 static void         airport_loc_test_2 (void);
 static void         airport_normalize_test (void);
-static void         airport_print_header (unsigned line, bool use_usec);
 static void         locale_test (void);
 static void         flight_info_exit (FILE *f);
 static flight_info *flight_info_create (const char *call_sign, uint32_t addr, airport_t type);
 static bool         flight_info_write (FILE *file, const flight_info *f);
 static void         flight_stats_now (flight_info_stats *stats);
 
-static const char   *usec_fmt;
 static airports_priv g_data;
 
 /**
@@ -286,7 +328,7 @@ static char *call_signs_tests[] = {
  *   "_airport_codes_iata": "BGO-AES-TRD"
  * ```
  *
- * For a departure in "BGO" (Bergen). Stopover in "AES" (Ålesund) and
+ * for a departure in "BGO" (Bergen). Stopover in "AES" (Ålesund) and
  * final destination "TRD" (Trondheim).
  */
 
@@ -347,56 +389,47 @@ static int CSV_add_entry (const airport *rec)
  */
 static int CSV_callback (struct CSV_context *ctx, const char *value)
 {
-  static airport rec;
-  double         d_val;
-  char          *end;
-  int            rc = 1;
+  double  d_val;
+  char   *end;
+  int     rc = 1;
 
   if (ctx->field_num == 0)        /* "ICAO" and first field */
   {
-    strncpy (rec.ICAO, value, sizeof(rec.ICAO)-1);
+    strncpy (g_data.current_rec.ICAO, value, sizeof(g_data.current_rec.ICAO)-1);
   }
   else if (ctx->field_num == 1)   /* "IATA" field */
   {
-    strncpy (rec.IATA, value, sizeof(rec.IATA)-1);
+    strncpy (g_data.current_rec.IATA, value, sizeof(g_data.current_rec.IATA)-1);
   }
   else if (ctx->field_num == 2)   /* "Full_name" field */
   {
-    strncpy (rec.full_name, unescape_hex(value), sizeof(rec.full_name)-1);
+    strncpy (g_data.current_rec.full_name, unescape_hex(value), sizeof(g_data.current_rec.full_name)-1);
   }
   else if (ctx->field_num == 3)  /* "Continent" field */
   {
-    strncpy (rec.continent, value, sizeof(rec.continent)-1);
+    strncpy (g_data.current_rec.continent, value, sizeof(g_data.current_rec.continent)-1);
   }
   else if (ctx->field_num == 4)  /* "Location" (or City) field */
   {
-    strncpy (rec.location, unescape_hex(value), sizeof(rec.location)-1);
+    strncpy (g_data.current_rec.location, unescape_hex(value), sizeof(g_data.current_rec.location)-1);
   }
   else if (ctx->field_num == 5)  /* "Longitude" field */
   {
     d_val = strtod (value, &end);
     if (end > value)
-       rec.pos.lon = d_val;
+       g_data.current_rec.pos.lon = d_val;
   }
   else if (ctx->field_num == 6)  /* "Latitude" and last field */
   {
     d_val = strtod (value, &end);
     if (end > value)
-       rec.pos.lat = d_val;
+       g_data.current_rec.pos.lat = d_val;
 
-    rc = CSV_add_entry (&rec);
-    memset (&rec, '\0', sizeof(rec));    /* ready for a new record. */
+    rc = CSV_add_entry (&g_data.current_rec);
+    memset (&g_data.current_rec, '\0', sizeof(g_data.current_rec)); /* ready for a new record. */
   }
   return (rc);
 }
-
-typedef struct search_stats {
-        uint32_t num_lookups;
-        uint32_t num_misses;
-        double   hit_rate;
-      } stats;
-
-static stats g_stats;
 
 #if defined(__MINGW64__) && !defined(HAVE_BSEARCH_S)
 static void *bsearch_s (const void *key, const void *base, size_t nmemb, size_t size,
@@ -431,8 +464,8 @@ static int CSV_compare_on_ICAO (void *context, const void *_a, const void *_b)
 {
   const airport *a = (const airport*) _a;
   const airport *b = (const airport*) _b;
-  int    rc = stricmp (a->ICAO, b->ICAO);
-  stats *st = (stats*) context;
+  int            rc = stricmp (a->ICAO, b->ICAO);
+  search_stats  *st = (search_stats*) context;
 
   st->num_lookups++;
   if (rc)
@@ -452,9 +485,9 @@ static const airport *CSV_lookup_ICAO (const char *ICAO)
 {
   const airport *a = NULL;
 
-  g_stats.num_lookups = 0;
-  g_stats.num_misses  = 0;
-  g_stats.hit_rate    = 0.0;
+  g_data.sc_stats.num_lookups = 0;
+  g_data.sc_stats.num_misses  = 0;
+  g_data.sc_stats.hit_rate    = 0.0;
 
   if (g_data.airport_CSV)
   {
@@ -462,13 +495,13 @@ static const airport *CSV_lookup_ICAO (const char *ICAO)
 
     strcpy_s (key.ICAO, sizeof(key.ICAO), ICAO);
     a = bsearch_s (&key, g_data.airport_CSV, g_data.ap_stats.CSV_numbers,
-                   sizeof(*g_data.airport_CSV), CSV_compare_on_ICAO, &g_stats);
-    if (g_stats.num_lookups)
+                   sizeof(*g_data.airport_CSV), CSV_compare_on_ICAO, &g_data.sc_stats);
+    if (g_data.sc_stats.num_lookups)
     {
-      if (g_stats.num_misses == 0)
-           g_stats.hit_rate = 1.0F;
-      else g_stats.hit_rate = 1.0F - ((double)g_stats.num_misses / (double)g_stats.num_lookups);
-      g_stats.hit_rate *= 100.0F;
+      if (g_data.sc_stats.num_misses == 0)
+           g_data.sc_stats.hit_rate = 1.0F;
+      else g_data.sc_stats.hit_rate = 1.0F - ((double)g_data.sc_stats.num_misses / (double)g_data.sc_stats.num_lookups);
+      g_data.sc_stats.hit_rate *= 100.0F;
     }
   }
   return (a);
@@ -525,36 +558,41 @@ static bool airports_init_CSV (void)
   uint32_t i, max, num;
 
   memset (&g_data.csv_ctx, '\0', sizeof(g_data.csv_ctx));
-  g_data.csv_ctx.file_name  = Modes.airport_db;
+  g_data.csv_ctx.file_name  = g_data.csv_file;
   g_data.csv_ctx.delimiter  = ',';
   g_data.csv_ctx.callback   = CSV_callback;
   g_data.csv_ctx.num_fields = 7;
 
-  if (!Modes.airport_db[0] || !stricmp(Modes.airport_db, "NUL"))
+  if (!g_data.csv_file[0] || !stricmp(g_data.csv_file, "NUL"))
   {
-    LOG_STDERR ("Running with no `Modes.airport_db'\n");
+    LOG_STDERR ("Running with no `g_data.csv_file'\n");
     g_data.no_db = true;
     return (true);
   }
 
   CSV_init_ctx (&g_data.csv_ctx);
+  if (g_data.csv_ctx.file)
+  {
+    fclose (g_data.csv_ctx.file);
+    g_data.csv_ctx.file = NULL;
+  }
 
   num = CSV_num_fields (&g_data.csv_ctx);
   if (num != g_data.csv_ctx.num_fields)
   {
-    LOG_STDERR ("Incorrect number of fields in \"Modes.airport_db = %s\". Got %u, expected %u\n",
-                Modes.airport_db, num, g_data.csv_ctx.num_fields);
+    LOG_STDERR ("Incorrect number of fields in \"g_data.csv_file = %s\". Got %u, expected %u\n",
+                g_data.csv_file, num, g_data.csv_ctx.num_fields);
     return (false);
   }
 
   if (!CSV_open_and_parse_file(&g_data.csv_ctx))
   {
-    LOG_STDERR ("Parsing of \"Modes.airport_db = %s\" failed: %s\n", Modes.airport_db, strerror(errno));
+    LOG_STDERR ("Parsing of \"g_data.csv_file = %s\" failed: %s\n", g_data.csv_file, strerror(errno));
     return (false);
   }
 
   TRACE ("Parsed %u records in %.3f msec from: \"%s\"\n",
-         g_data.ap_stats.CSV_numbers, (get_usec_now() - start_t) / 1E3, Modes.airport_db);
+         g_data.ap_stats.CSV_numbers, (get_usec_now() - start_t) / 1E3, g_data.csv_file);
 
   TRACE ("ICAO names: %u, IATA names: %u\n",
          g_data.ap_stats.CSV_num_ICAO, g_data.ap_stats.CSV_num_IATA);
@@ -564,7 +602,7 @@ static bool airports_init_CSV (void)
     airport *a = g_data.airport_CSV + 0;
 
     qsort_s (g_data.airport_CSV, g_data.ap_stats.CSV_numbers, sizeof(*g_data.airport_CSV),
-             CSV_compare_on_ICAO, &g_stats);
+             CSV_compare_on_ICAO, &g_data.sc_stats);
 
     for (i = 0; i < g_data.ap_stats.CSV_numbers; i++, a++)
     {
@@ -593,16 +631,14 @@ static bool airports_init_CSV (void)
  */
 static void airports_exit_CSV (void)
 {
-  if (g_data.airport_CSV)
-     free (g_data.airport_CSV);
-
+  free (g_data.airport_CSV);
   g_data.airport_CSV = NULL;
   g_data.ap_stats.CSV_numbers = 0;
 }
 
 /**
  * \todo
- * Open and parse `Modes.airport_freq_db` into the smartlist `g_data.airport_freq_CSV`
+ * Open and parse `g_data.freq_csv_file` into the smartlist `g_data.airport_freq_CSV`
  */
 static bool airports_init_freq_CSV (void)
 {
@@ -1131,10 +1167,10 @@ static unsigned int __stdcall API_thread_func (void *arg)
       continue;
     }
 
-    int i, max = smartlist_len (g_data.flight_info);
+    int i, max = smartlist_len (data->flight_info);
     for (i = 0; i < max; i++)
     {
-      flight_info *f = smartlist_get (g_data.flight_info, i);
+      flight_info *f = smartlist_get (data->flight_info, i);
 
       if (f->type != AIRPORT_API_PENDING)
          continue;
@@ -1160,11 +1196,11 @@ static unsigned int __stdcall API_thread_func (void *arg)
 }
 
 /**
- * Open for writing or create the `%TEMP%\\dump1090\\ AIRPORT_DATABASE_CACHE` file.
+ * Open for writing or create the `g_data.tmp_cache` file.
  */
 static bool airports_cache_open (FILE **f_ptr)
 {
-  FILE *f = fopen (Modes.airport_cache, "w+t");
+  FILE *f = fopen (g_data.tmp_cache, "w+t");
   bool  create = (f_ptr == NULL);
 
   if (f_ptr)
@@ -1174,7 +1210,7 @@ static bool airports_cache_open (FILE **f_ptr)
   {
     LOG_STDERR ("Failed to %s \"%s\": %s\n",
                 create ? "create" : "open",
-                Modes.airport_cache, strerror(errno));
+                g_data.tmp_cache, strerror(errno));
     return (false);
   }
 
@@ -1197,17 +1233,17 @@ static void airports_cache_write (void)
     struct stat st;
 
     fclose (f);
-    if (stat(Modes.airport_cache, &st) == 0)
-         API_TRACE ("\"%s\": %u bytes written.\n", Modes.airport_cache, st.st_size);
-    else API_TRACE ("\"%s\": errno: %d/%s.\n", Modes.airport_cache, errno, strerror(errno));
+    if (stat(g_data.tmp_cache, &st) == 0)
+         API_TRACE ("\"%s\": %u bytes written.\n", g_data.tmp_cache, st.st_size);
+    else API_TRACE ("\"%s\": errno: %d/%s.\n", g_data.tmp_cache, errno, strerror(errno));
   }
   if (!f && g_data.test_mode)
-     printf ("No need to rewrite the %s cache.\n", Modes.airport_cache);
+     printf ("No need to rewrite the %s cache.\n", g_data.tmp_cache);
 }
 
 /**
  * Called from `background_tasks()` 4 times per second.
- * Save the `%TEMP%\\dump1090\\AIRPORT_DATABASE_CACHE` file once every 5 minutes.
+ * Save the `g_data.tmp_cache` file once every 5 minutes.
  *
  * Only effective in `--interactive` mode.
  * \todo make an option / cfg-setting to enable this always.
@@ -1255,7 +1291,7 @@ void airports_background (uint64_t now)
 }
 
 /**
- * Open and parse the `%TEMP%\\dump1090\\ AIRPORT_DATABASE_CACHE` file
+ * Open and parse the `g_data.tmp_cache` file
  * and append to `g_data.flight_info`.
  *
  * These records are always `a->type == AIRPORT_API_CACHED`.
@@ -1272,7 +1308,7 @@ static bool airports_init_API (void)
     return (false);
   }
 
-  if (Modes.https_lol_API)
+  if (g_data.secure_LOL)
   {
      /**< \todo */
   }
@@ -1286,7 +1322,7 @@ static bool airports_init_API (void)
     }
   }
 
-  exists = (stat(Modes.airport_cache, &st) == 0 && st.st_size > 0);
+  exists = (stat(g_data.tmp_cache, &st) == 0 && st.st_size > 0);
   if (!exists)
      airports_cache_open (NULL);
   else
@@ -1294,7 +1330,7 @@ static bool airports_init_API (void)
     flight_info_stats fs;
 
     memset (&g_data.csv_ctx, '\0', sizeof(g_data.csv_ctx));
-    g_data.csv_ctx.file_name  = Modes.airport_cache;
+    g_data.csv_ctx.file_name  = g_data.tmp_cache;
     g_data.csv_ctx.delimiter  = ',';
     g_data.csv_ctx.callback   = API_cache_callback;
     g_data.csv_ctx.line_size  = 2000;
@@ -1309,14 +1345,14 @@ static bool airports_init_API (void)
       if (g_data.csv_ctx.state != STATE_EOF &&
           g_data.csv_ctx.state != STATE_NORMAL)
       {
-        LOG_STDERR ("Parsing of \"Modes.airport_cache = %s\" failed: %s\n", Modes.airport_cache, strerror(errno));
+        LOG_STDERR ("Parsing of \"g_data.tmp_cache = %s\" failed: %s\n", g_data.tmp_cache, strerror(errno));
         return (false);
       }
     }
 
     flight_stats_now (&fs);
     TRACE ("Parsed %u/%u/%u records from: \"%s\"\n",
-           fs.cached, fs.expired, g_data.ap_stats.API_added_CSV, Modes.airport_cache);
+           fs.cached, fs.expired, g_data.ap_stats.API_added_CSV, g_data.tmp_cache);
 
     if (g_data.test_mode)
        assert (fs.cached + fs.expired == g_data.ap_stats.API_added_CSV);
@@ -1535,6 +1571,17 @@ static bool airports_init_BIN (void)
 #endif
 
 /**
+ * The pre-init function for this module.
+ */
+void airports_pre_init (void)
+{
+  g_data.csv_url       = strdup (AIRPORT_CODE_URL);
+  g_data.csv_file      = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRPORT_DATABASE_CSV);
+  g_data.freq_csv_file = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRPORT_FREQ_CSV);
+  g_data.tmp_cache     = mg_mprintf ("%s\\%s", Modes.tmp_dir, AIRPORT_DATABASE_CACHE);
+}
+
+/**
  * Main init function for this module.
  */
 uint32_t airports_init (void)
@@ -1543,8 +1590,8 @@ uint32_t airports_init (void)
 
   assert (g_data.airports == NULL);
 
-  g_data.flight_info = smartlist_new();
   g_data.airports    = smartlist_new();
+  g_data.flight_info = smartlist_new();
   g_data.test_mode   = test_contains (Modes.tests, "airport");
 
   if (!g_data.flight_info || !g_data.airports)
@@ -1656,30 +1703,60 @@ void airports_exit (bool free_airports)
     if (smartlist_len(g_data.flight_info) > 0)
        airports_cache_write();
     smartlist_free (g_data.flight_info);
+    g_data.flight_info = NULL;
   }
 
-  g_data.flight_info  = NULL;
-  g_data.airports     = NULL;
   Modes.airports_priv = NULL;
 
-  free (Modes.airport_db);
-  free (Modes.airport_freq_db);
-  free (Modes.airport_cache);
+  free (g_data.csv_file);
+  free (g_data.csv_url);
+  free (g_data.freq_csv_file);
+  free (g_data.tmp_cache);
 
-  Modes.airport_db = Modes.airport_freq_db = Modes.airport_cache = NULL;
+  g_data.csv_file = g_data.csv_url = g_data.freq_csv_file = g_data.tmp_cache = NULL;
 
 #if defined(USE_BIN_FILES)
-  free (Modes.bin.route_records);
   free (Modes.bin.airports_records);
+  free (Modes.bin.airports_bin);
+
+  free (Modes.bin.route_records);
+  free (Modes.bin.routes_bin);
 
   Modes.bin.route_records = NULL;
   Modes.bin.route_records_num = 0;
   Modes.bin.airports_records = NULL;
   Modes.bin.airports_records_num = 0;
-
-  free (Modes.bin.airports_bin);
-  free (Modes.bin.routes_bin);
 #endif
+}
+
+/**
+ * Config-callbacks:
+ */
+bool airports_set_csv (const char *arg)
+{
+  free (g_data.csv_file);
+  g_data.csv_file = strdup (arg);
+  return (true);
+}
+
+bool airports_set_url (const char *arg)
+{
+  free (g_data.csv_url);
+  g_data.csv_url = strdup (arg);
+  return (true);
+}
+
+bool airports_prefer_adsb_lol (const char *arg)
+{
+  g_data.prefer_LOL = cfg_true (arg);
+
+#if !defined(USE_BIN_FILES)
+  TRACE ("Config value 'prefer-adsb-lol=%d' has no meaning.\n"
+         "Will always use ADSB-LOL API to lookup routes in 'airports.c'.\n",
+         g_data.prefer_LOL);
+#endif
+
+  return (true);
 }
 
 /**
@@ -1748,7 +1825,7 @@ const char *airport_find_location (const char *IATA_or_ICAO)
  */
 static void airport_print_header (unsigned line, bool use_usec)
 {
-  usec_fmt = (use_usec ? "%.2f" : "%.2f%%");
+  g_data.usec_fmt = (use_usec ? "%.2f" : "%.2f%%");
 
   printf ("line: %u:\n"
           "  Record  ICAO       IATA       cont location               full_name                                            lat       lon  %s\n"
@@ -1769,7 +1846,7 @@ static void airport_print_rec (const airport *a, const char *ICAO, size_t idx, d
   printf ("  %5zu   '%-8.8s' '%-8.8s' %2.2s   ", idx, ICAO, IATA, continent);
 
   if (val >= 0.0)
-     snprintf (val_buf, sizeof(val_buf), usec_fmt, val);
+     snprintf (val_buf, sizeof(val_buf), g_data.usec_fmt, val);
 
   if (UTF8_decode)
        printf ("'%S' '%S' ", u8_format(location, 20), u8_format(full_name, 42));
@@ -1839,7 +1916,7 @@ static void airport_CSV_test_2 (void)
     if (!a && !strcmp(t->ICAO, "XXXX"))   /* the "XXXX" will never be found. That's OK */
        num_ok++;
 
-    airport_print_rec (a, t->ICAO, i, g_stats.hit_rate, true);
+    airport_print_rec (a, t->ICAO, i, g_data.sc_stats.hit_rate, true);
   }
   printf ("  %3zu OKAY\n", num_ok);
   printf ("  %3zu FAIL\n\n", i - num_ok);
@@ -2220,7 +2297,7 @@ static flight_info *flight_info_find_by_addr (uint32_t addr)
  * Find `flight_info*` for a `call_sign` in either
  * `Modes.bin.route_records[]` or the `g_data.flight_info` cache.
  *
- * If `Modes.prefer_ADSB_LOL == true` (from the config-file), search in
+ * If `g_data.prefer_LOL == true` (from the config-file), search in
  * `g_data.flight_info` cache. If not found there, we return NULL to create
  * a new `AIRPORT_API_PENDING` record handled by 'API_thread_worker()'.
  */
@@ -2232,7 +2309,7 @@ static flight_info *find_by_callsign (const char *call_sign, bool *fixed)
   *fixed = false;
 
 #if defined(USE_BIN_FILES)
-  if (!Modes.prefer_adsb_lol)
+  if (!g_data.prefer_LOL)
   {
     f = routes_find_by_callsign (call_sign);
     if (f)
@@ -2282,7 +2359,7 @@ static bool flight_info_write (FILE *file, const flight_info *f)
 
 /**
  * Exit function for flight-info:
- *  \li Write the `AIRPORT_API_CACHED` or `AIRPORT_API_LIVE` records to `Modes.airport_cache`.
+ *  \li Write the `AIRPORT_API_CACHED` or `AIRPORT_API_LIVE` records to `g_data.tmp_cache`.
  *  \li Free the `g_data.flight_info` list.
  */
 static void flight_info_exit (FILE *file)

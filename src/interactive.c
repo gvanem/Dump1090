@@ -165,7 +165,7 @@ static API_funcs wincon_api = {
     };
 
 /*
- * Show the "DEP  DST" columns if we have a good `Modes.airport_db` file.
+ * Show the "DEP  DST" columns if we have a good `g_data.csv_file` file in airports.c.
  */
 static bool show_dep_dst = false;
 

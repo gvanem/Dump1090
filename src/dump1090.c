@@ -123,7 +123,6 @@ static bool set_max_messages (const char *arg);
 static bool set_http_url4 (const char *arg);
 static bool set_http_url6 (const char *arg);
 static bool set_port_http (const char *arg);
-static bool set_prefer_adsb_lol (const char *arg);
 static bool set_ppm (const char *arg);
 static bool set_sample_rate (const char *arg);
 static bool set_strip_level (const char *arg);
@@ -161,7 +160,8 @@ static const cfg_table config[] = {
     { "web-page",             ARG_FUNC,    (void*) set_web_page },
     { "web-touch",            ARG_ATOB,    (void*) &Modes.web_root_touch },
     { "tui",                  ARG_FUNC,    (void*) set_tui },
-    { "airports",             ARG_STRDUP,  (void*) &Modes.airport_db },
+    { "airports",             ARG_FUNC,    (void*) airports_set_csv },
+    { "airports-url",         ARG_FUNC,    (void*) airports_set_url },
     { "aircrafts",            ARG_FUNC,    (void*) aircraft_set_csv },
     { "aircrafts-url",        ARG_FUNC,    (void*) aircraft_set_url },
     { "bandwidth",            ARG_FUNC,    (void*) set_bandwidth },
@@ -187,7 +187,7 @@ static const cfg_table config[] = {
     { "max-frames",           ARG_ATO_U64, (void*) &Modes.max_frames },
     { "measure-noise",        ARG_ATOB,    (void*) &Modes.measure_noise },
     { "net-poll",             ARG_ATO_U32, (void*) &Modes.net_poll_ms },
-    { "prefer-adsb-lol",      ARG_FUNC,    (void*) set_prefer_adsb_lol },
+    { "prefer-adsb-lol",      ARG_FUNC,    (void*) airports_prefer_adsb_lol },
     { "reverse-resolve",      ARG_ATOB,    (void*) &Modes.reverse_resolve },
     { "rtlsdr-calibrate",     ARG_ATOB,    (void*) &Modes.rtlsdr.calibrate },
     { "rtlsdr-reset",         ARG_ATOB,    (void*) &Modes.rtlsdr.power_cycle },
@@ -512,13 +512,10 @@ static void modeS_set_defaults (void)
   Modes.web_root      = mg_mprintf ("%s\\web_root", Modes.where_am_I);
   Modes.web_page_full = mg_mprintf ("%s/%s", Modes.web_root, Modes.web_page);
 
-  aircraft_pre_init();  /**< setup defaults for aircraft.c */
-
-//airports_pre_init();  /**< \todo setup defaults for airports.c */
-
-  Modes.airport_db      = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRPORT_DATABASE_CSV);
-  Modes.airport_freq_db = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRPORT_FREQ_CSV);
-  Modes.airport_cache   = mg_mprintf ("%s\\%s", Modes.tmp_dir, AIRPORT_DATABASE_CACHE);
+  /* Setup defaults for aircraft.c and airports.c
+   */
+  aircraft_pre_init();
+  airports_pre_init();
 
   /* No device selected yet
    */
@@ -884,9 +881,9 @@ static bool modeS_init (void)
    * ```
    * (and convert it to `airport-database.csv.sqlite` ?)
    */
-  if (strcmp(Modes.airport_db, "NUL") && (Modes.airport_db_url || Modes.update))
+  if (strcmp(airport_get_csv(), "NUL") && (airport_get_url() || Modes.update))
   {
-    airports_update_CSV (Modes.airport_db);
+    airports_update_CSV();
     airports_init_CSV();
     return (false);
   }
@@ -4075,19 +4072,6 @@ static bool set_ppm (const char *arg)
 {
   Modes.rtlsdr.ppm_error = atoi (arg);
   Modes.rtltcp.ppm_error = Modes.rtlsdr.ppm_error;
-  return (true);
-}
-
-static bool set_prefer_adsb_lol (const char *arg)
-{
-  Modes.prefer_adsb_lol = cfg_true (arg);
-
-#if !defined(USE_BIN_FILES)
-  TRACE ("Config value 'prefer-adsb-lol=%d' has no meaning.\n"
-         "Will always use ADSB-LOL API to lookup routes in 'airports.c'.\n",
-         Modes.prefer_adsb_lol);
-#endif
-
   return (true);
 }
 
