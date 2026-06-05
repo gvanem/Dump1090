@@ -687,10 +687,11 @@ static int net_ev_handler_http (mg_connection *c, mg_http_message *hm, mg_http_u
     return (200);
   }
 
-  /* Serve a file; all have an extension (`.`)
+  /* Serve a file; all have an extension (`.`) at pos > 0.
+   * No `GET /.git/config` accepted here.
    */
   dot = strrchr (uri, '.');
-  if (dot)
+  if (dot && dot > uri)
   {
     if (!stricmp(uri, "/favicon.png"))
        return send_file_favicon (c, cli, s_idx, true);
