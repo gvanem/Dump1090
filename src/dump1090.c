@@ -162,8 +162,8 @@ static const cfg_table config[] = {
     { "web-touch",            ARG_ATOB,    (void*) &Modes.web_root_touch },
     { "tui",                  ARG_FUNC,    (void*) set_tui },
     { "airports",             ARG_STRDUP,  (void*) &Modes.airport_db },
-    { "aircrafts",            ARG_STRDUP,  (void*) &Modes.aircraft_db },
-    { "aircrafts-url",        ARG_STRDUP,  (void*) &Modes.aircraft_db_url },
+    { "aircrafts",            ARG_FUNC,    (void*) aircraft_set_csv },
+    { "aircrafts-url",        ARG_FUNC,    (void*) aircraft_set_url },
     { "bandwidth",            ARG_FUNC,    (void*) set_bandwidth },
     { "fifo-bufs",            ARG_ATO_U32, (void*) &Modes.FIFO_bufs },
     { "fifo-acquire",         ARG_ATO_U32, (void*) &Modes.FIFO_acquire_ms },
@@ -512,7 +512,10 @@ static void modeS_set_defaults (void)
   Modes.web_root      = mg_mprintf ("%s\\web_root", Modes.where_am_I);
   Modes.web_page_full = mg_mprintf ("%s/%s", Modes.web_root, Modes.web_page);
 
-  Modes.aircraft_db     = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRCRAFT_DATABASE_CSV);
+  aircraft_pre_init();  /**< setup defaults for aircraft.c */
+
+//airports_pre_init();  /**< \todo setup defaults for airports.c */
+
   Modes.airport_db      = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRPORT_DATABASE_CSV);
   Modes.airport_freq_db = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRPORT_FREQ_CSV);
   Modes.airport_cache   = mg_mprintf ("%s\\%s", Modes.tmp_dir, AIRPORT_DATABASE_CACHE);
@@ -545,8 +548,6 @@ static void modeS_set_defaults (void)
   Modes.sample_rate      = MODES_DEFAULT_RATE;
   Modes.freq             = MODES_DEFAULT_FREQ;
   Modes.interactive_ttl  = MODES_INTERACTIVE_TTL;
-  Modes.a_sort           = INTERACTIVE_SORT_NONE;
-  Modes.json_interval    = 1000;
   Modes.net_poll_ms      = 10;
   Modes.tui_interface    = TUI_WINCON;
   Modes.min_dist         = 0;                  /* 0 Km default min distance */
@@ -3455,7 +3456,7 @@ void modeS_signal_handler (int sig)
   else if (sig == 0)
   {
     TRACE ("Breaking 'main_data_loop()'%s, shutting down ...\n",
-           Modes.internal_error ? " due to internal error" : "");
+           aircraft_internal_error() ? " due to `aircraft.c` internal error" : "");
   }
 
   if (Modes.rtlsdr.device)
@@ -3561,7 +3562,7 @@ static void show_decoder_stats (void)
 
   LOG_STDOUT (" %8llu total usable messages (%llu + %llu).\n", Modes.stat.CRC_good + Modes.stat.CRC_fixed, Modes.stat.CRC_good, Modes.stat.CRC_fixed);
 
-  if (Modes.icao_spec)
+  if (Modes.stat.addr_filtered > 0)
      LOG_STDOUT (" %8llu ICAO-addresses filtered.\n", Modes.stat.addr_filtered);
 
   if (Modes.stat.cart_errors)
@@ -3589,11 +3590,11 @@ static void show_statistics (void)
   if (PHYS_DEVICE() || Modes.rtl_tcp_in)
      show_decoder_stats();
 
-  if (Modes.net)
-     net_show_stats();
-
   if (Modes.airports_priv)
      airports_show_stats();
+
+  if (Modes.net)
+     net_show_stats();
 }
 
 /**
@@ -3613,7 +3614,7 @@ static void modeS_cleanup (void)
 {
   int rc;
 
-  if (!Modes.internal_error)
+  if (!aircraft_internal_error())
      net_exit();
 
   if (Modes.rtlsdr.device)

@@ -154,11 +154,8 @@ typedef struct search_list {
  * Details elsewhere.
  */
 typedef struct aircraft      aircraft;
-typedef struct aircraft_info aircraft_info;
 typedef struct airports_priv airports_priv;
-typedef struct sqlite3       sqlite3;
 typedef struct smartlist_t   smartlist_t;
-typedef enum   a_sort_t      a_sort_t;
 
 typedef struct mg_http_message    mg_http_message;
 typedef struct mg_connection      mg_connection;
@@ -227,7 +224,7 @@ typedef struct unrecognized_ME {
 
 /**
  * Statistics for HTTP4 / HTTP6 server.
- * \todo Move to 'stats.h'
+ * \todo Move to a new file `stats.h`
  */
 typedef struct HTTP_statistics {
         uint64_t  HTTP_get_requests;
@@ -244,7 +241,7 @@ typedef struct HTTP_statistics {
 
 /**
  * Keep all collected statistics in this structure.
- * \todo Move to 'stats.h'
+ * \todo Move to a new files `stats.h` + `stats.c`
  */
 typedef struct statistics {
 
@@ -282,7 +279,7 @@ typedef struct statistics {
         double          peak_signal_power;
         uint64_t        strong_signal_count;
 
-        /* Aircraft statistics: \todo Move to 'aircraft_show_stats()'
+        /* Aircraft statistics:
          */
         uint64_t        unique_aircrafts;
         uint64_t        unique_aircrafts_CSV;
@@ -312,15 +309,15 @@ typedef struct statistics {
 
         /* Network statistics:
          */
-        uint64_t  cli_accepted   [MODES_NET_SERVICES_NUM];
-        uint64_t  cli_removed    [MODES_NET_SERVICES_NUM];
-        uint64_t  cli_unknown    [MODES_NET_SERVICES_NUM];
-        uint64_t  srv_connected  [MODES_NET_SERVICES_NUM];
-        uint64_t  srv_removed    [MODES_NET_SERVICES_NUM];
-        uint64_t  srv_unknown    [MODES_NET_SERVICES_NUM];
-        uint64_t  bytes_sent     [MODES_NET_SERVICES_NUM];
-        uint64_t  bytes_recv     [MODES_NET_SERVICES_NUM];
-        uint64_t  unique_clients [MODES_NET_SERVICES_NUM];
+        uint64_t        cli_accepted   [MODES_NET_SERVICES_NUM];
+        uint64_t        cli_removed    [MODES_NET_SERVICES_NUM];
+        uint64_t        cli_unknown    [MODES_NET_SERVICES_NUM];
+        uint64_t        srv_connected  [MODES_NET_SERVICES_NUM];
+        uint64_t        srv_removed    [MODES_NET_SERVICES_NUM];
+        uint64_t        srv_unknown    [MODES_NET_SERVICES_NUM];
+        uint64_t        bytes_sent     [MODES_NET_SERVICES_NUM];
+        uint64_t        bytes_recv     [MODES_NET_SERVICES_NUM];
+        uint64_t        unique_clients [MODES_NET_SERVICES_NUM];
 
         /* `HTTP_stat[0]` is for HTTP IPv4 and `HTTP_stat[1]` is for IPv6
          */
@@ -348,35 +345,35 @@ typedef struct statistics {
  * NOT used for a RTL_TCP connection.
  */
 typedef struct rtlsdr_conf {
-        char         *name;              /**< The manufacturer name of the RTLSDR device to use. As in e.g. `"--device silver"` */
-        int           index;             /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"` */
-        void         *device;            /**< The RTLSDR handle from `rtlsdr_open()` */
-        int           ppm_error;         /**< Set RTLSDR frequency correction (negative or positive) */
-        bool          calibrate;         /**< Enable calibration for R820T/R828D type devices */
-        int          *gains;             /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
-        int           gain_count;        /**< Number of gain values in above array */
-        bool          power_cycle;       /**< \todo power down and up again before calling any RTLSDR API function */
+        char  *name;              /**< The manufacturer name of the RTLSDR device to use. As in e.g. `"--device silver"` */
+        int    index;             /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"` */
+        void  *device;            /**< The RTLSDR handle from `rtlsdr_open()` */
+        int    ppm_error;         /**< Set RTLSDR frequency correction (negative or positive) */
+        bool   calibrate;         /**< Enable calibration for R820T/R828D type devices */
+        int   *gains;             /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
+        int    gain_count;        /**< Number of gain values in above array */
+        bool   power_cycle;       /**< \todo power down and up again before calling any RTLSDR API function */
       } rtlsdr_conf;
 
 /**
  * The device configuration for a remote RTLSDR device.
  */
 typedef struct rtltcp_conf {
-        char         *remote;            /**< The URL of the RTLTCP host */
-        void         *info;              /**< The "RTL0" info message is here if we've got it (\ref RTL_TCP_info) */
-        int           ppm_error;         /**< Set RTLSDR frequency correction */
-        int           calibrate;         /**< Enable calibration for R820T/R828D type devices */
-        int          *gains;             /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
-        int           gain_count;        /**< Number of gain values in above array */
+        char  *remote;            /**< The URL of the RTLTCP host */
+        void  *info;              /**< The "RTL0" info message is here if we've got it (\ref RTL_TCP_info) */
+        int    ppm_error;         /**< Set RTLSDR frequency correction */
+        int    calibrate;         /**< Enable calibration for R820T/R828D type devices */
+        int   *gains;             /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
+        int    gain_count;        /**< Number of gain values in above array */
       } rtltcp_conf;
 
 /**
  * The device configuration for a SDRplay device.
  */
 typedef struct sdrplay_conf {
-        char  *name;               /**< Name of the SDRplay device to use */
-        int    index;              /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"` */
-        void  *device;             /**< Device-handle from `sdrplay_init()` */
+        char  *name;              /**< Name of the SDRplay device to use */
+        int    index;             /**< The index of the SDRplay device to use. As in e.g. `"--device sdrplay1"` */
+        void  *device;            /**< Device-handle from `sdrplay_init()` */
         bool   if_mode;
         bool   over_sample;
         bool   hearth_beat;       /**< Experimental, default == true */
@@ -414,8 +411,8 @@ typedef struct airspy_conf {
   #define ROUTES_BIN       "routes.bin"
 
   /**
-   * Currently not used; the data is included as `$(OBJ_DIR)/gen-code-blocks.c`
-   * in `aircraft.c`.
+   * Currently not used; the data is included as
+   * `$(OBJ_DIR)/gen-code-blocks.c` in `aircraft.c`.
    */
   #define CODE_BLOCKS_BIN  "code-blocks.bin"
 
@@ -426,20 +423,20 @@ typedef struct airspy_conf {
    *  *) header timestamp of when .BIN-file was created.
    */
   typedef struct bin_data {
-          char     *routes_bin;             /**< Full path to `Modes.results_dir + "\\" + ROUTES_BIN` */
-          void     *route_records;          /**< An array of `route_record2`. \ref "gen_data.h" */
-          size_t    route_records_num;
-          time_t    routes_created;
+          char   *routes_bin;             /**< Full path to `Modes.results_dir + "\\" + ROUTES_BIN` */
+          void   *route_records;          /**< An array of `route_record2`. \ref "gen_data.h" */
+          size_t  route_records_num;
+          time_t  routes_created;
 
-          char     *aircrafts_bin;          /**< Full path to `Modes.results_dir + "\\" + AIRCRAFT_BIN` */
-          void     *aircrafts_records;      /**< An array of `aircraft_record`. \ref "gen_data.h" */
-          size_t    aircrafts_records_num;
-          time_t    aircrafts_created;
+          char   *aircrafts_bin;          /**< Full path to `Modes.results_dir + "\\" + AIRCRAFT_BIN` */
+          void   *aircrafts_records;      /**< An array of `aircraft_record`. \ref "gen_data.h" */
+          size_t  aircrafts_records_num;
+          time_t  aircrafts_created;
 
-          char     *airports_bin;           /**< Full path to `Modes.results_dir + "\\" + AIRPORTS_BIN` */
-          void     *airports_records;       /**< An array of `airport_record`. \ref "gen_data.h" */
-          size_t    airports_records_num;
-          time_t    airports_created;
+          char   *airports_bin;           /**< Full path to `Modes.results_dir + "\\" + AIRPORTS_BIN` */
+          void   *airports_records;       /**< An array of `airport_record`. \ref "gen_data.h" */
+          size_t  airports_records_num;
+          time_t  airports_created;
         } bin_data;
 #endif
 
@@ -472,7 +469,6 @@ typedef struct global_data {
         volatile bool       exit;                     /**< Exit from the main loop when true. */
         uint32_t           *ICAO_cache;               /**< Recently seen ICAO addresses. */
         statistics          stat;                     /**< Decoder, aircraft and network statistics. */
-        smartlist_t        *aircrafts;                /**< List of active aircrafts. */
         uint64_t            last_update_ms;           /**< Last screen update in milliseconds. */
         uint64_t            max_messages;             /**< How many messages to process before quitting. */
         uint64_t            max_frames;               /**< How many frames in a sample-buffer to process (for testing SDRPlay). */
@@ -530,12 +526,6 @@ typedef struct global_data {
         bool           reverse_resolve;             /**< Call `net_reverse_resolve()` on accepted clients */
         uint32_t       net_poll_ms;                 /**< `mg_mgr_poll()` timeout in milli-sec (default 10). */
 
-        /** Aircraft history
-         */
-        uint64_t json_interval;
-        int      json_aircraft_history_next;
-        mg_str   json_aircraft_history [120];
-
         /** Configuration
          */
         char         *infile;                     /**< Input IQ samples from file with option `--infile file`. */
@@ -579,40 +569,28 @@ typedef struct global_data {
         bool          home_pos_ok;                /**< We have a good home position. */
         uint64_t      max_dist;                   /**< Absolute maximum decoding distance, in metres */
         uint64_t      min_dist;                   /**< Absolute minimum distance for '--only-addr', in metres */
-        int           a_sort;                     /**< The column sort method for aircrafts in `--interactive` mode. >= 0 is ascending, < 0 descending */
         bool          wininet_HTTP2;              /**< Enable HTTP/2 for WinInet API. */
         const char   *wininet_last_error;         /**< Last error from WinInet API. */
         char         *tests;                      /**< Perform tests specified by pattern. */
         int           tui_interface;              /**< Selected `--tui` interface. */
         bool          update;                     /**< Option `--update' was used to update missing .csv-files */
-        char         *icao_spec;                  /**< A ICAO-filter was specified */
-        mg_str        icao_filter;
-        bool          icao_invert;
-        bool          internal_error;
-        bool          cpr_trace;                 /**< Report CPR events to .log-file? default true */
-        bool          console_icon;              /**< In interactive-mode, do a `SendMessage (WM_SETICON)` for our icon */
-
-        /** For handling a `Modes.aircraft_db` file:
-         */
-        CSV_context       csv_ctx;               /**< Structure for the CSV parser. */
-        aircraft_info    *aircraft_list_CSV;     /**< List of aircrafts sorted on address. From CSV-file only. */
-        uint32_t          aircraft_num_CSV;      /**< The length of the list. */
-        sqlite3          *sql_db;                /**< For the `aircraft_sql` file. */
+        bool          cpr_trace;                  /**< Report CPR events to .log-file? default true */
+        bool          console_icon;               /**< In interactive-mode, do a `SendMessage (WM_SETICON)` for our icon */
 
         /** For handling a airport-data from .CSV files.
          */
-        char           *airport_db;              /**< The `airports-codes.csv` file generated by `tools/gen_airport_codes_csv.py`. */
-        char           *airport_freq_db;         /**< The `airports-frequencies.csv` file. Not used yet. */
-        char           *airport_cache;           /**< The `%%TEMP%%\\dump1090\\airport-api-cache.csv`. */
-        char           *airport_db_url;          /**< Value of key `airports-update = url`. Not effective yet. */
+        char          *airport_db;                /**< The `airports-codes.csv` file generated by `tools/gen_airport_codes_csv.py`. */
+        char          *airport_freq_db;           /**< The `airports-frequencies.csv` file. Not used yet. */
+        char          *airport_cache;             /**< The `%%TEMP%%\\dump1090\\airport-api-cache.csv`. */
+        char          *airport_db_url;            /**< Value of key `airports-update = url`. Not effective yet. */
 
-        airports_priv  *airports_priv;           /**< Private data for `airports.c`. */
-        smartlist_t    *logfile_ignore;          /**< Messages to ignore when writing to`logfile`. A list of `log_ignore` */
+        airports_priv *airports_priv;             /**< Private data for `airports.c`. */
+        smartlist_t   *logfile_ignore;            /**< Messages to ignore when writing to`logfile`. A list of `log_ignore` */
 
 #if defined(USE_BIN_FILES)
-        bin_data        bin;                     /**< Binary-files and data */
+        bin_data       bin;                       /**< Binary-files and data */
 #endif
-        char            chk_marker [4];          /**< To check if this structure is "out of wack" */
+        char           chk_marker [4];            /**< To check if this structure is "out of wack" */
       } global_data;
 
 extern global_data Modes;

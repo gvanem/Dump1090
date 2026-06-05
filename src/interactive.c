@@ -369,11 +369,11 @@ static bool mouse_header_check (const POINT *pos, bool clicked)
       if (clicked)
       {
         s = field_to_sort [field];
-        if (Modes.a_sort == s)     /* toggle ascending/descending sort */
+        if (s == aircraft_get_sort())     /* toggle ascending/descending sort */
            s = -s;
-        aircraft_sort (s);
-        LOG_FILEONLY ("field: %d (%s), clicked: 1, Modes.a_sort: %s\n",
-                      field, headers[field], aircraft_sort_name(Modes.a_sort));
+        aircraft_do_sort (s);
+        LOG_FILEONLY ("field: %d (%s), clicked: 1, aircraft_get_sort(): %s\n",
+                      field, headers[field], aircraft_sort_name(aircraft_get_sort()));
       }
       else
       {
@@ -1152,14 +1152,14 @@ void interactive_show_data (uint64_t now)
    */
   if (clear_screen)
   {
-    if (old_count == -1 || aircraft_numbers_valid() < old_count)
+    if (old_count == -1 || aircraft_len_valid() < old_count)
     {
       (*api->clr_scr)();
       (*api->set_cursor) (false);   /* Need to hide the cursor again! */
     }
     (*api->gotoxy) (0, 0);
 
-    aircraft_sort (Modes.a_sort);
+    aircraft_do_sort (aircraft_get_sort());
   }
 
   mouse_pos (con_wnd, &pos);
@@ -1167,10 +1167,10 @@ void interactive_show_data (uint64_t now)
   if (!rc)
      (*api->print_header)();
 
-  max = smartlist_len (Modes.aircrafts);
+  max = aircraft_len();
   for (i = count = 0; i < max && row < Modes.interactive_rows && !Modes.exit; i++)
   {
-    aircraft *a = smartlist_get (Modes.aircrafts, i);
+    aircraft *a = aircraft_get (i);
 
     if (!aircraft_valid(a))    /* Ignore these. "Mode A/C"? */
        continue;
