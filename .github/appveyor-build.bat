@@ -96,7 +96,7 @@ if %BUILDER%. == MinGW. (
   %_ECHO% "\e[1;33mgcc info:\e[0m"
   gcc -v
   %_ECHO% "\e[1;33mBuilding for MinGW/x64:\e[0m"
-  make -f Makefile.MinGW %MAKE_ARGS% vclean all
+  make -f Makefile.MinGW %MAKE_ARGS% HAVE_BSEARCH_S=0 vclean all
   if not ERRORLEVEL == 0 exit /b 1
   goto run_tests
 )

@@ -56,7 +56,9 @@
    * Assume MinGW-w64 do have `bsearch_s()`.
    * But ignore if not found in a header.
    */
+  #ifndef HAVE_BSEARCH_S
   #define HAVE_BSEARCH_S 1
+  #endif
   #pragma gcc diagnostic ignored "-Wimplicit-function-declaration"
 
 #elif defined(_MSC_VER)

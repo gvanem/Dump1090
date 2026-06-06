@@ -15,6 +15,7 @@ MAKEFLAGS += --warn-undefined-variables
 USE_ASTYLE     ?= 0
 USE_BIN_FILES  ?= 0
 USE_PACKED_DLL ?= 0
+HAVE_BSEARCH_S ?= 1
 
 CC = gcc
 
@@ -40,6 +41,10 @@ CFLAGS += -DMG_ENABLE_POLL=1 \
 
 ifeq ($(USE_BIN_FILES),1)
   CFLAGS += -DUSE_BIN_FILES
+endif
+
+ifeq ($(HAVE_BSEARCH_S),0)
+  CFLAGS += -DHAVE_BSEARCH_S=0
 endif
 
 LDFLAGS = -s
