@@ -169,6 +169,7 @@
     <ClCompile Include="pconsole.c" />
     <ClCompile Include="raw-sbs.c" />
     <ClCompile Include="smartlist.c" />
+    <ClCompile Include="sntp.c" />
     <ClCompile Include="speech.c" />
     <ClCompile Include="externals\mongoose.c" />
     <ClCompile Include="externals\AirSpy\airspy.c" />
@@ -202,6 +203,7 @@
     <ClInclude Include="raw-sbs.h" />
     <ClInclude Include="routes.h" />
     <ClInclude Include="smartlist.h" />
+    <ClInclude Include="sntp.h" />
     <ClInclude Include="speech.h" />
     <ClInclude Include="dump1090_config.h" />
     <ClInclude Include="externals\mongoose.h" />

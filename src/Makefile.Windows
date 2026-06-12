@@ -136,7 +136,17 @@ endif
 GENERATED = $(OBJ_DIR)/cflags_$(CC).h \
             $(OBJ_DIR)/ldflags_$(CC).h
 
-CFLAGS = -nologo -c -Zi -W4        \
+#
+# Select correct compiler and libpaths without the 'vcvarsall.bat' non-sense.
+#
+# E.g.:
+#  'VCToolkitInstallDir=c:\dev\VC_2022\VC\Tools\MSVC\14.51.32919' -- the root of the MSVC tools.
+#  'WindowsSdkDir=c:\ProgramFiles\Windows-Kits'                   -- the root of the 'WindowsKits' API.
+#  'WindowsSdkVer=10.0.22621.0'                                   -- the 'WindowsKits' version.
+#
+TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
+
+CFLAGS = -nologo -c -Z7 -W4        \
          -arch:AVX2                \
          -FI./dump1090_config.h    \
          -Fd./$(OBJ_DIR)/vc14x.pdb \
@@ -144,6 +154,11 @@ CFLAGS = -nologo -c -Zi -W4        \
          -I./externals             \
          -I./externals/PDC-Mod     \
          -I./$(OBJ_DIR)
+
+#
+# For 'sntp.c' and "--test sntp"
+#
+# CFLAGS += -DSNTP_TEST_IN_MAINLOOP
 
 #
 # Handling of 'volatile' variables:
@@ -182,8 +197,9 @@ else
 endif
 
 ifeq ($(CC),clang-cl)
-  CFLAGS += -fms-compatibility \
-            -ferror-limit=5    \
+  CFLAGS += -fms-compatibility     \
+            -ferror-limit=5        \
+            -fno-color-diagnostics \
             -Wno-unused-command-line-argument
 
   #
@@ -318,6 +334,7 @@ SOURCES = aircraft.c     \
           pconsole.c     \
           raw-sbs.c      \
           smartlist.c    \
+          sntp.c         \
           speech.c
 
 vpath %.c externals        \
@@ -393,16 +410,6 @@ PACKED_TEST_SRC = ../tools/packed_webfs_main.c \
                   smartlist.c
 
 PACKED_TEST_OBJ = $(call c_to_obj, $(PACKED_TEST_SRC))
-
-#
-# Select correct compiler and libpaths without the 'vcvarsall.bat' non-sense.
-#
-# E.g.:
-#  'VCToolkitInstallDir=c:\dev\VC_2019\VC\Tools\MSVC\14.38.32919' -- the root of the MSVC tools.
-#  'WindowsSdkDir=c:\ProgramFiles-x86\Windows-Kits'               -- the root of the 'WindowsKits' API.
-#  'WindowsSdkVer=10.0.19041.0'                                   -- the 'WindowsKits' version.
-#
-TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
 
 #
 # If building on AppVeyor
@@ -829,6 +836,7 @@ DOXY_HEADERS = ../aircraft.h                  \
                ../net_io.h                    \
                ../raw-sbs.h                   \
                ../smartlist.h                 \
+               ../sntp.h                      \
                ../speech.h                    \
                ../externals/zip.h             \
                ../externals/AirSpy/airspy.h   \

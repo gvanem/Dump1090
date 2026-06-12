@@ -95,6 +95,7 @@ SOURCES = aircraft.c     \
           pconsole.c     \
           raw-sbs.c      \
           smartlist.c    \
+          sntp.c         \
           speech.c
 
 vpath %.c externals        \
@@ -184,7 +185,7 @@ $(OBJ_DIR)/web-pages.rc: $(THIS_FILE)
 	$(call generate_c, $@, $(WEB_PAGES_RC))
 
 $(OBJ_DIR)/%.res: %.rc
-	$(call create_res_file, $@, $<)
+	$(call RC_compile, $@, $<)
 
 $(OBJ_DIR)/sqlite3.o: externals/sqlite3.c | $(CC).args $(OBJ_DIR)
 	$(call C_compile_long_time, $@, $<)
@@ -267,7 +268,7 @@ define C_compile_long_time
   @echo
 endef
 
-define create_res_file
+define RC_compile
   windres $(RCFLAGS) -o $(strip $(1) $(2))
   @echo
 endef
