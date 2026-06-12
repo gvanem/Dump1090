@@ -47,10 +47,11 @@
 #define MODES_NET_SERVICE_HTTP6     5
 #define MODES_NET_SERVICE_RTL_TCP   6
 #define MODES_NET_SERVICE_DNS       7
-#define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_DNS + 1)
+#define MODES_NET_SERVICE_SNTP      8
+#define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_SNTP + 1)
 
 #define MODES_NET_SERVICE_FIRST     0
-#define MODES_NET_SERVICE_LAST      MODES_NET_SERVICE_DNS
+#define MODES_NET_SERVICE_LAST     (MODES_NET_SERVICES_NUM - 1)
 
 /**
  * \def DEF_WIN_FUNC
@@ -153,9 +154,8 @@ typedef struct search_list {
  * Forwards:
  * Details elsewhere.
  */
-typedef struct aircraft      aircraft;
-typedef struct airports_priv airports_priv;
-typedef struct smartlist_t   smartlist_t;
+typedef struct aircraft     aircraft;
+typedef struct smartlist_t  smartlist_t;
 
 typedef struct mg_http_message    mg_http_message;
 typedef struct mg_connection      mg_connection;
@@ -174,15 +174,15 @@ typedef char                      mg_http_uri [512];
  * client or server.
  */
 typedef struct connection {
-        mg_connection     *c;                 /**< remember which connection this client/server is in */
-        intptr_t           service;           /**< this client's service membership */
-        mg_addr            rem;               /**< copy of `mg_connection::rem` */
-        mg_host_name       rem_buf;           /**< address-string of `mg_connection::rem` */
-        ULONG              id;                /**< copy of `mg_connection::id` */
-        bool               keep_alive;        /**< client request contains "Connection: keep-alive" */
-        bool               encoding_gzip;     /**< gzip compressed client data (not yet) */
-        uint64_t           HTTP_bytes_sent;   /**< accumulated body-length sent to this HTTP-client. For `http_logf()` only */
-        struct connection *next;              /**< next connection in this list for this service */
+        mg_connection     *c;                   /**< Remember which connection this client/server is in */
+        intptr_t           service;             /**< This client's service membership */
+        mg_addr            rem;                 /**< Copy of `mg_connection::rem` */
+        mg_host_name       rem_buf;             /**< Address-string of `mg_connection::rem` */
+        ULONG              id;                  /**< Copy of `mg_connection::id` */
+        bool               HTTP_keep_alive;     /**< HTTP only: client request contains "Connection: keep-alive" */
+        bool               HTTP_encoding_gzip;  /**< HTTP only: gzip compressed client data (not yet) */
+        uint64_t           HTTP_bytes_sent;     /**< HTTP only: accumulated body-length sent. For `http_logf()` only */
+        struct connection *next;                /**< next connection in this list for this service */
       } connection;
 
 /**
@@ -252,8 +252,8 @@ typedef struct statistics {
         uint64_t        FIFO_full;
         uint64_t        samples_processed;
         uint64_t        samples_dropped;
-        uint64_t        samples_recv_rtltcp;  /**< Samples from RTLTCP. Equals `samples_processed` if nothing dropped by FIFO */
-        uint64_t        cmd_sent_rtltcp;      /**< Commands sent to RTLTCP */
+        uint64_t        samples_recv_rtltcp;  /**< Samples from RTL_TCP. Equals `samples_processed` if nothing dropped by FIFO */
+        uint64_t        cmd_sent_rtltcp;      /**< Commands sent to RTL_TCP */
         uint64_t        valid_preamble;
         uint64_t        demod_modeac;
         uint64_t        demod_accepted [3];   /**< MODES_MAX_BITERRORS+1 */
@@ -284,6 +284,7 @@ typedef struct statistics {
         uint64_t        unique_aircrafts;
         uint64_t        unique_aircrafts_CSV;
         uint64_t        unique_aircrafts_SQL;
+        uint64_t        unique_aircrafts_BIN;
         uint64_t        unique_helicopters;
         uint64_t        cart_errors;
         uint64_t        cpr_errors;
@@ -359,7 +360,7 @@ typedef struct rtlsdr_conf {
  * The device configuration for a remote RTLSDR device.
  */
 typedef struct rtltcp_conf {
-        char  *remote;            /**< The URL of the RTLTCP host */
+        char  *remote;            /**< The URL of the RTL_TCP host */
         void  *info;              /**< The "RTL0" info message is here if we've got it (\ref RTL_TCP_info) */
         int    ppm_error;         /**< Set RTLSDR frequency correction */
         int    calibrate;         /**< Enable calibration for R820T/R828D type devices */
@@ -517,12 +518,15 @@ typedef struct global_data {
         mg_connection *http6_out;                   /**< HTTP listening connection. IPv6 */
         mg_connection *rtl_tcp_in;                  /**< RTL_TCP active connection. IPv4 only */
         mg_connection *dns_in;                      /**< DNS active connection. IPv4 only */
+        mg_connection *sntp_in;                     /**< SNTP active connection. */
         mg_mgr         mgr;                         /**< Only one Mongoose connection manager */
         char          *dns4;                        /**< Use default Windows DNSv4 server (not 8.8.8.8) */
         char          *dns6;                        /**< Or a IPv6 server */
         bool           show_host_name;              /**< Try to show the hostname too in `net_str_addr()` */
         bool           https_enable;                /**< Enable TLS (MG_TLS_BUILTIN) for HTTP server */
         bool           reverse_resolve;             /**< Call `net_reverse_resolve()` on accepted clients */
+        bool           sntp_enable;                 /**< Enable SNTP client */
+        bool           sntp_log_file;               /**< Use SNTP time-stamps for .log-file? */
         uint32_t       net_poll_ms;                 /**< `mg_mgr_poll()` timeout in milli-sec (default 10). */
 
         /** Configuration
@@ -575,7 +579,6 @@ typedef struct global_data {
         bool          cpr_trace;                  /**< Report CPR events to .log-file? default true */
         bool          console_icon;               /**< In interactive-mode, do a `SendMessage (WM_SETICON)` for our icon */
 
-        airports_priv *airports_priv;             /**< Private data for `airports.c`. */
         smartlist_t   *logfile_ignore;            /**< Messages to ignore when writing to`logfile`. A list of `log_ignore` */
 
 #if defined(USE_BIN_FILES)
