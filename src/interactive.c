@@ -541,6 +541,8 @@ static void test_utf8 (void)
   (void) ok;
 }
 
+static HICON old_icon;
+
 /**
  * Send a message to the console-window to show our icon.
  * Thus showing it in the System-Menu and Task-bar.
@@ -553,9 +555,20 @@ static void set_console_icon (HWND wnd)
   if (!Modes.console_icon)
      return;
 
+  old_icon = (HICON) SendMessage (wnd, WM_GETICON, ICON_SMALL, 0);
+
   icon = LoadImage (GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_APPICON), IMAGE_ICON, 0, 0, 0);
   if (icon && IsWindow(wnd))
      SendMessage (wnd, WM_SETICON, ICON_SMALL, (LPARAM)icon);
+}
+
+/**
+ * Restore start-up console icon.
+ */
+static void set_old_console_icon (HWND wnd)
+{
+  if (old_icon && IsWindow(wnd))
+     SendMessage (wnd, WM_SETICON, ICON_SMALL, (LPARAM)old_icon);
 }
 
 /**
@@ -618,6 +631,7 @@ void interactive_exit (void)
     (*api->exit)();
   }
   api = NULL;
+  set_old_console_icon (con_wnd);
   common_exit();
 }
 
