@@ -25,14 +25,20 @@
 #define API_SERVICE_URL     "https://vrs-standing-data.adsb.lol/routes/%.2s/%s.json"
 #define API_SERVICE_503     "<html><head><title>503 Service Temporarily Unavailable"
 
-#define API_SERVICE_URL2    "https://adsb.im/api/0/routeset" /* not used */
+#define API_SERVICE_URL2    "https://adsb.im/api/0/routeset" /* Not used */
 
-#define API_AIRPORT_IATA    "\"_airport_codes_iata\": "      /* what to look for in response */
-#define API_AIRPORT_ICAO    "\"airport_codes\": "            /* todo: look for these ICAO codes too */
-#define API_SLEEP_MS        100                              /* Sleep() granularity */
+#define API_AIRPORT_IATA    "\"_airport_codes_iata\": "      /* What to look for in response */
+#define API_AIRPORT_ICAO    "\"airport_codes\": "            /* Todo: look for these ICAO codes too */
+#define API_SLEEP_MS        100                              /* `Sleep()` granularity for `API_thread_func()` */
 #define API_MAX_AGE         (10 * 60 * 10000000ULL)          /* 10 min in 100 nsec units */
 #define API_CACHE_PERIOD    (5 * 60 * 1000)                  /* Save the cache every 5 min */
 #define ICAO_UNKNOWN        0xFFFFFFFF                       /* mark an unused ICAO address */
+
+/**
+ * \def BIN_MAX_AGE
+ * Max age to consider a BIN-file up-to-date. In seconds.
+ */
+#define BIN_MAX_AGE   (10 * 24 * 3600)
 
 /**
  * \def AIRPORT_DATABASE_CSV
@@ -431,7 +437,11 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
   return (rc);
 }
 
-#if defined(__MINGW64__) && !defined(HAVE_BSEARCH_S)
+/**
+ * A hack for older MinGW-w64. E.g. on AppVeyor the `gcc` do have `bsearch_s()`.
+ * But not prototyped in a header?!
+ */
+#if defined(__MINGW64__) && (HAVE_BSEARCH_S == 0)
 static void *bsearch_s (const void *key, const void *base, size_t nmemb, size_t size,
                         int (*compare)(void *, const void *, const void *), void *ctx)
 {
@@ -1120,7 +1130,7 @@ static bool API_thread_worker (flight_info *f)
     g_data.ap_stats.API_service_404++;
   }
   else if (f->http_status == 503 ||     /* We sent too many requests! */
-           !strncmp(response, API_SERVICE_503, sizeof(API_SERVICE_503)-1))
+           !strnicmp(response, API_SERVICE_503, sizeof(API_SERVICE_503)-1))
   {
     g_data.ap_stats.API_service_503++;
   }
@@ -1426,7 +1436,7 @@ static void read_airports_records (FILE *f, const BIN_header *hdr)
  * \retval false  no update needed.
  * \retval true   update needed.
  */
-static bool airports_update_BIN_file (const char *fname)
+static bool airports_update_BIN_file (const char *fname, time_t max_age)
 {
   struct stat st;
   bool        force_it = false;
@@ -1439,11 +1449,11 @@ static bool airports_update_BIN_file (const char *fname)
   else
   {
     time_t when, now = time (NULL);
-    time_t expiry = now - 10 * 24 * 3600;
+    time_t expiry = now - max_age;
 
     if (st.st_mtime > expiry)
     {
-      when = now + 10 * 24 * 3600;  /* 10 days into the future */
+      when = now + max_age;  /* max_age into the future */
       if (Modes.update)
          LOG_STDERR ("\nUpdate of '%s' not needed before %.24s.\n", fname, ctime(&when));
     }
@@ -1462,15 +1472,15 @@ static bool airports_update_BIN (void)
   int  need_update = 0;
   bool rc = true;
 
-  if (airports_update_BIN_file(Modes.bin.airports_bin))
+  if (airports_update_BIN_file(Modes.bin.airports_bin, BIN_MAX_AGE))
      need_update++;
 
 #if 0
-  if (airports_update_BIN_file(Modes.bin.aircrafts_bin))
+  if (airports_update_BIN_file(Modes.bin.aircrafts_bin, BIN_MAX_AGE))
      need_update++;
 #endif
 
-  if (airports_update_BIN_file(Modes.bin.routes_bin))
+  if (airports_update_BIN_file(Modes.bin.routes_bin, BIN_MAX_AGE))
      need_update++;
 
   if (need_update > 0)
@@ -1606,8 +1616,6 @@ uint32_t airports_init (void)
   else if ((Modes.debug & DEBUG_GENERAL) || Modes.tests)
      g_data.do_trace = true;
 
-  Modes.airports_priv = &g_data;
-
   rc = (airports_init_BIN() &&
         airports_init_CSV() &&
         airports_init_freq_CSV() &&
@@ -1705,8 +1713,6 @@ void airports_exit (bool free_airports)
     smartlist_free (g_data.flight_info);
     g_data.flight_info = NULL;
   }
-
-  Modes.airports_priv = NULL;
 
   free (g_data.csv_file);
   free (g_data.csv_url);
