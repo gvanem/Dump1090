@@ -8,8 +8,6 @@
 #include <stdint.h>
 #include <assert.h>
 
-#define INSIDE_AIRCRAFT_C
-
 #include "misc.h"
 #include "geo.h"
 #include "interactive.h"
@@ -21,6 +19,51 @@
 #include "aircraft.h"
 
 /**
+ * \def AIRCRAFT_DATABASE_CSV
+ * Our default aircraft-database relative to `Modes.where_am_I`.
+ */
+#define AIRCRAFT_DATABASE_CSV   "aircraft-database.csv"
+
+/**
+ * \def AIRCRAFT_DATABASE_URL
+ * The default URL for the `--update` option.
+ */
+#define AIRCRAFT_DATABASE_URL   "https://s3.opensky-network.org/data-samples/metadata/aircraftDatabase.zip"
+
+/**
+ * \def AIRCRAFT_DATABASE_TMP
+ * The basename for downloading a new `aircraft-database.csv`.
+ *
+ * E.g. Use WinInet API to download:<br>
+ *  `AIRCRAFT_DATABASE_URL` -> `%TEMP%\\dump1090\\aircraft-database-temp.zip`
+ *
+ * extract this using: <br>
+ *  `zip_extract (\"%TEMP%\\dump1090\\aircraft-database-temp.zip\", \"%TEMP%\\dump1090\\aircraft-database-temp.csv\")`.
+ *
+ * and finally call: <br>
+ *   `CopyFile ("%TEMP%\\dump1090\\aircraft-database-temp.csv", <final_destination>)`.
+ */
+#define AIRCRAFT_DATABASE_TMP  "aircraft-database-temp"
+
+/**
+ * \def JSON_BUF_LEN
+ * The initial and increment buffer-size in `aircraft_make_json()`
+ */
+#define JSON_BUF_LEN  (20*1024)
+
+/**
+ * \def OUTLINE_PERIOD
+ * The period for writing `OUTLINE_JSON`.
+ */
+#define OUTLINE_PERIOD (15 * 1000)
+
+/**
+ * \def OUTLINE_JSON
+ * The `g_data.outline_json`; relative to `"%TEMP%\\dump1090"`.
+ */
+#define OUTLINE_JSON "data\\outline.json"
+
+/**
  * The function-pointers to lookup country/military status
  * of an aircraft.
  */
@@ -28,17 +71,42 @@ typedef const char *(*func_get_country) (uint32_t addr, bool get_short);
 typedef bool        (*func_is_military) (uint32_t addr, const char **country);
 
 /**
+ * \def RANGEDIRS_BUCKETS
+ * One bucket for every degree in circle
+ */
+#define RANGEDIRS_BUCKETS 360
+
+/**
+ * \def RANGEDIRS_IVAL
+ * Intervals for `g_data.range_dirs[]`
+ */
+#define RANGEDIRS_IVALS   64
+
+typedef struct dist_coords {
+        float   lat;
+        float   lon;
+        float   distance;    /* in feet */
+        int32_t alt;         /* in feet */
+      } dist_coords;
+
+/**
  * The private data used here.
  */
 typedef struct aircraft_priv {
-	char            *csv_file;           /**< Full path of default `AIRCRAFT_DATABASE_CSV` file */
-        CSV_context      csv_ctx;            /**< Structure for the CSV parser */
-        aircraft_info   *list_CSV;           /**< List of aircrafts sorted on address. From CSV-file only */
-        uint32_t         num_CSV;            /**< The length of the list */
+        char            *csv_file;           /**< Full path of default `AIRCRAFT_DATABASE_CSV` file */
+        CSV_context      csv_ctx;            /**< CSV parser context */
+        uint32_t         csv_len;            /**< The length of `g_data.csv_list` list */
+        bool             csv_done;           /**< For `aircraft_load_CSV()` */
+        aircraft_info   *csv_list;           /**< List of aircrafts sorted on address. From CSV-file only */
+        aircraft_info   *csv_copy;           /**< Variables for `CSV_add_entry()` */
+        aircraft_info   *csv_dest;
+        aircraft_info   *csv_hi_end;
+        aircraft_info    current_rec;        /**< Current work-record in `CSV_callback()` */
+        aircraft_info    current_BIN;        /**< Current work-record in `BIN_lookup_entry()` */
         char            *sql_file;           /**< Equals `g_data.csv_file + ".sqlite"` */
         sqlite3         *sql_db;             /**< Sqlite instance of `g_data.sql_file` file */
         bool             sql_file_found;     /**< Does `g_data.sql_file` exist? */
-        bool             test_mode;          /**< "--test aircraft" specified */
+        bool             test_mode;          /**< "--test aircraft" was specified */
         bool             test_done;          /**< Already done tests? */
         char            *zip_url;            /**< URL for OpenSky's `AIRCRAFT_DATABASE_URL` */
         func_get_country p_get_country;      /**< Func-pointer to a `aircraft_get_country()` function */
@@ -55,6 +123,13 @@ typedef struct aircraft_priv {
         uint64_t         json_interval;      /**< Client polling interval; 1 sec */
         int              json_history_next;  /**<  */
         mg_str           json_history [120]; /**<  */
+
+        /** Data for `OUTLINE_JSON` file
+         */
+        bool             outline_enable;
+        char            *outline_json;
+        dist_coords      range_dirs [RANGEDIRS_IVALS] [RANGEDIRS_BUCKETS];  /* updated in track.c */
+
       } aircraft_priv;
 
 static aircraft_priv g_data;
@@ -84,16 +159,25 @@ static aircraft_priv g_data;
  */
 #define DB_INSERT  "INSERT INTO aircrafts (" DB_COLUMNS ") VALUES"
 
+/**
+ * \def CSV_MAX_AGE
+ * Max age to consider the CSV-file up-to-date. In seconds.
+ */
+#define CSV_MAX_AGE  (10 * 24 * 3600)
+
 static bool sql_init (const char *what, int flags);
 static bool sql_create (void);
 static bool sql_open (void);
 static bool sql_begin (void);
 static bool sql_end (void);
-static bool sql_add_entry (uint32_t num, const aircraft_info *rec);
+static bool sql_add_entry (uint32_t num, const aircraft_info *ai);
 
+static bool  aircraft_outline_generate (uint64_t now, const char *fname);
+static bool  aircraft_outline_update (aircraft *a, uint64_t now);
+static bool  is_helicopter_type (const char *type);
 static const aircraft_info *CSV_lookup_entry (uint32_t addr);
 static const aircraft_info *SQL_lookup_entry (uint32_t addr);
-static bool  is_helicopter_type (const char *type);
+static void                *BIN_lookup_entry (uint32_t addr, bool convert);
 
 /**
  * Internal error in `aircraft_make_one_json()`?
@@ -104,28 +188,39 @@ bool aircraft_internal_error (void)
 }
 
 /**
- * Lookup an aircraft in the CSV `g_data.list_CSV`,
+ * Lookup an aircraft in the BIN-file, CSV `g_data.csv_list`,
  * `g_data.airgrafts` cache or do a SQLite lookup.
  */
-static const aircraft_info *aircraft_lookup (uint32_t addr, bool *from_sql)
+static const aircraft_info *aircraft_lookup (uint32_t addr, bool *from_sql, bool *from_bin)
 {
   const aircraft_info *ai;
+  const aircraft      *a;
 
-  if (from_sql)
-     *from_sql = false;
+  *from_sql = false;
+  *from_bin = false;
 
-  if (g_data.list_CSV)
-     ai = CSV_lookup_entry (addr);
-  else
+#if defined(USE_BIN_FILES)
+  ai = BIN_lookup_entry (addr, true);  /* convert this into an `aircraft_info` record first */
+  if (ai)
   {
-    const aircraft *a = aircraft_find (addr);
-
-    if (a)
-         ai = a->SQL;
-    else ai = SQL_lookup_entry (addr);   /* do the `SELECT * FROM` */
+    Modes.stat.unique_aircrafts_BIN++;
+    *from_bin = true;
+    return (ai);
   }
-  if (from_sql && ai)
+#endif
+
+  ai = CSV_lookup_entry (addr);
+  if (ai)
+     return (ai);
+
+  a = aircraft_find (addr);
+  if (a)
+       ai = a->SQL;
+  else ai = SQL_lookup_entry (addr);   /* do the `SELECT * FROM` */
+
+  if (ai)
      *from_sql = true;
+
   return (ai);
 }
 
@@ -142,7 +237,7 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
 {
   aircraft            *a = calloc (sizeof(*a), 1);
   const aircraft_info *ai;
-  bool                 from_sql;
+  bool                 from_sql, from_bin;
 
   if (!a)
      return (NULL);
@@ -152,7 +247,7 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
   a->seen_last  = now;
   a->show       = A_SHOW_FIRST_TIME;
 
-  ai = aircraft_lookup (addr, &from_sql);
+  ai = aircraft_lookup (addr, &from_sql, &from_bin);
   if (ai)
      a->is_helicopter = is_helicopter_type (ai->type);
 
@@ -178,7 +273,7 @@ static aircraft *aircraft_create (uint32_t addr, uint64_t now)
   {
     Modes.stat.unique_aircrafts_CSV++;
 
-    /* This points into the `g_data.list_CSV` array.
+    /* This points into the `g_data.csv_list` array.
      * No need to `free()`.
      */
     a->CSV = ai;
@@ -434,8 +529,8 @@ static int compare_on_country (const void **_a, const void **_b)
 {
   const aircraft *a = *_a;
   const aircraft *b = *_b;
-  const char *a_short = aircraft_get_country (a->addr, true);
-  const char *b_short = aircraft_get_country (b->addr, true);
+  const char *a_short = (*g_data.p_get_country) (a->addr, true);
+  const char *b_short = (*g_data.p_get_country) (b->addr, true);
   int   rc;
 
   if (!a_short)
@@ -603,83 +698,78 @@ bool aircraft_set_sort (const char *arg)
 }
 
 /**
- * Add an aircraft record to `g_data.list_CSV`.
+ * Add an aircraft record to `g_data.csv_list`.
  */
-static int CSV_add_entry (const aircraft_info *rec)
+static int CSV_add_entry (const aircraft_info *ai)
 {
-  static aircraft_info *copy = NULL;
-  static aircraft_info *dest = NULL;
-  static aircraft_info *hi_end;
-
   /* Not a valid ICAO address. Parse error?
    */
-  if (rec->addr == 0 || (rec->addr & MODES_NON_ICAO_ADDRESS))
+  if (ai->addr == 0 || (ai->addr & MODES_NON_ICAO_ADDRESS))
      return (1);
 
-  if (!g_data.list_CSV || /* Create the initial buffer */
-      dest == hi_end - 1)
+  if (!g_data.csv_list || /* Create the initial buffer */
+      g_data.csv_dest == g_data.csv_hi_end - 1)
   {
-    size_t new_num = 10000 + g_data.num_CSV;
+    size_t new_num = 10000 + g_data.csv_len;
 
-    copy   = realloc (g_data.list_CSV, sizeof(*rec) * new_num);
-    dest   = copy + g_data.num_CSV;
-    hi_end = copy + new_num;
+    g_data.csv_copy   = realloc (g_data.csv_list, sizeof(*ai) * new_num);
+    g_data.csv_dest   = g_data.csv_copy + g_data.csv_len;
+    g_data.csv_hi_end = g_data.csv_copy + new_num;
   }
 
-  if (!copy)
+  if (!g_data.csv_copy)
      return (0);
 
-  g_data.list_CSV = copy;
-  assert (dest < hi_end);
-  memcpy (dest, rec, sizeof(*rec));
-  g_data.num_CSV++;
-  dest = copy + g_data.num_CSV;
+  g_data.csv_list = g_data.csv_copy;
+  assert (g_data.csv_dest < g_data.csv_hi_end);
+  memcpy (g_data.csv_dest, ai, sizeof(*ai));
+  g_data.csv_len++;
+  g_data.csv_dest = g_data.csv_copy + g_data.csv_len;
   return (1);
 }
 
 /**
  * The compare function for `qsort()` and `bsearch()`.
  */
-static int CSV_compare_on_addr (const void *_a, const void *_b)
+static int CSV_compare_on_addr (const void *a, const void *b)
 {
-  const aircraft_info *a = (const aircraft_info*) _a;
-  const aircraft_info *b = (const aircraft_info*) _b;
+  const aircraft_info *ai1 = (const aircraft_info*) a;
+  const aircraft_info *ai2 = (const aircraft_info*) b;
 
-  if (a->addr < b->addr)
+  if (ai1->addr < ai2->addr)
      return (-1);
-  if (a->addr > b->addr)
+  if (ai1->addr > ai2->addr)
      return (1);
   return (0);
 }
 
 /**
- * Do a binary search for an aircraft in `g_data.list_CSV`.
+ * Do a binary search for an aircraft in `g_data.csv_list`.
  */
 static const aircraft_info *CSV_lookup_entry (uint32_t addr)
 {
   aircraft_info key = { addr, "" };
 
-  if (!g_data.list_CSV)
+  if (!g_data.csv_list)
      return (NULL);
-  return bsearch (&key, g_data.list_CSV, g_data.num_CSV,
-                  sizeof(*g_data.list_CSV), CSV_compare_on_addr);
+  return bsearch (&key, g_data.csv_list, g_data.csv_len,
+                  sizeof(*g_data.csv_list), CSV_compare_on_addr);
 }
 
 #if defined(USE_BIN_FILES)
 static bool aircraft_init_BIN (void)
 {
-  BIN_header  hdr;
+  BIN_header *hdr;
   struct stat st;
-  size_t      size;
   time_t      created;
   const char *fname;
-  FILE       *f = NULL;
-  void       *mem = NULL;
+  mg_str      mem;
   bool        exist;
   bool        truncated = false;
 
   Modes.bin.aircrafts_bin = mg_mprintf ("%s\\%s", Modes.results_dir, AIRCRAFT_BIN);
   fname = Modes.bin.aircrafts_bin;
+  memset (&st, '\0', sizeof(st));
   exist = (stat(fname, &st) == 0);
 
   if (exist)
@@ -692,36 +782,17 @@ static bool aircraft_init_BIN (void)
      LOG_STDERR ("file: '%s' is truncated.\n", fname);
 
   if (!exist || truncated)
-     goto fail;
+     return (false);
 
-  f = fopen (fname, "rb");
-  if (!f)
+  mem = mg_file_read (&mg_fs_posix, fname);
+  if (!mem.buf)
   {
-    LOG_STDERR ("Failed to open %s! errno: %d/%s\n", fname, errno, strerror(errno));
-    goto fail;
+    LOG_STDERR ("Failed to open %s, errno: %d/%s\n", fname, errno, strerror(errno));
+    return (false);
   }
 
-  if (fread(&hdr, 1, sizeof(hdr), f) != sizeof(hdr))
-  {
-    LOG_STDERR ("Failed to read header for %s!\n", fname);
-    goto fail;
-  }
-
-  size = hdr.rec_len * hdr.rec_num;
-  mem  = malloc (size);
-  if (!mem)
-  {
-    LOG_STDERR ("Failed to allocate %zu bytes for %s!\n", size, fname);
-    goto fail;
-  }
-
-  if (fread(mem, 1, size, f) != size)
-  {
-    LOG_STDERR ("Failed to read %zu bytes for %s!\n", size, fname);
-    goto fail;
-  }
-
-  created = hdr.created;
+  hdr = (BIN_header*) mem.buf;
+  created = hdr->created;
 
   /**
    * \todo Remember when it was created in case we need to reload a newer
@@ -732,22 +803,43 @@ static bool aircraft_init_BIN (void)
   if (Modes.debug & DEBUG_GENERAL)
      puts ("");
   TRACE ("bin_file:   %s\n",    fname);
-  TRACE ("bin_marker: %.*s\n",  (int)sizeof(hdr.bin_marker), hdr.bin_marker);
+  TRACE ("bin_marker: %.*s\n",  (int)sizeof(hdr->bin_marker), hdr->bin_marker);
   TRACE ("created:    %.24s\n", ctime(&created));
-  TRACE ("rec_len:    %u\n",    hdr.rec_len);
-  TRACE ("rec_num:    %u\n\n",  hdr.rec_num);
+  TRACE ("rec_len:    %u\n",    hdr->rec_len);
+  TRACE ("rec_num:    %u\n\n",  hdr->rec_num);
 
-  fclose (f);
-  Modes.bin.aircrafts_records     = mem;
-  Modes.bin.aircrafts_records_num = hdr.rec_num;
+  Modes.bin.aircrafts_records_num = hdr->rec_num;
+  Modes.bin.aircrafts_records = hdr;
   return (true);
+}
 
-fail:
-  if (f)
-     fclose (f);
-  if (mem)
-     free (mem);
-  return (false);
+/*
+ * Convert from `aircraft_record` to `aircraft_info`:
+ *
+ * typedef struct aircraft_info {
+ *         uint32_t addr;
+ *         char     reg_num  [10];
+ *         char     manufact [30];
+ *         char     type     [10];
+ *         char     call_sign[20];
+ *       } aircraft_info;
+ *
+ * typedef struct aircraft_record {
+ *         char icao_addr [6];
+ *         char regist   [10];
+ *         char manuf    [10];
+ *         char model    [40];
+ *       } aircraft_record;
+ */
+static void *aircraft_convert_BIN (const aircraft_record *a)
+{
+  memset (&g_data.current_BIN, '\0', sizeof(g_data.current_BIN));
+
+  g_data.current_BIN.addr = mg_unhexn (a->icao_addr, sizeof(a->icao_addr));
+  strncpy (g_data.current_BIN.reg_num,  a->regist, sizeof(g_data.current_BIN.reg_num)-1);
+  strncpy (g_data.current_BIN.manufact, a->manuf,  sizeof(g_data.current_BIN.manufact)-1);
+  strncpy (g_data.current_BIN.type,     a->manuf,  sizeof(g_data.current_BIN.type)-1);
+  return (&g_data.current_BIN);
 }
 
 static int aircraft_compare (const void *_a, const void *_b)
@@ -760,7 +852,7 @@ static int aircraft_compare (const void *_a, const void *_b)
   return (int) (a_addr - b_addr);
 }
 
-static aircraft_record *BIN_lookup_entry (uint32_t addr)
+static void *BIN_lookup_entry (uint32_t addr, bool convert)
 {
   aircraft_record  key;
   aircraft_record *a = NULL;
@@ -769,15 +861,18 @@ static aircraft_record *BIN_lookup_entry (uint32_t addr)
   if (Modes.bin.aircrafts_records_num > 0)
      a = bsearch (&key, Modes.bin.aircrafts_records, Modes.bin.aircrafts_records_num, sizeof(key), aircraft_compare);
 
+  if (a && convert)
+     return aircraft_convert_BIN (a);
+
   return (a);
 }
 #endif  /* USE_BIN_FILES */
 
 static void free_CSV_BIN_records (void)
 {
-  free (g_data.list_CSV);
-  g_data.list_CSV = NULL;
-  g_data.num_CSV = 0;
+  free (g_data.csv_list);
+  g_data.csv_list = NULL;
+  g_data.csv_len = 0;
 
 #if defined(USE_BIN_FILES)
   free (Modes.bin.aircrafts_records);
@@ -791,7 +886,7 @@ static uint32_t get_address (unsigned rec_num)
   const aircraft_info *a1;
 
 #if defined(USE_BIN_FILES)
-  if (Modes.bin.aircrafts_records)
+  if (Modes.bin.aircrafts_records && 0)
   {
     const aircraft_record *a2;
 
@@ -801,13 +896,13 @@ static uint32_t get_address (unsigned rec_num)
   }
 #endif
 
-  assert (rec_num < g_data.num_CSV);
-  a1 = g_data.list_CSV + rec_num;
+  assert (rec_num < g_data.csv_len);
+  a1 = g_data.csv_list + rec_num;
   return (a1->addr);
 }
 
 /**
- * Do a simple test on the `g_data.list_CSV`.
+ * Do a simple test on the `g_data.csv_list`.
  *
  * Also, if `g_data.sql_file_found == true`, compare the lookup speed
  * of Sqlite3 compared to our `bsearch()` lookup used in `CSV_lookup_entry()`.
@@ -816,7 +911,7 @@ static void aircraft_test_1 (void)
 {
   const char  *country;
   unsigned     i, num_ok;
-  static const aircraft_info a_tests [] = {
+  static const aircraft_info ai_tests [] = {
                { 0xAA3496, "N757FQ",  "Cessna", "" },
                { 0xAB34DE, "N821DA",  "Beech",  "" },
                { 0x800737, "VT-ANQ",  "Boeing", "" },
@@ -824,7 +919,7 @@ static void aircraft_test_1 (void)
                { 0x3532C1, "T.23-01", "AIRBUS", "" },  /* callsign: AIRMIL, Spain */
                { 0x00A78C, "ZS-OYT",  "Bell", "H1P" }  /* test for a Helicopter */
              };
-  const aircraft_info *t = a_tests + 0;
+  const aircraft_info *ai = ai_tests + 0;
   char         sql_file    [MAX_PATH] = { "" };
   char         blocks_file [MAX_PATH] = { "" };
   bool         heli_found = false;
@@ -838,11 +933,11 @@ static void aircraft_test_1 (void)
      snprintf (blocks_file, sizeof(blocks_file),
                 "\n                   %s", "$(OBJ_DIR)/gen-code-blocks.c");
 
-  LOG_STDOUT ("\n%s(): Checking %zu fixed records against:\n"
-              "                   %s%s%s\n",
-              __FUNCTION__, DIM(a_tests), g_data.csv_file, sql_file, blocks_file);
+  printf ("\n%s(): Checking %zu fixed records against:\n"
+          "                   %s%s%s\n",
+          __FUNCTION__, DIM(ai_tests), g_data.csv_file, sql_file, blocks_file);
 
-  for (i = num_ok = 0; i < DIM(a_tests); i++, t++)
+  for (i = num_ok = 0; i < DIM(ai_tests); i++, ai++)
   {
     const aircraft_info *a_CSV, *a_SQL;
     const char *reg_num   = "?";
@@ -850,8 +945,8 @@ static void aircraft_test_1 (void)
     const char *type      = "?";
     const char *type2     = NULL;
 
-    a_CSV = CSV_lookup_entry (t->addr);
-    a_SQL = SQL_lookup_entry (t->addr);
+    a_CSV = CSV_lookup_entry (ai->addr);
+    a_SQL = SQL_lookup_entry (ai->addr);
 
     if (a_CSV)
     {
@@ -878,19 +973,19 @@ static void aircraft_test_1 (void)
       }
     }
 
-    if (t->type[0] && aircraft_is_helicopter(t->addr, &type2))
+    if (ai->type[0] && aircraft_is_helicopter(ai->addr, &type2))
     {
       heli_found = true;
       heli_type  = type2;
     }
 
-    country = (*g_data.p_get_country) (t->addr, false);
-    LOG_STDOUT ("  addr: 0x%06X, reg-num: %-8s manufact: %-20s type: %-4s country: %-30s %s\n",
-                t->addr, reg_num, manufact, type, country ? country : "?",
-                (*g_data.p_is_military)(t->addr, NULL) ? "Military" : "");
+    country = (*g_data.p_get_country) (ai->addr, false);
+    printf ("  addr: 0x%06X, reg-num: %-8s manufact: %-20s type: %-4s country: %-30s %s\n",
+            ai->addr, reg_num, manufact, type, country ? country : "?",
+            (*g_data.p_is_military)(ai->addr, NULL) ? "Military" : "");
   }
-  LOG_STDOUT ("%3u OKAY. heli_found: %d -> %s\n", num_ok, heli_found, heli_type);
-  LOG_STDOUT ("%3u FAIL\n", i - num_ok);
+  printf ("%3u OKAY. heli_found: %d -> %s\n", num_ok, heli_found, heli_type);
+  printf ("%3u FAIL\n", i - num_ok);
 }
 
 /**
@@ -926,14 +1021,14 @@ static void aircraft_test_2 (unsigned max_num)
 
   if (max_num == 0)
   {
-    LOG_STDOUT ("  cannot do this with empty list(s)\n");
+    printf ("  cannot do this with empty list(s)\n");
     return;
   }
 
-  LOG_STDOUT ("\n%s(): Checking 5 random records in:\n"
-              "                   %s%s%s\n"
-              "                   max_num: 0 - %u:\n",
-              __FUNCTION__, g_data.csv_file, sql_file, bin_file, max_num);
+  printf ("\n%s(): Checking 5 random records in:\n"
+          "                   %s%s%s\n"
+          "                   max_num: 0 - %u:\n",
+          __FUNCTION__, g_data.csv_file, sql_file, bin_file, max_num);
 
   for (i = 0; i < 5; i++)
   {
@@ -945,13 +1040,13 @@ static void aircraft_test_2 (unsigned max_num)
     a_CSV = CSV_lookup_entry (addr);
     usec  = get_usec_now() - usec;
 
-    LOG_STDOUT ("  CSV: %*u: addr: 0x%06X, reg-num: %-8s  manufact: %-20.20s callsign: %-10.10s type: %-4s %6.0f usec\n",
-                rec_width, rec_num, addr,
-                (a_CSV && a_CSV->reg_num[0])   ? a_CSV->reg_num   : "-",
-                (a_CSV && a_CSV->manufact[0])  ? a_CSV->manufact  : "-",
-                (a_CSV && a_CSV->call_sign[0]) ? a_CSV->call_sign : "-",
-                (a_CSV && a_CSV->type[0])      ? a_CSV->type      : "-",
-                usec);
+    printf ("  CSV:  %*u: addr: 0x%06X, reg-num: %-8s  manufact: %-20.20s callsign: %-10.10s type: %-4s %6.0f usec\n",
+            rec_width, rec_num, addr,
+            (a_CSV && a_CSV->reg_num[0])   ? a_CSV->reg_num   : "-",
+            (a_CSV && a_CSV->manufact[0])  ? a_CSV->manufact  : "-",
+            (a_CSV && a_CSV->call_sign[0]) ? a_CSV->call_sign : "-",
+            (a_CSV && a_CSV->type[0])      ? a_CSV->type      : "-",
+            usec);
 
     if (g_data.sql_file_found)
     {
@@ -959,13 +1054,13 @@ static void aircraft_test_2 (unsigned max_num)
       a_SQL = SQL_lookup_entry (addr);
       usec  = get_usec_now() - usec;
 
-      LOG_STDOUT ("  SQL: %*s  addr: 0x%06X, reg-num: %-8s  manufact: %-20.20s callsign: %-10.10s type: %-4s %6.0f usec\n",
-                  rec_width, "", addr,
-                  (a_SQL && a_SQL->reg_num[0])   ? a_SQL->reg_num   : "-",
-                  (a_SQL && a_SQL->manufact[0])  ? a_SQL->manufact  : "-",
-                  (a_SQL && a_SQL->call_sign[0]) ? a_SQL->call_sign : "-",
-                  (a_SQL && a_SQL->type[0])      ? a_SQL->type      : "-",
-                  usec);
+      printf ("  SQL:  %*s  addr: 0x%06X, reg-num: %-8s  manufact: %-20.20s callsign: %-10.10s type: %-4s %6.0f usec\n",
+              rec_width, "", addr,
+              (a_SQL && a_SQL->reg_num[0])   ? a_SQL->reg_num   : "-",
+              (a_SQL && a_SQL->manufact[0])  ? a_SQL->manufact  : "-",
+              (a_SQL && a_SQL->call_sign[0]) ? a_SQL->call_sign : "-",
+              (a_SQL && a_SQL->type[0])      ? a_SQL->type      : "-",
+              usec);
     }
 
 #if defined(USE_BIN_FILES)
@@ -978,15 +1073,26 @@ static void aircraft_test_2 (unsigned max_num)
       int m_size = sizeof(a_BIN->manuf) - 1;
 
       usec  = get_usec_now();
-      a_BIN = BIN_lookup_entry (addr);  // TODO: rewrite into a 'aircraft_info' record
-      usec  = get_usec_now() - usec;
+      a_BIN = BIN_lookup_entry (addr, false);
+      usec = get_usec_now() - usec;
 
-      LOG_STDOUT ("  BIN: %*s  addr: 0x%06X, reg-num: %-*.*s manufact: %-*.*s"
-                  "            model:    %-20.20s  %6.0f usec\n",
-                  rec_width, "", addr,
-                  r_size, r_size, (a_BIN && a_BIN->regist[0]) ? a_BIN->regist : "-",
-                  m_size, m_size, (a_BIN && a_BIN->manuf[0])  ? a_BIN->manuf  : "-",
-                  (a_BIN && a_BIN->model[0]) ? a_BIN->model : "-", usec);
+      printf ("  BIN1: %*s  addr: 0x%06X, reg-num: %-*.*s manufact: %-*.*s"
+              "            model:    %-20.20s  %6.0f usec\n",
+              rec_width, "", addr,
+              r_size, r_size, (a_BIN && a_BIN->regist[0]) ? a_BIN->regist : "-",
+              m_size, m_size, (a_BIN && a_BIN->manuf[0])  ? a_BIN->manuf  : "-",
+              (a_BIN && a_BIN->model[0]) ? a_BIN->model : "-", usec);
+
+      if (a_BIN)
+      {
+        const aircraft_info *a = aircraft_convert_BIN (a_BIN);
+
+        printf ("  BIN2: %*s  addr: 0x%06X, reg-num: %-*.*s manufact: %-*.*s"
+                "                      type: %-4s\n",
+                rec_width, "", addr,
+                r_size,    r_size,    a->reg_num,
+                m_size+11, m_size+11, a->manufact, a->type);
+      }
     }
 #endif
   }
@@ -1013,7 +1119,7 @@ static void aircraft_dump_json (char *data, const char *filename)
     return;
   }
 
-  f = fopen (tmp_file, "wb+");
+  f = fopen (tmp_file, "w+");
   if (!f)
   {
     printf ("  Creating %s failed; errno: %d/%s\n\n", tmp_file, errno, strerror(errno));
@@ -1036,17 +1142,20 @@ static void aircraft_dump_json (char *data, const char *filename)
 
 /**
  * Generate some json-files to test the `aircraft_make_json()`
- * function with a large number of aircrafts. The data-content does not matter.
+ * function with a large number of aircrafts.
+ * The data-content does not matter.
  */
 static void aircraft_test_3 (unsigned max_num)
 {
   unsigned i;
+  size_t unused;
 
-  LOG_STDOUT ("\n%s(): Generate and check JSON-data:\n", __FUNCTION__);
+  printf ("\n%s(): Generate and check JSON-data:\n", __FUNCTION__);
 
   if (!Modes.home_pos_ok)
   {
-    Modes.home_pos.lat = 51.5285578;  /* London */
+    printf ("Setting home_pos to London.\n");
+    Modes.home_pos.lat = 51.5285578;
     Modes.home_pos.lon = -0.2420247;
   }
 
@@ -1080,28 +1189,311 @@ static void aircraft_test_3 (unsigned max_num)
                    MODES_ACFLAGS_CATEGORY_VALID |
                    MODES_ACFLAGS_LLBOTH_VALID   |
                    MODES_ACFLAGS_LLEITHER_VALID);
+
+    /* for 'aircraft_test_4()':
+     */
+    for (int j = 0; j < RANGEDIRS_BUCKETS; j++)
+    {
+      dist_coords rec;
+
+      rec.lat = a->position.lat;
+      rec.lon = a->position.lon;
+      rec.alt = a->altitude;
+      rec.distance = geo_great_circle_dist (&Modes.home_pos, &a->position) * 3.2808;
+      g_data.range_dirs [0][j] = rec;
+    }
   }
 
   Modes.stat.messages_total = max_num;
 
-  aircraft_dump_json (aircraft_make_json(false, NULL), "json-1.txt");
-  aircraft_dump_json (aircraft_make_json(true, NULL), "json-2.txt");
+  aircraft_dump_json (aircraft_make_json(false, &unused), "json-1.txt");
+  aircraft_dump_json (aircraft_make_json(true, &unused), "json-2.txt");
+
+  smartlist_t *save = g_data.aircrafts;
+  smartlist_t *empty = smartlist_new();
 
   /* Test empty json-data too.
    */
-  aircraft_exit (true);
+  g_data.aircrafts = empty;
+  aircraft_dump_json (aircraft_make_json(false, &unused), "json-3.txt");
+  aircraft_dump_json (aircraft_make_json(true, &unused), "json-4.txt");
 
-  g_data.aircrafts = smartlist_new();
-  if (g_data.aircrafts)
+  smartlist_free (empty);
+  g_data.aircrafts = save;
+}
+
+#define JS_FETCH(_file)                                                                 \
+        "    fetch (" #_file ")",                                                       \
+        "      .then (response => response.json())",                                    \
+        "      .then (data => {",                                                       \
+        "          // Extract the points array",                                        \
+        "          const points = data.actualRange.last24h.points;",                    \
+        "          // Create a polyline from all points",                               \
+        "          const coordinates = points.map (point => [ point[0], point[1] ]);",  \
+        "          L.polyline (coordinates, {color: \"blue\", weight: 2}).addTo(map);", \
+        "      });"
+
+/**
+ * \todo Make this configurable
+ */
+#define JS_HOMEPOS  "60.30, 5.30"
+#define JS_ZOOM     "6"
+
+static const char *show_outline_html[] = {
+  "<!doctype html>",
+  "<html>",
+  "<head>",
+  "  <title>Flight Range Map</title>",
+  "  <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\" />",
+  "  <style>",
+  "    html, body {",
+  "      margin:  0;",
+  "      padding: 0;",
+  "      height: 100%;",
+  "      width:  100%;",
+  "    }",
+  "    #map {",
+  "      height: 100vh;",
+  "      width:  100%;",
+  "    }",
+  "  </style>",
+  "</head>",
+  "",
+  "<body>",
+  "  <div id=\"map\"></div>",
+  "  <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"></script>",
+  "  <script>",
+  "    // Initialize the map",
+  "    const map = L.map(\"map\").setView([ " JS_HOMEPOS "], " JS_ZOOM "); /* Bergen,  Norway */",
+  "    // Add OpenStreetMap tiles",
+  "    L.tileLayer (\"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png\", {",
+  "        attribution: \"(c) OpenStreetMap contributors\"",
+  "    }).addTo(map);",
+  "",
+  JS_FETCH ("our_outline.json"),
+  JS_FETCH ("readsb_outline.json"),
+  "    </script>",
+  "</body>",
+  "</html>",
+  NULL
+};
+
+/*
+ * These JSON data was generated by "readsb".
+ * `aircraft_test_4()` creates `Modes.tmp_dir\\outline-test\\readsb_outline.json`
+ * from this array.
+ *
+ * It should compare the result of the `Modes.tmp_dir\\outline-test\\readsb_outline.json` to our
+ * semi-randomly generated at `Modes.tmp_dir\\outline-test\\our_outline.json`.
+ */
+static const char *readsb_outline_json[] = {
+  "{ \"actualRange\": { \"last24h\": { \"points\": [",
+  "[61.1661,5.3151,36000],",  "[61.1625,5.3354,36000],",  "[61.1110,5.3682,40000],",  "[61.1516,5.3960,36000],",
+  "[61.0870,5.4059,40000],",  "[61.0719,5.4296,40000],",  "[60.6894,5.3827,16775],",  "[60.6704,5.3941,29000],",
+  "[60.6790,5.4187,8400],",   "[60.9932,5.5388,23875],",  "[60.9653,5.5361,23450],",  "[60.8519,5.5253,21475],",
+  "[60.6525,5.4584,29000],",  "[60.6502,5.4669,29000],",  "[60.5585,5.4358,14975],",  "[60.6438,5.4898,29000],",
+  "[60.6420,5.4961,29000],",  "[60.4974,5.4222,41000],",  "[60.6352,5.5207,29000],",  "[60.6307,5.5369,29000],",
+  "[60.4889,5.4381,35000],",  "[60.4863,5.4432,35000],",  "[60.6225,5.5663,29000],",  "[60.4927,5.4681,5700],",
+  "[60.7808,5.7327,34400],",  "[60.6146,5.5942,29000],",  "[60.5564,5.5504,15600],",  "[60.5121,5.5187,14425],",
+  "[60.4682,5.4782,41000],",  "[60.4650,5.4845,41000],",  "[60.6491,5.7067,35500],",  "[60.4877,5.5286,6350],",
+  "[60.4688,5.5153,7400],",   "[60.4822,5.5408,6475],",   "[60.4536,5.5057,35000],",  "[60.4512,5.5101,35000],",
+  "[60.4482,5.5160,35000],",  "[60.4628,5.5483,15300],",  "[60.4439,5.5247,41000],",  "[60.4422,5.5274,35000],",
+  "[60.4809,5.6098,7250],",   "[60.4685,5.5960,6075],",   "[60.4568,5.5815,8425],",   "[60.4554,5.5951,7725],",
+  "[60.4302,5.5507,41000],",  "[60.5534,5.8118,29000],",  "[60.5493,5.8264,29000],",  "[60.4503,5.6250,7975],",
+  "[60.4608,5.6544,6600],",   "[60.4475,5.6370,9125],",   "[60.4370,5.6227,8875],",   "[60.4436,5.6595,9425],",
+  "[60.4131,5.5833,41000],",  "[60.4406,5.6775,9650],",   "[60.4615,5.7433,8425],",   "[60.4386,5.6952,8550],",
+  "[60.4366,5.7067,8650],",   "[60.4647,5.8013,9325],",   "[60.4343,5.7202,8750],",   "[60.4611,5.8436,9800],",
+  "[60.6379,6.4851,13750],",  "[60.4819,5.9538,16050],",  "[60.4448,5.8371,13975],",  "[60.4805,6.0182,16900],",
+  "[60.4782,6.0522,17300],",  "[60.4776,6.0628,17425],",  "[60.4174,5.8185,9725],",   "[60.3250,5.4003,40000],",
+  "[60.4260,5.9258,8575],",   "[60.4228,5.9501,8725],",   "[60.3263,5.4259,4850],",   "[60.3365,5.4884,39000],",
+  "[60.4013,5.9144,9925],",   "[60.3983,5.9199,11650],",  "[60.3840,5.8681,11925],",  "[60.3896,5.9830,10375],",
+  "[60.3777,5.8977,12300],",  "[60.3962,6.1534,10800],",  "[60.3948,6.1641,10925],",  "[60.3907,6.2080,19300],",
+  "[60.3713,6.0821,14800],",  "[60.3573,5.9912,13450],",  "[60.3610,6.1015,13300],",  "[60.3652,6.4673,29000],",
+  "[60.3474,6.1571,14025],",  "[60.3521,6.5121,29000],",  "[60.3347,6.2931,17475],",  "[60.3330,6.5778,29000],",
+  "[60.3178,6.6295,29000],",  "[60.3046,6.4642,19525],",  "[60.2984,6.6956,29000],",  "[60.2896,6.7253,29000],",
+  "[60.2783,6.6116,20025],",  "[60.2877,5.8716,28000],",  "[60.2906,5.7413,15775],",  "[60.2893,5.6637,11950],",
+  "[60.2865,5.6607,10875],",  "[60.2836,5.6454,10725],",  "[60.2792,5.6674,12050],",  "[60.2765,5.6739,14450],",
+  "[60.2321,6.1039,14850],",  "[60.2731,5.6388,10825],",  "[60.2350,5.9492,13325],",  "[60.2665,5.6260,13625],",
+  "[60.2364,5.8537,12275],",  "[60.2366,5.7997,11675],",  "[60.2366,5.7869,11500],",  "[60.2364,5.7512,11100],",
+  "[60.2598,5.5738,9925],",   "[60.2717,5.4950,40000],",  "[60.2358,5.6736,10175],",  "[60.2358,5.6642,10050],",
+  "[60.2582,5.5383,9000],",   "[60.2329,5.6382,12150],",  "[60.2679,5.4724,5425],",   "[60.2521,5.5298,40000],",
+  "[60.2358,5.5902,9200],",   "[60.2558,5.4865,9050],",   "[60.2355,5.5582,8775],",   "[60.2353,5.5480,8525],",
+  "[60.2429,5.5138,11700],",  "[60.1789,5.7071,13625],",  "[60.1666,5.7231,13975],",  "[60.2586,5.4439,6550],",
+  "[60.0830,5.9458,17225],",  "[60.2044,5.5829,41000],",  "[60.1312,5.7606,12275],",  "[60.2151,5.5353,41000],",
+  "[60.1777,5.6154,37000],",  "[60.2242,5.4945,41000],",  "[60.1546,5.6447,10525],",  "[60.1271,5.6957,13250],",
+  "[60.2308,5.4648,41000],",  "[60.1658,5.5900,9675],",   "[60.1501,5.6101,37000],",  "[60.1191,5.6691,36000],",
+  "[60.1396,5.6080,37000],",  "[60.1074,5.6659,36000],",  "[60.1013,5.6642,36000],",  "[60.0918,5.6617,36000],",
+  "[60.0877,5.6606,36000],",  "[60.0750,5.6572,36000],",  "[60.1096,5.6023,37000],",  "[60.0630,5.6540,36000],",
+  "[60.1903,5.4678,7625],",   "[60.2502,5.3777,41000],",  "[60.2510,5.3738,41000],",  "[60.2329,5.3918,5975],",
+  "[60.2836,5.3289,7300],",   "[60.1989,5.4242,6775],",   "[60.2343,5.3812,7125],",   "[60.2333,5.3770,7025],",
+  "[60.2143,5.3840,9575],",   "[60.2576,5.3441,41000],",  "[60.2326,5.3646,5575],",   "[60.0226,5.5163,39000],",
+  "[60.1791,5.3957,7625],",   "[59.7988,5.6481,39000],",  "[59.7975,5.6405,39000],",  "[59.8867,5.5668,36000],",
+  "[59.8537,5.5541,37000],",  "[59.7749,5.5780,36000],",  "[59.7504,5.5716,36000],",  "[59.7260,5.5652,36000],",
+  "[59.6944,5.5569,36000],",  "[59.9395,5.4430,36000],",  "[59.9436,5.4334,36000],",  "[60.1886,5.3404,6025],",
+  "[60.1195,5.3585,39000],",  "[59.9625,5.3889,36000],",  "[59.6880,5.4429,17550],",  "[59.7589,5.4068,38975],",
+  "[59.7388,5.3745,15050],",  "[59.7951,5.3642,13000],",  "[59.8869,5.3399,12375],",  "[59.9570,5.3216,14550],",
+  "[59.9963,5.3088,36000],",  "[60.0033,5.2924,36000],",  "[59.6745,5.2716,36000],",  "[59.6756,5.2306,38000],",
+  "[59.6791,5.2258,38000],",  "[59.6609,5.1876,35000],",  "[59.6673,5.1748,35000],",  "[59.9644,5.2198,12375],",
+  "[59.7151,5.1460,39000],",  "[59.6779,5.1081,39000],",  "[59.7065,5.0950,39000],",  "[59.6958,5.0743,39000],",
+  "[59.6988,5.0500,39000],",  "[59.4413,4.9136,37000],",  "[59.4333,4.8775,37000],",  "[59.1575,4.7032,36975],",
+  "[59.1388,4.6444,35025],",  "[59.1858,4.6418,38975],",  "[59.1640,4.5850,35025],",  "[59.1853,4.5351,35025],",
+  "[59.0284,4.4165,37000],",  "[58.9924,4.3522,38000],",  "[59.0112,4.3152,38000],",  "[59.0323,4.2734,38000],",
+  "[58.7418,3.9515,35000],",  "[58.7558,3.9320,36875],",  "[58.6231,3.7231,40000],",  "[58.3588,3.4540,41000],",
+  "[58.3970,3.4086,41000],",  "[58.2660,3.1820,36000],",  "[58.2854,3.1489,36000],",  "[58.3163,3.0959,36000],",
+  "[58.3479,3.0417,36000],",  "[58.3710,2.8939,32000],",  "[58.3841,2.8190,37975],",  "[58.3123,2.6376,38000],",
+  "[58.2307,2.4365,38000],",  "[58.0708,2.1231,41000],",  "[58.0813,2.1190,41000],",  "[58.0366,1.8705,36000],",
+  "[58.1605,1.9359,35000],",  "[58.2207,1.9390,40000],",  "[58.1892,1.7784,40000],",  "[58.3750,2.0043,41000],",
+  "[58.1323,1.4908,40000],",  "[58.4835,1.9613,41000],",  "[58.5353,1.9407,41000],",  "[58.5870,1.9202,41000],",
+  "[58.6374,1.9000,41000],",  "[58.6700,1.8188,37000],",  "[58.7330,1.8617,41000],",  "[58.7795,1.8429,41000],",
+  "[58.8257,1.8240,41000],",  "[58.8700,1.8060,41000],",  "[58.9137,1.7880,41000],",  "[58.9576,1.7704,41000],",
+  "[59.0643,1.8668,39000],",  "[59.2049,2.1502,35975],",  "[59.2983,2.2999,41000],",  "[59.3229,2.2698,40000],",
+  "[59.4797,2.6116,36000],",  "[59.4996,2.5795,36000],",  "[59.5596,2.5878,43000],",  "[59.5706,2.5692,43000],",
+  "[59.7037,2.9045,37975],",  "[59.7072,2.8972,38000],",  "[59.5499,2.1125,38000],",  "[59.7512,2.8045,37975],",
+  "[59.7742,2.7559,38000],",  "[59.7041,2.3423,43000],",  "[59.6878,2.2000,36000],",  "[59.7392,2.1886,36000],",
+  "[59.7774,2.2165,43000],",  "[59.7721,2.1343,36000],",  "[59.7287,1.7453,41000],",  "[59.7910,1.7777,38000],",
+  "[59.7976,1.7467,36000],",  "[59.8395,1.6006,40000],",  "[59.8602,1.5733,36000],",  "[59.8986,1.5214,41000],",
+  "[59.9029,1.2635,41000],",  "[59.9349,1.2455,41000],",  "[59.9570,1.2330,41000],",  "[59.9787,1.2208,41000],",
+  "[60.0373,1.1876,41000],",  "[60.0691,1.1695,41000],",  "[60.1107,1.1458,41000],",  "[60.1424,1.1277,41000],",
+  "[60.1766,1.1081,41000],",  "[60.2191,1.0838,41000],",  "[60.2537,1.0454,40000],",  "[60.2903,0.9955,40000],",
+  "[60.3269,0.9455,40000],",  "[60.3560,0.9057,40000],",  "[60.3709,0.8852,36000],",  "[60.4243,0.8118,36000],",
+  "[60.4762,0.9349,41000],",  "[60.5162,0.9051,43000],",  "[60.5583,0.8280,43000],",  "[60.5997,0.7520,43000],",
+  "[60.6287,0.6982,43000],",  "[60.6889,0.5864,43000],",  "[60.7148,0.7946,41000],",  "[60.7436,0.7570,40000],",
+  "[60.8108,0.5487,36000],",  "[60.8960,0.1980,43000],",  "[60.9518,0.0921,43000],",  "[60.9958,0.0162,40000],",
+  "[61.0368,-0.0729,43000],", "[61.1432,-0.2894,43000],", "[61.1968,-0.3986,43000],", "[61.1888,0.0746,38000],",
+  "[61.2647,-0.1065,38000],", "[61.2273,0.4859,41000],",  "[61.2784,0.4545,41000],",  "[61.4677,-0.5451,38000],",
+  "[61.4274,0.1919,45000],",  "[61.4687,0.0827,45000],",  "[61.4983,0.3183,41000],",  "[61.5652,0.2765,41000],",
+  "[61.6289,0.2365,41000],",  "[61.6898,0.1981,41000],",  "[61.7582,0.1548,41000],",  "[61.8012,0.1273,41000],",
+  "[61.8798,0.0765,41000],",  "[61.8278,0.5346,44700],",  "[62.0830,-0.2246,45000],", "[61.7203,1.2433,39000],",
+  "[61.7950,1.1739,39000],",  "[61.8594,1.1137,39000],",  "[61.9479,1.0305,38975],",  "[61.9739,1.0059,39000],",
+  "[61.8801,1.4463,38000],",  "[62.0348,1.2519,40450],",  "[62.0362,1.3132,40475],",  "[62.0387,1.4245,40625],",
+  "[62.0943,1.5719,38000],",  "[62.2300,1.3441,38000],",  "[62.1026,1.8218,39000],",  "[62.5124,1.0914,40000],",
+  "[62.6537,0.8357,41000],",  "[62.2135,1.8536,41000],",  "[62.0549,2.2798,41000],",  "[62.0565,2.3872,41000],",
+  "[62.0581,2.4905,41000],",  "[62.8163,1.4203,37000],",  "[62.8654,1.3746,34000],",  "[62.8475,1.5461,33975],",
+  "[62.8260,1.7500,34000],",  "[62.8111,1.8894,34000],",  "[62.7776,2.1974,38000],",  "[62.7762,2.2107,38000],",
+  "[62.7577,2.3777,33975],",  "[62.7709,2.5688,40000],",  "[62.7190,2.6628,40000],",  "[62.0687,3.4972,41000],",
+  "[62.2782,3.4423,40000],",  "[62.2692,3.4578,40000],",  "[62.2336,3.5858,34000],",  "[62.5231,3.4603,37000],",
+  "[62.5162,3.5058,37000],",  "[62.4997,3.6140,37000],",  "[62.4735,3.7848,35000],",  "[62.6004,3.7264,38000],",
+  "[62.4514,3.9268,35000],",  "[62.0760,4.2544,33975],",  "[62.0722,4.3287,41000],",  "[62.0722,4.4118,41000],",
+  "[62.0722,4.4676,41000],",  "[62.3766,4.4401,38975],",  "[62.3575,4.5159,37000],",  "[62.3491,4.5678,37000],",
+  "[62.3350,4.6541,37000],",  "[61.9308,4.8512,33950],",  "[61.7749,4.9513,34000],",  "[61.7582,5.0116,34000],",
+  "[61.4997,5.1322,38000],",  "[61.7200,5.1497,34000],",  "[61.3872,5.2363,24000],",  "[61.1722,5.2811,36000]",
+  "]}}}",
+  NULL
+};
+
+/**
+ * Code for `Modes.tmp_dir\\outline-test\\outline-test.bat`
+ */
+static const char *test_bat_code[] = {
+  "@echo off",
+  "setlocal",
+  "cd /D %~dp0",
+  "echo Starting 'py.exe -3 -m http.server'",
+  "start py.exe -3 -m http.server",
+  "echo Sleeping for 3 seconds...",
+  "ping.exe -4 -n 3 localhost > NUL",
+  "echo Starting 'chrome http://localhost:8000/show-outline.html'",
+ /**
+  * \todo Make this configurable
+  */
+  "\"c:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" \"http://localhost:8000/show-outline.html\"",
+  NULL
+};
+
+/*
+ * Create file under `dir == Modes.tmp_dir + \\outline-test\\`.
+ * Lines in `*data`.
+ */
+static char *create_outline_file (const char *dir, const char *file, const char **data)
+{
+  char *fname = mg_mprintf ("%s\\%s", dir, file);
+  FILE *f = fopen (fname, "w+");
+  int   i;
+
+  if (!f)
   {
-    aircraft_dump_json (aircraft_make_json(false, NULL), "json-3.txt");
-    aircraft_dump_json (aircraft_make_json(true, NULL), "json-4.txt");
+    printf ("Failed to create %s, errno: %d\n", fname, errno);
+    free (fname);
+    return (NULL);
   }
+
+  for (i = 0; data[i]; i++)
+      fprintf (f, "%s\n", data[i]);
+
+  printf ("Created file: '%s' with %d lines\n", fname, i);
+  fclose (f);
+  return (fname);
+}
+
+/**
+ * Create a `show-outline.html` file and some outline-test JSON files
+ * under `Modes.tmp_dir + /outline-test".
+ *
+ * Then use `outline-test.bat` to spawn a Python HTTP-server at port 8000
+ * and spawn Chrome browser to show the result.
+ *
+ * \todo The latter should be configurable.
+ */
+static void aircraft_test_4 (unsigned max_num)
+{
+  char        dir [MAX_PATH];
+  uint64_t    now = MSEC_TIME();
+  size_t      size;
+  char       *our_outline;
+  char       *readsb_outline;
+  char       *outline_html;
+  char       *test_bat;
+  char       *our_json;
+  const char *our_data [2] = { NULL, NULL };
+
+  printf ("%s(): Testing 'outline' stuff:\n", __FUNCTION__);
+
+  g_data.outline_enable = true;
+
+  snprintf (dir, sizeof(dir), "%s\\outline-test", Modes.tmp_dir);
+  if (!CreateDirectory(dir, 0) && GetLastError() != ERROR_ALREADY_EXISTS)
+     printf ("'CreateDirectory(\"%s\")' failed; %s.\n", dir, win_strerror(GetLastError()));
+
+  /* Use data from `aircraft_test_3()`
+   */
+  for (unsigned i = 0; i < max_num; i++)
+      aircraft_outline_update (aircraft_find(0x470000 + i), now);
+
+  our_outline = mg_mprintf ("%s\\%s", dir, "our_outline.json");
+  aircraft_outline_generate (now, our_outline);
+
+  our_json     = aircraft_outline_json (our_outline, &size);
+  our_data [0] = our_json;
+  our_json [size-2] = '\0';   /* remove last `\n` */
+
+  /* This effectively copies data in `g_data.outline_json` to
+   * `Modes.tmp_dir\\outline-test\\our_outline_json`.
+   */
+  free (our_outline);
+  our_outline    = create_outline_file (dir, "our_outline.json", our_data);
+  readsb_outline = create_outline_file (dir, "readsb_outline.json", readsb_outline_json);
+  outline_html   = create_outline_file(dir, "show-outline.html", show_outline_html);
+  test_bat       = create_outline_file (dir, "outline-test.bat", test_bat_code);
+
+  if (test_bat)
+  {
+    int rc = system (test_bat);
+    if (rc == 0)
+       printf ("%s OK.\n\n", test_bat);
+    else if (rc != 0)
+       printf ("%s failed; errno: %d/%s\n", test_bat, errno, strerror(errno));
+  }
+  free (our_outline);
+  free (our_json);
+  free (outline_html);
+  free (test_bat);
+  free (readsb_outline);
+  puts ("");
 }
 
 static bool aircraft_tests (void)
 {
-  unsigned max_num = g_data.num_CSV;
+  unsigned max_num = g_data.csv_len;
 
 #if defined(USE_BIN_FILES)
   if (aircraft_init_BIN() && max_num > Modes.bin.aircrafts_records_num)
@@ -1111,6 +1503,7 @@ static bool aircraft_tests (void)
   aircraft_test_1();
   aircraft_test_2 (max_num);
   aircraft_test_3 (50);
+  aircraft_test_4 (50);
   return (true);
 }
 
@@ -1128,16 +1521,16 @@ static int extract_callback (const char *file, void *arg)
 }
 
 /**
- * Check if the aircraft .CSV-database is older than 10 days.
+ * Check if the aircraft .CSV-database is older than `CSV_MAX_AGE` days.
  * If so:
  *  1) download the OpenSky .zip file to `%TEMP%\\dump1090\\aircraft-database-temp.zip`,
  *  2) calls `zip_extract (\"%TEMP%\\dump1090\\aircraft-database-temp.zip\", \"%TEMP%\\dump1090\\aircraft-database-temp.csv\")`.
  *  3) copy `%TEMP%\\dump1090\\aircraft-database-temp.csv` over to 'db_file'.
  *  4) remove `g_data.sql_file` to force a rebuild of it.
  */
-bool aircraft_update_CSV (const char *db_file, const char *url)
+bool aircraft_update_CSV (const char *db_file, const char *url, time_t max_age)
 {
-  struct stat  st;
+  struct stat st;
   bool   force_it = false;
   char   tmp_file [MAX_PATH];
   char   zip_file [MAX_PATH];
@@ -1148,6 +1541,7 @@ bool aircraft_update_CSV (const char *db_file, const char *url)
     return (false);
   }
 
+  memset (&st, '\0', sizeof(st));
   if (stat(db_file, &st) != 0)
   {
     LOG_STDERR ("\nForce updating '%s' since it does not exist.\n", db_file);
@@ -1165,11 +1559,11 @@ bool aircraft_update_CSV (const char *db_file, const char *url)
   if (!force_it)
   {
     time_t when, now = time (NULL);
-    time_t expiry = now - 10 * 24 * 3600;
+    time_t expiry = now - max_age;
 
     if (st.st_mtime > expiry)
     {
-      when = now + 10 * 24 * 3600;  /* 10 days into the future */
+      when = now + max_age;  /* max_age into the future */
 
       if (Modes.update)
          LOG_STDERR ("\nUpdate of '%s' not needed before %.24s.\n", zip_file, ctime(&when));
@@ -1207,13 +1601,12 @@ bool aircraft_update_CSV (const char *db_file, const char *url)
 
   LOG_STDERR ("Deleting '%s' to force a rebuild in 'aircraft_load_CSV()'\n", g_data.sql_file);
   DeleteFileA (g_data.sql_file);
-
   g_data.sql_file_found = false;
   return (true);
 }
 
 /**
- * The CSV callback for adding a record to `g_data.list_CSV`.
+ * The CSV callback for adding records to `g_data.csv_list`.
  *
  * \param[in]  ctx   the CSV context structure.
  * \param[in]  value the value for this CSV field in record `ctx->rec_num`.
@@ -1230,33 +1623,32 @@ bool aircraft_update_CSV (const char *db_file, const char *url)
  */
 static int CSV_callback (struct CSV_context *ctx, const char *value)
 {
-  static aircraft_info rec = { 0, "" };
-  int    rc = 1;
+  int rc = 1;
 
   if (ctx->field_num == 0)        /* "icao24" field */
   {
-    rec.addr = mg_unhex (value);
+    g_data.current_rec.addr = mg_unhex (value);
   }
   else if (ctx->field_num == 1)   /* "registration" field */
   {
-    strncpy (rec.reg_num, value, sizeof(rec.reg_num)-1);
+    strncpy (g_data.current_rec.reg_num, value, sizeof(g_data.current_rec.reg_num)-1);
   }
   else if (ctx->field_num == 3)   /* "manufacturername" field */
   {
-    strncpy (rec.manufact, value, sizeof(rec.manufact)-1);
+    strncpy (g_data.current_rec.manufact, value, sizeof(g_data.current_rec.manufact)-1);
   }
   else if (ctx->field_num == 8)  /* "icaoaircrafttype" field */
   {
-    strncpy (rec.type, value, sizeof(rec.type)-1);
+    strncpy (g_data.current_rec.type, value, sizeof(g_data.current_rec.type)-1);
   }
   else if (ctx->field_num == 10)  /* "operatorcallsign" field */
   {
-    strncpy (rec.call_sign, value, sizeof(rec.call_sign)-1);
+    strncpy (g_data.current_rec.call_sign, value, sizeof(g_data.current_rec.call_sign)-1);
   }
   else if (ctx->field_num == ctx->num_fields - 1)  /* we got the last field */
   {
-    rc = CSV_add_entry (&rec);
-    memset (&rec, '\0', sizeof(rec));    /* ready for a new record. */
+    rc = CSV_add_entry (&g_data.current_rec);
+    memset (&g_data.current_rec, '\0', sizeof(g_data.current_rec));  /* ready for another record */
   }
   return (rc);
 }
@@ -1264,7 +1656,7 @@ static int CSV_callback (struct CSV_context *ctx, const char *value)
 /**
  * Initialize the SQL aircraft-database name.
  */
-static bool aircraft_SQL_set_name (void)
+static void aircraft_SQL_set_name (void)
 {
   if (strcmp(g_data.csv_file, "NUL"))
   {
@@ -1286,7 +1678,6 @@ static bool aircraft_SQL_set_name (void)
     free (g_data.sql_file);
     g_data.sql_file = NULL;
   }
-  return (g_data.sql_file_found);
 }
 
 /**
@@ -1337,7 +1728,6 @@ static bool aircraft_SQL_load (bool *created, bool *opened, struct stat *st_csv,
  */
 static bool aircraft_load_CSV (void)
 {
-  static bool done = false;
   struct stat st_csv;
   double usec;
   double csv_load_t   = 0.0;
@@ -1346,9 +1736,8 @@ static bool aircraft_load_CSV (void)
   bool   sql_created  = false;
   bool   sql_opened   = false;
 
-  assert (!done);                    /* Do this only once */
-  assert (g_data.sql_file[0] != '?');   /* Ensure 'aircraft_set_SQL_file()' was called */
-  done = true;
+  assert (!g_data.csv_done);   /* Do this only once */
+  g_data.csv_done = true;
 
   if (!stricmp(g_data.csv_file, "NUL"))   /* User want no '.csv' or '.csv.sqlite' file */
      return (true);
@@ -1363,12 +1752,12 @@ static bool aircraft_load_CSV (void)
 
   aircraft_SQL_load (&sql_created, &sql_opened, &st_csv, &sql_load_t);
 
-  if (g_data.sql_file[0])
+  if (g_data.sql_file)
      LOG_STDERR ("%susing Sqlite file: \"%s\".\n", g_data.sql_file_found ? "" : "Not ", g_data.sql_file);
 
   /**
    * In `g_data.test_mode`, open and parse the .CSV-file to compare speed
-   * of `g_data.list_CSV` lookup vs. `SQL_lookup_entry()` lookup.
+   * of `g_data.csv_list` lookup vs. `SQL_lookup_entry()` lookup.
    */
   if (!sql_opened || sql_created || g_data.test_mode)
   {
@@ -1387,35 +1776,35 @@ static bool aircraft_load_CSV (void)
       return (false);
     }
 
-    TRACE ("Parsed %u records from: \"%s\"\n", g_data.num_CSV, g_data.csv_file);
+    TRACE ("Parsed %u records from: \"%s\"\n", g_data.csv_len, g_data.csv_file);
 
-    if (g_data.num_CSV > 0)
+    if (g_data.csv_len > 0)
     {
-      qsort (g_data.list_CSV, g_data.num_CSV, sizeof(*g_data.list_CSV),
+      qsort (g_data.csv_list, g_data.csv_len, sizeof(*g_data.csv_list),
              CSV_compare_on_addr);
       csv_load_t = get_usec_now() - usec;
     }
   }
 
-  if (sql_created && g_data.num_CSV > 0)
+  if (sql_created && g_data.csv_len > 0)
   {
-    const aircraft_info *a = g_data.list_CSV + 0;
+    const aircraft_info *ai = g_data.csv_list + 0;
     uint32_t i;
 
     LOG_STDOUT ("Creating SQL-database '%s'... ", g_data.sql_file);
     usec = get_usec_now();
     sql_begin();
 
-    for (i = 0; i < g_data.num_CSV; i++, a++)
-        if (!sql_add_entry (i, a))
+    for (i = 0; i < g_data.csv_len; i++, ai++)
+        if (!sql_add_entry (i, ai))
            break;
 
     sql_end();
     sql_create_t = get_usec_now() - usec;
 
-    if (i != g_data.num_CSV)
-         LOG_STDOUT ("\nCreated only %u out of %u records!\n", i, g_data.num_CSV);
-    else LOG_STDOUT ("\nCreated %u records\n", g_data.num_CSV);
+    if (i != g_data.csv_len)
+         LOG_STDOUT ("\nCreated only %u out of %u records!\n", i, g_data.csv_len);
+    else LOG_STDOUT ("\nCreated %u records\n", g_data.csv_len);
   }
 
   if (g_data.test_mode)
@@ -1745,12 +2134,12 @@ bool aircraft_is_military (uint32_t addr, const char **country)
 
 bool aircraft_is_military2 (uint32_t addr, const char **country)
 {
-  const blocks_record *b = aircraft_find_block (addr);
+  const blocks_record *br = aircraft_find_block (addr);
 
-  if (b && b->is_military)
+  if (br && br->is_military)
   {
     if (country)
-       *country = b->country_ISO;
+       *country = br->country_ISO;
     return (true);
   }
   return (false);
@@ -1758,22 +2147,22 @@ bool aircraft_is_military2 (uint32_t addr, const char **country)
 
 const char *aircraft_get_country2 (uint32_t addr, bool get_short)
 {
-  const blocks_record *b = aircraft_find_block (addr);
-  const ICAO_range    *r = ICAO_ranges + 0;
+  const blocks_record *br = aircraft_find_block (addr);
+  const ICAO_range    *ir = ICAO_ranges + 0;
   uint16_t i;
 
-  if (!b)
+  if (!br)
      return (NULL);
 
   if (get_short)
-     return (b->country_ISO);
+     return (br->country_ISO);
 
   /* Find the cc_long name matching cc_short in `b->country_ISO'
    */
-  for (i = 0; i < DIM(ICAO_ranges); i++, r++)
+  for (i = 0; i < DIM(ICAO_ranges); i++, ir++)
   {
-    if (!stricmp(b->country_ISO, r->cc_short))
-       return (r->cc_long);
+    if (!stricmp(br->country_ISO, ir->cc_short))
+       return (ir->cc_long);
   }
   return (NULL);
 }
@@ -1784,14 +2173,14 @@ const char *aircraft_get_country2 (uint32_t addr, bool get_short)
  */
 static bool is_helicopter_type (const char *type)
 {
-  const char *helli_types[] = { "H1P", "H2P", "H1T", "H2T" };
+  const char *heli_types[] = { "H1P", "H2P", "H1T", "H2T" };
   uint16_t    i;
 
   if (type[0] != 'H')   /* must start with a 'H' */
      return (false);
 
-  for (i = 0; i < DIM(helli_types); i++)
-      if (!stricmp(type, helli_types[i]))
+  for (i = 0; i < DIM(heli_types); i++)
+      if (!stricmp(type, heli_types[i]))
          return (true);
   return (false);
 }
@@ -1801,16 +2190,16 @@ static bool is_helicopter_type (const char *type)
  */
 bool aircraft_is_helicopter (uint32_t addr, const char **type_ptr)
 {
-  const aircraft_info *a;
+  const aircraft_info *ai;
 
   if (type_ptr)
      *type_ptr = NULL;
 
-  a = CSV_lookup_entry (addr);
-  if (a && is_helicopter_type(a->type))
+  ai = CSV_lookup_entry (addr);
+  if (ai && is_helicopter_type(ai->type))
   {
     if (type_ptr)
-       *type_ptr = a->type;
+       *type_ptr = ai->type;
     return (true);
   }
   return (false);
@@ -1819,16 +2208,16 @@ bool aircraft_is_helicopter (uint32_t addr, const char **type_ptr)
 /**
  * Convert 24-bit big-endian (network order) to host order format.
  */
-uint32_t aircraft_get_addr (const uint8_t *a)
+uint32_t aircraft_get_addr (const uint8_t *addr)
 {
-  return ((a[0] << 16) | (a[1] << 8) | a[2]);
+  return ((addr[0] << 16) | (addr[1] << 8) | addr[2]);
 }
 
 const char *aircraft_get_military (uint32_t addr)
 {
-  static char buf [20];
+  static char  buf [20];
   const  char *cntry;
-  bool   mil = aircraft_is_military (addr, &cntry);
+  bool   mil = (*g_data.p_is_military) (addr, &cntry);
   int    sz;
 
   if (!mil)
@@ -1868,15 +2257,17 @@ const char *aircraft_get_details (const modeS_message *mm)
   char                *p   = buf;
   char                *end = buf + sizeof(buf);
   uint32_t             addr;
+  bool                 unused;
 
   p += snprintf (p, end - p, "%s", addrtype_to_string(mm->addrtype));
 
   addr = mm->addr;
-  a = aircraft_lookup (addr, NULL);
+  a = aircraft_lookup (addr, &unused, &unused);
+
   if (a && a->reg_num[0])
      snprintf (p, end - p, ", reg-num: %s, manuf: %s, call-sign: %s%s",
                a->reg_num, a->manufact[0] ? a->manufact : "?", a->call_sign[0] ? a->call_sign : "?",
-               aircraft_is_military(addr, NULL) ? ", Military" : "");
+               (*g_data.p_is_military)(addr, NULL) ? ", Military" : "");
   return (buf);
 }
 
@@ -2125,19 +2516,19 @@ static bool sql_end (void)
  * Another "feature" of Sqlite is that upper-case hex values are turned into lower-case
  * when 'SELECT * FROM' is done!
  */
-static bool sql_add_entry (uint32_t num, const aircraft_info *rec)
+static bool sql_add_entry (uint32_t num, const aircraft_info *ai)
 {
-  char   buf [sizeof(*rec) + sizeof(DB_INSERT) + 100];
+  char   buf [sizeof(*ai) + sizeof(DB_INSERT) + 100];
   char  *values, *err_msg = NULL;
   int    rc;
 
   mg_snprintf (buf, sizeof(buf),
                DB_INSERT " ('%06x',%m,%m,%m,%m)",
-               rec->addr,
-               mg_print_esc, 0, rec->reg_num,
-               mg_print_esc, 0, rec->manufact,
-               mg_print_esc, 0, rec->type,
-               mg_print_esc, 0, rec->call_sign);
+               ai->addr,
+               MG_ESC(ai->reg_num),
+               MG_ESC(ai->manufact),
+               MG_ESC(ai->type),
+               MG_ESC(ai->call_sign));
 
   values = buf + sizeof(DB_INSERT) + 1;
 
@@ -2252,12 +2643,13 @@ static char *append_flags (int flags, char *buf)
 
 /**
  * Fill the JSON buffer `p` for one aircraft.
- * This assumes it could need upto `AIRCRAFT_JSON_BUF_LEN/5` (4 kByte) for one aircraft.
+ * This assumes it could need upto `JSON_BUF_LEN/5` (4 kByte) for one aircraft.
  */
 static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, char *p, int left, uint64_t now)
 {
   size_t size;
   char  *p_start = p;
+  char   addr [10];
   int    altitude = a->altitude;
   int    speed    = a->speed;
 
@@ -2270,36 +2662,38 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
     speed    = (int) (1.852 * (double) a->speed);
   }
 
-  size = mg_snprintf (p, left, "{\"hex\": \"%s%06X\"",
-                      (a->addr & MODES_NON_ICAO_ADDRESS) ? "~" : "",
-                      a->addr & MODES_ICAO_ADDRESS_MASK);
+  snprintf (addr, sizeof(addr), "%s%06X",
+            (a->addr & MODES_NON_ICAO_ADDRESS) ? "~" : "",
+             a->addr & MODES_ICAO_ADDRESS_MASK);
+
+  size = mg_snprintf (p, left, "{%m: %m", MG_ESC("hex"), MG_ESC(addr));
   p    += size;
   left -= (int)size;
 
   if (a->AC_flags & MODES_ACFLAGS_CALLSIGN_VALID)
   {
-    size  = mg_snprintf (p, left, ",\"flight\":\"%s\"", a->call_sign);
+    size = mg_snprintf (p, left, ",%m:%m", MG_ESC("flight"), MG_ESC(a->call_sign));
     p    += size;
     left -= (int)size;
   }
 
   if (a->AC_flags & MODES_ACFLAGS_LATLON_VALID)
   {
-    size  = mg_snprintf (p, left, ",\"lat\":%f,\"lon\":%f,\"nucp\":%u,\"seen_pos\":%.1f",
-                         a->position.lat, a->position.lon, a->pos_nuc, (now - a->seen_pos) / 1000.0);
+    size = mg_snprintf (p, left, ",\"lat\":%f,\"lon\":%f,\"nucp\":%u,\"seen_pos\":%.1f",
+                        a->position.lat, a->position.lon, a->pos_nuc, (now - a->seen_pos) / 1000.0);
     p    += size;
     left -= (int)size;
   }
 
   if ((a->AC_flags & MODES_ACFLAGS_AOG_VALID) && (a->AC_flags & MODES_ACFLAGS_AOG))
   {
-    size  = mg_snprintf (p, left, ",\"%s\":\"ground\"", json_alt);
+    size = mg_snprintf (p, left, ",\"%s\":\"ground\"", json_alt);
     p    += size;
     left -= (int)size;
   }
   else if (a->AC_flags & MODES_ACFLAGS_ALTITUDE_VALID)
   {
-    size  = mg_snprintf (p, left, ",\"%s\":%d", json_alt, altitude);
+    size = mg_snprintf (p, left, ",\"%s\":%d", json_alt, altitude);
     p    += size;
     left -= (int)size;
   }
@@ -2313,14 +2707,14 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
 
   if (a->AC_flags & MODES_ACFLAGS_HEADING_VALID)
   {
-    size  = mg_snprintf (p, left, ",\"track\":%d", (int)a->heading);
+    size = mg_snprintf (p, left, ",\"track\":%d", (int)a->heading);
     p    += size;
     left -= (int)size;
   }
 
   if (a->AC_flags & MODES_ACFLAGS_SPEED_VALID)
   {
-    size  = mg_snprintf (p, left, ",\"%s\":%d", json_speed, speed);
+    size = mg_snprintf (p, left, ",\"%s\":%d", json_speed, speed);
     p    += size;
     left -= (int)size;
   }
@@ -2334,7 +2728,7 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
 
   if (a->AC_flags & MODES_ACFLAGS_CATEGORY_VALID)
   {
-    size  = mg_snprintf (p, left, ",\"category\":\"%02X\"", a->category);
+    size = mg_snprintf (p, left, ",\"category\":\"%02X\"", a->category);
     p    += size;
     left -= (int)size;
   }
@@ -2356,13 +2750,13 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
 
     if (a->MLAT_flags)
     {
-      size  = mg_snprintf (p, left, ",\"mlat\":%s", append_flags(a->MLAT_flags, flag_buf));
+      size = mg_snprintf (p, left, ",\"mlat\":%s", append_flags(a->MLAT_flags, flag_buf));
       p    += size;
       left -= (int)size;
     }
     if (a->TISB_flags)
     {
-      size  = mg_snprintf (p, left, ",\"tisb\":%s", append_flags(a->TISB_flags, flag_buf));
+      size = mg_snprintf (p, left, ",\"tisb\":%s", append_flags(a->TISB_flags, flag_buf));
       p    += size;
       left -= (int)size;
     }
@@ -2370,7 +2764,7 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
 #if 0
     if (a->addrtype != ADDR_ADSB_ICAO)
     {
-      size  = mg_snprintf (p, left, ",\"type\":\"%s\"", addrtype_enum_string(a->addrtype));
+      size = mg_snprintf (p, left, ",\"type\":\"%s\"", addrtype_enum_string(a->addrtype));
       p    += size;
       left -= (int)size;
     }
@@ -2388,7 +2782,7 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
 
     if (Modes.web_send_rssi)
     {
-      size  = mg_snprintf (p, left, ",\"rssi\": %.1lf", get_signal(a));
+      size = mg_snprintf (p, left, ",\"rssi\": %.1lf", get_signal(a));
       p    += size;
       left -= (int)size;
     }
@@ -2434,7 +2828,7 @@ char *aircraft_make_json (bool extended_client, size_t *size_p)
   struct timeval  tv_now;
   uint64_t        now;
   int             size;
-  int             left = AIRCRAFT_JSON_BUF_LEN;    /* 20kB; the initial buffer is incremented as needed */
+  int             left = JSON_BUF_LEN;    /* 20kB; the initial buffer is incremented as needed */
   int             i, max;
   uint32_t        aircrafts = 0;
   char           *buf, *p;
@@ -2442,8 +2836,7 @@ char *aircraft_make_json (bool extended_client, size_t *size_p)
   if (g_data.internal_error)
      return (NULL);
 
-  if (size_p)
-     *size_p = 0;
+  *size_p = 0;
 
   buf = p = malloc (left);
   if (!buf)
@@ -2489,11 +2882,11 @@ char *aircraft_make_json (bool extended_client, size_t *size_p)
 
     aircrafts++;
 
-    if (left < AIRCRAFT_JSON_BUF_LEN/5)   /* Resize 'buf' if needed */
+    if (left < JSON_BUF_LEN/5)   /* Resize 'buf' if needed */
     {
       int used = p - buf;
 
-      left += AIRCRAFT_JSON_BUF_LEN;      /* Our increment; 20kB */
+      left += JSON_BUF_LEN;      /* Our increment; 20kB */
       buf = realloc (buf, used + left);
       if (!buf)
          return (NULL);
@@ -2523,44 +2916,176 @@ char *aircraft_make_json (bool extended_client, size_t *size_p)
      fprintf (Modes.log, "\nJSON dump of file-number %u for %u aircrafts, extended_client: %d:\n%s\n\n",
               json_file_num++, aircrafts, extended_client, buf);
 
-  if (size_p)
-     *size_p = p - buf;
-
+  *size_p = p - buf;
   return (buf);
 }
 
 /**
- * Send the "/data/receiver.json" array to a Web-client which
- * describes the receiver:
- *  { "version" : "0.3", "refresh" : 1000, "history" : 3 }
+ * Called from `background_tasks()` via `aircraft_remove_stale()` 4 times a second.
+ * But only does something once every `OUTLINE_PERIOD` (15 sec).
+ *
+ * \ref https://discussions.flightaware.com/t/comparing-tar1090-actual-range-plot-shapes/96965/2
  */
-void aircraft_receiver_json (mg_connection *c, size_t *size_p)
+static bool aircraft_outline_generate (uint64_t now, const char *fname)
 {
-  int  len, history_size = DIM (g_data.json_history) - 1;
-  char buf [200];
+  static uint64_t prev_msec = 0;
+  FILE  *f;
+  int    i, hour;
+
+  if (!g_data.outline_enable)
+     return (false);
+
+  if (!g_data.test_mode)
+  {
+    if ((now - prev_msec) < OUTLINE_PERIOD)   /* Period not passed */
+       return (false);
+
+    if (prev_msec == 0ULL)           /* return if first time called */
+    {
+      prev_msec = now;
+      return (false);
+    }
+    prev_msec = now;
+  }
+
+  assert (fname);
+  f = fopen (fname, "w+");
+  if (!f)
+  {
+    g_data.outline_enable = false;
+    return (false);
+  }
+
+  /* Check for maximum over last 24 ivals and current ival
+   */
+  dist_coords record [RANGEDIRS_BUCKETS];   /* record for this "hour" */
+  memset (record, '\0', sizeof(record));
+
+  for (hour = 0; hour < RANGEDIRS_IVALS; hour++)
+  {
+    for (i = 0; i < RANGEDIRS_BUCKETS; i++)
+    {
+      dist_coords curr = g_data.range_dirs [hour][i];
+
+      if (curr.distance > record[i].distance)
+         record[i] = curr;
+    }
+  }
+
+  /* Print the new max-distance records in each direction
+   */
+  fputs ("{ \"actualRange\": { \"last24h\": { \"points\": [\n", f);
+  for (i = 0; i < RANGEDIRS_BUCKETS; i++)
+  {
+    if (record[i].lat || record[i].lon)
+    {
+      const char *comma = (i < RANGEDIRS_BUCKETS - 1 ? "," : "");
+      fprintf (f, "[%.4f,%.4f,%d]%s\n", record[i].lat, record[i].lon, record[i].alt, comma);
+    }
+  }
+  fputs ("]}}}\n", f);
+
+  if (g_data.test_mode)
+     printf ("Wrote %ld bytes to '%s'\n", ftell(f), fname);
+  fclose (f);
+  return (true);
+}
+
+/*
+ * Similar to "/data/aircraft.json", return data for a
+ * "/data/outline.json" request.
+ *
+ * Returns a malloc()-ed string from `mg_file_read()`.
+ */
+char *aircraft_outline_json (const char *fname, size_t *size_p)
+{
+  char   *data = NULL;
+  mg_str  mem;
+
+  if (g_data.test_mode)
+     assert (fname && g_data.outline_enable);
+
+  if (!fname)
+     fname = g_data.outline_json;
+
+  *size_p = 0;
+
+  if (!g_data.outline_enable)
+     return (NULL);
+
+  mem = mg_file_read (&mg_fs_posix, fname);
+  if (!mem.buf)
+  {
+    LOG_STDERR ("Failed to open %s, errno: %d/%s\n", fname, errno, strerror(errno));
+    return (NULL);
+  }
+  data = mem.buf;
+
+  if (g_data.test_mode)
+     printf ("Read %zd bytes outline-data from '%s'\n", mem.len, fname);
+
+  data [mem.len] = '\0';
+  *size_p = mem.len;
+  return (data);
+}
+
+// Based on readsb's "update_range_histogram()"
+
+static bool aircraft_outline_update (aircraft *a, uint64_t now)
+{
+  if (g_data.test_mode)
+  {
+    assert (a);
+    assert (g_data.outline_enable);
+    printf ("a: 0x%06X\n", a->addr);
+  }
+
+  if (!g_data.outline_enable)
+     return (false);
+
+  if (!a)
+     return (false);
+
+  // ... todo
+
+  return (false);
+}
+
+/**
+ * Returns the "/data/receiver.json" array to a Web-client which
+ * describes the receiver:
+ *  { "version": "0.4.9", "refresh": 1000, "history": 3, etc... }
+ *
+ * \param out     The buffer that should be written to.
+ * \param in,out  On input, `*size_p` should be the max-size of `buf`.
+ *                On output, `*size_p` is set to the length written to `buf`.
+ */
+char *aircraft_receiver_json (char *buf, size_t *size_p)
+{
+  int    len, history_size = DIM (g_data.json_history) - 1;
+  size_t max_sz = *size_p;
 
   /* work out number of valid history entries
    */
   if (!g_data.json_history [history_size].buf)
      history_size = g_data.json_history_next;
 
-  len = snprintf (buf, sizeof(buf),
+  len = snprintf (buf, max_sz,
                   "{\"version\": \"%s\", "
                   "\"refresh\": %llu, "
                   "\"history\": %d, "
-                  "\"lat\": %.8g, "       /* if 'Modes.home_pos_ok == false', this is 0. */
-                  "\"lon\": %.8g}",       /* ditto */
+                  "\"lat\": %.8g, "        /* if 'Modes.home_pos_ok == false', this is 0. */
+                  "\"lon\": %.8g, "        /* ditto */
+                  "\"outlineJson\": %s}",  /* ranges available */
                   PROG_VERSION,
                   g_data.json_interval,
                   history_size,
                   Modes.home_pos.lat,
-                  Modes.home_pos.lon);
+                  Modes.home_pos.lon,
+                  g_data.outline_enable ? "true" : "false");
 
-  DEBUG (DEBUG_NET2, "Feeding conn-id %lu with receiver-data:\n%.100s\n", c->id, buf);
-
-  mg_http_reply (c, 200, MODES_CONTENT_TYPE_JSON "\r\n", buf);
-  if (size_p)
-     *size_p = len;
+  *size_p = len;
+  return (buf);
 }
 
 /**
@@ -2746,12 +3271,16 @@ void aircraft_remove_stale (uint64_t now)
 
     aircraft_update_mode_S (a);
 
-    cpr_error_sum += a->global_dist_checks;
+    if (a->AC_flags & MODES_ACFLAGS_LATLON_VALID)
+       cpr_error_sum += a->global_dist_checks;
     num++;
   }
 
   if (num > 0 && !(Modes.net_active || Modes.net_only))
-     aircraft_check_dist (cpr_error_sum);
+  {
+    aircraft_check_dist (cpr_error_sum);
+    aircraft_outline_update (NULL, now);  }
+  aircraft_outline_generate (now, g_data.outline_json);
 }
 
 /**
@@ -2840,10 +3369,13 @@ void aircraft_show_stats (void)
   LOG_STDOUT ("Aircrafts statistics:\n");
   interactive_clreol();
 
-  LOG_STDOUT (" %8llu unique aircrafts of which %llu was in CSV-file and %llu in SQL-file.\n",
-              Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV, Modes.stat.unique_aircrafts_SQL);
+  LOG_STDOUT (" %8llu unique aircrafts:\n", Modes.stat.unique_aircrafts);
+  LOG_STDOUT (" %8llu in CSV-file.\n", Modes.stat.unique_aircrafts_CSV);
+  LOG_STDOUT (" %8llu in BIN-file.\n", Modes.stat.unique_aircrafts_BIN);
+  LOG_STDOUT (" %8llu in SQL-file.\n", Modes.stat.unique_aircrafts_SQL);
+  interactive_clreol();
 
-#if 0  /**\todo print details on unique aircrafts */
+#if 0   /**\todo print details on unique aircrafts */
   char comment [100];
   int  i, max = smartlist_len (g_a_unique);
 
@@ -2877,12 +3409,21 @@ bool aircraft_set_url (const char *arg)
  */
 void aircraft_pre_init (void)
 {
+  char *dir;
+
   assert (Modes.where_am_I);
   assert (g_data.csv_file == NULL);
   assert (g_data.zip_url == NULL);
 
   g_data.csv_file = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRCRAFT_DATABASE_CSV);
-  g_data.zip_url = strdup (AIRCRAFT_DATABASE_URL);
+  g_data.zip_url  = strdup (AIRCRAFT_DATABASE_URL);
+
+  g_data.outline_enable = true;
+  g_data.outline_json = mg_mprintf ("%s\\%s", Modes.tmp_dir, OUTLINE_JSON);
+
+  dir = dirname (g_data.outline_json);
+  if (!CreateDirectory(dir, 0) && GetLastError() != ERROR_ALREADY_EXISTS)
+     LOG_STDERR ("'CreateDirectory(\"%s\")' failed; %s.\n", dir, win_strerror(GetLastError()));
 }
 
 /**
@@ -2915,7 +3456,7 @@ bool aircraft_init (void)
 
   if (strcmp(g_data.csv_file, "NUL") && (g_data.zip_url || Modes.update))
   {
-    if (!aircraft_update_CSV(g_data.csv_file, g_data.zip_url))
+    if (!aircraft_update_CSV(g_data.csv_file, g_data.zip_url, CSV_MAX_AGE))
        return (false);
     if (!aircraft_load_CSV() && !Modes.update)
        return (false);
@@ -2953,8 +3494,10 @@ void aircraft_exit (bool free_aircrafts)
   free (g_data.sql_file);
   free (g_data.icao_spec);
   free (g_data.zip_url);
+  free (g_data.outline_json);
 
   g_data.csv_file = g_data.sql_file = g_data.icao_spec = g_data.zip_url = NULL;
+  g_data.outline_json = NULL;
 
 #if defined(USE_BIN_FILES)
   free (Modes.bin.aircrafts_bin);

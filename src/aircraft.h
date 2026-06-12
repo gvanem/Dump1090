@@ -6,41 +6,6 @@
 #include "misc.h"
 #include "geo.h"
 
-#if defined(INSIDE_AIRCRAFT_C)  /* included from "aircraft.c" */
-  /**
-   * \def AIRCRAFT_DATABASE_CSV
-   * Our default aircraft-database relative to `Modes.where_am_I`.
-   */
-  #define AIRCRAFT_DATABASE_CSV   "aircraft-database.csv"
-
-  /**
-   * \def AIRCRAFT_DATABASE_URL
-   * The default URL for the `--update` option.
-   */
-  #define AIRCRAFT_DATABASE_URL   "https://s3.opensky-network.org/data-samples/metadata/aircraftDatabase.zip"
-
-  /**
-   * \def AIRCRAFT_DATABASE_TMP
-   * The basename for downloading a new `aircraft-database.csv`.
-   *
-   * E.g. Use WinInet API to download:<br>
-   *  `AIRCRAFT_DATABASE_URL` -> `%TEMP%\\dump1090\\aircraft-database-temp.zip`
-   *
-   * extract this using: <br>
-   *  `zip_extract (\"%TEMP%\\dump1090\\aircraft-database-temp.zip\", \"%TEMP%\\dump1090\\aircraft-database-temp.csv\")`.
-   *
-   * and finally call: <br>
-   *   `CopyFile ("%TEMP%\\dump1090\\aircraft-database-temp.csv", <final_destination>)`.
-   */
-  #define AIRCRAFT_DATABASE_TMP  "aircraft-database-temp"
-
-  /**
-   * \def AIRCRAFT_JSON_BUF_LEN
-   * The initial and increment buffer-size in `aircraft_make_json()`
-   */
-  #define AIRCRAFT_JSON_BUF_LEN  (20*1024)
-#endif  /* INSIDE_AIRCRAFT_C */
-
 /**
  * \typedef a_show_t
  * The "show-state" for an aircraft in the interactive TUI-screen.
@@ -284,7 +249,8 @@ bool        aircraft_is_helicopter (uint32_t addr, const char **code);
 bool        aircraft_match_init (const char *arg);
 bool        aircraft_match (uint32_t addr);
 char       *aircraft_make_json (bool extended_client, size_t *size_p);
-void        aircraft_receiver_json (mg_connection *c, size_t *size_p);
+char       *aircraft_receiver_json (char *buf, size_t *size_p);
+char       *aircraft_outline_json (const char *fname, size_t *size_p);
 bool        aircraft_set_est_home_distance (aircraft *a, uint64_t now);
 void        aircraft_remove_stale (uint64_t now);
 void        aircraft_show_stats (void);
@@ -293,7 +259,7 @@ bool        aircraft_set_sort (const char *arg);
 a_sort_t    aircraft_do_sort (int s);
 const char *aircraft_sort_name (int s);
 void        aircraft_fix_flightaware (void);
-bool        aircraft_update_CSV (const char *db_file, const char *url);
+bool        aircraft_update_CSV (const char *db_file, const char *url, time_t max_age);
 
 #if defined(USE_BIN_FILES)
   const char *aircraft_get_country2 (uint32_t addr, bool get_short);
