@@ -125,6 +125,7 @@ static bool set_http_url6 (const char *arg);
 static bool set_port_http (const char *arg);
 static bool set_ppm (const char *arg);
 static bool set_sample_rate (const char *arg);
+static bool set_sntp_server (const char *arg);
 static bool set_strip_level (const char *arg);
 static bool set_tui (const char *arg);
 static bool set_web_page (const char *arg);
@@ -194,8 +195,10 @@ static const cfg_table config[] = {
     { "rtlsdr-ppm",           ARG_FUNC,    (void*) set_ppm },
     { "samplerate",           ARG_FUNC,    (void*) set_sample_rate },
     { "sample-rate",          ARG_FUNC,    (void*) set_sample_rate },
-    { "strip-level",          ARG_FUNC,    (void*) set_strip_level },  /* not in .cfg file yet */
+    { "strip-level",          ARG_FUNC,    (void*) set_strip_level },        /* not in .cfg file yet */
     { "show-hostname",        ARG_ATOB,    (void*) &Modes.show_host_name },
+//  { "sntp-enable",          ARG_ATOB,    (void*) &Modes.sntp_enable },     /* not in .cfg file yet */
+//  { "sntp-server",          ARG_FUNC,    (void*) set_sntp_server },        /* not in .cfg file yet */
     { "sort",                 ARG_FUNC,    (void*) aircraft_set_sort },
     { "speech-enable",        ARG_ATOB,    (void*) &Modes.speech_enable },
     { "speech-volume",        ARG_ATOI,    (void*) &Modes.speech_volume },
@@ -897,7 +900,7 @@ static bool modeS_init (void)
      signal (SIGABRT, modeS_signal_handler);
 #endif
 
-  if (test_contains(Modes.tests, "net"))
+  if (test_contains(Modes.tests, "net") || test_contains(Modes.tests, "sntp"))
      Modes.net = true;    /* Will force `net_init()` and it's tests to be called */
 
   if (test_contains(Modes.tests, "cpr"))
@@ -1240,7 +1243,7 @@ static void main_data_loop (void)
   {
     background_tasks();
 
-    if (!Modes.FIFO_active)
+    if (!Modes.FIFO_active)   /* `modeS_init_hardware()` was not called */
     {
       Sleep (100);
     }
@@ -3296,7 +3299,8 @@ static void show_help (const char *fmt, ...)
             "  --raw                 Output raw hexadecimal messages only.\n"
             "  --samplerate/-s <S/s> Sample-rate (2M, 2.4M, 8M). Overrides setting in config-file.\n"
             "  --strip <level>       Output missing the I/Q parts that are below the specified level.\n"
-            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `console', `cpr', `locale', `misc`, `me`, `net' or `*')\n"
+            "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `console', `cpr',\n"
+            "                        `locale', `misc`, `me`, `net', `sntp` or `*')\n"
             "  --update              Update missing or old \"*.csv\" files and exit.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
@@ -3402,6 +3406,7 @@ void background_tasks (void)
 
   poll_location();
   fifo_stats();
+
   aircraft_remove_stale (now);
   airports_background (now);
 
@@ -3492,7 +3497,7 @@ static const char *format_value (double val)
 }
 
 /*
- * Show decoder statistics for a RTLSDR / RTLTCP / SDRPlay device.
+ * Show decoder statistics for a RTLSDR / RTL_TCP / SDRPlay device.
  */
 static void show_decoder_stats (void)
 {
@@ -3528,7 +3533,7 @@ static void show_decoder_stats (void)
 
   if (Modes.rtl_tcp_in)
   {
-    LOG_STDOUT (" %8llu RTLTCP samples, processed %llu.\n",
+    LOG_STDOUT (" %8llu RTL_TCP samples, processed %llu.\n",
                 Modes.stat.samples_recv_rtltcp, Modes.stat.samples_processed);
     interactive_clreol();
   }
@@ -3568,13 +3573,6 @@ static void show_decoder_stats (void)
   if (Modes.stat.cpr_errors)
      LOG_STDOUT (" %8llu CPR errors.\n", Modes.stat.cpr_errors);
 
-  interactive_clreol();
-
-  /**\todo Move to `aircraft_show_stats()`
-   */
-  LOG_STDOUT (" %8llu unique aircrafts of which %llu was in CSV-file and %llu in SQL-file.\n",
-              Modes.stat.unique_aircrafts, Modes.stat.unique_aircrafts_CSV, Modes.stat.unique_aircrafts_SQL);
-
   print_unrecognized_ME();
 }
 
@@ -3587,8 +3585,8 @@ static void show_statistics (void)
   if (PHYS_DEVICE() || Modes.rtl_tcp_in)
      show_decoder_stats();
 
-  if (Modes.airports_priv)
-     airports_show_stats();
+  aircraft_show_stats();
+  airports_show_stats();
 
   if (Modes.net)
      net_show_stats();
@@ -3833,6 +3831,12 @@ static bool set_strip_level (const char *arg)
        show_help ("Illegal level for `--strip %s'.\n", optarg);
   }
   return (true);
+}
+
+static bool set_sntp_server (const char *arg)
+{
+  // Or NET_ADD_HOST_PORT()? for several SNTP servers
+  return NET_SET_HOST_PORT (arg, MODES_NET_SERVICE_SNTP, MODES_NET_PORT_SNTP);
 }
 
 static bool set_max_messages (const char *arg)
@@ -4291,6 +4295,15 @@ int main (int argc, char **argv)
   }
 
   init_error = false;
+
+#if defined(SNTP_TEST_IN_MAINLOOP)
+  if (test_contains(Modes.tests, "sntp"))
+  {
+    puts ("Running `sntp_test()' inside `main_data_loop()'");
+    main_data_loop();
+    goto quit;
+  }
+#endif
 
   if (Modes.tests)
      goto quit;
