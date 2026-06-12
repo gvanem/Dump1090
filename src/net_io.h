@@ -42,7 +42,8 @@ typedef char ip_addr_port [MAX_ADDRESS+10];
 #define MODES_NET_PORT_HTTP4     8080
 #define MODES_NET_PORT_HTTP6     8080
 #define MODES_NET_PORT_RTL_TCP   1234
-#define MODES_NET_PORT_DNS_UDP     53
+#define MODES_NET_PORT_DNS         53
+#define MODES_NET_PORT_SNTP       123
 
 extern net_service modeS_net_services [MODES_NET_SERVICES_NUM];
 
@@ -53,22 +54,26 @@ extern net_service modeS_net_services [MODES_NET_SERVICES_NUM];
  */
 typedef bool (*net_msg_handler) (mg_iobuf *msg, int loop_cnt);
 
-bool     net_init (void);
-bool     net_exit (void);
-void     net_poll (void);
-uint16_t net_handler_port (intptr_t service);
-char    *net_handler_host (intptr_t service);
-char    *net_handler_protocol (intptr_t service);
-char    *net_handler_url (intptr_t service);
-char    *net_handler_descr (intptr_t service);
-char    *net_handler_error (intptr_t service, DWORD *wsa_err);
-bool     net_handler_sending (intptr_t service);
-void     net_handler_send (intptr_t service, const void *msg, size_t len);
-bool     net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
-void     net_show_stats (void);
-bool     net_deny4 (const char *val);
-bool     net_deny6 (const char *val);
-bool     net_stat_common (intptr_t service);
+bool        net_init (void);
+bool        net_exit (void);
+void        net_poll (void);
+uint16_t    net_handler_port (intptr_t service);
+char       *net_handler_host (intptr_t service);
+char       *net_handler_protocol (intptr_t service);
+char       *net_handler_url (intptr_t service);
+char       *net_handler_descr (intptr_t service);
+char       *net_handler_error (intptr_t service, DWORD *wsa_err);
+bool        net_handler_sending (intptr_t service);
+void        net_handler_send (intptr_t service, const void *msg, size_t len);
+void        net_ev_handler (mg_connection *c, int ev, void *ev_data);
+const char *net_ev_name (int ev);
+bool        net_timer_add (intptr_t service, int timeout_ms, int flag, void (*timeout_func)(void *arg));
+bool        net_timer_del (intptr_t service);
+bool        net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
+void        net_show_stats (void);
+bool        net_deny4 (const char *val);
+bool        net_deny6 (const char *val);
+bool        net_stat_common (intptr_t service);
 
 /**
  * Used by config-parser callbacks.

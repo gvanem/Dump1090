@@ -11,6 +11,7 @@
 #include "aircraft.h"
 #include "raw-sbs.h"
 #include "smartlist.h"
+#include "sntp.h"
 #include "net_io.h"
 #include "RTLSDR/rtl-sdr.h"
 #include "RTLSDR/rtl-tcp.h"
@@ -36,8 +37,9 @@ net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
           { &Modes.sbs_in,     "SBS TCP input",  "tcp", MODES_NET_PORT_SBS     },  /* MODES_NET_SERVICE_SBS_IN */
           { &Modes.http4_out,  "HTTP4 server",   "tcp", MODES_NET_PORT_HTTP4   },  /* MODES_NET_SERVICE_HTTP4 */
           { &Modes.http6_out,  "HTTP6 server",   "tcp", MODES_NET_PORT_HTTP6   },  /* MODES_NET_SERVICE_HTTP6 */
-          { &Modes.rtl_tcp_in, "RTLTCP input",   "tcp", MODES_NET_PORT_RTL_TCP },  /* MODES_NET_SERVICE_RTL_TCP */
-          { &Modes.dns_in,     "DNS client",     "udp", MODES_NET_PORT_DNS_UDP }   /* MODES_NET_SERVICE_DNS */
+          { &Modes.rtl_tcp_in, "RTL_TCP input",  "tcp", MODES_NET_PORT_RTL_TCP },  /* MODES_NET_SERVICE_RTL_TCP */
+          { &Modes.dns_in,     "DNS client",     "udp", MODES_NET_PORT_DNS     },  /* MODES_NET_SERVICE_DNS */
+          { &Modes.sntp_in,    "SNTP client",    "udp", MODES_NET_PORT_SNTP    }   /* MODES_NET_SERVICE_SNTP */
         };
 
 /**
@@ -73,6 +75,7 @@ typedef struct reverse_rec {
 static smartlist_t *g_reverse_rec  = NULL;
 static char         g_reverse_file [MAX_PATH] = { '\0' };
 static time_t       g_reverse_maxage;
+static int          g_sntp_idx = -1;
 
 #define REVERSE_MAX_AGE    (3600 * 24 * 7)  /* seconds; 1 week */
 #define REVERSE_FLUSH_T    (20*60*1000)     /* millisec; 20 minutes */
@@ -108,12 +111,10 @@ typedef struct unique_IP {
 
 static smartlist_t *g_unique_ips = NULL;
 
-static void         net_ev_handler (mg_connection *c, int ev, void *ev_data);
-static bool         net_timer_add (intptr_t service, int timeout_ms, int flag);
-static bool         net_timer_del (intptr_t service);
 static void         net_conn_free (connection *conn, intptr_t service);
 static char        *net_store_error (intptr_t service, const char *err);
 static char        *net_error_details (intptr_t service, const mg_connection *c, const char *in_out, const void *ev_data);
+static void         net_timeout (void *arg);
 static char        *net_str_addr (const mg_addr *a, char *buf, size_t len);
 static char        *net_str_addr_port (const mg_addr *a, char *buf, size_t len);
 static const char  *net_reverse_find (const mg_addr *a);
@@ -178,9 +179,12 @@ static bool test_mode = false;
 /**
  * Mongoose event names.
  */
-static const char *event_name (int ev)
+const char *net_ev_name (int ev)
 {
   static char buf [20];
+
+  if (ev == MG_EV_SNTP_TIMEOUT)
+     return ("MG_EV_SNTP_TIMEOUT");
 
   if (ev >= MG_EV_USER)
   {
@@ -280,7 +284,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     int timeout = MODES_CONNECT_TIMEOUT;  /* 5 sec */
 
     if (modeS_net_services [service].is_udp)
-       timeout = -1;      /* Should UDP expire? */
+       timeout = -1;                         /* Otherwise should UDP expire? */
 
     url = mg_mprintf ("%s://%s:%u",
                       modeS_net_services [service].protocol,
@@ -292,7 +296,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
            url, net_handler_descr(service));
 
     if (timeout > 0)
-       net_timer_add (service, timeout, MG_TIMER_ONCE);
+       net_timer_add (service, timeout, MG_TIMER_ONCE, net_timeout);
     c = mg_connect (&Modes.mgr, url, net_ev_handler, (void*)service);
   }
 
@@ -417,7 +421,7 @@ static const char *set_headers (const connection *cli, const char *content_type,
   if (content_type)
      p += snprintf (p, end - p, "Content-Type: %s\r\n", content_type);
 
-  if (Modes.keep_alive && cli->keep_alive)
+  if (Modes.keep_alive && cli->HTTP_keep_alive)
   {
     snprintf (p, end - p, "Connection: keep-alive\r\n");
     Modes.stat.HTTP_stat[s_idx].HTTP_keep_alive_sent++;
@@ -440,13 +444,13 @@ static int send_file_favicon (mg_connection *c, connection *cli, int s_idx, bool
 
   if (send_png)
   {
-    data = favicon_png;
+    data     = favicon_png;
     data_len = favicon_png_len;
     content_type = MODES_CONTENT_TYPE_PNG;
   }
   else
   {
-    data = favicon_ico;
+    data     = favicon_ico;
     data_len = favicon_ico_len;
     content_type = MODES_CONTENT_TYPE_ICON;
   }
@@ -563,6 +567,14 @@ static int net_ev_handler_http (mg_connection *c, mg_http_message *hm, mg_http_u
            net_str_addr_port(&c->rem, addr_buf, sizeof(addr_buf)), c->id);
 
     hs->HTTP_400_responses++;
+
+#if 0
+    if (Modes.deny_hackers)
+    {
+      const char *remote = net_str_addr (&c->rem, addr_buf, sizeof(addr_buf));
+      add_deny (remote, c->rem.is_ip6);
+    }
+#endif
     return (400);
   }
 
@@ -580,14 +592,14 @@ static int net_ev_handler_http (mg_connection *c, mg_http_message *hm, mg_http_u
   {
     DEBUG (DEBUG_NET2, "Connection: '%.*s'\n", (int)header->len, header->buf);
     hs->HTTP_keep_alive_recv++;
-    cli->keep_alive = true;
+    cli->HTTP_keep_alive = true;
   }
 
   header = mg_http_get_header (hm, "Accept-Encoding");
   if (header && !strnicmp(header->buf, "gzip", header->len))
   {
     DEBUG (DEBUG_NET2, "Accept-Encoding: '%.*s'\n", (int)header->len, header->buf);
-    cli->encoding_gzip = true;  /**\todo Add gzip compression */
+    cli->HTTP_encoding_gzip = true;  /**\todo Add gzip compression */
   }
 
 #if 0
@@ -645,7 +657,13 @@ static int net_ev_handler_http (mg_connection *c, mg_http_message *hm, mg_http_u
 
   if (!stricmp(uri, "/data/receiver.json"))
   {
-    aircraft_receiver_json (c, &resp_size);
+    char rbuf [300];
+
+    resp_size = sizeof(rbuf);
+    aircraft_receiver_json (rbuf, &resp_size);
+
+    DEBUG (DEBUG_NET2, "Feeding conn-id %lu with receiver-data:\n%.100s\n", c->id, rbuf);
+    mg_http_reply (c, 200, MODES_CONTENT_TYPE_JSON "\r\n", rbuf);
     cli->HTTP_bytes_sent += resp_size;
     return (200);
   }
@@ -687,6 +705,25 @@ static int net_ev_handler_http (mg_connection *c, mg_http_message *hm, mg_http_u
     return (200);
   }
 
+  if (!stricmp(uri, "/data/outline.json"))
+  {
+    char *data = aircraft_outline_json (NULL, &resp_size);
+
+    if (!data)
+    {
+      hs->HTTP_404_responses++;
+      return (400);
+    }
+
+    cli->HTTP_bytes_sent += resp_size;
+
+    DEBUG (DEBUG_NET, "Feeding conn-id %lu with outline-data:\n%.200s\n", c->id, data);
+
+    mg_http_reply (c, 200, CORS_HEADER MODES_CONTENT_TYPE_JSON "\r\n", data);
+    free (data);
+    return (200);
+  }
+
   /* Serve a file; all have an extension (`.`) at pos > 0.
    * No `GET /.git/config` accepted here.
    */
@@ -721,7 +758,7 @@ static int net_ev_handler_ws (mg_connection *c, const mg_ws_message *ws, int ev)
   int          s_idx = (c->loc.is_ip6 ? 1 : 0);
 
   DEBUG (DEBUG_NET, "%s from %s has %zd bytes for us. is_websocket: %d.\n",
-         event_name(ev), remote, c->recv.len, c->is_websocket);
+         net_ev_name(ev), remote, c->recv.len, c->is_websocket);
 
   if (!c->is_websocket)
      return (0);
@@ -747,34 +784,30 @@ static int net_ev_handler_ws (mg_connection *c, const mg_ws_message *ws, int ev)
 
 /**
  * The timer callback for an active `connect()`.
- * Or for data-timeout in `MODES_NET_SERVICE_RTL_TCP` services.
+ *
+ * But not for `MODES_NET_SERVICE_RTL_TCP` or `MODES_NET_SERVICE_SNTP`
+ * services which have their own timeout functions.
  */
 static void net_timeout (void *arg)
 {
-  char        err [200];
-  const char *what = "connection to";
-  intptr_t    service = (intptr_t) arg;
+  char     err [200];
+  intptr_t service = (intptr_t) arg;
 
-  if (service == MODES_NET_SERVICE_RTL_TCP)
-  {
-    what = "data from";
-    rtl_tcp_no_stats (service);
-  }
+  snprintf (err, sizeof(err), "Timeout in connection to host %s (service: \"%s\")",
+            net_handler_url(service), net_handler_descr(service));
 
-  snprintf (err, sizeof(err), "Timeout in %s host %s (service: \"%s\")",
-            what, net_handler_url(service), net_handler_descr(service));
   net_store_error (service, err);
 
   modeS_signal_handler (0);  /* break out of main_data_loop()  */
 }
 
-static bool net_timer_add (intptr_t service, int timeout_ms, int flag)
+bool net_timer_add (intptr_t service, int timeout_ms, int flag, void (*timeout_func)(void *arg))
 {
   mg_timer *t;
 
   assert (timeout_ms > 0);
 
-  t = mg_timer_add (&Modes.mgr, timeout_ms, flag, net_timeout, (void*)service);
+  t = mg_timer_add (&Modes.mgr, timeout_ms, flag, timeout_func, (void*)service);
   if (!t)
      return (false);
 
@@ -785,13 +818,13 @@ static bool net_timer_add (intptr_t service, int timeout_ms, int flag)
   return (true);
 }
 
-static bool net_timer_del (intptr_t service)
+bool net_timer_del (intptr_t service)
 {
   mg_timer *t = modeS_net_services [service].timer;
 
   if (t)
   {
-    DEBUG (DEBUG_NET, "Stopping timer for %s\n", net_handler_descr(service));
+    DEBUG (DEBUG_NET, "Stopping timer for %s (%s)\n", net_handler_descr(service), net_handler_url(service));
     mg_timer_free (&Modes.mgr.timers, t);
     modeS_net_services [service].timer = NULL;
     free (t);
@@ -935,7 +968,8 @@ static void connection_failed_active (const mg_connection *c, intptr_t service, 
   net_store_error (service, err);
   rtl_tcp_no_stats (service);
 
-  LOG_STDERR ("connect() to %s failed; %s.\n", modeS_net_services [service].url, err);
+  if (modeS_net_services [service].url && !Modes.silent)
+     LOG_STDERR ("connect() to %s failed; %s.\n", modeS_net_services [service].url, err);
 }
 
 /**
@@ -1075,7 +1109,7 @@ static void http_log_cli (INT_PTR service, mg_connection *c, mg_http_message *hm
 /**
  * The event handler for ALL network I/O.
  */
-static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
+void net_ev_handler (mg_connection *c, int ev, void *ev_data)
 {
   connection  *conn;
   char        *remote;
@@ -1089,6 +1123,21 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
      return;
 
   service = (INT_PTR) c->fn_data;  /* 'fn_data' is arbitrary user data */
+
+#if defined(SNTP_TEST_IN_MAINLOOP)
+  if (service == MODES_NET_SERVICE_SNTP)
+  {
+    if (ev == MG_EV_POLL)
+    {
+      if (sntp_poll(g_sntp_idx))
+         g_sntp_idx = sntp_test (g_sntp_idx);   /* test next SNTP-server (non-blocking) */
+    }
+    else if (ev == MG_EV_SNTP_TIMEOUT)
+    {
+      sntp_timeout (g_sntp_idx);  /* test next SNTP-server (non-blocking) */
+    }
+  }
+#endif
 
   if (ev == MG_EV_POLL || ev == MG_EV_OPEN)     /* Ignore these events */
      return;
@@ -1119,7 +1168,13 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
         connection_failed_active (c, service, ev_data);
         net_conn_free (Modes.connections[service], service);
         net_timer_del (service);
-        modeS_signal_handler (0);   /* break out of main_data_loop()  */
+
+        if (service == MODES_NET_SERVICE_SNTP)
+        {
+          sntp_close (g_sntp_idx, c, ev);         /* Not fatal that a SNTP server fails */
+        }
+        else
+          modeS_signal_handler (0);   /* break out of main_data_loop() */
       }
     }
     return;
@@ -1131,6 +1186,11 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
   {
     DEBUG (DEBUG_NET, "MG_EV_RESOLVE: address %s (service: \"%s\")\n",
            remote, net_handler_url(service));
+
+    if (service == MODES_NET_SERVICE_SNTP)
+    {
+      sntp_resolve (g_sntp_idx, true);
+    }
     return;
   }
 
@@ -1154,21 +1214,29 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
 
     DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\"%s).\n",
            remote, net_handler_descr(service), is_tls);
-    net_timer_del (service);
 
-    if (service == MODES_NET_SERVICE_RTL_TCP && !rtl_tcp_connect(c))
-       return;
+    if (service != MODES_NET_SERVICE_SNTP)   /* To detect timeout for sntp_send() */
+       net_timer_del (service);
 
     LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
 
     modeS_net_services [service].num_connections++;  /* should never go above 1 */
     Modes.stat.srv_connected [service]++;
+
+    if (service == MODES_NET_SERVICE_RTL_TCP)
+    {
+      rtl_tcp_connect (c);
+    }
+    else if (service == MODES_NET_SERVICE_SNTP)
+    {
+      sntp_send (g_sntp_idx, c);
+    }
     return;
   }
 
   if (ev == MG_EV_ACCEPT)
   {
-    if (!client_handler(c, service, ev))    /* Drop this remote? */
+    if (!client_handler(c, service, ev))    /* Drop this remote?. \todo move to accept_handler() */
     {
       /* Will send `TCP_RST` if `c->recv.len > 0`. Otherwise `TCP_FIN`.
        */
@@ -1205,7 +1273,7 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
     Modes.stat.bytes_recv [service] += bytes;
 
     DEBUG (DEBUG_NET2, "%s: %lu bytes from %s (service \"%s\")\n",
-           event_name(ev), bytes, remote, net_handler_descr(service));
+           net_ev_name(ev), bytes, remote, net_handler_descr(service));
 
     if (service == MODES_NET_SERVICE_RAW_IN)
     {
@@ -1232,6 +1300,10 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
       net_connection_recv (conn, dns_parse_message, false);
 #endif
     }
+    else if (service == MODES_NET_SERVICE_SNTP)
+    {
+      sntp_handler (g_sntp_idx, c);
+    }
     return;
   }
 
@@ -1243,13 +1315,13 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
     Modes.stat.bytes_sent [service] += bytes;
 
     DEBUG (DEBUG_NET2, "%s: %ld bytes to %s (\"%s\").\n",
-           event_name(ev), bytes, remote, net_handler_descr(service));
+           net_ev_name(ev), bytes, remote, net_handler_descr(service));
     return;
   }
 
   if (ev == MG_EV_CLOSE)
   {
-    client_handler (c, service, MG_EV_CLOSE);
+    client_handler (c, service, ev); //\todo move to close_handler() */
 
     conn = connection_get (c, service, false);
     net_conn_free (conn, service);
@@ -1290,7 +1362,7 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
     {
       status = 0;
       DEBUG (DEBUG_NET2, "Ignoring HTTP event '%s' (conn-id: %lu)\n",
-             event_name(ev), c->id);
+             net_ev_name(ev), c->id);
     }
   }
 }
@@ -1354,12 +1426,12 @@ static void net_conn_free (connection *this_conn, intptr_t service)
        continue;
 
     LIST_DELETE (connection, &Modes.connections [service], conn);
-    if (this_conn->c->is_accepted || this_conn->c->is_client)
+    if (this_conn->c->is_client)
     {
       Modes.stat.cli_removed [service]++;
       is_server = 0;
     }
-    else
+    else if (this_conn->c->is_accepted)
     {
       Modes.stat.srv_removed [service]++;
       is_server = 1;
@@ -1703,7 +1775,6 @@ static void unique_ips_print (intptr_t service)
 static bool add_deny (const char *val, bool is_ip6)
 {
   deny_element *deny;
-  bool no_CIDR;
 
   if (!g_deny_list)  /* called from cfg_file.c */
      g_deny_list = smartlist_new();
@@ -1711,7 +1782,7 @@ static bool add_deny (const char *val, bool is_ip6)
   deny = calloc (sizeof(*deny), 1);
   if (deny)
   {
-    no_CIDR = (strpbrk(val, "+-/,") == NULL);
+    bool no_CIDR = (strpbrk(val, "+-/,") == NULL);
 
     strncpy (deny->acl, val, sizeof(deny->acl)-1);
     deny->no_CIDR = no_CIDR;
@@ -1741,14 +1812,14 @@ bool net_deny6 (const char *val)
 static bool client_deny (const mg_addr *a, int *rc)
 {
   const deny_element *d;
-  int   dummy_rc;
+  int   i, max, dummy_rc;
 
   if (!rc)
      rc = &dummy_rc;
 
   *rc = -3;      /* unknown */
 
-  int i, max = smartlist_len (g_deny_list);
+  max = smartlist_len (g_deny_list);
   for (i = 0; i < max; i++)
   {
     d = smartlist_get (g_deny_list, i);
@@ -1896,6 +1967,9 @@ static bool client_is_extern (const mg_addr *addr)
   return (ia->s_net != 0 && ia->s_net != 127);   /* not 0.0.0.0 and not 127.x.y.z */
 }
 
+/**
+ * \todo split into accept_handler() and close_handler()
+ */
 static bool client_handler (mg_connection *c, intptr_t service, int ev)
 {
   const mg_addr *addr = &c->rem;
@@ -1940,10 +2014,18 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
     }
   }
 
-  if (ev == MG_EV_CLOSE && client_is_extern(addr))
+  if (ev == MG_EV_CLOSE)
   {
-    LOG_FILEONLY2 ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
-                   net_str_addr(addr, ip_buf, sizeof(ip_buf)), c->id, net_handler_descr(service));
+    if (service == MODES_NET_SERVICE_SNTP)
+    {
+      sntp_close (g_sntp_idx, c, ev);
+    }
+
+    if (client_is_extern(addr))
+    {
+      LOG_FILEONLY2 ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
+                     net_str_addr(addr, ip_buf, sizeof(ip_buf)), c->id, net_handler_descr(service));
+    }
   }
   return (true);   /* ret-val ignored for MG_EV_CLOSE */
 }
@@ -2050,7 +2132,7 @@ static const char *net_reverse_find (const mg_addr *a)
 }
 
 /**
- * Parse and split a `[http://|udp://|tcp://]host[:port]` string into a host and port.
+ * Parse and split a `[http:// | udp:// | tcp://] host [:port]` string into a host and port.
  * Set default port if the `:port` is missing.
  */
 bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
@@ -2963,8 +3045,11 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str)
 }
 
 /**
- * Find the DNSv4 and DNSv6 server address(es).
- * Use Windows's IPHelper API.
+ * Use Windows's IPHelper API to find our hostname and
+ * DNSv4 address etc.
+ *
+ * But use `ping.exe -6 -n 1 ipv6.google.com` to find the
+ * DNSv6 server address.
  */
 static bool net_init_dns (char **dns4_p, char **dns6_p)
 {
@@ -3094,7 +3179,15 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
  */
 bool net_init (void)
 {
-  char web_dll [MAX_PATH];
+  char    web_dll [MAX_PATH];
+  WSADATA data;
+  int     rc = WSAStartup (MAKEWORD(2, 2), &data);
+
+  if (rc != 0)
+  {
+    LOG_STDERR ("Failed to initialize Winsock; error: %d\n", rc);
+    return (false);
+  }
 
   if (!g_deny_list)    /* if not already created via `add_deny()` */
      g_deny_list = smartlist_new();
@@ -3107,7 +3200,10 @@ bool net_init (void)
     return (false);
   }
 
-  test_mode = test_contains (Modes.tests, "net");
+  test_mode = test_contains (Modes.tests, "net") ||
+              test_contains (Modes.tests, "sntp");
+
+  sntp_init (test_mode);
 
   http_log_open();
 
@@ -3240,6 +3336,9 @@ bool net_init (void)
     reverse_ip_tests();
   }
 
+  if (modeS_net_services [MODES_NET_SERVICE_SNTP].host[0])
+     connection_setup_active (MODES_NET_SERVICE_SNTP, &Modes.sntp_in);
+
   /* Setup the RTL_TCP service and possibly rename if '--device udp://host:port' was used.
    */
   if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].host[0])
@@ -3265,7 +3364,6 @@ bool net_init (void)
 
   if (Modes.net_active)
   {
-    int  serv;
     bool raw_none = !modeS_net_services [MODES_NET_SERVICE_RAW_IN].host[0] ||
                     !stricmp(modeS_net_services [MODES_NET_SERVICE_RAW_IN].host, NONE_VAL);
 
@@ -3277,18 +3375,14 @@ bool net_init (void)
       LOG_STDERR ("No hosts for any `--net-active' services specified.\n");
       return (false);
     }
-
-    serv = MODES_NET_SERVICE_RAW_IN;
     if (!raw_none)
     {
-      if (!connection_setup_active(serv, &Modes.raw_in))
+      if (!connection_setup_active(MODES_NET_SERVICE_RAW_IN, &Modes.raw_in))
          return (false);
     }
-
-    serv = MODES_NET_SERVICE_SBS_IN;
     if (!sbs_none)
     {
-      if (!connection_setup_active(serv, &Modes.sbs_in))
+      if (!connection_setup_active(MODES_NET_SERVICE_SBS_IN, &Modes.sbs_in))
          return (false);
     }
   }
@@ -3347,6 +3441,11 @@ bool net_init (void)
     LOG_FILEONLY ("Running with a FlightAware web-page\n");
   }
 
+#if !defined(SNTP_TEST_IN_MAINLOOP)
+  if (test_mode)
+     g_sntp_idx = sntp_test (g_sntp_idx);   /* test all SNTP-servers in blocking mode */
+#endif
+
   return (true);
 }
 
@@ -3383,6 +3482,8 @@ bool net_exit (void)
   Modes.mgr.conns = NULL;
   Modes.dns4 = Modes.dns6 = NULL;
   lookup_table = NULL;
+
+  sntp_exit();
 
   if (num > 0)
      Sleep (100);
@@ -3643,6 +3744,24 @@ static bool _rtl_tcp_connect (mg_connection *c)
 }
 
 /**
+ * The timeout-handler for the RTL_TCP service.
+ */
+static void rtl_tcp_timeout (void *arg)
+{
+  char     err [200];
+  intptr_t service = (intptr_t) arg;
+
+  assert (service == MODES_NET_SERVICE_RTL_TCP);
+  rtl_tcp_no_stats (service);
+
+  snprintf (err, sizeof(err), "Timeout in data from host %s (service: \"%s\")",
+            net_handler_url(service), net_handler_descr(service));
+
+  net_store_error (service, err);
+  modeS_signal_handler (0);  /* break out of main_data_loop() */
+}
+
+/**
  * The `MG_EV_CONNECT` handler for the RTL_TCP service.
  * Send the setup parameters to the remote server.
  */
@@ -3657,7 +3776,8 @@ static bool rtl_tcp_connect (mg_connection *c)
   /* If we do not get the `RTL_TCP_MAGIC` welcome message.
    * Or if we stop getting data, add a timer to detect it.
    */
-  return net_timer_add (MODES_NET_SERVICE_RTL_TCP, MODES_DATA_TIMEOUT, MG_TIMER_REPEAT);
+  return net_timer_add (MODES_NET_SERVICE_RTL_TCP, MODES_DATA_TIMEOUT,
+                        MG_TIMER_REPEAT, rtl_tcp_timeout);
 }
 
 bool rtl_tcp_set_gain (mg_connection *c, int16_t gain)
