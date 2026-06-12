@@ -39,6 +39,7 @@ set(SOURCES
     pconsole.c
     raw-sbs.c
     smartlist.c
+    sntp.c
     speech.c
     externals/mongoose.c
     externals/AirSpy/airspy.c
