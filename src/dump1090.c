@@ -28,6 +28,7 @@
 #include "convert.h"
 #include "RTLSDR/rtl-sdr.h"
 #include "AirSpy/airspy.h"
+#include "GNS-Hulc/gns-hulc.h"
 #include "SDRplay/sdrplay.h"
 #include "raw-sbs.h"
 #include "speech.h"
@@ -115,6 +116,8 @@ static bool set_bandwidth (const char *arg);
 static bool set_bias_tee (const char *arg);
 static bool set_frequency (const char *arg);
 static bool set_gain (const char *arg);
+static bool set_gns_hulc_baud (const char *arg);
+static bool set_gns_hulc_port (const char *arg);
 static bool set_interactive_ttl (const char *arg);
 static bool set_home_pos (const char *arg);
 static bool set_home_pos_from_location_API (const char *arg);
@@ -178,6 +181,8 @@ static const cfg_table config[] = {
     { "http-log-ignore",      ARG_FUNC,    (void*) http_log_add_ignore },
     { "http-url4",            ARG_FUNC,    (void*) set_http_url4 },
     { "http-url6",            ARG_FUNC,    (void*) set_http_url6 },
+    { "hulc-baud",            ARG_FUNC,    (void*) set_gns_hulc_baud },
+    { "hulc-port",            ARG_FUNC,    (void*) set_gns_hulc_port },
     { "logfile",              ARG_STRDUP,  (void*) &Modes.logfile_initial },
     { "logfile-daily",        ARG_ATOB,    (void*) &Modes.logfile_daily },
     { "logfile-ignore",       ARG_FUNC,    (void*) modeS_log_add_ignore },
@@ -555,6 +560,8 @@ static void modeS_set_defaults (void)
   Modes.error_correct_1  = true;
   Modes.error_correct_2  = false;
   Modes.http_log_enable  = false;
+  Modes.gns_hulc.handle  = INVALID_HANDLE_VALUE;   /* no `--device gns-hulc` */
+  Modes.gns_hulc.port    = MODES_HULC_COMPORT;
 
   InitializeCriticalSection (&Modes.data_mutex);
   InitializeCriticalSection (&Modes.print_mutex);
@@ -1208,6 +1215,16 @@ static DWORD WINAPI data_thread_fn (void *arg)
 
     LOG_STDERR ("rtlsdr_read_async(): rc: %d/%s\n", rc, get_rtlsdr_error(rc));
     modeS_signal_handler (0);    /* break out of main_data_loop() */
+  }
+  else if (Modes.gns_hulc.handle != INVALID_HANDLE_VALUE)
+  {
+    while (!Modes.exit)
+    {
+      rc = gns_hulc_read (Modes.gns_hulc.handle, Modes.gns_hulc.rx_buf, sizeof(Modes.gns_hulc.rx_buf));
+      if (rc > 0 && Modes.debug)
+         GNS_HULC_HEXDUMP ( Modes.gns_hulc.rx_buf, rc, "data_thread_fn");
+      Sleep (100);
+    }
   }
   else if (Modes.rtl_tcp_in || Modes.raw_in)
   {
@@ -3285,6 +3302,7 @@ static void show_help (const char *fmt, ...)
             "                             `--device sdrplayRSP1A'    - select on SDRPlay name.\n"
             "                             `--device tcp://host:port' - select remote RTLSDR tcp service (default port=%u).\n"
             "                             `--device udp://host:port' - select remote RTLSDR udp service (default port=%u).\n"
+            "                             `--device gns-hulc'        - select serial-port HULC smart antenna (default COM%d).\n"
             "  --infile <filename>   Read data from file (use `-' for stdin).\n"
             "  --informat <format>   Format for `--infile`; `UC8`, `SC16` or `SC16Q11` (default: `UC8`)\n"
             "  --interactive         Enable interactive mode.\n"
@@ -3301,7 +3319,7 @@ static void show_help (const char *fmt, ...)
             "  --update              Update missing or old \"*.csv\" files and exit.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
-            Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP);
+            Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP, MODES_HULC_COMPORT);
 
     printf ("  Shows only matching ICAO-addresses;     `dump1090.exe --only-addr 4A*`.\n"
             "  Shows only non-matching ICAO-addresses; `dump1090.exe --only-addr !48*`.\n\n"
@@ -3573,6 +3591,19 @@ static void show_decoder_stats (void)
   print_unrecognized_ME();
 }
 
+static void show_gns_hulc_stats (void)
+{
+  if (Modes.stat.gns_hulc_rx_bytes  + Modes.stat.gns_hulc_tx_bytes +
+      Modes.stat.gns_hulc_rx_frames + Modes.stat.gns_hulc_tx_frames > 0ULL)
+  {
+    LOG_STDOUT ("GNS-HULC statistics:\n");
+    LOG_STDOUT (" %8llu RX-bytes.\n",  Modes.stat.gns_hulc_rx_bytes);
+    LOG_STDOUT (" %8llu RX-frames.\n", Modes.stat.gns_hulc_rx_frames);
+    LOG_STDOUT (" %8llu TX-bytes.\n",  Modes.stat.gns_hulc_tx_bytes);
+    LOG_STDOUT (" %8llu TX-frames.\n", Modes.stat.gns_hulc_tx_frames);
+  }
+}
+
 /**
  * Show some statistics at program exit.
  * If at least 1 device got opened, show some decoder statistics.
@@ -3580,7 +3611,10 @@ static void show_decoder_stats (void)
 static void show_statistics (void)
 {
   if (PHYS_DEVICE() || Modes.rtl_tcp_in)
-     show_decoder_stats();
+  {
+    show_decoder_stats();
+    show_gns_hulc_stats();
+  }
 
   aircraft_show_stats();
   airports_show_stats();
@@ -3639,6 +3673,12 @@ static void modeS_cleanup (void)
     Modes.airspy.device = NULL;
     TRACE2 ("airspy_exit(), rc: %d.\n", rc);
   }
+  else if (Modes.gns_hulc.handle != INVALID_HANDLE_VALUE)
+  {
+    rc = gns_hulc_exit (Modes.gns_hulc.handle);
+    Modes.gns_hulc.handle = INVALID_HANDLE_VALUE;
+    TRACE ("gns_hulc_exit(), rc: %d.\n", rc);
+  }
 
   if (Modes.reader_thread)
      CloseHandle (Modes.reader_thread);
@@ -3659,6 +3699,7 @@ static void modeS_cleanup (void)
   free (Modes.rtltcp.remote);
   free (Modes.sdrplay.name);
   free (Modes.airspy.name);
+  free (Modes.gns_hulc.name);
 
   free (Modes.http_log_name);
   free (Modes.web_root);
@@ -3768,6 +3809,10 @@ static void set_device (const char *arg)
     }
     else
       Modes.airspy.index = -1;
+  }
+  else if (!strnicmp(arg, "gns-hulc", 6))
+  {
+    Modes.gns_hulc.name = mg_mprintf ("GNS-HULC-%d", Modes.gns_hulc.port);
   }
 
   /* No RTLSDR now.
@@ -4091,6 +4136,30 @@ static bool set_web_page (const char *arg)
   return (true);
 }
 
+/*
+ * Fixed at 921600
+ */
+static bool set_gns_hulc_baud (const char *arg)
+{
+  (void) arg;
+  return (true);
+}
+
+static bool set_gns_hulc_port (const char *arg)
+{
+  if (!strnicmp(arg, "COM", 3))
+  {
+    Modes.gns_hulc.port = atoi (arg+3);
+    return (true);
+  }
+  if (atoi(arg) != 0)
+  {
+    Modes.gns_hulc.port = atoi (arg);
+    return (true);
+  }
+  return (false);
+}
+
 static struct option long_options[] = {
   { "config",       required_argument,  NULL,               'c' },
   { "debug",        required_argument,  NULL,               'd' },
@@ -4260,6 +4329,14 @@ int main (int argc, char **argv)
       if (rc)
          goto quit;
     }
+    else if (Modes.gns_hulc.name)
+    {
+      Modes.gns_hulc.handle = gns_hulc_init (Modes.gns_hulc.port, false);
+      TRACE ("gns_hulc_init() handle: 0x%p\n", Modes.gns_hulc.handle);
+      if (!Modes.gns_hulc.handle || Modes.gns_hulc.handle == INVALID_HANDLE_VALUE)
+         goto quit;
+    }
+
     else if (!net_handler_host(MODES_NET_SERVICE_RTL_TCP))
     {
       rc = modeS_init_RTLSDR();  /* not using a remote RTL_TCP input device */

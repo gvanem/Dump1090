@@ -34,7 +34,8 @@
  * Using a physical device.
  */
 #define PHYS_DEVICE() (Modes.rtlsdr.device || Modes.sdrplay.device || \
-                       Modes.airspy.device || Modes.infile_fd > -1)
+                       Modes.airspy.device || Modes.infile_fd > -1 || \
+                       (Modes.gns_hulc.handle != INVALID_HANDLE_VALUE))
 
 /**
  * Network services indices; `global_data::connections [N]`:
@@ -51,6 +52,11 @@
 
 #define MODES_NET_SERVICE_FIRST     0
 #define MODES_NET_SERVICE_LAST     (MODES_NET_SERVICES_NUM - 1)
+
+/**
+ * Default COM-port for `--device gns-hulc`
+ */
+#define MODES_HULC_COMPORT   1
 
 /**
  * \def DEF_WIN_FUNC
@@ -338,6 +344,13 @@ typedef struct statistics {
         uint64_t  RAW_bad;
         uint64_t  RAW_heartbeat;
         uint64_t  RAW_empty;
+
+        /* Serial I/O statistics for GNS-HULC:
+         */
+        uint64_t  gns_hulc_rx_bytes;
+        uint64_t  gns_hulc_rx_frames;
+        uint64_t  gns_hulc_tx_bytes;
+        uint64_t  gns_hulc_tx_frames;
       } statistics;
 
 /**
@@ -395,6 +408,16 @@ typedef struct airspy_conf {
         int   *gains;
         int    gain_count;
       } airspy_conf;
+
+/**
+ * The device configuration for a GNS-HULC serial device.
+ */
+typedef struct gns_hulc_conf {
+        char     *name;           /**< Name of the device to use */
+        uint16_t  port;           /**< COM-port for `--device gns-hulc`. */
+        HANDLE    handle;         /**< Device-handle from `gns_hulc_init()` */
+        char      rx_buf [1000];  /**< Buffer for `gns_hulc_read()` */
+      } gns_hulc_conf;
 
 #if defined(USE_BIN_FILES)
   /**
@@ -501,6 +524,7 @@ typedef struct global_data {
         rtltcp_conf         rtltcp;                   /**< RTLSDR remote specific settings. */
         sdrplay_conf        sdrplay;                  /**< SDRplay specific settings. */
         airspy_conf         airspy;                   /**< AirSpy specific settings. */
+        gns_hulc_conf       gns_hulc;                 /**< GNS-HULC specific settings. */
 
         /** Lists of connections for each network service:
          */

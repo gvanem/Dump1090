@@ -97,8 +97,9 @@ SOURCES = aircraft.c     \
           smartlist.c    \
           speech.c
 
-vpath %.c externals        \
-          externals/AirSpy \
+vpath %.c externals          \
+          externals/AirSpy   \
+          externals/GNS-Hulc \
           externals/SDRplay
 
 SOURCES += $(addprefix externals/, \
@@ -106,6 +107,7 @@ SOURCES += $(addprefix externals/, \
              sqlite3.c             \
              zip.c                 \
              AirSpy/airspy.c       \
+             GNS-Hulc/gns-hulc.c   \
              SDRplay/sdrplay.c)
 
 vpath %.c externals/RTLSDR

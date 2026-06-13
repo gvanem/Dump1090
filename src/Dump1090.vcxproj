@@ -172,6 +172,7 @@
     <ClCompile Include="speech.c" />
     <ClCompile Include="externals\mongoose.c" />
     <ClCompile Include="externals\AirSpy\airspy.c" />
+    <ClCompile Include="externals\GNS-Hulc\gns-hulc.c" />
     <ClCompile Include="externals\PDC-Mod\amalgamation.c" />
     <ClCompile Include="externals\sqlite3.c" />
     <ClCompile Include="externals\zip.c" />
@@ -209,6 +210,7 @@
     <ClInclude Include="externals\zip.h" />
     <ClInclude Include="externals\miniz.h" />
     <ClInclude Include="externals\AirSpy\airspy.h" />
+    <ClInclude Include="externals\GNS-Hulc\gns-hulc.h" />
     <ClInclude Include="externals\RTLSDR\rtlsdr_i2c.h" />
     <ClInclude Include="externals\RTLSDR\trace.h" />
     <ClInclude Include="externals\RTLSDR\tuner_e4k.h" />
