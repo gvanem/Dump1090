@@ -43,7 +43,6 @@ typedef char ip_addr_port [MAX_ADDRESS+10];
 #define MODES_NET_PORT_HTTP6     8080
 #define MODES_NET_PORT_RTL_TCP   1234
 #define MODES_NET_PORT_DNS         53
-#define MODES_NET_PORT_SNTP       123
 
 extern net_service modeS_net_services [MODES_NET_SERVICES_NUM];
 

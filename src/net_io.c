@@ -11,7 +11,6 @@
 #include "aircraft.h"
 #include "raw-sbs.h"
 #include "smartlist.h"
-#include "sntp.h"
 #include "net_io.h"
 #include "RTLSDR/rtl-sdr.h"
 #include "RTLSDR/rtl-tcp.h"
@@ -38,8 +37,7 @@ net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
           { &Modes.http4_out,  "HTTP4 server",   "tcp", MODES_NET_PORT_HTTP4   },  /* MODES_NET_SERVICE_HTTP4 */
           { &Modes.http6_out,  "HTTP6 server",   "tcp", MODES_NET_PORT_HTTP6   },  /* MODES_NET_SERVICE_HTTP6 */
           { &Modes.rtl_tcp_in, "RTL_TCP input",  "tcp", MODES_NET_PORT_RTL_TCP },  /* MODES_NET_SERVICE_RTL_TCP */
-          { &Modes.dns_in,     "DNS client",     "udp", MODES_NET_PORT_DNS     },  /* MODES_NET_SERVICE_DNS */
-          { &Modes.sntp_in,    "SNTP client",    "udp", MODES_NET_PORT_SNTP    }   /* MODES_NET_SERVICE_SNTP */
+          { &Modes.dns_in,     "DNS client",     "udp", MODES_NET_PORT_DNS     }   /* MODES_NET_SERVICE_DNS */
         };
 
 /**
@@ -75,7 +73,6 @@ typedef struct reverse_rec {
 static smartlist_t *g_reverse_rec  = NULL;
 static char         g_reverse_file [MAX_PATH] = { '\0' };
 static time_t       g_reverse_maxage;
-static int          g_sntp_idx = -1;
 
 #define REVERSE_MAX_AGE    (3600 * 24 * 7)  /* seconds; 1 week */
 #define REVERSE_FLUSH_T    (20*60*1000)     /* millisec; 20 minutes */
@@ -182,9 +179,6 @@ static bool test_mode = false;
 const char *net_ev_name (int ev)
 {
   static char buf [20];
-
-  if (ev == MG_EV_SNTP_TIMEOUT)
-     return ("MG_EV_SNTP_TIMEOUT");
 
   if (ev >= MG_EV_USER)
   {
@@ -785,8 +779,7 @@ static int net_ev_handler_ws (mg_connection *c, const mg_ws_message *ws, int ev)
 /**
  * The timer callback for an active `connect()`.
  *
- * But not for `MODES_NET_SERVICE_RTL_TCP` or `MODES_NET_SERVICE_SNTP`
- * services which have their own timeout functions.
+ * But not for `MODES_NET_SERVICE_RTL_TCP` which have its own timeout functions.
  */
 static void net_timeout (void *arg)
 {
@@ -1124,21 +1117,6 @@ void net_ev_handler (mg_connection *c, int ev, void *ev_data)
 
   service = (INT_PTR) c->fn_data;  /* 'fn_data' is arbitrary user data */
 
-#if defined(SNTP_TEST_IN_MAINLOOP)
-  if (service == MODES_NET_SERVICE_SNTP)
-  {
-    if (ev == MG_EV_POLL)
-    {
-      if (sntp_poll(g_sntp_idx))
-         g_sntp_idx = sntp_test (g_sntp_idx);   /* test next SNTP-server (non-blocking) */
-    }
-    else if (ev == MG_EV_SNTP_TIMEOUT)
-    {
-      sntp_timeout (g_sntp_idx);  /* test next SNTP-server (non-blocking) */
-    }
-  }
-#endif
-
   if (ev == MG_EV_POLL || ev == MG_EV_OPEN)     /* Ignore these events */
      return;
 
@@ -1168,13 +1146,7 @@ void net_ev_handler (mg_connection *c, int ev, void *ev_data)
         connection_failed_active (c, service, ev_data);
         net_conn_free (Modes.connections[service], service);
         net_timer_del (service);
-
-        if (service == MODES_NET_SERVICE_SNTP)
-        {
-          sntp_close (g_sntp_idx, c, ev);         /* Not fatal that a SNTP server fails */
-        }
-        else
-          modeS_signal_handler (0);   /* break out of main_data_loop() */
+        modeS_signal_handler (0);   /* break out of main_data_loop() */
       }
     }
     return;
@@ -1186,11 +1158,6 @@ void net_ev_handler (mg_connection *c, int ev, void *ev_data)
   {
     DEBUG (DEBUG_NET, "MG_EV_RESOLVE: address %s (service: \"%s\")\n",
            remote, net_handler_url(service));
-
-    if (service == MODES_NET_SERVICE_SNTP)
-    {
-      sntp_resolve (g_sntp_idx, true);
-    }
     return;
   }
 
@@ -1215,8 +1182,7 @@ void net_ev_handler (mg_connection *c, int ev, void *ev_data)
     DEBUG (DEBUG_NET, "Connected to host %s (service \"%s\"%s).\n",
            remote, net_handler_descr(service), is_tls);
 
-    if (service != MODES_NET_SERVICE_SNTP)   /* To detect timeout for sntp_send() */
-       net_timer_del (service);
+    net_timer_del (service);
 
     LIST_ADD_TAIL (connection, &Modes.connections [service], conn);
 
@@ -1224,13 +1190,7 @@ void net_ev_handler (mg_connection *c, int ev, void *ev_data)
     Modes.stat.srv_connected [service]++;
 
     if (service == MODES_NET_SERVICE_RTL_TCP)
-    {
-      rtl_tcp_connect (c);
-    }
-    else if (service == MODES_NET_SERVICE_SNTP)
-    {
-      sntp_send (g_sntp_idx, c);
-    }
+       rtl_tcp_connect (c);
     return;
   }
 
@@ -1299,10 +1259,6 @@ void net_ev_handler (mg_connection *c, int ev, void *ev_data)
       conn = connection_get (c, service, false);
       net_connection_recv (conn, dns_parse_message, false);
 #endif
-    }
-    else if (service == MODES_NET_SERVICE_SNTP)
-    {
-      sntp_handler (g_sntp_idx, c);
     }
     return;
   }
@@ -2016,11 +1972,6 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
 
   if (ev == MG_EV_CLOSE)
   {
-    if (service == MODES_NET_SERVICE_SNTP)
-    {
-      sntp_close (g_sntp_idx, c, ev);
-    }
-
     if (client_is_extern(addr))
     {
       LOG_FILEONLY2 ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
@@ -3200,10 +3151,7 @@ bool net_init (void)
     return (false);
   }
 
-  test_mode = test_contains (Modes.tests, "net") ||
-              test_contains (Modes.tests, "sntp");
-
-  sntp_init (test_mode);
+  test_mode = test_contains (Modes.tests, "net");
 
   http_log_open();
 
@@ -3336,9 +3284,6 @@ bool net_init (void)
     reverse_ip_tests();
   }
 
-  if (modeS_net_services [MODES_NET_SERVICE_SNTP].host[0])
-     connection_setup_active (MODES_NET_SERVICE_SNTP, &Modes.sntp_in);
-
   /* Setup the RTL_TCP service and possibly rename if '--device udp://host:port' was used.
    */
   if (modeS_net_services [MODES_NET_SERVICE_RTL_TCP].host[0])
@@ -3440,12 +3385,6 @@ bool net_init (void)
     aircraft_fix_flightaware();
     LOG_FILEONLY ("Running with a FlightAware web-page\n");
   }
-
-#if !defined(SNTP_TEST_IN_MAINLOOP)
-  if (test_mode)
-     g_sntp_idx = sntp_test (g_sntp_idx);   /* test all SNTP-servers in blocking mode */
-#endif
-
   return (true);
 }
 
@@ -3482,8 +3421,6 @@ bool net_exit (void)
   Modes.mgr.conns = NULL;
   Modes.dns4 = Modes.dns6 = NULL;
   lookup_table = NULL;
-
-  sntp_exit();
 
   if (num > 0)
      Sleep (100);

@@ -47,8 +47,7 @@
 #define MODES_NET_SERVICE_HTTP6     5
 #define MODES_NET_SERVICE_RTL_TCP   6
 #define MODES_NET_SERVICE_DNS       7
-#define MODES_NET_SERVICE_SNTP      8
-#define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_SNTP + 1)
+#define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_DNS + 1)
 
 #define MODES_NET_SERVICE_FIRST     0
 #define MODES_NET_SERVICE_LAST     (MODES_NET_SERVICES_NUM - 1)
@@ -518,15 +517,12 @@ typedef struct global_data {
         mg_connection *http6_out;                   /**< HTTP listening connection. IPv6 */
         mg_connection *rtl_tcp_in;                  /**< RTL_TCP active connection. IPv4 only */
         mg_connection *dns_in;                      /**< DNS active connection. IPv4 only */
-        mg_connection *sntp_in;                     /**< SNTP active connection. */
         mg_mgr         mgr;                         /**< Only one Mongoose connection manager */
         char          *dns4;                        /**< Use default Windows DNSv4 server (not 8.8.8.8) */
         char          *dns6;                        /**< Or a IPv6 server */
         bool           show_host_name;              /**< Try to show the hostname too in `net_str_addr()` */
         bool           https_enable;                /**< Enable TLS (MG_TLS_BUILTIN) for HTTP server */
         bool           reverse_resolve;             /**< Call `net_reverse_resolve()` on accepted clients */
-        bool           sntp_enable;                 /**< Enable SNTP client */
-        bool           sntp_log_file;               /**< Use SNTP time-stamps for .log-file? */
         uint32_t       net_poll_ms;                 /**< `mg_mgr_poll()` timeout in milli-sec (default 10). */
 
         /** Configuration

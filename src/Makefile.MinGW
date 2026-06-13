@@ -95,7 +95,6 @@ SOURCES = aircraft.c     \
           pconsole.c     \
           raw-sbs.c      \
           smartlist.c    \
-          sntp.c         \
           speech.c
 
 vpath %.c externals        \

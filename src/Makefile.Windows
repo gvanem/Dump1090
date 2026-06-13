@@ -156,11 +156,6 @@ CFLAGS = -nologo -c -Z7 -W4        \
          -I./$(OBJ_DIR)
 
 #
-# For 'sntp.c' and "--test sntp"
-#
-# CFLAGS += -DSNTP_TEST_IN_MAINLOOP
-
-#
 # Handling of 'volatile' variables:
 #   https://learn.microsoft.com/en-us/cpp/build/reference/volatile-volatile-keyword-interpretation?view=msvc-170
 #
@@ -334,7 +329,6 @@ SOURCES = aircraft.c     \
           pconsole.c     \
           raw-sbs.c      \
           smartlist.c    \
-          sntp.c         \
           speech.c
 
 vpath %.c externals        \
@@ -836,7 +830,6 @@ DOXY_HEADERS = ../aircraft.h                  \
                ../net_io.h                    \
                ../raw-sbs.h                   \
                ../smartlist.h                 \
-               ../sntp.h                      \
                ../speech.h                    \
                ../externals/zip.h             \
                ../externals/AirSpy/airspy.h   \

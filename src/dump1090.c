@@ -125,7 +125,6 @@ static bool set_http_url6 (const char *arg);
 static bool set_port_http (const char *arg);
 static bool set_ppm (const char *arg);
 static bool set_sample_rate (const char *arg);
-static bool set_sntp_server (const char *arg);
 static bool set_strip_level (const char *arg);
 static bool set_tui (const char *arg);
 static bool set_web_page (const char *arg);
@@ -197,8 +196,6 @@ static const cfg_table config[] = {
     { "sample-rate",          ARG_FUNC,    (void*) set_sample_rate },
     { "strip-level",          ARG_FUNC,    (void*) set_strip_level },        /* not in .cfg file yet */
     { "show-hostname",        ARG_ATOB,    (void*) &Modes.show_host_name },
-//  { "sntp-enable",          ARG_ATOB,    (void*) &Modes.sntp_enable },     /* not in .cfg file yet */
-//  { "sntp-server",          ARG_FUNC,    (void*) set_sntp_server },        /* not in .cfg file yet */
     { "sort",                 ARG_FUNC,    (void*) aircraft_set_sort },
     { "speech-enable",        ARG_ATOB,    (void*) &Modes.speech_enable },
     { "speech-volume",        ARG_ATOI,    (void*) &Modes.speech_volume },
@@ -900,7 +897,7 @@ static bool modeS_init (void)
      signal (SIGABRT, modeS_signal_handler);
 #endif
 
-  if (test_contains(Modes.tests, "net") || test_contains(Modes.tests, "sntp"))
+  if (test_contains(Modes.tests, "net"))
      Modes.net = true;    /* Will force `net_init()` and it's tests to be called */
 
   if (test_contains(Modes.tests, "cpr"))
@@ -3300,7 +3297,7 @@ static void show_help (const char *fmt, ...)
             "  --samplerate/-s <S/s> Sample-rate (2M, 2.4M, 8M). Overrides setting in config-file.\n"
             "  --strip <level>       Output missing the I/Q parts that are below the specified level.\n"
             "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `console', `cpr',\n"
-            "                        `locale', `misc`, `me`, `net', `sntp` or `*')\n"
+            "                        `locale', `misc`, `me`, `net' or `*')\n"
             "  --update              Update missing or old \"*.csv\" files and exit.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
@@ -3833,12 +3830,6 @@ static bool set_strip_level (const char *arg)
   return (true);
 }
 
-static bool set_sntp_server (const char *arg)
-{
-  // Or NET_ADD_HOST_PORT()? for several SNTP servers
-  return NET_SET_HOST_PORT (arg, MODES_NET_SERVICE_SNTP, MODES_NET_PORT_SNTP);
-}
-
 static bool set_max_messages (const char *arg)
 {
   if (!max_messages_set)
@@ -4295,15 +4286,6 @@ int main (int argc, char **argv)
   }
 
   init_error = false;
-
-#if defined(SNTP_TEST_IN_MAINLOOP)
-  if (test_contains(Modes.tests, "sntp"))
-  {
-    puts ("Running `sntp_test()' inside `main_data_loop()'");
-    main_data_loop();
-    goto quit;
-  }
-#endif
 
   if (Modes.tests)
      goto quit;
