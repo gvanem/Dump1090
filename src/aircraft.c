@@ -1472,7 +1472,7 @@ static void aircraft_test_4 (unsigned max_num)
   free (our_outline);
   our_outline    = create_outline_file (dir, "our_outline.json", our_data);
   readsb_outline = create_outline_file (dir, "readsb_outline.json", readsb_outline_json);
-  outline_html   = create_outline_file(dir, "show-outline.html", show_outline_html);
+  outline_html   = create_outline_file (dir, "show-outline.html", show_outline_html);
   test_bat       = create_outline_file (dir, "outline-test.bat", test_bat_code);
 
   if (test_bat)
