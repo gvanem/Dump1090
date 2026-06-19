@@ -99,11 +99,11 @@ static struct dyn_struct airspy_funcs [] = {
 
 /**
  * Load the `airspy.dll` from a specific location or let `LoadLibraryA()`
- * search along the `%PATH%`.
+ * search along the `PATH`.
  *
  * The `airspy-dll` value in `dump1090.cfg` is empty by default and
  * `sdr.dll_name` equals `airspy.dll`. Hence `LoadLibraryA()`
- * will search along the `%PATH%`.
+ * will search along the `PATH`.
  *
  * But the config-callback `airspy_set_dll_name()` could have set another
  * custom value.
@@ -172,14 +172,16 @@ static void airspy_clear_error (void)
 /**
  * The AirSpy event callback.
  *
- * 16-bit data is received from RSP at 2MHz. It is interleaved into a circular buffer.
+ * 16-bit data is received at 2.0 MS/s or 2.4 MS/s. It is interleaved into a circular buffer.
  * Each time the pointer passes a multiple of `MODES_BUF_SIZE`, that segment of
  * buffer is handed off to the callback-routine `rx_callback()` in `dump1090.c`.
  *
- * For each packet from the RSP, the maximum `I` signal value is recorded.
+ * For each packet from the AirSpy, the maximum `I` signal value is recorded.
  * This is entered into a slow, exponentially decaying filter. The output from this filter
- * is occasionally checked and a decision made whether to step the RSP gain by
+ * is occasionally checked and a decision made whether to step the AirSpy gain by
  * plus or minus 1 dB.
+ *
+ * \note Not used and not finished.
  */
 static void airspy_event_callback (int event_id, void *cb_context)
 {
@@ -383,6 +385,8 @@ int airspy_read_async (airspy_dev *device,
 
   if (sdr.last_rc != AIRSPY_SUCCESS)
      return (sdr.last_rc);
+
+//CALL_FUNC (airspy_start_rx, sdr.chosen_dev, callback, sdr.rx_context);
 
   while (1)
   {

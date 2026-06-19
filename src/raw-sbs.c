@@ -1,5 +1,5 @@
 /**\file    raw-sbs.c
- * \ingroup Decoder
+ * \ingroup Decoders
  * \brief   Functions for RAW-IN, RAW-OUT, SBS-IN and SBS-OUT
  */
 #include "aircraft.h"

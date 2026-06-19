@@ -498,7 +498,7 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
  *
  * Here `num_samples` is the number of I/Q pairs
  *
- * 16-bit data is received from RSP at 2MHz. It is interleaved into a circular buffer.
+ * 16-bit data is received from RSP normally at 2.4 MS/s. It is interleaved into a circular buffer.
  * Each time the pointer passes a multiple of `MODES_RSP_BUF_SIZE`, that segment of
  * buffer is handed off to the callback-routine `rx_callback()` in `dump1090.c`.
  *

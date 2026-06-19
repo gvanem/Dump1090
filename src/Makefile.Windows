@@ -197,10 +197,6 @@ ifeq ($(CC),clang-cl)
             -fno-color-diagnostics \
             -Wno-unused-command-line-argument
 
-  #
-  # Generated old-style PDB-files
-  #
-  CFLAGS  += -Z7
   RCFLAGS += -D__clang__
   gen_data_arg = -c
 else
@@ -605,12 +601,11 @@ docs: doxy-docs doxy-docs/Doxyfile
 	cd $< ; doxygen Doxyfile
 	$(call green_white_msg, Generating, $</dump1090.chm)
 	- ( cd $< ; hhc index.hhp )
-	mv --force $</dump1090.chm ..
-	$(call green_white_msg, Done generating Doxygen docs and, ../dump1090.chm)
+	mv --force $</dump1090.chm ../docs
+	$(call green_white_msg, Done generating Doxygen docs and, ../docs/dump1090.chm)
 
 clean_docs:
 	rm -fr doxy-docs
-	rm -f ../dump1090.chm
 
 doxy-docs/Doxyfile: doxy-docs $(THIS_FILE)
 	$(call generate, $@, #)
@@ -860,6 +855,7 @@ define DUMP1090_DOXYFILE
   CALLER_GRAPH          = yes
   EXTRACT_STATIC        = yes
   HAVE_DOT              = yes
+  DOT_CLEANUP           = no        # do not delete the 'doxy-docs/*.dot' files
   OUTPUT_DIRECTORY      = $(CURDIR)/doxy-docs
   HTML_OUTPUT           = .
   HTML_DYNAMIC_MENUS    = no

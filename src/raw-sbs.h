@@ -1,5 +1,5 @@
 /**\file    raw-sbs.h
- * \ingroup Decoder
+ * \ingroup Decoders
  */
 #pragma once
 

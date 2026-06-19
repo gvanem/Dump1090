@@ -1,6 +1,6 @@
 /**
  * \file    infile.c
- * \ingroup SDR input functions
+ * \ingroup Samplers
  * \brief   Read binary data or CSV records
  */
 #include <stdio.h>
