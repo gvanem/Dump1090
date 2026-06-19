@@ -64,7 +64,6 @@ char       *net_handler_descr (intptr_t service);
 char       *net_handler_error (intptr_t service, DWORD *wsa_err);
 bool        net_handler_sending (intptr_t service);
 void        net_handler_send (intptr_t service, const void *msg, size_t len);
-void        net_ev_handler (mg_connection *c, int ev, void *ev_data);
 const char *net_ev_name (int ev);
 bool        net_timer_add (intptr_t service, int timeout_ms, int flag, void (*timeout_func)(void *arg));
 bool        net_timer_del (intptr_t service);

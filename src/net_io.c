@@ -110,6 +110,7 @@ static smartlist_t *g_unique_ips = NULL;
 
 static void         net_conn_free (connection *conn, intptr_t service);
 static char        *net_store_error (intptr_t service, const char *err);
+static void         net_ev_handler (mg_connection *c, int ev, void *ev_data);
 static char        *net_error_details (intptr_t service, const mg_connection *c, const char *in_out, const void *ev_data);
 static void         net_timeout (void *arg);
 static char        *net_str_addr (const mg_addr *a, char *buf, size_t len);
@@ -231,7 +232,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     listen_fmt = "%s://[::]:%u";
     modeS_net_services [service].is_ip6 = true;
 
-#if !defined(USE_ASAN)
+#if !defined(USE_ASAN) || 1
     if (!Modes.dns6)
        LOG_STDERR ("WARNING: IPv6 WAN support not detected. IPv6 will only work for local-LAN.\n");
 #endif
@@ -1102,7 +1103,7 @@ static void http_log_cli (INT_PTR service, mg_connection *c, mg_http_message *hm
 /**
  * The event handler for ALL network I/O.
  */
-void net_ev_handler (mg_connection *c, int ev, void *ev_data)
+static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
 {
   connection  *conn;
   char        *remote;
@@ -3059,7 +3060,7 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
    */
   *dns4_p = mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
 
-#if !defined(USE_ASAN)
+#if !defined(USE_ASAN) || 1
   /**
    * Fake alert:
    *   If a `system ("ping.exe -6 -n 1 ipv6.google.com")` works, just assume that
