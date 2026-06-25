@@ -724,8 +724,8 @@ static bool modeS_init_hardware (void)
     Modes.bytes_per_sample = 4;
   }
 
-  if (!fifo_init(Modes.FIFO_bufs, MODES_MAG_BUF_SAMPLES + Modes.trailing_samples, Modes.trailing_samples))
-  {
+  unsigned mag_buf_samples = MODES_ASYNC_BUF_SIZE / Modes.bytes_per_sample;
+  if (!fifo_init(Modes.FIFO_bufs, mag_buf_samples + Modes.trailing_samples, Modes.trailing_samples)) {
     LOG_STDERR ("Out of memory allocating FIFO\n");
     return (false);
   }
@@ -1158,7 +1158,9 @@ void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
      * this is valid pointer arithmetics. But what about SDRPlay?
      */
     out_buf->valid_length = out_buf->overlap + to_convert;
-
+    TRACE("to_convert: %u, in_len: %u, bytes_per_sample: %u\n",
+        to_convert, in_len, Modes.bytes_per_sample);
+    TRACE("converter: %s\n", Modes.converter_state->func_name);
     (*Modes.converter_func) (in_buf, &out_buf->data [out_buf->overlap], to_convert,
                              Modes.converter_state, &out_buf->mean_power);
 

@@ -12,20 +12,22 @@
 #define MODES_RSP_BUF_SIZE   (256*1024)   /**< 256k, same as MODES_ASYNC_BUF_SIZE */
 #define MODES_RSP_BUFFERS     16          /**< Must be power of 2 */
 
-#define RSP_MIN_GAIN_THRESH   512         /**< Increase gain if peaks below this */
-#define RSP_MAX_GAIN_THRESH  1024         /**< Decrease gain if peaks above this */
 #define RSP_ACC_SHIFT          13         /**< Sets time constant of averaging filter */
 #define MODES_RSP_INITIAL_GR   20
-#define USE_8BIT_SAMPLES        1
+#define USE_8BIT_SAMPLES        0
 
 #if USE_8BIT_SAMPLES
-  #define SAMPLE_SCALE(x)   (((x) + 32) >> 6)  /* from 14 to 8 bit */
-  #define SAMPLE_TYPE       uint8_t
-  #define SAMPLE_TYPE_STR  "uint8_t"
+  #define SAMPLE_SCALE(x)      (((x) + 32) >> 6)  /* from 14 to 8 bit */
+  #define SAMPLE_TYPE          uint8_t
+  #define SAMPLE_TYPE_STR     "uint8_t"
+  #define RSP_MIN_GAIN_THRESH  512    /**< Increase gain if peaks below this */
+  #define RSP_MAX_GAIN_THRESH  1024   /**< Decrease gain if peaks above this */
 #else
-  #define SAMPLE_SCALE(x)   x
-  #define SAMPLE_TYPE       uint16_t
-  #define SAMPLE_TYPE_STR  "uint16_t"
+  #define SAMPLE_SCALE(x)      (x)   /* pass raw signed 16-bit samples through */
+  #define SAMPLE_TYPE          uint16_t
+  #define SAMPLE_TYPE_STR     "uint16_t"
+  #define RSP_MIN_GAIN_THRESH  512    /**< Increase gain if peaks below this */
+  #define RSP_MAX_GAIN_THRESH  1024   /**< Decrease gain if peaks above this */
 #endif
 
 /**
@@ -556,8 +558,12 @@ static void sdrplay_callback_A (short                       *xi,
   }
 
   /* Apply slowly decaying filter to max signal value
-   */
+ */
+#if USE_8BIT_SAMPLES
   max_sig -= 127;
+#else
+  max_sig = abs(max_sig);
+#endif
   max_sig_acc += max_sig;
   max_sig = max_sig_acc >> RSP_ACC_SHIFT;
   max_sig_acc -= max_sig;
@@ -618,7 +624,9 @@ static void sdrplay_callback_A (short                       *xi,
     end &= ~(MODES_RSP_BUF_SIZE - 1);
 
     sdr.rx_num_callbacks++;
-    (*sdr.rx_callback) ((uint8_t*)sdr.rx_data + end, MODES_RSP_BUF_SIZE, sdr.rx_context);
+    (*sdr.rx_callback) ((uint8_t*)sdr.rx_data + end * sizeof(SAMPLE_TYPE),
+        MODES_RSP_BUF_SIZE * sizeof(SAMPLE_TYPE),
+        sdr.rx_context);
   }
 
   /* Stash static values in `sdr` struct
@@ -778,22 +786,38 @@ static int sdrplay_init_async (sdrplay_dev *device,
   }
 
 #if USE_8BIT_SAMPLES
-  Modes.input_format     = INPUT_UC8;   /* Unsigned, Complex, 8 bit per sample. Always */
+  Modes.input_format = INPUT_UC8;   /* Unsigned, Complex, 8 bit per sample. Always */
   Modes.bytes_per_sample = 2;
-  Modes.measure_noise    = false;
-  Modes.DC_filter        = false;
-
-  TRACE ("Reinit for USE_8BIT_SAMPLES == 1\n");
-  Modes.converter_func = convert_init (Modes.input_format,
-                                       Modes.sample_rate,
-                                       Modes.DC_filter,
-                                       Modes.measure_noise,   /* total power is interesting if we want noise */
-                                       &Modes.converter_state);
+  Modes.measure_noise = false;
+  Modes.DC_filter = false;
+  TRACE("Reinit for USE_8BIT_SAMPLES == 1\n");
+  Modes.converter_func = convert_init(Modes.input_format,
+      Modes.sample_rate,
+      Modes.DC_filter,
+      Modes.measure_noise,   /* total power is interesting if we want noise */
+      &Modes.converter_state);
   if (!Modes.converter_func)
   {
-    strcpy_s (sdr.last_err, sizeof(sdr.last_err), "Reinit of sample converter failed");
-    sdr.last_rc = sdrplay_api_Fail;   /* a better error-code? */
-    return (sdr.last_rc);
+      strcpy_s(sdr.last_err, sizeof(sdr.last_err), "Reinit of sample converter failed");
+      sdr.last_rc = sdrplay_api_Fail;   /* a better error-code? */
+      return (sdr.last_rc);
+  }
+#else
+  Modes.input_format = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always */
+  Modes.bytes_per_sample = 4;
+  Modes.measure_noise = false;
+  Modes.DC_filter = false;
+  TRACE("Reinit for USE_8BIT_SAMPLES == 0, using SC16\n");
+  Modes.converter_func = convert_init(Modes.input_format,
+      Modes.sample_rate,
+      Modes.DC_filter,
+      Modes.measure_noise,
+      &Modes.converter_state);
+  if (!Modes.converter_func)
+  {
+      strcpy_s(sdr.last_err, sizeof(sdr.last_err), "Reinit of sample converter failed");
+      sdr.last_rc = sdrplay_api_Fail;
+      return (sdr.last_rc);
   }
 #endif
 
@@ -822,7 +846,8 @@ static int sdrplay_init_async (sdrplay_dev *device,
   if (sdr.chosen_dev->hwVer != SDRPLAY_RSP1_ID)
      sdr.ch_params->tunerParams.gain.minGr = sdrplay_api_EXTENDED_MIN_GR;
 
-  sdr.ch_params->ctrlParams.agc.enable = Modes.dig_agc;
+  sdr.ch_params->ctrlParams.agc.enable = Modes.dig_agc ? sdrplay_api_AGC_CTRL_EN : sdrplay_api_AGC_DISABLE;
+  sdr.ch_params->ctrlParams.agc.setPoint_dBfs = -45;
 
   sdr.ch_params->tunerParams.gain.gRdB     = sdr.gain_reduction;
   sdr.ch_params->tunerParams.gain.LNAstate = 0;
