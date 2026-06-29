@@ -43,6 +43,7 @@ set(SOURCES
     externals/mongoose.c
     externals/AirSpy/airspy.c
     externals/GNS-Hulc/gns-hulc.c
+    externals/GNS-Hulc/gns-serial.c
     externals/PDC-Mod/amalgamation.c
     externals/sqlite3.c
     externals/zip.c

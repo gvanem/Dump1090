@@ -29,11 +29,12 @@ c_to_obj = $(addprefix $(OBJ_DIR)/, $(notdir $(1:.c=.o)))
 GENERATED = $(OBJ_DIR)/cflags_gcc.h \
             $(OBJ_DIR)/ldflags_gcc.h
 
-CFLAGS = -g -O2                \
-         -I.                   \
-         -I./externals         \
-         -I./externals/PDC-Mod \
-         -I./$(OBJ_DIR)        \
+CFLAGS = -g -O2                 \
+         -I.                    \
+         -I./externals          \
+         -I./externals/PDC-Mod  \
+         -I./$(OBJ_DIR)         \
+         -Wno-stringop-overflow \
          --include ./dump1090_config.h
 
 CFLAGS += -DMG_ENABLE_POLL=1 \
@@ -108,6 +109,7 @@ SOURCES += $(addprefix externals/, \
              zip.c                 \
              AirSpy/airspy.c       \
              GNS-Hulc/gns-hulc.c   \
+             GNS-Hulc/gns-serial.c \
              SDRplay/sdrplay.c)
 
 vpath %.c externals/RTLSDR
@@ -478,4 +480,6 @@ CURSES_SRC = $(addprefix externals/PDC-Mod/, \
 
 $(OBJ_DIR)/amalgamation.o: $(CURSES_SRC)
 $(OBJ_DIR)/net_io.o:       client-cert-key.h server-cert-key.h
+$(OBJ_DIR)/gns-hulc.o:     externals/GNS-Hulc/gns-hulc.c externals/GNS-Hulc/gns-private.h
+$(OBJ_DIR)/gns-serial.o:   externals/GNS-Hulc/gns-serial.c externals/GNS-Hulc/gns-private.h
 

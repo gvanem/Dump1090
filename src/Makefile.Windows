@@ -29,10 +29,10 @@ USE_BIN_FILES ?= 0
 
 #
 # Option for polling of network events in 'externals/mongoose.c':
-#   USE_NET_POLLER=WSAPOLL: use 'WSAPoll()'
-#   USE_NET_POLLER=SELECT:  use 'select()'
+#   USE_WSAPOLL=1: use 'WSAPoll()'
+#   USE_WSAPOLL=0: use 'select()'
 #
-USE_NET_POLLER ?= WSAPOLL
+USE_WSAPOLL ?= 1
 
 #
 # Enable SDRConnect code in 'externals/SDRconnect' which let
@@ -101,7 +101,7 @@ CLANG_MAJOR_VER ?= 15
 
 define Usage
 
-  Usage: "make -f $(THIS_FILE) [CC=cl | clang-cl] <CPU=x86 | x64> [all | clean | vclean ]")
+  Usage: "make -f $(THIS_FILE) [CC=cl | clang-cl] <CPU=x86 | x64> < all | clean | vclean >"
   Specify CC=cl       - build with MSVC
   Specify CC=clang-cl - build with clang-cl
   Specify CPU=x86     - build for 32-bit
@@ -338,6 +338,7 @@ SOURCES += $(addprefix externals/, \
              zip.c                 \
              AirSpy/airspy.c       \
              GNS-Hulc/gns-hulc.c   \
+             GNS-Hulc/gns-serial.c \
              SDRplay/sdrplay.c)
 
 vpath %.c externals/RTLSDR
@@ -377,17 +378,8 @@ ifeq ($(USE_PACKED_DLL),1)
   GENERATED += $(WEB_SRC)
 endif
 
-ifeq ($(USE_NET_POLLER),WSAPOLL)
+ifeq ($(USE_WSAPOLL),1)
   CFLAGS += -DMG_ENABLE_POLL=1
-
-else ifeq ($(USE_NET_POLLER),SELECT)
-  #
-  # No code checks for this, but for '../dump1090.exe -VV' only
-  #
-  CFLAGS += -DMG_ENABLE_SELECT=1
-
-else
-  $(error Illegal 'USE_NET_POLLER=$(USE_NET_POLLER)' value)
 endif
 
 OBJECTS = $(call c_to_obj, $(SOURCES))
@@ -808,31 +800,32 @@ DOXY_SOURCES = $(filter-out externals/sqlite3.c               \
 
 DOXY_SOURCES := $(addprefix ../, $(DOXY_SOURCES))
 
-DOXY_HEADERS = ../aircraft.h                    \
-               ../airports.h                    \
-               ../cfg_file.h                    \
-               ../color.h                       \
-               ../convert.h                     \
-               ../cpr.h                         \
-               ../crc.h                         \
-               ../csv.h                         \
-               ../demod.h                       \
-               ../dump1090_config.h             \
-               ../fifo.h                        \
-               ../geo.h                         \
-               ../infile.h                      \
-               ../interactive.h                 \
-               ../location.h                    \
-               ../misc.h                        \
-               ../net_io.h                      \
-               ../raw-sbs.h                     \
-               ../smartlist.h                   \
-               ../speech.h                      \
-               ../externals/zip.h               \
-               ../externals/AirSpy/airspy.h     \
-               ../externals/GNS-Hulc/gns-hulc.h \
-               ../externals/RTLSDR/rtl-sdr.h    \
-               ../externals/RTLSDR/rtl-tcp.h    \
+DOXY_HEADERS = ../aircraft.h                       \
+               ../airports.h                       \
+               ../cfg_file.h                       \
+               ../color.h                          \
+               ../convert.h                        \
+               ../cpr.h                            \
+               ../crc.h                            \
+               ../csv.h                            \
+               ../demod.h                          \
+               ../dump1090_config.h                \
+               ../fifo.h                           \
+               ../geo.h                            \
+               ../infile.h                         \
+               ../interactive.h                    \
+               ../location.h                       \
+               ../misc.h                           \
+               ../net_io.h                         \
+               ../raw-sbs.h                        \
+               ../smartlist.h                      \
+               ../speech.h                         \
+               ../externals/zip.h                  \
+               ../externals/AirSpy/airspy.h        \
+               ../externals/GNS-Hulc/gns-hulc.h    \
+               ../externals/GNS-Hulc/gns-private.h \
+               ../externals/RTLSDR/rtl-sdr.h       \
+               ../externals/RTLSDR/rtl-tcp.h       \
                ../externals/SDRplay/sdrplay.h
 
 define DUMP1090_DOXYFILE
@@ -1059,4 +1052,7 @@ CURSES_SRC = $(addprefix externals/PDC-Mod/, \
 
 $(OBJ_DIR)/amalgamation.obj: $(CURSES_SRC)
 $(OBJ_DIR)/net_io.obj:       client-cert-key.h server-cert-key.h
+
+$(OBJ_DIR)/gns-hulc.obj:   externals/GNS-Hulc/gns-hulc.c externals/GNS-Hulc/gns-private.h
+$(OBJ_DIR)/gns-serial.obj: externals/GNS-Hulc/gns-serial.c externals/GNS-Hulc/gns-private.h
 
