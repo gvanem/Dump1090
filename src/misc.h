@@ -35,7 +35,7 @@
  */
 #define PHYS_DEVICE() (Modes.rtlsdr.device || Modes.sdrplay.device || \
                        Modes.airspy.device || Modes.infile_fd > -1 || \
-                       (Modes.gns_hulc.handle != INVALID_HANDLE_VALUE))
+                       Modes.gns_hulc.handle)
 
 /**
  * Network services indices; `global_data::connections [N]`:
@@ -52,11 +52,6 @@
 
 #define MODES_NET_SERVICE_FIRST     0
 #define MODES_NET_SERVICE_LAST     (MODES_NET_SERVICES_NUM - 1)
-
-/**
- * Default COM-port for `--device gns-hulc`
- */
-#define MODES_HULC_COMPORT   1
 
 /**
  * \def DEF_WIN_FUNC
@@ -93,6 +88,8 @@
 #define DEBUG_PLANE      0x04000
 #define DEBUG_RAW_SBS1   0x08000
 #define DEBUG_RAW_SBS2   0x10000
+#define DEBUG_GNS_HULC   0x20000
+#define DEBUG_GNS_HULC2  0x40000
 
 /**
  * \def DEBUG(bit, fmt, ...)
@@ -169,6 +166,7 @@ typedef struct mg_addr            mg_addr;
 typedef struct mg_str             mg_str;
 typedef struct mg_timer           mg_timer;
 typedef struct mg_iobuf           mg_iobuf;
+typedef struct mg_queue           mg_queue;
 typedef struct mg_ws_message      mg_ws_message;
 typedef struct mg_http_serve_opts mg_http_serve_opts;
 typedef char                      mg_host_name [200];
@@ -345,17 +343,11 @@ typedef struct statistics {
         uint64_t  RAW_heartbeat;
         uint64_t  RAW_empty;
 
-        /* Serial I/O statistics for GNS-HULC:
-         */
-        uint64_t  gns_hulc_rx_bytes;
-        uint64_t  gns_hulc_rx_frames;
-        uint64_t  gns_hulc_tx_bytes;
-        uint64_t  gns_hulc_tx_frames;
       } statistics;
 
 /**
  * The device configuration for a local RTLSDR device.
- * NOT used for a RTL_TCP connection.
+ * Not used for a RTL_TCP connection.
  */
 typedef struct rtlsdr_conf {
         char  *name;              /**< The manufacturer name of the RTLSDR device to use. As in e.g. `"--device silver"` */
@@ -413,10 +405,10 @@ typedef struct airspy_conf {
  * The device configuration for a GNS-HULC serial device.
  */
 typedef struct gns_hulc_conf {
-        char     *name;           /**< Name of the device to use */
-        uint16_t  port;           /**< COM-port for `--device gns-hulc`. */
-        HANDLE    handle;         /**< Device-handle from `gns_hulc_init()` */
-        char      rx_buf [1000];  /**< Buffer for `gns_hulc_read()` */
+        char     *name;      /**< Name as `"HULC-<port>"` (used in Console Title) */
+        uint16_t  port;      /**< COM-port. As in e.g. `"--device gns-hulc4"` for COM4. This overrides .cfg-file value */
+        HANDLE    handle;    /**< COM-port handle from `gns_hulc_init()` */
+        uint32_t  poll_ms;   /**< Max-poll time for `gns_hulc_poll()` */
       } gns_hulc_conf;
 
 #if defined(USE_BIN_FILES)
@@ -426,8 +418,8 @@ typedef struct gns_hulc_conf {
    * It is "aircraft.bin" and not plural "aircrafts.bin" since
    *   https://github.com/vradarserver/standing-data/archive/refs/heads/main.zip
    *
-   * has the sub-directory `standing-data-main/aircraft/`. It would be non-trivial
-   * to remap to "aircrafts.csv" and "aircrafts.bin".
+   * has the sub-directory `standing-data-main/aircraft/`.
+   * It would be non-trivial to remap to "aircrafts.csv" and "aircrafts.bin".
    */
   #define AIRCRAFT_BIN     "aircraft.bin"
   #define AIRPORTS_BIN     "airports.bin"
@@ -478,6 +470,7 @@ typedef struct global_data {
         SYSTEMTIME          start_SYSTEMTIME;         /**< The start-time on `SYSTEMTIME` form. */
         LONG                timezone;                 /**< Our time-zone in minutes. */
         HANDLE              reader_thread;            /**< Device reader thread handle. */
+        DWORD               reader_thread_id;         /**< And it's thread ID. */
         CRITICAL_SECTION    data_mutex;               /**< Mutex to synchronize buffer access. */
         CRITICAL_SECTION    print_mutex;              /**< Mutex to synchronize printouts. */
         uint16_t           *mag_lut;                  /**< I/Q -> Magnitude lookup table. */
@@ -494,7 +487,6 @@ typedef struct global_data {
         statistics          stat;                     /**< Decoder, aircraft and network statistics. */
         uint64_t            last_update_ms;           /**< Last screen update in milliseconds. */
         uint64_t            max_messages;             /**< How many messages to process before quitting. */
-        uint64_t            max_frames;               /**< How many frames in a sample-buffer to process (for testing SDRPlay). */
         bool                no_stats;                 /**< Set to `true` in case no point showing statistics. */
         bool                mode_AC;                  /**< Enable decoding of SSR Modes A & C. */
         bool                under_appveyor;           /**< true if running on AppVeyor CI testing */
@@ -614,10 +606,10 @@ extern global_data Modes;
 #define MODES_ASYNC_BUF_NUMBERS    15
 #define MODES_ASYNC_BUF_SIZE       (256*1024)
 
-#define MODES_SHORT_MSG_BYTES      7
-#define MODES_LONG_MSG_BYTES      14
-#define MODES_SHORT_MSG_BITS      (8 * MODES_SHORT_MSG_BYTES)  /* == 56 */
-#define MODES_LONG_MSG_BITS       (8 * MODES_LONG_MSG_BYTES)   /* == 112 */
+#define MODES_SHORT_MSG_BYTES       7
+#define MODES_LONG_MSG_BYTES       14
+#define MODES_SHORT_MSG_BITS       (8 * MODES_SHORT_MSG_BYTES)  /* == 56 */
+#define MODES_LONG_MSG_BITS        (8 * MODES_LONG_MSG_BYTES)   /* == 112 */
 
 #define MODES_PREAMBLE_US          8         /* microseconds */
 #define MODES_FULL_LEN             (MODES_PREAMBLE_US + MODES_LONG_MSG_BITS)
@@ -649,7 +641,7 @@ extern global_data Modes;
  * When debug is set to `DEBUG_NOPREAMBLE', the first sample must be
  * at least greater than a given level for us to dump the signal.
  */
-#define DEBUG_NOPREAMBLE_LEVEL         25
+#define DEBUG_NOPREAMBLE_LEVEL     25
 
 /**
  * Timeout (milli-sec) for a screen refresh in interactive mode and
@@ -662,8 +654,8 @@ extern global_data Modes;
  * Set on addresses to indicate they are not ICAO addresses.
  * The 24-bit mask 0xFFFFFF is used to detect such an address.
  */
-#define MODES_NON_ICAO_ADDRESS  (1 << 24)
-#define MODES_ICAO_ADDRESS_MASK 0xFFFFFF
+#define MODES_NON_ICAO_ADDRESS   (1 << 24)
+#define MODES_ICAO_ADDRESS_MASK  0xFFFFFF
 
 /**
  * \typedef datasource_t
@@ -672,7 +664,7 @@ extern global_data Modes;
 typedef enum datasource_t {
         SOURCE_INVALID,        /**< data is not valid */
         SOURCE_MODE_AC,        /**< A/C message */
-        SOURCE_MLAT,           /**< derived from mlat */
+        SOURCE_MLAT,           /**< derived from MLAT */
         SOURCE_MODE_S,         /**< data from a Mode S message, no full CRC */
         SOURCE_MODE_S_CHECKED, /**< data from a Mode S message with full CRC */
         SOURCE_TISB,           /**< data from a TIS-B extended squitter message */
@@ -870,6 +862,7 @@ const char *win_strerror (DWORD err);
 const char *get_rtlsdr_error (int err);
 const char *qword_str (uint64_t val);
 const char *dword_str (DWORD val);
+
 void       *memdup (const void *from, size_t size);
 uint32_t    random_range (uint32_t min, uint32_t max);
 int32_t     random_range2 (int32_t min, int32_t max);
@@ -899,7 +892,7 @@ uint32_t    mg_unhex  (const char *str);
 uint32_t    mg_unhexn (const char *str, size_t len);
 char       *mg_hex_lower (const void *buf, size_t len, char *to);
 char       *mg_hex_upper (const void *buf, size_t len, char *to);
-const char *hex_dump (const void *data, size_t len);
+const char *hex_string (const void *data, size_t len);
 
 /*
  * in `pconsole.c'. Not used yet.
