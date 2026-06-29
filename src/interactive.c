@@ -20,6 +20,7 @@
 #include "misc.h"
 #include "RTLSDR/rtl-sdr.h"
 #include "AirSpy/airspy.h"
+#include "GNS-Hulc/gns-hulc.h"
 #include "SDRplay/sdrplay.h"
 
 #undef MOUSE_MOVED
@@ -530,12 +531,12 @@ static void test_utf8 (void)
                                   "FLOw: '%s'\n", KEFw, FLOw);
   y += 2;
 
-  (*api->print_wformat) (0, y++, L"Wide:  %-20.20s: %S", KEFw, hex_dump(KEFw, 2*wcslen(KEFw)));
-  (*api->print_wformat) (0, y++, L"Wide:  %-20.20s: %S", FLOw, hex_dump(FLOw, 2*wcslen(FLOw)));
+  (*api->print_wformat) (0, y++, L"Wide:  %-20.20s: %S", KEFw, hex_string(KEFw, 2*wcslen(KEFw)));
+  (*api->print_wformat) (0, y++, L"Wide:  %-20.20s: %S", FLOw, hex_string(FLOw, 2*wcslen(FLOw)));
 
   y++;
-  (*api->print_format) (0, y++, "ASCII: %-20.20s: %s", KEFa, hex_dump(KEFa, strlen(KEFa)));
-  (*api->print_format) (0, y++, "ASCII: %-20.20s: %s", FLOa, hex_dump(FLOa, strlen(FLOa)));
+  (*api->print_format) (0, y++, "ASCII: %-20.20s: %s", KEFa, hex_string(KEFa, strlen(KEFa)));
+  (*api->print_format) (0, y++, "ASCII: %-20.20s: %s", FLOa, hex_string(FLOa, strlen(FLOa)));
   (*api->gotoxy) (0, y+1);
 
   (void) ok;
@@ -693,7 +694,8 @@ static int interactive_phys_stats (const char *silent)
   static char    *overload = GAIN_ERASE;
   uint64_t        good_CRC = Modes.stat.CRC_good + Modes.stat.CRC_fixed;
   uint64_t        bad_CRC  = Modes.stat.CRC_bad;
-  const char     *dev = Modes.rtl_tcp_in ? net_handler_url(MODES_NET_SERVICE_RTL_TCP) : Modes.selected_dev;
+  const char     *dev = Modes.rtl_tcp_in ? net_handler_url (MODES_NET_SERVICE_RTL_TCP) :
+                                           Modes.selected_dev;
 
   if (Modes.gain_auto)
        strcpy (gain, "Auto");
@@ -729,11 +731,31 @@ static int interactive_phys_stats (const char *silent)
  * the Console Window Title.
  *
  * Called from `background_tasks()` in the main thread.
- * Show special statistics for RAW-IN / SBS.
+ * Show special statistics for RAW-IN / SBS / GNS-HULC.
  */
 int interactive_title_stats (void)
 {
   const char *silent = (Modes.silent && !Modes.interactive) ? "SILENT-MODE, " : "";
+
+  if (Modes.gns_hulc.handle)
+  {
+    pos_t pos;
+    int   num, altitude;
+    char  GPS_info [100];
+    char  counters [100];
+
+    snprintf (counters, sizeof(counters), "%llu / %llu / %llu",
+              gns_hulc_too_short(), gns_hulc_junk(), gns_hulc_unknown());
+
+    if (gns_hulc_gps_info(&pos, &altitude, &num, NULL))
+         snprintf (GPS_info, sizeof(GPS_info), "%.06lf %s / %.06lf %s, alt: %d, num: %d",
+                   fabs(pos.lon), pos.lon > 0.0 ? "E" : "W",
+                   fabs(pos.lat), pos.lat > 0.0 ? "N" : "S", altitude, num);
+    else strcpy (GPS_info, "no fix");
+
+    return modeS_SetConsoleTitlef ("%sDev: %s, GPS: %s (%s)",
+                                   silent, Modes.gns_hulc.name, GPS_info, counters);
+  }
 
   if (PHYS_DEVICE() || Modes.rtl_tcp_in)
      return interactive_phys_stats (silent);
