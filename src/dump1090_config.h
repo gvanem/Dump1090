@@ -74,6 +74,12 @@
   #pragma warning (disable: 4102)
 
   /*
+   * externals/mongoose.c(20785,15): warning C4146:
+   *   unary minus operator applied to unsigned type, result still unsigned
+   */
+  #pragma warning (disable: 4146)
+
+  /*
    * misc.c(524): warning C4152: nonstandard extension,
    *   function/data pointer conversion in expression
    */
@@ -252,7 +258,6 @@
 #define MG_ENABLE_ASSERT        1  /* Enable `assert()` calls */
 #define MG_ENABLE_IPV6          1  /* Enable IPv6 */
 #define MG_ENABLE_MD5           0  /* No need for MD5 code */
-#define MG_ENABLE_FILE          1  /* For `opendir()` etc. */
 #define MG_ENABLE_DIRLIST       0  /* No need for directory listings in HTTP */
 #define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
 #define MG_TLS                  3  /* Enable MG_TLS_BUILTIN code */
