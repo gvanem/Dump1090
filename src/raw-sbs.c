@@ -10,17 +10,8 @@
  * \def LOG_RAW_GOOD()
  * if `--debug R` is active, log a good RAW message.
  */
-#if defined(__MINGW64__)
-  #define LOG_RAW_GOOD(fmt, ...)    do {                                               \
-                                      if (Modes.debug & DEBUG_RAW_SBS2)                \
-                                         modeS_flogf (stdout, "%s(%u): RAW(%d): " fmt, \
-                                              __FILE__, __LINE__, loop_cnt,            \
-                                              ## __VA_ARGS__);                         \
-                                    } while (0)
-#else
-  #define LOG_RAW_GOOD(fmt, ...)   DEBUG (DEBUG_RAW_SBS2, "RAW(%d): " fmt, \
-                                          loop_cnt, __VA_ARGS__)
-#endif
+#define LOG_RAW_GOOD(fmt, ...)   DEBUG (DEBUG_RAW_SBS2, "RAW(%d): " fmt, \
+                                        loop_cnt, __VA_ARGS__)
 
 /**
  * \def LOG_RAW_BAD()
@@ -208,7 +199,7 @@ bool raw_decode_message (mg_iobuf *msg, int loop_cnt)
    */
   if (!strcmp((const char*)hex, RAW_HEART_BEAT))
   {
-    LOG_RAW_GOOD ("Got heart-beat signal\n");
+    LOG_RAW_GOOD ("%s", "Got heart-beat signal\n");
     Modes.stat.RAW_heartbeat++;
     Modes.stat.RAW_good++;
     mg_iobuf_del (msg, 0, msg->len);
@@ -280,8 +271,7 @@ bool raw_decode_message (mg_iobuf *msg, int loop_cnt)
 
   mg_iobuf_del (msg, 0, end - msg->buf);
 
-  decode_mode_S_message (&mm, bin_msg);
-  if (mm.CRC_ok)
+  if (decode_mode_S_message(&mm, bin_msg) == 0)
      modeS_user_message (&mm);
   return (true);
 }
