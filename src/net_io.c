@@ -14,8 +14,11 @@
 #include "net_io.h"
 #include "RTLSDR/rtl-sdr.h"
 #include "RTLSDR/rtl-tcp.h"
-#include "server-cert-key.h"
-#include "client-cert-key.h"
+
+#if !(MG_TLS == MG_TLS_NONE || MG_TLS != MG_TLS_BUILTIN)
+  #include "server-cert-key.h"
+  #include "client-cert-key.h"
+#endif
 
 #ifndef USE_MG_DNS
 #define USE_MG_DNS 0
@@ -1906,6 +1909,9 @@ static size_t deny_list_num6 (void)
  * \todo
  * Figure out if `*addr` is inside our LAN.
  * Need to obtain the netmask for correct adapter for this check.
+ *
+ * Maybe use `GetAdapterOrderMap()` and call `GetAdaptersInfo()` for
+ * the highest priority adapter.
  */
 static bool client_on_LAN (const mg_addr *addr)
 {
@@ -3182,15 +3188,17 @@ bool net_init (void)
 #if defined(USE_PACKED_DLL)
     touch_web_dll();
 #endif
-#if MG_ENABLE_FILE
     touch_dir (Modes.web_root, true);
-#endif
   }
 
   /**
-   * This also set defaults for
+   * mg_mgr_init() set defaults for
    * `Modes.mgr.dns4.url` and `Modes.mgr.dns6.url`
    * which could be set to something else via `net_init_dns()`.
+   *
+   * It has these defaults:
+   *   \li Modes.mgr.dns4.url == udp://8.8.8.8:53
+   *   \li Modes.mgr.dns6.url == udp://[2001:4860:4860::8888]:53
    */
   mg_mgr_init (&Modes.mgr);
 
