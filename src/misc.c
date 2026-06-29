@@ -1065,7 +1065,6 @@ FILE *fopen_excl (const char *file, const char *mode)
   return _fdopen (fd, mode);
 }
 
-#if MG_ENABLE_FILE
 /*
  * Internals of 'externals/mongoose.c':
  */
@@ -1122,7 +1121,6 @@ int touch_dir (const char *directory, bool recurse)
   closedir (dir);
   return (rc);
 }
-#endif /* MG_ENABLE_FILE */
 
 /**
  * \def DELTA_EPOCH_IN_USEC
@@ -1169,7 +1167,7 @@ int _gettimeofday (struct timeval *tv, void *timezone)
   return (0);
 }
 
-#ifdef NOT_USED
+#if defined(NOT_USED_YET)
 /*
  * Not used but leave it in.
  */
@@ -1538,6 +1536,38 @@ void *memdup (const void *from, size_t size)
   return (NULL);
 }
 
+#if defined(NOT_USED_YET)
+/**
+ * Locate a substring.
+ *
+ * The `memmem()` function finds the start of the first occurrence
+ * of the substring `needle` of length `needle_len` in the memory area
+ * `haystack` of length `haystack_len`.
+ *
+ * Taken from Ettercap and modified.
+ */
+void *memmem (const void *haystack, size_t haystack_len,
+              const void *needle,   size_t needle_len)
+{
+  const char *_needle   = needle;
+  const char *_haystack = haystack;
+  size_t i;
+
+  /* An empty needle matches the haystack
+   */
+  if (needle_len == 0)
+     return (void*) _haystack;
+
+  for (i = 0; (i < haystack_len) && (i + needle_len <= haystack_len); i++)
+  {
+    if (_haystack[i] == *_needle)            /* first match */
+       if (!memcmp(&_haystack[i] + 1, _needle + 1, needle_len - 1))
+          return (void*) (_haystack + i);    /* returns a pointer to the substring */
+  }
+  return (NULL);  /* not found */
+}
+#endif
+
 /**
  * Print some details about the Sqlite3 package.
  */
@@ -1596,12 +1626,10 @@ const char *compiler_info (void)
   return (buf);
 }
 
-#if defined(MG_ENABLE_SELECT)
-  #define NETPOLLER  "select()"
-#elif defined(MG_ENABLE_POLL)
+#if defined(MG_ENABLE_POLL)
   #define NETPOLLER  "WSAPoll()"
 #else
-  #error "Cannot define 'NETPOLLER'?!"
+  #define NETPOLLER  "select()"
 #endif
 
 static const char *build_features (void)
@@ -1626,6 +1654,9 @@ static const char *build_features (void)
   #endif
   #if defined(USE_PACKED_DLL)
     "Packed-Web",
+  #endif
+  #if defined(USE_SDRCONNECT)
+    "SDRConnect",
   #endif
     "NETPOLLER=" NETPOLLER,
     NULL
@@ -1656,7 +1687,7 @@ const char *__asan_default_options (void)
 
   printf ("%s() called\n", __func__);
   if (!done)
-      asan_options = getenv ("ASAN_OPTIONS");
+     asan_options = getenv ("ASAN_OPTIONS");
   done = true;
   if (asan_options)
      return (asan_options);
@@ -2062,7 +2093,7 @@ int unload_dynamic_table (struct dyn_struct *tab, int tab_size)
   {
     if (tab->mod_handle)
        FreeLibrary (tab->mod_handle);
-    tab->mod_handle = 0;
+    tab->mod_handle = NULL;
     *tab->func_addr = NULL;
   }
   return (i);
@@ -3009,7 +3040,7 @@ char *mg_hex_upper (const void *buf, size_t len, char *to)
   return (to);
 }
 
-const char *hex_dump (const void *data, size_t len)
+const char *hex_string (const void *data, size_t len)
 {
   static char buf [1000];
   static char digits[] = "0123456789ABCDEF";
