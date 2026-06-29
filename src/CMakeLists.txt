@@ -68,6 +68,11 @@ include_directories (. ./externals ./externals/PDC-Mod)
 add_definitions (-DDOING_MSBUILD)
 
 #
+# Remove '-DNDEBUG' from a Release-build
+#
+string (REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+
+#
 # Forced include header:
 #
 if (MSVC)
