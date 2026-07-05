@@ -38,7 +38,7 @@ jobs:
           toolchain: stable
           profile: minimal
 
-      - name: Build Rust installer (setup.exe)
+      - name: Build setup wizard (setup.exe)
         working-directory: tools/setupwiz
         run: |
           cargo build --release
