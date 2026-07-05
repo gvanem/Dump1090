@@ -43,7 +43,7 @@ src/build
 /dump1090.exe
 /setup.exe
 
-# Rust build artifacts for installer
+# Rust build artifacts for setup wizard
 tools/setupwiz/target
 
 # CI artifacts
