@@ -38,3 +38,13 @@ doc8643Manufacturers.csv
 testfiles/modes1.bin.png
 waterfall/
 src/build
+
+# Ignore built release binaries
+/dump1090.exe
+/setup.exe
+
+# Rust build artifacts for installer
+tools/setupwiz/target
+
+# CI artifacts
+artifacts
