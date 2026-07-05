@@ -1,7 +1,7 @@
 /**
  * \file    dump1090.c
  * \ingroup Main
- * \brief   Dump1090, a Mode-S messages decoder for RTLSDR / SDRPlay devices.
+ * \brief   Dump1090 for Windows, a Mode-S messages decoder for RTLSDR / SDRPlay devices.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,7 +59,7 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
  * \addtogroup Samplers     SDR input functions
  * \addtogroup GNS-HULC     Serial-IO for a GNS-HULC device
  *
- * \mainpage Dump1090
+ * \mainpage Dump1090 for Windows
  *
  * # Introduction
  *
@@ -70,7 +70,7 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
  * The code for Osmocom's [**librtlsdr**](https://osmocom.org/projects/rtl-sdr/wiki) is built into this program.
  * Hence no dependency on *RTLSDR.DLL*.
  *
- * This *Mode S* decoder is based on the Dump1090 by *Salvatore Sanfilippo*.
+ * This *Mode S* decoder is based on the original Dump1090 by *Salvatore Sanfilippo*, adapted for Windows.
  *
  * ### Basic block-diagram:
  * \image html img/dump1090-diagram.drawio.png
@@ -3332,7 +3332,7 @@ static void show_help (const char *fmt, ...)
             "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `console', `cpr',\n"
             "                        `locale', `misc`, `me`, `net' or `*')\n"
             "  --update              Update missing or old \"*.csv\" files and exit.\n"
-            "  --version, -V, -VV    Show version info. `-VV' for details.\n"
+            "  --version, -v, -vv    Show version info. `-vv' for details.\n"
             "  --help, -h            Show this help.\n\n",
             Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP,
             GNS_HULC_DEFAULT_COMPORT, GNS_HULC_DEFAULT_COMPORT);
@@ -4168,7 +4168,7 @@ static struct option long_options[] = {
   { "strip",        required_argument,  NULL,               'S' },
   { "test",         required_argument,  NULL,               'T' },
   { "update",       no_argument,        NULL,               'u' },
-  { "version",      no_argument,        NULL,               'V' },
+  { "version",      no_argument,        NULL,               'v' },
   { NULL,           no_argument,        NULL,                0  }
 };
 
@@ -4177,7 +4177,7 @@ static bool parse_cmd_line (int argc, char **argv)
   int  c, show_ver = 0, idx = 0;
   bool rc = true;
 
-  while ((c = getopt_long (argc, argv, "+hs:?V", long_options, &idx)) != EOF)
+  while ((c = getopt_long (argc, argv, "+hs:?vV", long_options, &idx)) != EOF)
   {
     switch (c)
     {
@@ -4237,6 +4237,7 @@ static bool parse_cmd_line (int argc, char **argv)
            Modes.update = true;
            break;
 
+      case 'v':
       case 'V':
            show_ver++;
            break;
@@ -4245,6 +4246,7 @@ static bool parse_cmd_line (int argc, char **argv)
 
   if (show_ver > 0)
   {
+    mg_log_set (MG_LL_NONE);
     show_version_info (show_ver >= 2);
     rc = false;
   }

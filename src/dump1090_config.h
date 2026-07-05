@@ -7,9 +7,9 @@
  */
 #pragma once
 
-#define VER_MAJOR 0
-#define VER_MINOR 4
-#define VER_MICRO 9
+#define VER_MAJOR 1
+#define VER_MINOR 0
+#define VER_MICRO 0
 
 /**
  * Warning control:
@@ -173,6 +173,7 @@
 #define _STR2(x)  #x
 #define _STR(x)   _STR2(x)
 
+#define PROG_NAME     "Dump1090 for Windows"
 #define PROG_VERSION  _STR(VER_MAJOR) "." _STR(VER_MINOR) "." _STR(VER_MICRO)
 
 /**

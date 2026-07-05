@@ -443,7 +443,7 @@ else
 endif
 
 all: $(GENERATED) $(TARGETS) DLL_copy
-	$(call green_msg, Welcome to Dump1090.)
+	$(call green_msg, Welcome to Dump1090 for Windows.)
 
 $(OBJ_DIR) doxy-docs:
 	- mkdir $@
@@ -830,7 +830,7 @@ DOXY_HEADERS = ../aircraft.h                       \
 
 define DUMP1090_DOXYFILE
 
-  PROJECT_NAME          = "Dump1090"
+  PROJECT_NAME          = "Dump1090 for Windows"
   PROJECT_LOGO          = ../dump1090.ico
   STRIP_FROM_PATH       = $(CURDIR)/
   OPTIMIZE_OUTPUT_FOR_C = yes

@@ -1978,8 +1978,8 @@ static void print_BIN_files (void)
  */
 void show_version_info (bool verbose)
 {
-  printf ("dump1090 ver: %s (%s, %s).\n"
-          "Built on %s.\n", PROG_VERSION, compiler_info(), build_features(),
+  printf ("%s ver: %s (%s, %s).\n"
+          "Built on %s.\n", PROG_NAME, PROG_VERSION, compiler_info(), build_features(),
           __DATE__str());
 
   if (verbose)

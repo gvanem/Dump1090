@@ -22,9 +22,9 @@ BEGIN
     BLOCK "040904b0"
     BEGIN
       VALUE "CompanyName",      "https://github.com/gvanem/Dump1090"
-      VALUE "FileDescription",  "A simple ADS-B receiver, decoder and web-server."
+      VALUE "FileDescription",  "Dump1090 for Windows, a simple ADS-B receiver, decoder and web-server."
       VALUE "FileVersion",      RC_VER_STRING
-      VALUE "InternalName",     "Dump1090"
+      VALUE "InternalName",     "Dump1090 for Windows"
 #ifdef RC_BUILD_FEATURES
       VALUE "SpecialBuild",     RC_BUILD_FEATURES
 #endif
@@ -32,7 +32,7 @@ BEGIN
                                 "                        Copyright (c) 2021-2026 Gisle Vanem"
       VALUE "LegalTrademarks",  "MIT License "
       VALUE "OriginalFilename", "dump1090.exe"
-      VALUE "ProductName",      "Dump1090"
+      VALUE "ProductName",      "Dump1090 for Windows"
       VALUE "ProductVersion",   RC_VER_STRING
     END
   END
@@ -54,8 +54,8 @@ END
   BEGIN
     "<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>"
     "<assembly xmlns=""urn:schemas-microsoft-com:asm.v1"" manifestVersion=""1.0"">"
-      "<assemblyIdentity type=""win32"" name=""Dump1090"" version="""
-        _STR(VER_MAJOR) "." _STR(VER_MINOR) "." _STR(VER_MICRO) ".0"" />"
+        "<assemblyIdentity type=""win32"" name=""Dump1090 for Windows"" version="""
+          _STR(VER_MAJOR) "." _STR(VER_MINOR) "." _STR(VER_MICRO) ".0"" />"
       "<application>"
         "<windowsSettings>"
           "<activeCodePage xmlns=""http://schemas.microsoft.com/SMI/2019/WindowsSettings"">UTF-8</activeCodePage>"
