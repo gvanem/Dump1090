@@ -113,7 +113,7 @@ void demod_2400_AC (const mag_buf *mag)
      unsigned f2_clock = f1_clock + (87 * 14);
      unsigned f2_sample = f2_clock / 25;
 
-     assert(f2_sample < mlen + mag->overlap);
+     assert (f2_sample < mlen + mag->overlap);
 
      if (!(m[f2_sample-1] < m[f2_sample+0]))
         continue;
@@ -188,7 +188,7 @@ void demod_2400_AC (const mag_buf *mag)
      /* Convert to the form that we use elsewhere:
       *  00 A4 A2 A1  00 B4 B2 B1  SPI C4 C2 C1  00 D4 D2 D1
       */
-     unsigned modeac =
+     unsigned mode_ac =
          ((bits & 0x40000) ? 0x0010 : 0) |  /* C1 */
          ((bits & 0x20000) ? 0x1000 : 0) |  /* A1 */
          ((bits & 0x10000) ? 0x0020 : 0) |  /* C2 */
@@ -217,7 +217,7 @@ void demod_2400_AC (const mag_buf *mag)
       Modes.stat.valid_preamble++;
       Modes.stat.demod_modeac++;
 
-      decode_mode_A_message (&mm, modeac);
+      decode_mode_A_message (&mm, mode_ac);
 
       /* Pass data to the next layer
        */
