@@ -745,8 +745,7 @@ int interactive_title_stats (void)
     char  counters [100] = "";
 
     if (Modes.debug & DEBUG_GNS_HULC)
-       snprintf (counters, sizeof(counters), " (%llu / %llu / %llu)",
-                 gns_hulc_too_short(), gns_hulc_junk(), gns_hulc_unknown());
+       snprintf (counters, sizeof(counters), " (%llu / %llu)", gns_hulc_too_short(), gns_hulc_junk());
 
     if (gns_hulc_gps_info(&pos, &altitude, &num, NULL))
          snprintf (GPS_info, sizeof(GPS_info), "%.06lf %s / %.06lf %s, alt: %d, num: %d",
