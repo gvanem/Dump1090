@@ -128,6 +128,15 @@ or:
 
 But these devices does not work correctly yet.
 
+To use a **GNS-Hulc ADS-B** Smart Antenna from [**GNS Electronics**](https://www.gns-electronics.de/product/ads-b-hulc-m-diy-kit/),
+use:
+  ```
+  c:\dev\Dump1090> dump1090 --device gns-hulc4
+  ```
+
+Assuming it is attached to `COM4`. This device works very well.
+
+
   Example output:
   ```
   Tuned to 1090.000 MHz. Gain reported by device: AUTO.
