@@ -21,7 +21,7 @@
 
 /**
  * \def COM_KEY_NAME
- * The HKLM Registry bracnh for Serial-COM to Device mapping
+ * The HKLM Registry branch for Serial-COM to Device mapping
  */
 #define COM_KEY_NAME   "Hardware\\Devicemap\\SerialCOMM"
 
@@ -31,6 +31,12 @@
  */
 #define COM_RX_SIZE  g_data.sio_buf_size
 
+/**
+ * \def IOBUF_SIZE
+ * Default size for g_data.sio_buf_size
+ */
+#define IOBUF_SIZE         2048
+
 /*
  * Largest message assuming all bytes were "stuffed" (0x1A, 0x1A).
  * And add some slack:
@@ -38,6 +44,12 @@
  *   0x1A, 0x48, 0x01, <len>
  */
 #define RX_MAX_SIZE ((2 * sizeof(status_msg)) + 20)
+
+/**
+ * \def PKT_MIN_SIZE
+ * The minimum size of a packet should be 14 (7 + 7) bytes.
+ */
+#define RX_MIN_SIZE (sizeof(header_32_33) + MODES_SHORT_MSG_BYTES)
 
 /**
  * \def WHICH_THREAD()
@@ -67,18 +79,35 @@
                fmt, __LINE__, ## __VA_ARGS__);      \
         } while (0)
 
+/*
+ * For `DeviceIoControl (handle, IOCTL_SERIAL_GET_DTRRTS, ...)`
+ * in `gsn-serial.c`
+ */
+#ifndef IOCTL_SERIAL_GET_DTRRTS
+#define IOCTL_SERIAL_GET_DTRRTS   CTL_CODE (FILE_DEVICE_SERIAL_PORT, 30, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#endif
+
+#ifndef SERIAL_DTR_STATE
+#define SERIAL_DTR_STATE ((DWORD)0x00000001)
+#endif
+
+#ifndef SERIAL_RTS_STATE
+#define SERIAL_RTS_STATE ((DWORD)0x00000002)
+#endif
+
+
 /**
  * \typedef COM_settings
  * Settings for the COM-port
  */
 typedef struct COM_settings {
-        char       dev_name [256];    /**< The device-name; like `\\.\COM1` */
-        char       name_space [256];  /**< The Registry mapping of port; e.g. `COM1 -> \Device\VCP0` */
-        bool       port_set;          /**< `Modes.gns_hulc.port` was already set from `parse_cmd_line()` */
-        uint32_t   baud_rate;         /**< The port baudrate. Fixed at `COM_BAUD_RATE == 921600` */
-        uint16_t   RTS_ctrl;          /**< Default "Request-to-Send" control. Always enabled */
-        uint16_t   DTR_ctrl;          /**< Default "Data-Terminal-Ready" control. Always enabled */
-        uint32_t   dead_count;        /**< Consecutive number of `COM_read() == 0` */
+        char         dev_name [256];    /**< The device-name; like `\\.\COM1` */
+        char         name_space [256];  /**< The Registry mapping of port; e.g. `COM1 -> \Device\VCP0` */
+        bool         port_set;          /**< `Modes.gns_hulc.port` was already set from `parse_cmd_line()` */
+        uint32_t     baud_rate;         /**< The port baudrate. Fixed at `COM_BAUD_RATE == 921600` */
+        uint32_t     dead_count;        /**< Consecutive number of `COM_read() == 0` */
+        DCB          old_DCB;           /**< The initial Device Control Block */
+        COMMTIMEOUTS old_CTO;           /**< The initial COM timeouts */
       } COM_settings;
 
 #include <packon.h>
@@ -121,20 +150,6 @@ typedef struct header_32_33 {
 #include <packoff.h>
 
 /**
- * \def MODES_SHORT_SQ_SZ
- * For a  MODES_SHORT_SQ packet, the `header_32_33` is followed
- * by 7 byte of raw data.
- */
-#define MODES_SHORT_SQ_SZ 7
-
-/**
- * \def MODES_EXT_SQ_SZ
- * For a  MODES_EXT_SQ packet, the `header_32_33` is followed
- * by 14 byte of raw data.
- */
-#define MODES_EXT_EX_SZ 14
-
-/**
  * \typedef enum msg_types
  */
 typedef enum msg_types {
@@ -143,22 +158,6 @@ typedef enum msg_types {
         HULC_MSG_34    = 0x34,   /* What is this? */
         HULC_STATUS    = 0x48
       } msg_types;
-
-/**
- * \typedef RX_packet
- * What to add to `g_data.pkt_list`.
- */
-typedef struct RX_packet {
-        uint8_t           msg [RX_MAX_SIZE];
-        uint32_t          msg_marker;        /**< End-marker to detect overflow */
-        uint8_t           msg_type;          /**< enum msg_types */
-        uint32_t          msg_len;           /**< The length of msg */
-        uint32_t          unstuffed;         /**< Number of unstuffed x1A bytes in this packet */
-        double            usec;              /**< The micro-sec timestamp at enqueue */
-        struct RX_packet *next;
-      } RX_packet;
-
-#define MARKER_MAGIC 0xDEAFBABE
 
 /**
  * \typedef GPS_status
@@ -204,6 +203,10 @@ typedef struct GNS_stats {
         uint64_t  rx_packets_33;
         uint64_t  rx_packets_34;
         uint64_t  rx_packets_48;
+        uint64_t  rx_unstuffed_32;
+        uint64_t  rx_unstuffed_33;
+        uint64_t  rx_unstuffed_34;
+        uint64_t  rx_unstuffed_48;
         uint64_t  rx_packets_unknown;
         uint64_t  tx_bytes;
         uint64_t  tx_packets;
@@ -216,18 +219,31 @@ typedef struct GNS_stats {
         uint64_t  pkt_OOM;
         uint64_t  pkt_too_big;
         uint64_t  pkt_too_short;
+        uint64_t  pkt_too_short_bytes;
         uint64_t  pkt_list_sleep;      /**< Count of `Sleep()` calls in `gns_hulc_poll()` */
-        uint64_t  pkt_unstuffed;       /**< Count of unstuffed packets */
-        uint64_t  old_data_cnt;        /**< Count of processing old-data in `hulc_read()` */
-        uint64_t  pkt_bad_marker;      /**< Count of destroyed `g_data.pkt_current.msg_marker` */
+        uint64_t  mode_S_errors;       /**< Count of errors from `decode_mode_S_message()` */
+        uint64_t  GPS_fix_lost;
+        uint64_t  GPS_fix_regained;
         uint32_t  pkt_max_len;         /**< Maximum number of enqueued packets to `g_data.pkt_list` */
-        uint32_t  mode_S_errors;       /**< Count of errors from `decode_mode_S_message()` */
       } GNS_statistics;
 
 /**
  * \typedef state_func
+ * The state-machine function used in `hulc_read()`.
  */
-typedef void (*state_func) (uint8_t ch);
+typedef void (*state_func) (uint8_t ch, int idx);
+
+/**
+ * \typedef RX_packet
+ * What to add to `g_data.pkt_list`.
+ */
+typedef struct RX_packet {
+        uint8_t           msg [RX_MAX_SIZE];
+        uint8_t           msg_type;          /**< enum msg_types */
+        uint32_t          msg_len;           /**< The length of msg */
+        double            usec;              /**< The micro-sec timestamp at enqueue */
+        struct RX_packet *next;
+      } RX_packet;
 
 
 /**
@@ -243,13 +259,14 @@ typedef struct GNS_priv {
         int              old_ch;         /**< Previous `ch` in `hulc_read()` */
         bool             got_x1A;        /**< Have we got the first 0x1A sync-byte? */
         state_func       state;          /**< Current FSM-state function */
-
-        RX_packet        pkt_current;    /**< Current packet we're processing */
-        RX_packet       *pkt_list;       /**< Linked-list of `enum msg_types` packets. \todo make it a fixed-size list */
-        const char      *pkt_junk;      /**< To track junk-data in the `decode_msg_x()` functions */
         CRITICAL_SECTION crit;           /**< For accessing `pkt_list` from 2 threads */
 
-//      parser_cfg       parser;
+        RX_packet        pkt_current;    /**< The packet we're processing now */
+        RX_packet       *pkt_list;       /**< Linked-list of packets. \todo make it a fixed-size list */
+        const char      *pkt_junk;       /**< To track junk-data in the `decode_msg_x()` functions */
+        FILE            *hex_file;       /**< Files for debugging */
+        FILE            *gps_file;
+
         GPS_status       GPS;
         COM_settings     COM;
         Beast_settings   Beast;
@@ -258,7 +275,8 @@ typedef struct GNS_priv {
 
 extern GNS_priv g_data;
 
-bool COM_setup (HANDLE handle);
+bool COM_init  (HANDLE handle);
+void COM_exit  (HANDLE handle);
 int  COM_read  (HANDLE hnd, uint8_t *data, size_t len);
 int  COM_write (HANDLE hnd, const uint8_t *data, size_t len);
 

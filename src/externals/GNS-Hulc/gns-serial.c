@@ -11,7 +11,7 @@
 /**
  * Setup the serial line baudrate, flowcontrol, parity etc.
  */
-bool COM_setup (HANDLE handle)
+bool COM_init (HANDLE handle)
 {
   COMMPROP     comprop;
   COMSTAT      comstat;
@@ -20,11 +20,18 @@ bool COM_setup (HANDLE handle)
   DWORD        mask;
 
   memset (&comprop, '\0', sizeof(comprop));
+//comprop.wPacketLength = sizeof(commprop));
+//comprop.dwProvSpec1   = COMMPROP_INITIALIZED;
   if (!GetCommProperties(handle, &comprop))
   {
     LOG_STDERR ("GetCommProperties() failed: %s\n", win_strerror(GetLastError()));
     return (false);
   }
+  DEBUG1 ("comprop.dwProvSubType:      %08lX\n", comprop.dwProvSubType);
+  DEBUG1 ("comprop.dwProvCapabilities: %08lX\n", comprop.dwProvCapabilities);
+  DEBUG1 ("comprop.dwSettableParams:   %08lX\n", comprop.dwSettableParams);
+  DEBUG1 ("comprop.dwCurrentRxQueue:   %lu\n",   comprop.dwCurrentRxQueue);
+  DEBUG1 ("comprop.dwCurrentTxQueue:   %lu\n",   comprop.dwCurrentTxQueue);
 
   memset (&comstat, '\0', sizeof(comstat));
   if (!ClearCommError(handle, NULL, &comstat))
@@ -33,26 +40,26 @@ bool COM_setup (HANDLE handle)
     return (false);
   }
 
-  DEBUG2 ("comstat.fCtsHold:   %d\n", comstat.fCtsHold);
-  DEBUG2 ("comstat.fDsrHold:   %d\n", comstat.fDsrHold);
-  DEBUG2 ("comstat.fRlsdHold:  %d\n", comstat.fRlsdHold);
-  DEBUG2 ("comstat.fEof:       %d\n", comstat.fEof);
-  DEBUG2 ("comstat.fTxim:      %d\n", comstat.fTxim);
+  DEBUG1 ("comstat.fCtsHold:   %d\n", comstat.fCtsHold);
+  DEBUG1 ("comstat.fDsrHold:   %d\n", comstat.fDsrHold);
+  DEBUG1 ("comstat.fRlsdHold:  %d\n", comstat.fRlsdHold);
+  DEBUG1 ("comstat.fEof:       %d\n", comstat.fEof);
+  DEBUG1 ("comstat.fTxim:      %d\n", comstat.fTxim);
 
   /* Setup baudrate and other communication settings
    */
   memset (&dcb, '\0', sizeof(dcb));
+  dcb.DCBlength = sizeof(dcb);
+
   if (!GetCommState(handle, &dcb))
   {
     LOG_STDERR ("GetCommState() failed: %s\n", win_strerror(GetLastError()));
     return (false);
   }
 
-#if 0 // todo
-  snprintf (dcb_spec, sizeof(dcb_spec), "baud=%d parity=%c data=%d stop=%d",
-            baud, parity, databits, stopbits);
-  BuildCommDCB (dcb_spec, &dcb);
-#endif
+  /* Save for COM_exit()
+   */
+  memcpy (&g_data.COM.old_DCB, &dcb, sizeof(g_data.COM.old_DCB));
 
   /* Set the new data
    */
@@ -62,12 +69,14 @@ bool COM_setup (HANDLE handle)
   dcb.StopBits  = ONESTOPBIT;
   dcb.Parity    = NOPARITY;
   dcb.fParity   = 0;
+  dcb.fNull     = FALSE;
   dcb.fBinary   = TRUE;
 
   /* Set RTS + DTR flow-control
    */
-  dcb.fRtsControl  = g_data.COM.RTS_ctrl;
-  dcb.fDtrControl  = g_data.COM.DTR_ctrl;
+  dcb.fRtsControl  = RTS_CONTROL_ENABLE;  /* Or 'RTS_CONTROL_HANDSHAKE'? */
+  dcb.fDtrControl  = DTR_CONTROL_ENABLE;  /* Or 'DTR_CONTROL_HANDSHAKE'? */
+//dcb.fDsrSensitivity = TRUE;
   dcb.fOutxDsrFlow = TRUE;
 
   /* Set the new DCB structure
@@ -81,11 +90,24 @@ bool COM_setup (HANDLE handle)
   memset (&cto, '\0', sizeof(cto));
   GetCommTimeouts (handle, &cto);
 
-  /* Change read/write timeout
+  /* Save for COM_exit()
    */
+  memcpy (&g_data.COM.old_CTO, &cto, sizeof(g_data.COM.old_CTO));
+
+  /* Change read timeout
+   */
+#if 0
   cto.ReadIntervalTimeout        = 1;
   cto.ReadTotalTimeoutMultiplier = 0;
   cto.ReadTotalTimeoutConstant   = 1;
+#else
+  cto.ReadIntervalTimeout        = MAXDWORD;
+//cto.ReadTotalTimeoutMultiplier = MAXDWORD;
+//cto.ReadTotalTimeoutConstant   = GNS_HULC_SLEEP / 2;
+#endif
+
+  cto.WriteTotalTimeoutMultiplier = 1000;
+  cto.WriteTotalTimeoutConstant   = 1000;
 
   if (!SetCommTimeouts(handle, &cto))
   {
@@ -111,32 +133,36 @@ bool COM_setup (HANDLE handle)
     return (false);
   }
 
-  DWORD bits = 0;
+  DWORD bits1 = 0;
+  DWORD bits2 = 0;
+  DWORD bytes = 0;
+  char bits_str [200] = "";
 
-  if (!GetCommModemStatus(handle, &bits))
+  GetCommModemStatus (handle, &bits1);
+
+  if (bits1 & MS_CTS_ON)
+     strcat_s (bits_str, sizeof(bits_str), "SP_SIG_CTS|");
+  if (bits1 & MS_DSR_ON)
+     strcat_s (bits_str, sizeof(bits_str), "SP_SIG_DSR|");
+  if (bits1 & MS_RLSD_ON)
+     strcat_s (bits_str, sizeof(bits_str), "SP_SIG_DCD|");
+  if (bits1 & MS_RING_ON)
+     strcat_s (bits_str, sizeof(bits_str), "SP_SIG_RI|");
+
+  if (DeviceIoControl(handle, IOCTL_SERIAL_GET_DTRRTS, NULL, 0,
+                      &bits2, sizeof(bits2), &bytes, NULL))
   {
-    LOG_STDERR ("GetCommModemStatus() failed: %s\n", win_strerror(GetLastError()));
- // return (false);  /* Ignore this error */
+    if (bits2 & SERIAL_DTR_STATE)
+       strcat_s (bits_str, sizeof(bits_str), "DTR_STATE|");
+    if (bits2 & SERIAL_RTS_STATE)
+       strcat_s (bits_str, sizeof(bits_str), "RTS_STATE|");
   }
-  else
-  {
-    char bits_str [100] = "";
 
-    if (bits & MS_CTS_ON)
-       strcat_s (bits_str, sizeof(bits_str), "SP_SIG_CTS|");
-    if (bits & MS_DSR_ON)
-       strcat_s (bits_str, sizeof(bits_str), "SP_SIG_DSR|");
-    if (bits & MS_RLSD_ON)
-       strcat_s (bits_str, sizeof(bits_str), "SP_SIG_DCD|");
-    if (bits & MS_RING_ON)
-       strcat_s (bits_str, sizeof(bits_str), "SP_SIG_RI|");
+  if (bits_str[0] == '\0')
+     strcpy (bits_str, "<none> ");
 
-     if (bits_str[0] == '\0')
-        strcpy (bits_str, "<none> ");
-
-     DEBUG2 ("GetCommModemStatus():            %.*s\n",
-            (int)strlen(bits_str) - 1, bits_str);
-  }
+  DEBUG1 ("GetCommModemStatus():            %.*s\n",
+          (int)strlen(bits_str) - 1, bits_str);
 
   /* Flush the port and it's I/O buffers just in case
    */
@@ -144,6 +170,23 @@ bool COM_setup (HANDLE handle)
   FlushFileBuffers (handle);
 
   return (true);
+}
+
+/**
+ * Restore the startup DCB + CTO if known.
+ */
+void COM_exit (HANDLE hnd)
+{
+  if (hnd && hnd != INVALID_HANDLE_VALUE && g_data.COM.old_DCB.DCBlength > 0)
+  {
+    if (!SetCommTimeouts(hnd, &g_data.COM.old_CTO))
+       LOG_STDERR ("SetCommTimeouts() failed: %s\n", win_strerror(GetLastError()));
+
+    if (!SetCommState(hnd, &g_data.COM.old_DCB))
+       LOG_STDERR ("SetCommState() failed: %s\n", win_strerror(GetLastError()));
+  }
+  memset (&g_data.COM.old_DCB, '\0', sizeof(g_data.COM.old_DCB));
+  memset (&g_data.COM.old_CTO, '\0', sizeof(g_data.COM.old_CTO));
 }
 
 /**
@@ -189,78 +232,3 @@ int COM_write (HANDLE hnd, const uint8_t *data, size_t len)
   g_data.stat.tx_bytes += bytes;
   return (bytes);
 }
-
-#if 0
-/**
- * Fill up `g_data.sio_buf` with fresh data
- */
-static int COM_fill_buf (void)
-{
-  int    len = 0;
-  size_t space;
-
-  /* Contiguous free space in g_data.sio_buf[]
-   */
-  if (g_data.rx_head < g_data.rx_tail)
-       space = (g_data.rx_tail - g_data.rx_head);
-  else if (g_data.rx_tail > 0)
-       space = COM_RX_SIZE - g_data.rx_head;
-  else space = COM_RX_SIZE - g_data.rx_head;
-
-  assert (space >= 0 && space <= COM_RX_SIZE);
-
-  if (space > 0)
-  {
-    size_t   head, old_rx_head, i;
-    uint8_t *rx_buf = alloca (COM_RX_SIZE);
-
-    len = COM_read (Modes.gns_hulc.handle, rx_buf, space);
-    if (len < 0)
-    {
-      Modes.exit = true;
-      return (-1);
-    }
-
-    /* Copy 'rx_buf[]' into 'g_data.sio_buf + g_data.rx_head' one byte at a time.
-     * Update the rx-buf head as we go along.
-     * The inverse of COM_getch().
-     */
-    head = g_data.rx_head + space;
-    old_rx_head = head;
-
-    for (i = 0; i < len; i++, head++)
-    {
-      if (head >= COM_RX_SIZE)
-         head -= COM_RX_SIZE;
-      g_data.sio_buf [head] = rx_buf [i];
-    }
-
-    g_data.rx_head = head;
-    DEBUG1 ("ch: --, %s(): space: %zd, old_rx_head: %zd, rx_head: %zd\n", __FUNCTION__, space, old_rx_head, g_data.rx_head);
-  }
-  return (len);
-}
-
-int COM_getch (void)
-{
-  int rc;
-
-  if (g_data.rx_head != g_data.rx_tail)
-  {
-    rc = g_data.sio_buf [g_data.rx_tail++];
-    if (g_data.rx_tail >= COM_RX_SIZE)
-       g_data.rx_tail = 0;
-  }
-  else
-  {
-    rc = COM_fill_buf();
-    if (rc > 0)
-          g_data.rx_head = rc;
-     else return (-1);   /* sio_buf[] still empty */
-  }
-
-   // ... etc.
-
-  return (rc);
-}
-#endif  // 0

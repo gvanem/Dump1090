@@ -40,5 +40,3 @@ bool     gns_hulc_gps_detected (void);
 bool     gns_hulc_gps_enabled (void);
 uint64_t gns_hulc_junk (void);
 uint64_t gns_hulc_too_short (void);
-uint64_t gns_hulc_too_big (void);
-uint64_t gns_hulc_unknown (void);
