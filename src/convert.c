@@ -7,17 +7,20 @@
 #include "convert.h"
 #include "misc.h"
 
+#define ASSERT_LUT8()  assert (Modes.mag_lut); \
+                       assert (Modes.mag_lut_size >= (128 * 128))
+
 static void convert_uc8_nodc_nopower (const void    *iq_data,
                                       uint16_t      *mag_data,
                                       unsigned       nsamples,
                                       convert_state *state,
                                       double        *out_power)
 {
-  const uint16_t *in = iq_data;
-  unsigned        i;
+  const uint8_t *in = iq_data;
+  unsigned       i;
 
   MODES_NOTUSED (state);
-  assert (Modes.mag_lut);
+  ASSERT_LUT8();
 
   /* unroll this a bit
    */
@@ -46,13 +49,14 @@ static void convert_uc8_nodc_power (const void    *iq_data,
                                     convert_state *state,
                                     double        *out_power)
 {
-  const uint16_t *in = iq_data;
-  unsigned        i;
-  uint64_t        power = 0;
-  uint16_t        mag;
+  const uint8_t *in = iq_data;
+  unsigned       i;
+  uint64_t       power = 0;
+  uint16_t       mag;
+  uint8_t        I, Q;
 
   MODES_NOTUSED (state);
-  assert (Modes.mag_lut);
+  ASSERT_LUT8();
 
   /* unroll this a bit
    */
@@ -100,6 +104,9 @@ static void convert_uc8_nodc_power (const void    *iq_data,
 
   if (out_power)
      *out_power = power / 65535.0 / 65535.0;
+
+  (void) I;
+  (void) Q;
 }
 
 static void convert_uc8_generic (const void    *iq_data,
