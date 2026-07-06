@@ -13,17 +13,17 @@
 #include "demod.h"
 
 /**
- * This table is used to build the Mode A/C variable called ModeABits.
+ * This table is used to build the Mode A/C variable called mode_A_bits.
  * Each bit period is inspected, and if it's value exceeds the threshold limit,
- * then the value in this table is or-ed into ModeABits.
+ * then the value in this table is or-ed into mode_A_bits.
  *
- * At the end of message processing, ModeABits will be the decoded ModeA value.
+ * At the end of message processing, mode_A_bits will be the decoded ModeA value.
  *
  * We can also flag noise in bits that should be zeros - the xx bits. Noise in
- * these bits cause bits (31-16) in ModeABits to be set. Then at the end of message
+ * these bits cause bits (31-16) in mode_A_bits to be set. Then at the end of message
  * processing we can test for errors by looking at these bits.
  */
-static uint32_t ModeABitTable [24] = {
+static uint32_t mode_A_bit_table [24] = {
                 0x00000000,   // F1 = 1
                 0x00000010,   // C1
                 0x00001000,   // A1
@@ -51,15 +51,15 @@ static uint32_t ModeABitTable [24] = {
               };
 
 /**
- * This table is used to produce an error variable called ModeAErrs. Each
- * inter-bit period is inspected, and if it's value falls outside of the
- * expected range, then the value in this table is or-ed into ModeAErrs.
+ * This table is used to produce an error variable called mode_A_err.
+ * Each inter-bit period is inspected, and if it's value falls outside of the
+ * expected range, then the value in this table is or-ed into mode_A_err.
  *
- * At the end of message processing, ModeAErrs will indicate if we saw
+ * At the end of message processing, mode_A_err will indicate if we saw
  * any inter-bit anomalies, and the bits that are set will show which
  * bits had them.
  */
-static uint32_t ModeAMidTable [24] = {
+static uint32_t mode_A_mid_table [24] = {
                 0x80000000,   // F1 = 1  Set bit 31 if we see F1_C1  error
                 0x00000010,   // C1      Set bit  4 if we see C1_A1  error
                 0x00001000,   // A1      Set bit 12 if we see A1_C2  error
@@ -120,18 +120,19 @@ static uint32_t ModeAMidTable [24] = {
  * in two adjacent samples must be from the same pulse, so we can simply
  * add the values together..
  */
-static int detect_mode_A (uint16_t *m, modeS_message *mm)
+static int detect_mode_A (const uint16_t *m, modeS_message *mm)
 {
-  int j, lastBitWasOne;
-  int ModeABits = 0;
-  int ModeAErrs = 0;
-  int byte, bit;
-  int thisSample, lastBit, lastSpace = 0;
-  int m0, m1, m2, m3, mPhase;
-  int n0, n1, n2 ,n3;
-  int F1_sig, F1_noise;
-  int F2_sig, F2_noise;
-  int fSig, fNoise, fLevel, fLoLo;
+  int  j;
+  int  mode_A_bits = 0;
+  int  mode_A_err = 0;
+  int  byte, bit;
+  int  this_sample, last_bit, last_space = 0;
+  int  m0, m1, m2, m3, m_phase;
+  int  n0, n1, n2 ,n3;
+  int  F1_sig, F1_noise;
+  int  F2_sig, F2_noise;
+  int  F_sig, F_noise, F_level, F_lo_lo;
+  bool last_bit_was_1;
 
   /**
    * `m[0]` contains the energy from    0 ->  499 nS <br>
@@ -158,14 +159,14 @@ static int detect_mode_A (uint16_t *m, modeS_message *mm)
    * 0 - 0.5 - 0.5 - 0.
    * ```
    */
-  m0 = m[0];
-  m1 = m[1];
+  m0 = m [0];
+  m1 = m [1];
 
   if (m0 >= m1)   /* m1 *must* be bigger than m0 for this to be F1 */
      return (0);
 
-  m2 = m[2];
-  m3 = m[3];
+  m2 = m [2];
+  m3 = m [3];
 
   /* if (m2 <= m0), then assume the sample bob on (Phase == 0), so don't look at m3
    */
@@ -201,19 +202,20 @@ static int detect_mode_A (uint16_t *m, modeS_message *mm)
    * Our F1 is centered somewhere between samples m[1] and m[2]. We can guestimate where F2 is
    * by comparing the ratio of m1 and m2, and adding on 20.3 uS (40.6 samples)
    */
-  mPhase = ((m2 * 20) / (m1 + m2));
-  byte   = (mPhase + 812) / 20;
-  n0     = m[byte++]; n1 = m[byte++];
+  m_phase = ((m2 * 20) / (m1 + m2));
+  byte    = (m_phase + 812) / 20;
+  n0      = m [byte++];
+  n1      = m [byte++];
 
   if (n0 >= n1)   /* n1 *must* be bigger than n0 for this to be F2 */
      return (0);
 
-  n2 = m[byte++];
+  n2 = m [byte++];
 
   /* if the sample bob on (Phase == 0), don't look at n3
    */
-  if ((mPhase + 812) % 20)
-    n3 = m[byte++];
+  if ((m_phase + 812) % 20)
+    n3 = m [byte++];
   else
   {
     n3 = n2;
@@ -232,87 +234,90 @@ static int detect_mode_A (uint16_t *m, modeS_message *mm)
       F2_sig < (F2_noise << 2))            /* maximum allowable Sig/Noise ratio 4:1 */
     return (0);
 
-  fSig          = (F1_sig   + F2_sig)   >> 1;
-  fNoise        = (F1_noise + F2_noise) >> 1;
-  fLoLo         = fNoise    + (fSig >> 2);       /* 1/2 */
-  fLevel        = fNoise    + (fSig >> 1);
-  lastBitWasOne = 1;
-  lastBit       = F1_sig;
+  F_sig          = (F1_sig   + F2_sig)   >> 1;
+  F_noise        = (F1_noise + F2_noise) >> 1;
+  F_lo_lo        = F_noise   + (F_sig >> 2);       /* 1/2 */
+  F_level        = F_noise   + (F_sig >> 1);
+  last_bit_was_1 = true;
+  last_bit       = F1_sig;
 
-  /* Now step by a half ModeA bit, 0.725nS, which is 1.45 samples, which is 29/20
-   * No need to do bit 0 because we've already selected it as a valid F1
-   * Do several bits past the SPI to increase error rejection
+  /* Now step by a half ModeA bit, 0.725nS, which is 1.45 samples, which is 29/20.
+   * No need to do bit 0 because we've already selected it as a valid F1.
+   * Do several bits past the SPI to increase error rejection.
    */
-  for (j = 1, mPhase += 29; j < 48; mPhase += 29, j ++)
+  for (j = 1, m_phase += 29; j < 48; m_phase += 29, j ++)
   {
-    byte = 1 + (mPhase / 20);
+    byte = 1 + (m_phase / 20);
 
-    thisSample = m[byte] - fNoise;
-    if (mPhase % 20)                        /* If the bit is split over two samples.. */
-       thisSample += (m[byte+1] - fNoise);  /*   add in the second sample's energy */
+    this_sample = m [byte] - F_noise;
+    if (m_phase % 20)                         /* If the bit is split over two samples.. */
+       this_sample += (m[byte+1] - F_noise);  /*   add in the second sample's energy */
 
     /* If we're calculating a space value */
     if (j & 1)
-       lastSpace = thisSample;
+       last_space = this_sample;
 
     else
     {
       /* We're calculating a new bit value */
       bit = j >> 1;
-      if (thisSample >= fLevel)
+      if (this_sample >= F_level)
       {
         /* We're calculating a new bit value, and its a one */
-        ModeABits |= ModeABitTable[bit--];  /* or in the correct bit */
+        mode_A_bits |= mode_A_bit_table [bit--];  /* or in the correct bit */
 
-        if (lastBitWasOne)
+        if (last_bit_was_1)
         {
           /* This bit is one, last bit was one, so check the last space is somewhere less than one
            */
-          if (lastSpace >= (thisSample >> 1) || lastSpace >= lastBit)
-             ModeAErrs |= ModeAMidTable[bit];
+          if (last_space >= (this_sample >> 1) || last_space >= last_bit)
+             mode_A_err |= mode_A_mid_table [bit];
         }
         else
         {
           /* This bit,is one, last bit was zero, so check the last space is somewhere less than one
            */
-          if (lastSpace >= (thisSample >> 1))
-             ModeAErrs |= ModeAMidTable[bit];
+          if (last_space >= (this_sample >> 1))
+             mode_A_err |= mode_A_mid_table [bit];
         }
-        lastBitWasOne = 1;
+        last_bit_was_1 = true;
       }
 
       else
       {
         /* We're calculating a new bit value, and its a zero
          */
-        if (lastBitWasOne)
+        if (last_bit_was_1)
         {
           /* This bit is zero, last bit was one, so check the last space is somewhere in between
            */
-          if (lastSpace >= lastBit)
-             ModeAErrs |= ModeAMidTable[bit];
+          if (last_space >= last_bit)
+             mode_A_err |= mode_A_mid_table [bit];
         }
         else
         {
           /* This bit,is zero, last bit was zero, so check the last space is zero too
            */
-          if (lastSpace >= fLoLo)
-             ModeAErrs |= ModeAMidTable[bit];
+          if (last_space >= F_lo_lo)
+             mode_A_err |= mode_A_mid_table [bit];
         }
-        lastBitWasOne = 0;
+        last_bit_was_1 = false;
       }
-      lastBit = (thisSample >> 1);
+      last_bit = (this_sample >> 1);
     }
   }
 
   /* Output format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
    */
-  if ((ModeABits < 3) || (ModeABits & 0xFFFF8808) || (ModeAErrs) )
-     return (ModeABits = 0);
+  if ((mode_A_bits < 3) || (mode_A_bits & 0xFFFF8808) || mode_A_err)
+  {
+    mode_A_bits = 0;
+    return (0);
+  }
 
-  mm->sig_level = (fSig + fNoise) * (fSig + fNoise) / MAX_POWER;
+  mm->sig_level = (F_sig + F_noise) * (F_sig + F_noise) / MAX_POWER;
 
-  return (ModeABits);
+  return (mode_A_bits);
 }
 
 /**
@@ -368,55 +373,56 @@ static void dump_mag_vector (const uint16_t *m, uint32_t offset)
       dump_mag_bar (j - offset, m[j]);
 }
 
-/*
+/**
  * Produce a raw representation of the message as a Javascript file
- * loadable by debug.html.
+ * loadable by "../tools/debug.html".
  */
 static bool dump_raw_message_JS (const char      *descr, const uint8_t *msg,
                                  const uint16_t  *m,     uint32_t offset,
                                  const errorinfo *ei)
 {
-  int   j, padding = 5; /* Show a few samples before the actual start */
+  int   i, padding = 5; /* Show a few samples before the actual start */
   int   start = offset - padding;
   int   end = offset + MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1;
-  FILE *fp = fopen("frames.js", "a");
+  FILE *fp = fopen (Modes.frames_js_tmp, "a+");
 
   if (!fp)
   {
-    LOG_STDERR ("Error opening frames.js: %s\n", strerror(errno));
+    LOG_STDERR ("Error opening '%s': %s\n", Modes.frames_js_tmp, strerror(errno));
     return (false);
   }
 
-  fprintf (fp,"frames.push({\"descr\": \"%s\", \"mag\": [", descr);
-  for (j = start; j <= end; j++)
+  fprintf (fp, "frames.push({\"descr\": \"%s\", \"mag\": [", descr);
+  for (i = start; i <= end; i++)
   {
-    fprintf(fp,"%d", j < 0 ? 0 : m[j]);
-    if (j != end)
-       fprintf (fp, ",");
+    fprintf (fp, "%d", i < 0 ? 0 : m[i]);
+    if (i != end)
+       fputc (',', fp);
   }
 
-  fprintf (fp, "], ");
-  for (j = 0; j < MODES_MAX_BITERRORS; j++)
-      fprintf (fp, "\"fix%d\": %d, ", j, ei->bit[j]);
+  fputs ("], ", fp);
+  for (i = 0; i < MODES_MAX_BITERRORS; i++)
+      fprintf (fp, "\"fix%d\": %d, ", i, ei ? ei->bit[i] : -1);
 
   fprintf (fp, "\"bits\": %d, \"hex\": \"", modeS_message_len_by_type(msg[0] >> 3));
-  for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
-      fprintf (fp, "\\x%02x", msg[j]);
-  fprintf (fp, "\"});\n");
+  for (i = 0; i < MODES_LONG_MSG_BYTES; i++)
+      fprintf (fp, "\\x%02x", msg[i]);
+
+  fputs ("\"});\n", fp);
   fclose (fp);
   return (true);
 }
 
-/*
+/**
  * This is a wrapper for dump_mag_vector() that also show the message
  * in hex format with an additional description.
  *
- * descr  is the additional message to show to describe the dump.
- * msg    points to the decoded message
- * m      is the original magnitude vector
- * offset is the offset where the message starts
+ * \param in descr  is the additional message to show to describe the dump.
+ * \param in msg    points to the decoded message
+ * \param in m      is the original magnitude vector
+ * \param in offset is the offset where the message starts
  *
- * The function also produces the Javascript file used by debug.html to
+ * The function also produces the Javascript file used by "../tools/debug.html" to
  * display packets in a graphical format if the Javascript output was
  * enabled.
  */
@@ -427,8 +433,10 @@ static void dump_raw_message (const char *descr, const uint8_t *msg, const uint1
   uint32_t   csum;
   int        j, len, msgtype = msg[0] >> 3;
 
+#if 0
   if (Modes.sdrplay.device)
      return;
+#endif
 
   if (msgtype == 17)
   {
@@ -436,7 +444,8 @@ static void dump_raw_message (const char *descr, const uint8_t *msg, const uint1
     csum = crc_checksum (msg, len);
     ei   = crc_checksum_diagnose (csum, len);
   }
-  if (Modes.debug & DEBUG_JS)
+
+  if (Modes.debug & DEBUG_JSCRIPT)
   {
     if (js_ok && !dump_raw_message_JS (descr, msg, m, offset, ei))
        js_ok = false;       /* don't call this again */
@@ -445,16 +454,16 @@ static void dump_raw_message (const char *descr, const uint8_t *msg, const uint1
 
   EnterCriticalSection (&Modes.print_mutex);
 
-  printf ("\n--- %s\n    ", descr);
+  LOG_STDOUT ("\n--- %s\n    ", descr);
   for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
   {
-    printf ("%02x", msg[j]);
+    LOG_STDOUT ("%02x", msg[j]);
     if (j == MODES_SHORT_MSG_BYTES-1)
-       printf (" ... ");
+       LOG_STDOUT (" ... ");
   }
-  printf (" (DF %d, Fixable: %d)\n", msgtype, ei ? ei->errors : 0);
+  LOG_STDOUT (" (DF %d, Fixable: %d)\n", msgtype, ei ? ei->errors : 0);
   dump_mag_vector (m, offset);
-  printf ("---\n\n");
+  LOG_STDOUT ("---\n\n");
 
   LeaveCriticalSection (&Modes.print_mutex);
 }
@@ -610,6 +619,9 @@ void demod_2000 (const mag_buf *mag)
   u_int         mlen = mag->valid_length - mag->overlap;
   uint16_t     *m = mag->data;
 
+  assert (Modes.log10_lut);
+  assert (Modes.log10_lut_size >= 65536 / 2);
+
   memset (&mm, '\0', sizeof(mm));
 
   /**
@@ -664,9 +676,9 @@ void demod_2000 (const mag_buf *mag)
     {
       if (Modes.mode_AC)  /* \todo move this into the main_data_loop() */
       {
-        int ModeA = detect_mode_A (preamble, &mm);
+        int mode_A = detect_mode_A (preamble, &mm);
 
-        if (ModeA) /* We have found a valid ModeA/C in the data */
+        if (mode_A) /* We have found a valid ModeA/C in the data */
         {
           mm.timestamp_msg = mag->sample_timestamp + ((j+1) * 6);
 
@@ -676,7 +688,7 @@ void demod_2000 (const mag_buf *mag)
 
           /* Decode the received message
            */
-          decode_mode_A_message (&mm, ModeA);
+          decode_mode_A_message (&mm, mode_A);
 
           /* Pass data to the next layer
            */
@@ -731,7 +743,7 @@ void demod_2000 (const mag_buf *mag)
           preamble[14] >= high)
       {
         if ((Modes.debug & DEBUG_NOPREAMBLE) && preamble[0]  > DEBUG_NOPREAMBLE_LEVEL)
-            dump_raw_message ("Too high level in samples between 10 and 15", msg, m, j);
+           dump_raw_message ("Too high level in samples between 10 and 15", msg, m, j);
         continue;
       }
       Modes.stat.valid_preamble++;
@@ -969,13 +981,13 @@ void demod_2000 (const mag_buf *mag)
       if (use_correction)
       {
         if (Modes.debug & DEBUG_DEMOD)
-            dump_raw_message ("Demodulated with 0 errors", msg, m, j);
+           dump_raw_message ("Demodulated with 0 errors", msg, m, j);
 
         else if ((Modes.debug & DEBUG_BADCRC) &&  mm.msg_type == 17 && (!message_ok || mm.error_bits > 0))
-            dump_raw_message ("Decoded with bad CRC", msg, m, j);
+           dump_raw_message ("Decoded with bad CRC", msg, m, j);
 
         else if ((Modes.debug & DEBUG_GOODCRC) && message_ok && mm.error_bits == 0)
-            dump_raw_message ("Decoded with good CRC", msg, m, j);
+           dump_raw_message ("Decoded with good CRC", msg, m, j);
       }
 
       /* Skip this message if we are sure it's fine
@@ -994,7 +1006,7 @@ void demod_2000 (const mag_buf *mag)
       message_ok = false;
       if ((Modes.debug & DEBUG_DEMODERR) && use_correction)
       {
-        printf ("The following message has %d demod errors\n", errors);
+        LOG_STDOUT ("The following message has %d demod errors\n", errors);
         dump_raw_message ("Demodulated with errors", msg, m, j);
       }
     }
