@@ -20,18 +20,16 @@ bool COM_init (HANDLE handle)
   DWORD        mask;
 
   memset (&comprop, '\0', sizeof(comprop));
-//comprop.wPacketLength = sizeof(commprop));
-//comprop.dwProvSpec1   = COMMPROP_INITIALIZED;
   if (!GetCommProperties(handle, &comprop))
   {
     LOG_STDERR ("GetCommProperties() failed: %s\n", win_strerror(GetLastError()));
     return (false);
   }
-  DEBUG1 ("comprop.dwProvSubType:      %08lX\n", comprop.dwProvSubType);
-  DEBUG1 ("comprop.dwProvCapabilities: %08lX\n", comprop.dwProvCapabilities);
-  DEBUG1 ("comprop.dwSettableParams:   %08lX\n", comprop.dwSettableParams);
-  DEBUG1 ("comprop.dwCurrentRxQueue:   %lu\n",   comprop.dwCurrentRxQueue);
-  DEBUG1 ("comprop.dwCurrentTxQueue:   %lu\n",   comprop.dwCurrentTxQueue);
+  DEBUG2 ("comprop.dwProvSubType:      %08lX\n", comprop.dwProvSubType);
+  DEBUG2 ("comprop.dwProvCapabilities: %08lX\n", comprop.dwProvCapabilities);
+  DEBUG2 ("comprop.dwSettableParams:   %08lX\n", comprop.dwSettableParams);
+  DEBUG2 ("comprop.dwCurrentRxQueue:   %lu\n",   comprop.dwCurrentRxQueue);
+  DEBUG2 ("comprop.dwCurrentTxQueue:   %lu\n",   comprop.dwCurrentTxQueue);
 
   memset (&comstat, '\0', sizeof(comstat));
   if (!ClearCommError(handle, NULL, &comstat))
@@ -40,11 +38,11 @@ bool COM_init (HANDLE handle)
     return (false);
   }
 
-  DEBUG1 ("comstat.fCtsHold:   %d\n", comstat.fCtsHold);
-  DEBUG1 ("comstat.fDsrHold:   %d\n", comstat.fDsrHold);
-  DEBUG1 ("comstat.fRlsdHold:  %d\n", comstat.fRlsdHold);
-  DEBUG1 ("comstat.fEof:       %d\n", comstat.fEof);
-  DEBUG1 ("comstat.fTxim:      %d\n", comstat.fTxim);
+  DEBUG2 ("comstat.fCtsHold:   %d\n", comstat.fCtsHold);
+  DEBUG2 ("comstat.fDsrHold:   %d\n", comstat.fDsrHold);
+  DEBUG2 ("comstat.fRlsdHold:  %d\n", comstat.fRlsdHold);
+  DEBUG2 ("comstat.fEof:       %d\n", comstat.fEof);
+  DEBUG2 ("comstat.fTxim:      %d\n", comstat.fTxim);
 
   /* Setup baudrate and other communication settings
    */
@@ -76,7 +74,6 @@ bool COM_init (HANDLE handle)
    */
   dcb.fRtsControl  = RTS_CONTROL_ENABLE;  /* Or 'RTS_CONTROL_HANDSHAKE'? */
   dcb.fDtrControl  = DTR_CONTROL_ENABLE;  /* Or 'DTR_CONTROL_HANDSHAKE'? */
-//dcb.fDsrSensitivity = TRUE;
   dcb.fOutxDsrFlow = TRUE;
 
   /* Set the new DCB structure
@@ -94,18 +91,11 @@ bool COM_init (HANDLE handle)
    */
   memcpy (&g_data.COM.old_CTO, &cto, sizeof(g_data.COM.old_CTO));
 
-  /* Change read timeout
+  /* Change read / write timeouts
    */
-#if 0
-  cto.ReadIntervalTimeout        = 1;
-  cto.ReadTotalTimeoutMultiplier = 0;
-  cto.ReadTotalTimeoutConstant   = 1;
-#else
-  cto.ReadIntervalTimeout        = MAXDWORD;
-//cto.ReadTotalTimeoutMultiplier = MAXDWORD;
-//cto.ReadTotalTimeoutConstant   = GNS_HULC_SLEEP / 2;
-#endif
-
+  cto.ReadIntervalTimeout         = 1;
+  cto.ReadTotalTimeoutMultiplier  = 0;
+  cto.ReadTotalTimeoutConstant    = 1;
   cto.WriteTotalTimeoutMultiplier = 1000;
   cto.WriteTotalTimeoutConstant   = 1000;
 

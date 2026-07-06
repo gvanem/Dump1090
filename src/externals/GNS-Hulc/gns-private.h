@@ -101,7 +101,7 @@
  * Settings for the COM-port
  */
 typedef struct COM_settings {
-        char         dev_name [256];    /**< The device-name; like `\\.\COM1` */
+        char        *dev_name;          /**< The device-name; like `\\.\COM1` */
         char         name_space [256];  /**< The Registry mapping of port; e.g. `COM1 -> \Device\VCP0` */
         bool         port_set;          /**< `Modes.gns_hulc.port` was already set from `parse_cmd_line()` */
         uint32_t     baud_rate;         /**< The port baudrate. Fixed at `COM_BAUD_RATE == 921600` */
@@ -220,7 +220,6 @@ typedef struct GNS_stats {
         uint64_t  pkt_too_big;
         uint64_t  pkt_too_short;
         uint64_t  pkt_too_short_bytes;
-        uint64_t  pkt_list_sleep;      /**< Count of `Sleep()` calls in `gns_hulc_poll()` */
         uint64_t  mode_S_errors;       /**< Count of errors from `decode_mode_S_message()` */
         uint64_t  GPS_fix_lost;
         uint64_t  GPS_fix_regained;

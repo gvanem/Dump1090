@@ -25,7 +25,7 @@
 #include "GNS-Hulc/gns-private.h"
 #include "GNS-Hulc/gns-hulc.h"
 
-#define USE_DUMP_FILES     0
+#define USE_DUMP_FILES     1
 #define FIRMWARE_TIMER     10000
 
 #define GPS_HAVE_FIX_LOW   6
@@ -243,7 +243,7 @@ HANDLE gns_hulc_init (uint16_t port)
 
   /* "\\.\COMx".
    */
-  snprintf (g_data.COM.dev_name, sizeof(g_data.COM.dev_name), "\\\\.\\COM%d", port);
+  g_data.COM.dev_name = mg_mprintf ("\\\\.\\COM%d", port);
 
   DEBUG2 ("Modes.gns_hulc.port:  %u\n", Modes.gns_hulc.port);
   DEBUG2 ("Modes.gns_hulc.name:  %s\n", Modes.gns_hulc.name ? Modes.gns_hulc.name : "<none>");
@@ -312,11 +312,13 @@ void gns_hulc_exit (HANDLE hnd)
   }
 
   free (Modes.gns_hulc.name);
+  free (g_data.COM.dev_name);
   free (g_data.sio_buf);
   pkt_free();
 
   DeleteCriticalSection (&g_data.crit);
   Modes.gns_hulc.name = NULL;
+  g_data.COM.dev_name = NULL;
   g_data.sio_buf = NULL;
 
   if (g_data.hex_file)
@@ -497,8 +499,11 @@ static bool decoder_header (const header_32_33 *hdr, uint64_t *ts_msec, const ch
   if (hdr->RSSI > 0)
      snprintf (dbFS, sizeof(dbFS), "%.1f", 10.0 * log10((double)hdr->RSSI / 255.0));  /* is this right? */
 
-  DEBUG2 ("%s(): timestamp: %s, RSSI: %d / %s dBFS%s\n\n",
-          func, ts_buf, hdr->RSSI, dbFS, junk ? junk : "");
+  if (junk)
+       DEBUG1 ("%s(): timestamp: %s, RSSI: %d / %s dBFS%s\n\n",
+               func, ts_buf, hdr->RSSI, dbFS, junk);
+  else DEBUG2 ("%s(): timestamp: %s, RSSI: %d / %s dBFS\n\n",
+               func, ts_buf, hdr->RSSI, dbFS);
 
   return (junk == NULL);
 }
@@ -517,8 +522,7 @@ static void decode_common (const RX_packet *pkt, int valid_bits, const char *fun
   msg = pkt->msg;
 
   DEBUG2 ("%s(): msg[0]: 0x%02X, msg[1]: 0x%02X, msg_len: %u%s\n",
-          func, msg[0], msg[1], pkt->msg_len,
-          g_data.pkt_junk ? g_data.pkt_junk : "");
+          func, msg[0], msg[1], pkt->msg_len, g_data.pkt_junk);
 
   HEX_DUMP2 (msg, min(pkt->msg_len, sizeof(pkt->msg)), NULL);
 
@@ -688,11 +692,11 @@ static void decode_msg_48 (const RX_packet *pkt, uint32_t msg_len)
   flags = mg_ntohs (hsm->flags);
   xTime = mg_ntohl (hsm->xTime);
 
-  DEBUG2 ("%s(): ID: %u, len: %u, msg[0]: 0x%02X, msg[1]: 0x%02X, msg[2]: 0x%02X, msg[3]: 0x%02X, msg_len: %u"
-          "%s%s%s\n", __FUNCTION__, ID, len, msg[0], msg[1], msg[2], msg[3], msg_len,
-          junk1 ? junk1 : "",
-          junk2 ? junk2 : "",
-          junk3 ? junk3 : "");
+  if (junk1 || junk2 || junk3)
+       DEBUG1 ("%s(): junk1: '%s', junk2: '%s', junk3: '%s'\n",
+               __FUNCTION__, junk1, junk2, junk3);
+  else DEBUG2 ("%s(): ID: %u, len: %u, msg[0]: 0x%02X, msg[1]: 0x%02X, msg[2]: 0x%02X, msg[3]: 0x%02X, msg_len: %u\n",
+               __FUNCTION__, ID, len, msg[0], msg[1], msg[2], msg[3], msg_len);
 
   HEX_DUMP2 (msg, msg_len, NULL);
 
@@ -844,15 +848,14 @@ static bool pkt_check (const RX_packet *pkt)
 }
 
 /**
- * Add a parsed packet `== g_data.pkt_current` to the end of the
- * packet queue.
+ * Add a parsed packet `== g_data.pkt_current` to the end of the packet queue.
+ *
+ * The critical-section `g_data.crit` is held on entry.
  */
 static bool pkt_enqueue (const RX_packet *pkt)
 {
   RX_packet *copy = NULL;
   bool  rc;
-
-  EnterCriticalSection (&g_data.crit);
 
   g_data.stat.pkt_enqueued_bytes += pkt->msg_len;
 
@@ -934,6 +937,12 @@ static bool pkt_enqueue (const RX_packet *pkt)
 
   g_data.stat.pkt_enqueued++;
 
+  /**
+   * The idea behind `g_data.stat.pkt_max_len` is to check if a fixed-size
+   * array could be used instead of `malloc()`. An array large enough to guarantee
+   * we never run out of packet-space in `pkt_enqueue()`. Experience shows that
+   * `g_data.stat.pkt_max_len` can grow to approx. 60.
+   */
   uint32_t len = pkt_list_len();
 
   if (len > g_data.stat.pkt_max_len)
@@ -946,7 +955,6 @@ failed:
   if (!rc && copy)
      free (copy);
 
-  LeaveCriticalSection (&g_data.crit);
   DEBUG2 ("\n");
   return (rc);
 }
@@ -1001,11 +1009,7 @@ const char *state_name (state_func f)
  */
 static void state_get_sync (uint8_t ch, int idx)
 {
-#if 0
-  if (g_data.old_ch == 0x1A && ch != 0x1A)
-#else
   if (ch == 0x1A)
-#endif
   {
     g_data.pkt_current.msg [0] = 0x1A;
     g_data.pkt_current.msg_len = 1;
@@ -1015,6 +1019,7 @@ static void state_get_sync (uint8_t ch, int idx)
     DEBUG1 ("got x1A sync\n");
     g_data.state = state_put_ch;
   }
+  (void) idx;
 }
 
 /*
@@ -1025,18 +1030,18 @@ static void state_put_ch (uint8_t ch, int idx)
 {
   if (ch == 0x1A)
   {
-//  g_data.pkt_current.msg [g_data.pkt_current.msg_len++] = 0x1A;
     g_data.state = state_got_1A;
   }
   else
   {
     g_data.pkt_current.msg [g_data.pkt_current.msg_len++] = ch;
   }
+  (void) idx;
 }
 
 /*
  * Got 0xx1A, check if this `ch` is a 0x1A too.
- * If so, do the unstuffing is done in `pkt_enqueue()`.
+ * If so, do the unstuffing in `pkt_enqueue()` later.
  * Otherwise, call `pkt_enqueue()` for current packet and start a new.
  */
 static void state_got_1A (uint8_t ch, int idx)
@@ -1054,7 +1059,9 @@ static void state_got_1A (uint8_t ch, int idx)
             idx, g_data.old_idx,
             g_data.pkt_current.msg_len);
 
+    EnterCriticalSection (&g_data.crit);
     pkt_enqueue (&g_data.pkt_current);
+    LeaveCriticalSection (&g_data.crit);
 
     /* Restart `g_data.pkt_current`
      */
@@ -1200,7 +1207,7 @@ static int hulc_read (void)
     DEBUG2 ("Processed all: [%d - %d>, sio_len: %d, new old_idx: 0\n", start_idx, idx, g_data.sio_len);
     assert (g_data.sio_len == 0);
 
-    /* On next iteration `g_data.sio_len = COM_read()`
+    /* On next iteration sets `g_data.sio_len = COM_read()`
      */
   }
   return (g_data.stat.pkt_enqueued - old_enqueued);
@@ -1218,21 +1225,19 @@ static void check_max_messages (void)
 /**
  * Called from `data_thread_fn()`.
  *
- * In an infinite loop, read (buffered) serial data and fill `g_data.pktg_list`
- * with RX_packet (g_data.pkt_current). These packets are then polled by the below
+ * In this infinite loop, read serial data and fill `g_data.pkt_list`
+ * with RX_packet (`g_data.pkt_current`). These packets are then polled by the below
  * `gns_hulc_poll()`.
  */
 void gns_hulc_read_loop (void)
 {
-//mg_timer_add (&Modes.mgr, FIRMWARE_TIMER, MG_TIMER_REPEAT, send_firmware_req, NULL);
-
   while (!Modes.exit)
   {
     if (hulc_read() < 0)
        break;
 
     Sleep (Modes.gns_hulc.poll_ms);   /* default 50 msec */
-//  check_max_messages();
+/*  check_max_messages(); */
   }
 }
 
@@ -1243,10 +1248,10 @@ void gns_hulc_read_loop (void)
  * Since `LIST_ADD_TAIL()` was used in `pkt_enqueue()`, this will process
  * the oldest packets first.
  *
- * Try to acquire the critical-section. If this fails or the packet-list
- * is empty, Sleep() for `Modes.gns_hulc.poll_ms` (50 msec by default).
+ * If the the packet-list is empty, Sleep() for `Modes.gns_hulc.poll_ms`
+ * (50 msec by default).
  *
- * Then traverse the packet-list unless it's empty.
+ * Then traverse the packet-list assuming it's nio longer empty.
  * After processing each, free the RX-packet.
  */
 void gns_hulc_poll (void)
@@ -1261,12 +1266,10 @@ void gns_hulc_poll (void)
   if (Modes.exit)
      return;
 
-  if (!TryEnterCriticalSection(&g_data.crit) || /* Try to lock */
-      !g_data.pkt_list)     /* if list empty, wait `Modes.gns_hulc.poll_ms` for a packet */
-  {
-    Sleep (Modes.gns_hulc.poll_ms);
-    g_data.stat.pkt_list_sleep++;
-  }
+  if (!g_data.pkt_list)
+     Sleep (Modes.gns_hulc.poll_ms);
+
+  EnterCriticalSection (&g_data.crit);
 
   now = get_usec_now();
 
@@ -1312,7 +1315,10 @@ void gns_hulc_poll (void)
     g_data.stat.pkt_dequeued++;
 
     if (g_data.pkt_junk)
-       g_data.stat.pkt_junk++;
+    {
+      g_data.stat.pkt_junk++;
+      DEBUG1 ("g_data.pkt_junk: '%s'\n", g_data.pkt_junk);
+    }
 
     LIST_DELETE (RX_packet, &g_data.pkt_list, pkt);
     free (pkt);
