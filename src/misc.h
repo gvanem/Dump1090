@@ -80,7 +80,7 @@
 #define DEBUG_MONGOOSE   0x00040
 #define DEBUG_MONGOOSE2  0x00080
 #define DEBUG_NOPREAMBLE 0x00100
-#define DEBUG_JS         0x00200
+#define DEBUG_JSCRIPT    0x00200
 #define DEBUG_NET        0x00400
 #define DEBUG_NET2       0x00800
 #define DEBUG_ADSB_LOL   0x01000
@@ -132,10 +132,9 @@
  */
 #define LOG_STDOUT(fmt, ...)    modeS_flogf (stdout, fmt, ## __VA_ARGS__)
 #define LOG_STDERR(fmt, ...)    modeS_flogf (stderr, fmt, ## __VA_ARGS__)
-#define LOG_FILEONLY(fmt, ...)  do {                               \
-                                  if (Modes.log)                   \
-                                     modeS_flogf (Modes.log, fmt,  \
-                                                  ## __VA_ARGS__); \
+#define LOG_FILEONLY(fmt, ...)  do {                            \
+                                  modeS_flogf (Modes.log, fmt,  \
+                                               ## __VA_ARGS__); \
                                 } while (0)
 
 #define LOG_FILEONLY2(fmt, ...) do {                                     \
@@ -474,7 +473,9 @@ typedef struct global_data {
         CRITICAL_SECTION    data_mutex;               /**< Mutex to synchronize buffer access. */
         CRITICAL_SECTION    print_mutex;              /**< Mutex to synchronize printouts. */
         uint16_t           *mag_lut;                  /**< I/Q -> Magnitude lookup table. */
+        size_t              mag_lut_size;             /**< And it's element-size. */
         uint16_t           *log10_lut;                /**< Magnitude -> log10 lookup table. */
+        size_t              log10_lut_size;           /**< And it's element-size. */
         convert_format      input_format;             /**< Converted input format. */
         uint32_t            FIFO_bufs;                /**< Number of buffers for `fifo_init()` */
         uint32_t            FIFO_acquire_ms;          /**< `fifo_acquire()` timeout in milli-sec (default 100). */
@@ -566,6 +567,8 @@ typedef struct global_data {
         int           keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
         int           speech_enable;              /**< Enable speech for planes entering and leaving. */
         int           speech_volume;              /**< Speech volume; 0 - 100 percent */
+        char         *frames_js_tmp;              /**< The full name of the generated "Modes.tmp_dir/frames.js" used with "--debug jXX" */
+        char         *debug_html_src;             /**< The full source-name of the copied "Modes.tmp_dir/debug.html" used with "--debug jXX" */
         char         *web_page_full;              /**< The fully qualified path of web_page */
         char         *web_page;                   /**< The base-name of the web-page to server for HTTP clients. */
         char         *web_root;                   /**< And it's directory. */

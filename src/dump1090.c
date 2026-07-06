@@ -378,11 +378,14 @@ static bool rtlsdr_power_cycle (rtlsdr_dev_t *dev)
  *
  * Used in convert.c.
  */
-static uint16_t *gen_magnitude_lut (void)
+static uint16_t *gen_mag_lut (void)
 {
-  uint16_t *lut = malloc (sizeof(*lut) * 129 * 129);
-  int       I, Q;
+  uint16_t *lut;
+  int       I = 129;
+  int       Q = 129;
 
+  Modes.mag_lut_size = (I * Q);
+  lut = calloc (sizeof(*lut), Modes.mag_lut_size);
   if (!lut)
      return (NULL);
 
@@ -402,17 +405,40 @@ static uint16_t *gen_magnitude_lut (void)
  */
 static uint16_t *gen_log10_lut (void)
 {
-  uint16_t *lut = calloc (sizeof(uint16_t), 65536);
+  uint16_t *lut;
   int       i;
 
+  Modes.log10_lut_size = 256 * 256;
+  lut = calloc (sizeof(*lut), Modes.log10_lut_size);
   if (!lut)
      return (NULL);
 
-  /* Prepare the log10 lookup table: 100*log10 (x)
-   */
-  for (i = 1; i < 65536; i++)
+  for (i = 1; i < Modes.log10_lut_size; i++)
       lut [i] = (uint16_t) round (100.0 * log10(i));
   return (lut);
+}
+
+/**
+ * Generate `Modes.mag_lut[]` and `Modes.log10_lut[]`.
+ */
+static bool lut_tables_init (void)
+{
+  Modes.mag_lut   = gen_mag_lut();
+  Modes.log10_lut = gen_log10_lut();
+
+  if (!Modes.mag_lut || !Modes.log10_lut)
+  {
+    LOG_STDERR ("Out of memory allocating look-up tables.\n");
+    return (false);
+  }
+  return (true);
+}
+
+static void lut_tables_exit (void)
+{
+  free (Modes.mag_lut);
+  free (Modes.log10_lut);
+  Modes.mag_lut = Modes.log10_lut = NULL;
 }
 
 /**
@@ -703,8 +729,8 @@ static bool modeS_init_hardware (void)
     if (Modes.input_format == INPUT_ILLEGAL)
        Modes.input_format = INPUT_UC8;
   }
-  else if (Modes.rtlsdr.index >= 0 ||                    /* --device N */
-           Modes.rtlsdr.name       ||                    /* --device name */
+  else if (Modes.rtlsdr.index >= 0 ||              /* --device N */
+           Modes.rtlsdr.name       ||              /* --device name */
            use_rtltcp)
   {
     /* A local or remote RTLSDR device
@@ -734,6 +760,8 @@ static bool modeS_init_hardware (void)
     LOG_STDERR ("Out of memory allocating FIFO\n");
     return (false);
   }
+
+  lut_tables_init();
 
   Modes.FIFO_active = true;
 
@@ -787,6 +815,60 @@ static bool modeS_init_hardware (void)
                 Modes.FIFO_dequeue_ms,
                 Modes.converter_state->func_name, Modes.converter_state->description);
   return (true);
+}
+
+/**
+ * Setup for `frames.js` and `debug.html` used with `--debug j`.
+ * These file-names are used by demod-2000.c.
+ *
+ * Used like: `dump1090.exe --device rtlsdr --debug jDEpg -s2M --raw`
+ *
+ * Where these `Modes.debug` bits are set:
+ *  \li `D` -> `DEBUG_DEMOD`,
+ *  \li `E` -> `DEBUG_DEMODERR`,
+ *  \li `p` -> `DEBUG_NOPREAMBLE` and
+ *  \li `g` -> `DEBUG_GENERAL`.
+ */
+static void modeS_init_JScript (void)
+{
+  char *debug_html_tmp;
+  DWORD err;
+
+  if (Modes.sample_rate != 2000000)
+  {
+    MessageBeep (MB_ICONERROR);
+    LOG_STDERR ("Warning: option '--debug j' has only effect with a 2MBit/s sample-rate.\n");
+    return;
+  }
+
+  debug_html_tmp       = mg_mprintf ("%s\\debug.html", Modes.tmp_dir);
+  Modes.frames_js_tmp  = mg_mprintf ("%s\\frames.js", Modes.tmp_dir);
+  Modes.debug_html_src = mg_mprintf ("%s\\tools\\debug.html", Modes.where_am_I);
+
+  TRACE ("debug_html_tmp:       '%s'\n", debug_html_tmp);
+  TRACE ("Modes.debug_html_src: '%s'\n", Modes.debug_html_src);
+  TRACE ("Modes.frames_js_tmp:  '%s'\n", Modes.frames_js_tmp);
+
+  if (!debug_html_tmp || !Modes.frames_js_tmp || !Modes.debug_html_src)
+     return;
+
+  /* Delete it since it will be appended to
+   */
+  if (!DeleteFileA(Modes.frames_js_tmp))
+  {
+    err = GetLastError();
+    if (err != ERROR_FILE_NOT_FOUND)
+       LOG_STDERR ("DeleteFileA (\"%s\") failed: %s\n", Modes.frames_js_tmp, win_strerror(err));
+  }
+
+  /* And copy "../tools/debug.html" to the same location
+   */
+  if (!CopyFileA(Modes.debug_html_src, debug_html_tmp, FALSE))
+  {
+    err = GetLastError();
+    LOG_STDERR ("CopyFileA (\"%s\", \"%s\") failed: %s\n", Modes.debug_html_src, debug_html_tmp, win_strerror(err));
+  }
+  free (debug_html_tmp);
 }
 
 /**
@@ -856,6 +938,9 @@ static bool modeS_init (void)
     Modes.speech_enable = false;
   }
 
+  if (Modes.debug & DEBUG_JSCRIPT)
+     modeS_init_JScript();
+
   modeS_log_set();
 
   crc_init ((int)Modes.error_correct_1 + (int)Modes.error_correct_2);
@@ -871,12 +956,9 @@ static bool modeS_init (void)
    * entry because it's a addr / timestamp pair for every entry.
    */
   Modes.ICAO_cache = calloc (2 * sizeof(uint32_t) * MODES_ICAO_CACHE_LEN, 1);
-  Modes.mag_lut    = gen_magnitude_lut();
-  Modes.log10_lut  = gen_log10_lut();
-
-  if (!Modes.mag_lut || !Modes.log10_lut || !Modes.ICAO_cache)
+  if (!Modes.ICAO_cache)
   {
-    LOG_STDERR ("Out of memory allocating buffers.\n");
+    LOG_STDERR ("Out of memory allocating ICAO-cache.\n");
     return (false);
   }
 
@@ -1141,7 +1223,10 @@ void rx_callback (uint8_t *in_buf, uint32_t in_len, void *ctx)
   if (exit)
   {
     if (Modes.rtlsdr.device)
-       rtlsdr_cancel_async (Modes.rtlsdr.device);    /* ask our caller to exit */
+    {
+      int rc = rtlsdr_cancel_async (Modes.rtlsdr.device);    /* ask our caller to exit */
+      TRACE ("rtlsdr_cancel_async(): rc: %d.\n", rc);
+    }
     SleepEx (100, TRUE);
     return;
   }
@@ -1362,8 +1447,8 @@ static bool ICAO_address_recently_seen (uint32_t a)
   return (addr && addr == a && (time(NULL) - seen) <= MODES_ICAO_CACHE_TTL);
 }
 
-#define icao_filter_test(addr) ICAO_address_recently_seen (addr)
-#define icao_filter_add(addr)  ICAO_cache_add_address (addr)
+#define ICAO_FILTER_TEST(addr) ICAO_address_recently_seen (addr)
+#define ICAO_FILTER_ADD(addr)  ICAO_cache_add_address (addr)
 
 /**
  * In the squawk (identity) field bits are interleaved as follows in
@@ -2295,7 +2380,7 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
           * We can't tell if the CRC is correct or not as we don't know the correct address.
           * Accept the message if it appears to be from a previously-seen aircraft
           */
-         if (!icao_filter_test(mm->CRC))
+         if (!ICAO_FILTER_TEST(mm->CRC))
             return (-1);
 
          mm->addr = mm->CRC;
@@ -2332,7 +2417,7 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
             * match an existing aircraft.
             */
            addr = AIRCRAFT_GET_ADDR (msg + 1);
-           if (!icao_filter_test(addr))
+           if (!ICAO_FILTER_TEST(addr))
               return (-1);
          }
          break;
@@ -2355,7 +2440,7 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
          /* We are conservative here: only accept corrected messages that
           * match an existing aircraft.
           */
-         if (addr1 != addr2 && !icao_filter_test(addr2))
+         if (addr1 != addr2 && !ICAO_FILTER_TEST(addr2))
             return (-1);
          break;
 
@@ -2366,7 +2451,7 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
           * So not only do we not know whether the CRC is right, we also don't know if
           * the ICAO is right! Ow.
           */
-         if (icao_filter_test(mm->CRC)) /* Try an exact match */
+         if (ICAO_FILTER_TEST(mm->CRC)) /* Try an exact match */
          {
            mm->addr = mm->CRC;
            mm->BDS  = 0;  /* unknown */
@@ -2378,7 +2463,7 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
         /* This doesn't seem useful, as we mistake a lot of CRC errors for overlay control.
          * Try a fuzzy match
          */
-         mm->addr = icao_filter_test_fuzzy (mm->CRC);
+         mm->addr = ICAO_FILTER_TEST_fuzzy (mm->CRC);
          if (mm->addr != 0)
          {
            /* We have an address that would match, assume it's correct.
@@ -2520,7 +2605,7 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
      *
      * NB this is the only place that adds addresses!
      */
-    icao_filter_add (mm->addr);
+    ICAO_FILTER_ADD (mm->addr);
   }
   return (0);  /* all done */
 }
@@ -3105,7 +3190,7 @@ static int correct_aa_field (uint32_t *addr, const errorinfo *ei)
 
 int modeS_message_score (const uint8_t *msg, int valid_bits)
 {
-  static uint8_t all_zeros[14] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+  static uint8_t all_zeros [14] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
   int        msg_type, msg_bits, CRC, IID;
   uint32_t   addr;
   errorinfo *ei;
@@ -3131,7 +3216,7 @@ int modeS_message_score (const uint8_t *msg, int valid_bits)
     case 5:   /* surveillance, altitude reply */
     case 16:  /* long air-air surveillance */
     case 24:  /* Comm-D (ELM) */
-         return icao_filter_test (CRC) ? 1000 : -1;
+         return ICAO_FILTER_TEST (CRC) ? 1000 : -1;
 
     case 11:  /* All-call reply */
          IID = CRC & 0x7F;
@@ -3156,11 +3241,11 @@ int modeS_message_score (const uint8_t *msg, int valid_bits)
          /* validate address */
          if (IID == 0)
          {
-           if (icao_filter_test(addr))
+           if (ICAO_FILTER_TEST(addr))
               return (1600 / (ei->errors + 1));
            return (750 / (ei->errors + 1));
          }
-         if (icao_filter_test(addr))
+         if (ICAO_FILTER_TEST(addr))
             return (1000 / (ei->errors + 1));
          return (-1);
 
@@ -3175,13 +3260,13 @@ int modeS_message_score (const uint8_t *msg, int valid_bits)
          addr = AIRCRAFT_GET_ADDR (msg + 1);
          correct_aa_field (&addr, ei);
 
-         if (icao_filter_test(addr))
+         if (ICAO_FILTER_TEST(addr))
             return (1800 / (ei->errors + 1));
          return (1400 / (ei->errors + 1));
 
     case 20:   /* Comm-B, altitude reply */
     case 21:   /* Comm-B, identity reply */
-         if (icao_filter_test(CRC))
+         if (ICAO_FILTER_TEST(CRC))
             return (1000);  /* Address/Parity */
          return (-2);
 
@@ -3321,7 +3406,7 @@ static void show_help (const char *fmt, ...)
             "  --infile <filename>   Read data from file (use `-' for stdin).\n"
             "  --informat <format>   Format for `--infile`; `UC8`, `SC16` or `SC16Q11` (default: `UC8`)\n"
             "  --interactive         Enable interactive mode.\n"
-            "  --max-messages        Maximum number of messages to process.\n"
+            "  --max-messages <N>    Maximum number of messages to process.\n"
             "  --net                 Enable network listening services.\n"
             "  --net-active          Enable network active services.\n"
             "  --net-only            Enable only networking, no physical device or file.\n"
@@ -3481,9 +3566,13 @@ void modeS_signal_handler (int sig)
      puts ("----------------------------------------------------------------------------------");
 
   if (sig == SIGINT)
-     LOG_STDOUT ("Caught SIGINT, shutting down ...\n");
+  {
+    LOG_STDOUT ("Caught SIGINT, shutting down ...\n");
+  }
   else if (sig == SIGBREAK)
-     LOG_STDOUT ("Caught SIGBREAK, shutting down ...\n");
+  {
+    LOG_STDOUT ("Caught SIGBREAK, shutting down ...\n");
+  }
   else if (sig == SIGABRT)
   {
     LOG_STDOUT ("Caught SIGABRT, shutting down ...\n");
@@ -3515,6 +3604,10 @@ void modeS_signal_handler (int sig)
   {
     rc = airspy_cancel_async (Modes.airspy.device);
     TRACE ("airspy_cancel_async(): rc: %d / %s.\n", rc, airspy_strerror(rc));
+  }
+  else if (Modes.gns_hulc.handle)
+  {
+     /* Nothing to do here */
   }
 }
 
@@ -3698,9 +3791,8 @@ static void modeS_cleanup (void)
   aircraft_exit (true);
   airports_exit (true);
   crc_exit();
+  lut_tables_exit();
 
-  free (Modes.mag_lut);
-  free (Modes.log10_lut);
   free (Modes.ICAO_cache);
   free (Modes.selected_dev);
   free (Modes.rtlsdr.name);
@@ -3712,6 +3804,8 @@ static void modeS_cleanup (void)
   free (Modes.web_root);
   free (Modes.web_page);
   free (Modes.web_page_full);
+  free (Modes.frames_js_tmp);
+  free (Modes.debug_html_src);
 
   free (Modes.where_am_I);
   free (Modes.who_am_I);
@@ -3734,8 +3828,6 @@ static void modeS_cleanup (void)
   DeleteCriticalSection (&Modes.print_mutex);
 
   Modes.reader_thread = NULL;
-  Modes.mag_lut       = NULL;
-  Modes.log10_lut     = NULL;
   Modes.ICAO_cache    = NULL;
   Modes.selected_dev  = NULL;
   Modes.tests         = NULL;
@@ -3955,7 +4047,7 @@ static void set_debug_bits (const char *flags)
            break;
       case 'j':
       case 'J':
-           Modes.debug |= DEBUG_JS;
+           Modes.debug |= DEBUG_JSCRIPT;
            break;
       case 'm':
            Modes.debug |= DEBUG_MONGOOSE;
@@ -4245,6 +4337,7 @@ static bool parse_cmd_line (int argc, char **argv)
 
   if (show_ver > 0)
   {
+    mg_log_set (MG_LL_NONE);
     show_version_info (show_ver >= 2);
     rc = false;
   }
