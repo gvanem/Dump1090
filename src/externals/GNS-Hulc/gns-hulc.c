@@ -522,7 +522,8 @@ static void decode_common (const RX_packet *pkt, int valid_bits, const char *fun
   msg = pkt->msg;
 
   DEBUG2 ("%s(): msg[0]: 0x%02X, msg[1]: 0x%02X, msg_len: %u%s\n",
-          func, msg[0], msg[1], pkt->msg_len, g_data.pkt_junk);
+          func, msg[0], msg[1], pkt->msg_len,
+          g_data.pkt_junk ? g_data.pkt_junk : "");
 
   HEX_DUMP2 (msg, min(pkt->msg_len, sizeof(pkt->msg)), NULL);
 
@@ -693,10 +694,10 @@ static void decode_msg_48 (const RX_packet *pkt, uint32_t msg_len)
   xTime = mg_ntohl (hsm->xTime);
 
   if (junk1 || junk2 || junk3)
-       DEBUG1 ("%s(): junk1: '%s', junk2: '%s', junk3: '%s'\n",
-               __FUNCTION__, junk1, junk2, junk3);
-  else DEBUG2 ("%s(): ID: %u, len: %u, msg[0]: 0x%02X, msg[1]: 0x%02X, msg[2]: 0x%02X, msg[3]: 0x%02X, msg_len: %u\n",
-               __FUNCTION__, ID, len, msg[0], msg[1], msg[2], msg[3], msg_len);
+     DEBUG1 ("%s(): junk1: '%s', junk2: '%s', junk3: '%s'\n", __FUNCTION__, junk1, junk2, junk3);
+
+  DEBUG2 ("%s(): ID: %u, len: %u, msg[0]: 0x%02X, msg[1]: 0x%02X, msg[2]: 0x%02X, msg[3]: 0x%02X, msg_len: %u\n",
+          __FUNCTION__, ID, len, msg[0], msg[1], msg[2], msg[3], msg_len);
 
   HEX_DUMP2 (msg, msg_len, NULL);
 
