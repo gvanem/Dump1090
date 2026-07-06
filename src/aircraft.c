@@ -3279,7 +3279,8 @@ void aircraft_remove_stale (uint64_t now)
   if (num > 0 && !(Modes.net_active || Modes.net_only))
   {
     aircraft_check_dist (cpr_error_sum);
-    aircraft_outline_update (NULL, now);  }
+    aircraft_outline_update (NULL, now);
+  }
   aircraft_outline_generate (now, g_data.outline_json);
 }
 
