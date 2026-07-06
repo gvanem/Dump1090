@@ -117,6 +117,9 @@ void demod_8000_free (void)
  */
 void demod_8000 (const mag_buf *mag)
 {
+  TRACE2 ("demod_8000 called, valid_length: %u, overlap: %u\n",
+          mag->valid_length, mag->overlap);
+
   modeS_message   mm;
   uint8_t         msg      [MODES_LONG_MSG_BYTES + D8M_SEARCH_BYTES];
   uint8_t         best_msg [MODES_LONG_MSG_BYTES];
@@ -129,7 +132,7 @@ void demod_8000 (const mag_buf *mag)
   int            *dbuf;
   int             i, sum;
   int             message_result;
-  u_int           j, mlen = mag->valid_length - mag->overlap;
+  u_int           j, mlen = mag->valid_length;
   const uint16_t *m = mag->data;
 
   /* local variables initialized from static storage
@@ -165,7 +168,8 @@ void demod_8000 (const mag_buf *mag)
   for (j = 0; j < mlen; j++)
   {
     dbuf [j] = m [j];
-    dbuf [j] -= m [j+4];        /* +4 OK because there are Modes.trailing_samples extra */
+    if (j < mlen - sizeof(*m) - 2)
+       dbuf [j] -= m [j + 4];     /* +4 OK because there are Modes.trailing_samples extra */
   }
 
   /* Now point to a location which allows the algorithm both some look-back
@@ -199,6 +203,10 @@ void demod_8000 (const mag_buf *mag)
     phase_av_acc += phase[0];
     phase_av = phase_av_acc >> 14;          /* phase_av is current output */
     phase_av_acc -= phase_av;               /* phase_av_acc is filter memory */
+
+    if (sptr == 40000)  /* print occasionally */
+        TRACE2 ("max: %d, phase_av: %d, ratio: %d%%\n",
+                max, phase_av, phase_av ? (max * 200 / phase_av) : 0);
 
     /* This code first triggers when max exceeds noise by given factor.
      * Once triggered, it continues for 0 <= window < WIN_LEN, ie
