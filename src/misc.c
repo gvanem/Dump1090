@@ -1900,6 +1900,9 @@ static void print_CFLAGS (void)
 #else
   fputs ("CFLAGS:  Unknown\n", stdout);
 #endif
+#if defined(__STDC_VERSION__)
+  printf ("         __STDC_VERSION__: %ld\n", __STDC_VERSION__);
+#endif
 }
 
 static void print_LDFLAGS (void)
