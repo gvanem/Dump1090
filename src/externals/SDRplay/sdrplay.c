@@ -16,14 +16,14 @@
 #define RSP_MAX_GAIN_THRESH  1024         /**< Decrease gain if peaks above this */
 #define RSP_ACC_SHIFT          13         /**< Sets time constant of averaging filter */
 #define MODES_RSP_INITIAL_GR   20
-#define USE_8BIT_SAMPLES        1
+#define USE_8BIT_SAMPLES        0
 
 #if USE_8BIT_SAMPLES
   #define SAMPLE_SCALE(x)   (((x) + 32) >> 6)  /* from 14 to 8 bit */
   #define SAMPLE_TYPE       uint8_t
   #define SAMPLE_TYPE_STR  "uint8_t"
 #else
-  #define SAMPLE_SCALE(x)   x
+  #define SAMPLE_SCALE(x)  (x)   /* pass raw signed 16-bit samples through */
   #define SAMPLE_TYPE       uint16_t
   #define SAMPLE_TYPE_STR  "uint16_t"
 #endif
@@ -45,7 +45,7 @@
           else                                                  \
           {                                                     \
             sdrplay_clear_error();                              \
-            TRACE ("%s(): OKAY\n", #func);                      \
+            TRACE2 ("%s(): OKAY\n", #func);                     \
           }                                                     \
         } while (0)
 
@@ -468,11 +468,11 @@ static void sdrplay_event_callback (sdrplay_api_EventT        event_id,
          break;
 
     case sdrplay_api_GainChange:
-         TRACE ("sdrplay_api_GainChange, tuner=%s gRdB=%d lnaGRdB=%d systemGain=%.2f\n",
-                sdrplay_tuner_name(tuner),
-                params->gainParams.gRdB,
-                params->gainParams.lnaGRdB,
-                params->gainParams.currGain);
+         TRACE2 ("sdrplay_api_GainChange, tuner=%s gRdB=%d lnaGRdB=%d systemGain=%.2f\n",
+                 sdrplay_tuner_name(tuner),
+                 params->gainParams.gRdB,
+                 params->gainParams.lnaGRdB,
+                 params->gainParams.currGain);
          sdr.curr_gain = params->gainParams.gRdB;
          break;
 
@@ -557,7 +557,12 @@ static void sdrplay_callback_A (short                       *xi,
 
   /* Apply slowly decaying filter to max signal value
    */
+#if USE_8BIT_SAMPLES
   max_sig -= 127;
+#else
+  max_sig = abs(max_sig);
+#endif
+
   max_sig_acc += max_sig;
   max_sig = max_sig_acc >> RSP_ACC_SHIFT;
   max_sig_acc -= max_sig;
@@ -618,7 +623,9 @@ static void sdrplay_callback_A (short                       *xi,
     end &= ~(MODES_RSP_BUF_SIZE - 1);
 
     sdr.rx_num_callbacks++;
-    (*sdr.rx_callback) ((uint8_t*)sdr.rx_data + end, MODES_RSP_BUF_SIZE, sdr.rx_context);
+    (*sdr.rx_callback) ((uint8_t*)sdr.rx_data + end * sizeof(SAMPLE_TYPE),
+        MODES_RSP_BUF_SIZE * sizeof(SAMPLE_TYPE),
+        sdr.rx_context);
   }
 
   /* Stash static values in `sdr` struct
@@ -777,13 +784,20 @@ static int sdrplay_init_async (sdrplay_dev *device,
     return (sdr.last_rc);
   }
 
+  Modes.measure_noise = false;
+  Modes.DC_filter     = false;
+
 #if USE_8BIT_SAMPLES
   Modes.input_format     = INPUT_UC8;   /* Unsigned, Complex, 8 bit per sample. Always */
   Modes.bytes_per_sample = 2;
-  Modes.measure_noise    = false;
-  Modes.DC_filter        = false;
+#else
+  Modes.input_format     = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always */
+  Modes.bytes_per_sample = 4;
+#endif
 
-  TRACE ("Reinit for USE_8BIT_SAMPLES == 1\n");
+  TRACE ("Reinit for USE_8BIT_SAMPLES == %d, using %s\n",
+         USE_8BIT_SAMPLES, convert_format_name(Modes.input_format));
+
   Modes.converter_func = convert_init (Modes.input_format,
                                        Modes.sample_rate,
                                        Modes.DC_filter,
@@ -795,7 +809,6 @@ static int sdrplay_init_async (sdrplay_dev *device,
     sdr.last_rc = sdrplay_api_Fail;   /* a better error-code? */
     return (sdr.last_rc);
   }
-#endif
 
   sdr.ch_params = (sdr.chosen_dev->tuner == sdrplay_api_Tuner_A) ?
                   sdr.dev_params->rxChannelA : sdr.dev_params->rxChannelB;
@@ -822,7 +835,8 @@ static int sdrplay_init_async (sdrplay_dev *device,
   if (sdr.chosen_dev->hwVer != SDRPLAY_RSP1_ID)
      sdr.ch_params->tunerParams.gain.minGr = sdrplay_api_EXTENDED_MIN_GR;
 
-  sdr.ch_params->ctrlParams.agc.enable = Modes.dig_agc;
+  sdr.ch_params->ctrlParams.agc.enable = Modes.dig_agc ? sdrplay_api_AGC_CTRL_EN : sdrplay_api_AGC_DISABLE;
+  sdr.ch_params->ctrlParams.agc.setPoint_dBfs = -45;
 
   sdr.ch_params->tunerParams.gain.gRdB     = sdr.gain_reduction;
   sdr.ch_params->tunerParams.gain.LNAstate = 0;
@@ -873,6 +887,11 @@ static int sdrplay_init_async (sdrplay_dev *device,
     sdr.ch_params->rspDuoTunerParams.biasTEnable      = Modes.bias_tee;
     sdr.ch_params->rspDuoTunerParams.rfNotchEnable    = (1 - sdr.disable_broadcast_notch);
     sdr.ch_params->rspDuoTunerParams.rfDabNotchEnable = (1 - sdr.disable_DAB_notch);
+
+    if (Modes.sdrplay.antenna_port == 'A')
+         sdr.ch_params->rspDuoTunerParams.tuner1AmPortSel = sdrplay_api_RspDuo_AMPORT_1;
+    else sdr.ch_params->rspDuoTunerParams.tuner1AmPortSel = sdrplay_api_RspDuo_AMPORT_2;
+
   }
 
   sdr.dev_params->devParams->mode   = sdr.USB_mode;
@@ -962,8 +981,8 @@ int sdrplay_read_async (sdrplay_dev *device,
     }
     sdrplay_get_gain (device, &gain);
 
-    TRACE ("gain: %2d, sdr.max_sig_acc: %6d, sdr.rx_data_idx: %7u\n",
-           gain, sdr.max_sig_acc, sdr.rx_data_idx);
+    TRACE2 ("gain: %2d, sdr.max_sig_acc: %6d, sdr.rx_data_idx: %7u\n",
+            gain, sdr.max_sig_acc, sdr.rx_data_idx);
   }
   return (0);
 }
