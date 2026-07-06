@@ -829,7 +829,10 @@ static int List_Devices (int index, found_device *found)
   }
 
   if (DeviceInfoSet)
-     SetupDiDestroyDeviceInfoList (DeviceInfoSet);
+  {
+    SetupDiDestroyDeviceInfoList (DeviceInfoSet);
+    DeviceInfoSet = NULL;
+  }
 
   if (index >= count)
   {
