@@ -38,3 +38,9 @@ doc8643Manufacturers.csv
 testfiles/modes1.bin.png
 waterfall/
 src/build
+
+# Rust build artifacts for setup wizard
+tools/setupwiz/target
+
+# CI artifacts
+artifacts

@@ -1,7 +1,7 @@
 /**
  * \file    dump1090.c
  * \ingroup Main
- * \brief   Dump1090, a Mode-S messages decoder for RTLSDR / SDRPlay devices.
+ * \brief   Dump1090 for Windows, a Mode-S messages decoder for RTLSDR / SDRPlay devices.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,7 +59,7 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
  * \addtogroup Samplers     SDR input functions
  * \addtogroup GNS-HULC     Serial-IO for a GNS-HULC device
  *
- * \mainpage Dump1090
+ * \mainpage Dump1090 for Windows
  *
  * # Introduction
  *
@@ -70,7 +70,7 @@ static_assert (MODES_MAG_BUFFERS < MODES_ASYNC_BUF_NUMBERS, /* 12 < 15 */
  * The code for Osmocom's [**librtlsdr**](https://osmocom.org/projects/rtl-sdr/wiki) is built into this program.
  * Hence no dependency on *RTLSDR.DLL*.
  *
- * This *Mode S* decoder is based on the Dump1090 by *Salvatore Sanfilippo*.
+ * This *Mode S* decoder is based on the original Dump1090 by *Salvatore Sanfilippo*.
  *
  * ### Basic block-diagram:
  * \image html img/dump1090-diagram.drawio.png

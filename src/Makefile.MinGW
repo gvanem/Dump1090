@@ -148,7 +148,7 @@ WEB_OBJ = $(call c_to_obj, $(WEB_SRC))
 vpath %.c ../tools
 
 all: $(GENERATED) $(TARGETS)
-	$(call green_msg, Welcome to Dump1090/gcc.)
+	$(call green_msg, Welcome to Dump1090 for dump1090/gcc.)
 
 $(OBJ_DIR):
 	mkdir --parents $@

@@ -1,4 +1,4 @@
-# Dump1090
+# Dump1090 for Windows
 
 [![MSBuild](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml/badge.svg?branch=main)](https://github.com/gvanem/Dump1090/actions/workflows/msbuild.yml)
 [![AppVeyor](https://ci.appveyor.com/api/projects/status/github/gvanem/Dump1090?branch=main&svg=true)](https://ci.appveyor.com/project/gvanem/Dump1090)

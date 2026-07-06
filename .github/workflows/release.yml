@@ -1,0 +1,130 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  SOLUTION_FILE_PATH: src/Dump1090.sln
+
+jobs:
+  build:
+    name: Build release assets
+    runs-on: windows-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        BUILD_CONFIGURATION: [ Release ]
+        BUILD_PLATFORM: [ x86, x64 ]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build
+        working-directory: ${{ env.GITHUB_WORKSPACE }}
+        run: msbuild /m /p:Configuration=${{ matrix.BUILD_CONFIGURATION }} /p:Platform=${{ matrix.BUILD_PLATFORM }} /p:PlatformToolset=v143 ${{ env.SOLUTION_FILE_PATH }}
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Build setup wizard (setup.exe)
+        working-directory: tools/setupwiz
+        run: |
+          cargo build --release
+
+      - name: Package release asset
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'
+          if ($version.StartsWith('v')) {
+            $version = $version.Substring(1)
+          }
+
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+
+          # Build and include Rust-based installer (setup.exe) is handled in a separate step
+          Write-Host "Looking for setup.exe at tools/setupwiz/target/release/setup.exe"
+
+          # Copy main executable and installer into artifacts folder
+          $dumpExe = Join-Path $env:GITHUB_WORKSPACE 'dump1090.exe'
+          $setupExe = Join-Path $env:GITHUB_WORKSPACE 'tools\setupwiz\target\release\setup.exe'
+          if (Test-Path $dumpExe) { Copy-Item -Path $dumpExe -Destination $artifactDir -Force }
+          if (Test-Path $setupExe) { Copy-Item -Path $setupExe -Destination $artifactDir -Force }
+
+          # Copy config files, CSVs, BAT files from repo root
+          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE '*.cfg') -Destination $artifactDir -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE '*.bat') -Destination $artifactDir -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE 'airport-codes.csv') -Destination $artifactDir -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE 'airport-frequencies.csv') -Destination $artifactDir -Force -ErrorAction SilentlyContinue
+
+          # Copy web_root* directories
+          Get-ChildItem -Path $env:GITHUB_WORKSPACE -Directory -Filter 'web_root*' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item -Path $_.FullName -Destination $artifactDir -Recurse -Force }
+
+          # Copy tools directory but remove build targets to keep archive tidy
+          if (Test-Path (Join-Path $env:GITHUB_WORKSPACE 'tools')) {
+            Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE 'tools') -Destination $artifactDir -Recurse -Force
+            Remove-Item -Path (Join-Path $artifactDir 'tools\setupwiz\target') -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+          $zipPath = Join-Path $artifactDir ("Dump1090-for-Windows-{0}-{1}.zip" -f $version, '${{ matrix.BUILD_PLATFORM }}')
+          Compress-Archive -Force -Path (Join-Path $artifactDir '*') -DestinationPath $zipPath
+
+      - name: Upload release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: dump1090-${{ matrix.BUILD_PLATFORM }}
+          path: artifacts/*.zip
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Derive release metadata
+        id: meta
+        shell: bash
+        run: |
+          tag='${{ github.ref_name }}'
+          version="${tag#v}"
+          release_name="$version"
+          prerelease="false"
+
+          if [[ "$version" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then
+            release_name="${BASH_REMATCH[1]} Release Candidate ${BASH_REMATCH[2]}"
+            prerelease="true"
+          elif [[ "$version" == *-* ]]; then
+            prerelease="true"
+          fi
+
+          {
+            echo "tag_name=$tag"
+            echo "release_name=$release_name"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: ${{ steps.meta.outputs.release_name }}
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          generate_release_notes: true
+          files: release-assets/**/*.zip
