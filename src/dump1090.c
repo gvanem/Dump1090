@@ -3426,6 +3426,7 @@ static void show_help (const char *fmt, ...)
             "  Shows only non-matching ICAO-addresses; `dump1090.exe --only-addr !48*`.\n\n"
             "  Refer the `%s` file for other settings.\n", Modes.cfg_file);
   }
+  mg_log_set (MG_LL_NONE);
   modeS_exit (0);
 }
 
