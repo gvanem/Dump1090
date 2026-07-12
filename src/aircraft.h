@@ -247,6 +247,7 @@ const char *aircraft_mode_AC_flags (enum MODEAC_FLAGS flags);
 bool        aircraft_is_military (uint32_t addr, const char **country);
 bool        aircraft_is_helicopter (uint32_t addr, const char **code);
 bool        aircraft_match_init (const char *arg);
+bool        aircraft_match_filter (void);
 bool        aircraft_match (uint32_t addr);
 char       *aircraft_make_json (bool extended_client, size_t *size_p);
 char       *aircraft_receiver_json (char *buf, size_t *size_p);

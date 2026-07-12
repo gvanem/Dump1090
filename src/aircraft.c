@@ -172,7 +172,7 @@ static bool sql_begin (void);
 static bool sql_end (void);
 static bool sql_add_entry (uint32_t num, const aircraft_info *ai);
 
-static bool  aircraft_outline_generate (uint64_t now, const char *fname);
+static bool  aircraft_outline_generate (uint64_t now, const char *fname, const char *fmode);
 static bool  aircraft_outline_update (aircraft *a, uint64_t now);
 static bool  is_helicopter_type (const char *type);
 static const aircraft_info *CSV_lookup_entry (uint32_t addr);
@@ -1119,7 +1119,7 @@ static void aircraft_dump_json (char *data, const char *filename)
     return;
   }
 
-  f = fopen (tmp_file, "w+");
+  f = fopen (tmp_file, "w+t");
   if (!f)
   {
     printf ("  Creating %s failed; errno: %d/%s\n\n", tmp_file, errno, strerror(errno));
@@ -1209,7 +1209,7 @@ static void aircraft_test_3 (unsigned max_num)
   aircraft_dump_json (aircraft_make_json(false, &unused), "json-1.txt");
   aircraft_dump_json (aircraft_make_json(true, &unused), "json-2.txt");
 
-  smartlist_t *save = g_data.aircrafts;
+  smartlist_t *save  = g_data.aircrafts;
   smartlist_t *empty = smartlist_new();
 
   /* Test empty json-data too.
@@ -1381,10 +1381,12 @@ static const char *readsb_outline_json[] = {
   NULL
 };
 
+#define URL_SHOW_OUTLINE  "http://localhost:8000/show-outline.html"
+
 /**
  * Code for `Modes.tmp_dir\\outline-test\\outline-test.bat`
  */
-static const char *test_bat_code[] = {
+static char *test_bat_code[] = {
   "@echo off",
   "setlocal",
   "cd /D %~dp0",
@@ -1392,11 +1394,8 @@ static const char *test_bat_code[] = {
   "start py.exe -3 -m http.server",
   "echo Sleeping for 3 seconds...",
   "ping.exe -4 -n 3 localhost > NUL",
-  "echo Starting 'chrome http://localhost:8000/show-outline.html'",
- /**
-  * \todo Make this configurable
-  */
-  "\"c:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\" \"http://localhost:8000/show-outline.html\"",
+  "echo Launching " URL_SHOW_OUTLINE,
+  "<default-browser> " URL_SHOW_OUTLINE,
   NULL
 };
 
@@ -1407,7 +1406,7 @@ static const char *test_bat_code[] = {
 static char *create_outline_file (const char *dir, const char *file, const char **data)
 {
   char *fname = mg_mprintf ("%s\\%s", dir, file);
-  FILE *f = fopen (fname, "w+");
+  FILE *f = fopen (fname, "w+t");
   int   i;
 
   if (!f)
@@ -1443,8 +1442,11 @@ static void aircraft_test_4 (unsigned max_num)
   char       *readsb_outline;
   char       *outline_html;
   char       *test_bat;
+  char       *html_handler = NULL;
   char       *our_json;
   const char *our_data [2] = { NULL, NULL };
+  char        exe_buf [1024];
+  DWORD       exe_buf_len = sizeof(exe_buf);
 
   printf ("%s(): Testing 'outline' stuff:\n", __FUNCTION__);
 
@@ -1460,11 +1462,25 @@ static void aircraft_test_4 (unsigned max_num)
       aircraft_outline_update (aircraft_find(0x470000 + i), now);
 
   our_outline = mg_mprintf ("%s\\%s", dir, "our_outline.json");
-  aircraft_outline_generate (now, our_outline);
+
+  /*
+   * Since mg_file_read() opens fname in binary-mode
+   */
+  aircraft_outline_generate (now, our_outline, "w+b");
 
   our_json     = aircraft_outline_json (our_outline, &size);
   our_data [0] = our_json;
   our_json [size-2] = '\0';   /* remove last `\n` */
+
+  if (AssocQueryStringA(ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_EXECUTABLE,
+                        ".html", NULL, exe_buf, &exe_buf_len) == S_OK)
+  {
+    int idx = DIM (test_bat_code) - 2;
+
+    html_handler = mg_mprintf ("\"%s\" %s", exe_buf, URL_SHOW_OUTLINE);
+    test_bat_code [idx] = html_handler;
+    printf ("Patching 'test_bat_code[%d]' with '%s'\n", idx, html_handler);
+  }
 
   /* This effectively copies data in `g_data.outline_json` to
    * `Modes.tmp_dir\\outline-test\\our_outline_json`.
@@ -1473,7 +1489,7 @@ static void aircraft_test_4 (unsigned max_num)
   our_outline    = create_outline_file (dir, "our_outline.json", our_data);
   readsb_outline = create_outline_file (dir, "readsb_outline.json", readsb_outline_json);
   outline_html   = create_outline_file (dir, "show-outline.html", show_outline_html);
-  test_bat       = create_outline_file (dir, "outline-test.bat", test_bat_code);
+  test_bat       = create_outline_file (dir, "outline-test.bat", (const char**)test_bat_code);
 
   if (test_bat)
   {
@@ -1486,6 +1502,7 @@ static void aircraft_test_4 (unsigned max_num)
   free (our_outline);
   free (our_json);
   free (outline_html);
+  free (html_handler);
   free (test_bat);
   free (readsb_outline);
   puts ("");
@@ -2338,6 +2355,14 @@ bool aircraft_match_init (const char *arg)
 }
 
 /**
+ * Return true if we have a `g_data.icao_filter`.
+ */
+bool aircraft_match_filter (void)
+{
+  return (g_data.icao_spec != NULL);
+}
+
+/**
  * Match the ICAO-address in `a` against `g_data.icao_filter`.
  */
 bool aircraft_match (uint32_t a)
@@ -2653,7 +2678,7 @@ static size_t aircraft_make_one_json (const aircraft *a, bool extended_client, c
   int    altitude = a->altitude;
   int    speed    = a->speed;
 
-  /* Convert units to metric if '--metric' was specified.
+  /* Convert units to metric if 'metric == true'.
    * But an 'extended_client' wants altitude and speed in aeronatical units.
    */
   if (Modes.metric && !extended_client)
@@ -2926,7 +2951,7 @@ char *aircraft_make_json (bool extended_client, size_t *size_p)
  *
  * \ref https://discussions.flightaware.com/t/comparing-tar1090-actual-range-plot-shapes/96965/2
  */
-static bool aircraft_outline_generate (uint64_t now, const char *fname)
+static bool aircraft_outline_generate (uint64_t now, const char *fname, const char *fmode)
 {
   static uint64_t prev_msec = 0;
   FILE  *f;
@@ -2949,7 +2974,7 @@ static bool aircraft_outline_generate (uint64_t now, const char *fname)
   }
 
   assert (fname);
-  f = fopen (fname, "w+");
+  f = fopen (fname, fmode);
   if (!f)
   {
     g_data.outline_enable = false;
@@ -2979,8 +3004,10 @@ static bool aircraft_outline_generate (uint64_t now, const char *fname)
   {
     if (record[i].lat || record[i].lon)
     {
-      const char *comma = (i < RANGEDIRS_BUCKETS - 1 ? "," : "");
-      fprintf (f, "[%.4f,%.4f,%d]%s\n", record[i].lat, record[i].lon, record[i].alt, comma);
+      fprintf (f, "[%.4f,%.4f,%d]", record[i].lat, record[i].lon, record[i].alt);
+      if (i < RANGEDIRS_BUCKETS - 1)
+         fputc (',', f);
+      fputc ('\n', f);
     }
   }
   fputs ("]}}}\n", f);
@@ -3281,7 +3308,7 @@ void aircraft_remove_stale (uint64_t now)
     aircraft_check_dist (cpr_error_sum);
     aircraft_outline_update (NULL, now);
   }
-  aircraft_outline_generate (now, g_data.outline_json);
+  aircraft_outline_generate (now, g_data.outline_json, "w+t");
 }
 
 /**
