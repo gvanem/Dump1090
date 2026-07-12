@@ -9,7 +9,6 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <wininet.h>
-#include <shlwapi.h>
 
 #undef MOUSE_MOVED
 #include <curses.h>

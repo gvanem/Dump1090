@@ -11,6 +11,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <wchar.h>
+#include <shlwapi.h>
 
 #include "mongoose.h"
 #include "cfg_file.h"
@@ -143,6 +144,14 @@
                                 } while (0)
 
 /**
+ * \def FREE()
+ * \def FCLOSE()
+ * Safe wrappers for free() + fclose; check and set to NULL.
+ */
+#define FREE(p)   (p ? (void) (free(p), p = NULL) : (void)0)
+#define FCLOSE(f) (f ? (void) (fclose(f), f = NULL) : (void)0)
+
+/**
  * \typedef search_list
  * A structure for things to search in `search_list_name()` and `flags_decode()`
  */
@@ -211,7 +220,7 @@ typedef enum metric_unit_t {
         MODES_UNIT_METERS = 2
       } metric_unit_t;
 
-#define UNIT_NAME(unit) (unit == MODES_UNIT_METERS ? "meters" : "feet")
+#define UNIT_NAME()   (Modes.metric ? "meters" : "feet")
 
 #define MAX_ME_TYPE    37
 #define MAX_ME_SUBTYPE  8
