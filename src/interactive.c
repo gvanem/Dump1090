@@ -986,7 +986,7 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
   int         min_x1, min_x2;  /* mouse hit-test */
   int         max_x1, max_x2 = strlen ("ICAO   Callsign  Reg-num  Cntry  DEP  DEST");
 
-  /* Convert units to metric if option `--metric` was used.
+  /* Convert units to metric if option `Modes.metric` was used.
    */
   if (Modes.metric)
   {
