@@ -7,7 +7,23 @@
 
 #include "GNS-Hulc/gns-private.h"
 #include "GNS-Hulc/gns-hulc.h"
+
+/*
+ * '#include <ntddser.h>' is needed for
+ * `DeviceIoControl()` but causes a lot of redefinitions warnings.
+ * Turn them off.
+ */
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable: 4005)
+#endif
+
 #include <ntddser.h>
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+
 
 /**
  * \def COM_DEVICEMAP

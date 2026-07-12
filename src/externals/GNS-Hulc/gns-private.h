@@ -82,23 +82,6 @@
                fmt, __LINE__, ## __VA_ARGS__);      \
         } while (0)
 
-/*
- * For `DeviceIoControl (handle, IOCTL_SERIAL_GET_DTRRTS, ...)`
- * in `gsn-serial.c`
- */
-#ifndef IOCTL_SERIAL_GET_DTRRTS
-#define IOCTL_SERIAL_GET_DTRRTS  CTL_CODE (FILE_DEVICE_SERIAL_PORT, 30, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#endif
-
-#ifndef SERIAL_DTR_STATE
-#define SERIAL_DTR_STATE  0x00000001UL
-#endif
-
-#ifndef SERIAL_RTS_STATE
-#define SERIAL_RTS_STATE  0x00000002UL
-#endif
-
-
 /**
  * \typedef COM_settings
  * Settings for the COM-port
