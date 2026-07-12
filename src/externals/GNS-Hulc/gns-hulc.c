@@ -24,9 +24,10 @@
 
 #include "GNS-Hulc/gns-private.h"
 #include "GNS-Hulc/gns-hulc.h"
+#include "aircraft.h"
 
-#define USE_DUMP_FILES     1
-#define FIRMWARE_TIMER     10000
+#define USE_HEX_FILE       0
+#define USE_GPS_FILE       1
 
 #define GPS_HAVE_FIX_LOW   6
 #define GPS_HAVE_FIX_HIGH  15
@@ -37,21 +38,19 @@ GNS_priv g_data;
 static void        set_defaults (void);
 static bool        send_option (const uint8_t *msg, int msg_sz, const char *what);
 static void        send_beast_options (void);
-static void        send_firmware_req (void *unused);
-static bool        pkt_enqueue (const RX_packet *pkt);
+static void        send_firmware_req (void);
+static void        pkt_enqueue (const RX_packet *pkt);
 static uint32_t    pkt_list_len (void);
 static void        pkt_free (void);
+static void        pkt_add_junk (_Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(1, 2);
 static double      binary_angle (int32_t angle);
-static char       *get_name_space (uint16_t port);
-static const char *ch_str (int ch);
+static const char *hex_ch_str (int ch);
 static void        hex_dump (const uint8_t *buf, size_t len, unsigned line, const char *what);
-static void        hex_dump_csv (FILE *f, const uint8_t *buf, size_t len, const char *what, bool rc);
+static void        hex_dump_csv (FILE *f, const uint8_t *buf, int len, const char *what);
 
-static char hex_digits [] = "0123456789ABCDEF";
-
-static void state_get_sync (uint8_t ch, int idx);
-static void state_put_ch (uint8_t ch, int idx);
-static void state_got_1A (uint8_t ch, int idx);
+static void state_get_sync (uint8_t ch);
+static void state_put_ch (uint8_t ch);
+static void state_got_1A (uint8_t ch);
 
 /**
  * \def HEX_DUMP1()
@@ -144,7 +143,7 @@ bool gns_hulc_set_port (const char *arg)
     else cfg_illegal_val ("hulc-port", arg);
   }
 
-  free (Modes.gns_hulc.name);
+  FREE (Modes.gns_hulc.name);
   Modes.gns_hulc.name = mg_mprintf ("HULC-%d", Modes.gns_hulc.port);
   return (true);
 }
@@ -232,6 +231,7 @@ bool gns_hulc_gps_info (pos_t *pos, int *altitude, int *num, double *hdop)
 HANDLE gns_hulc_init (uint16_t port)
 {
   HANDLE hnd;
+  char  *file = NULL;
 
   set_defaults();
 
@@ -239,31 +239,11 @@ HANDLE gns_hulc_init (uint16_t port)
 
   InitializeCriticalSection (&g_data.crit);
 
-  strncpy (g_data.COM.name_space, get_name_space(port), sizeof(g_data.COM.name_space)-1);
-
-  /* "\\.\COMx".
-   */
-  g_data.COM.dev_name = mg_mprintf ("\\\\.\\COM%d", port);
-
-  DEBUG2 ("Modes.gns_hulc.port:  %u\n", Modes.gns_hulc.port);
-  DEBUG2 ("Modes.gns_hulc.name:  %s\n", Modes.gns_hulc.name ? Modes.gns_hulc.name : "<none>");
-  DEBUG2 ("Modes.selected_dev:   '%s'\n", Modes.selected_dev ? Modes.selected_dev  : "<none>");
-  DEBUG2 ("name_space:           '%s'\n", g_data.COM.name_space);
-
-  hnd = CreateFileA (g_data.COM.dev_name, GENERIC_READ | GENERIC_WRITE,
-                     0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-
-  if (hnd == INVALID_HANDLE_VALUE)
-  {
-    LOG_STDERR ("Error opening %s: %s\n", g_data.COM.dev_name, win_strerror(GetLastError()));
-    gns_hulc_exit (hnd);
-    return (NULL);
-  }
-
-  if (!COM_init(hnd))
+  hnd = COM_init (port);
+  if (!hnd)
   {
     LOG_STDERR ("COM_init (\"%s\") failed.\n", g_data.COM.dev_name);
-    gns_hulc_exit (hnd);
+    gns_hulc_exit (NULL);
     return (NULL);
   }
 
@@ -271,30 +251,26 @@ HANDLE gns_hulc_init (uint16_t port)
               g_data.Beast.enable ? "Beast" : "HULC",
               g_data.COM.dev_name, g_data.COM.name_space);
 
-  Modes.gns_hulc.handle = hnd;
-
-  if (g_data.Beast.enable)
-     send_beast_options();
-
   g_data.pkt_current.msg_len = 0;
+  g_data.old_ch  = -1;
   g_data.got_x1A = false;
 
-  DEBUG2 ("ch: --, %s() -> state_get_sync()\n", __FUNCTION__);
+  DEBUG1 ("sio_buf_size: %d, state: state_get_sync()\n", COM_RX_SIZE);
   g_data.state = state_get_sync;
 
-  mg_timer_add (&Modes.mgr, FIRMWARE_TIMER, MG_TIMER_REPEAT, send_firmware_req, NULL);
-
-#if USE_DUMP_FILES
-  char *hex_file = mg_mprintf ("%s\\gns-hex.txt", Modes.tmp_dir);
-  char *gps_file = mg_mprintf ("%s\\gns-gps.txt", Modes.tmp_dir);
-
-  g_data.hex_file = fopen (hex_file, "w+");
-  g_data.gps_file = fopen (gps_file, "w+");
-
-  free (hex_file);
-  free (gps_file);
+#if USE_HEX_FILE
+  file = mg_mprintf ("%s\\gns-hex.txt", Modes.tmp_dir);
+  g_data.hex_file = fopen (file, "w+");
+  free (file);
 #endif
 
+#if USE_GPS_FILE
+  file = mg_mprintf ("%s\\gns-gps.txt", Modes.tmp_dir);
+  g_data.gps_file = fopen (file, "w+");
+  free (file);
+#endif
+
+  (void) file;
   return (hnd);
 }
 
@@ -311,23 +287,15 @@ void gns_hulc_exit (HANDLE hnd)
     CloseHandle (hnd);
   }
 
-  free (Modes.gns_hulc.name);
-  free (g_data.COM.dev_name);
-  free (g_data.sio_buf);
+  FREE (Modes.gns_hulc.name);
+  FREE (g_data.COM.dev_name);
+  FREE (g_data.sio_buf);
   pkt_free();
 
   DeleteCriticalSection (&g_data.crit);
-  Modes.gns_hulc.name = NULL;
-  g_data.COM.dev_name = NULL;
-  g_data.sio_buf = NULL;
 
-  if (g_data.hex_file)
-     fclose (g_data.hex_file);
-
-  if (g_data.gps_file)
-     fclose (g_data.gps_file);
-
-  g_data.hex_file = g_data.gps_file = NULL;
+  FCLOSE (g_data.hex_file);
+  FCLOSE (g_data.gps_file);
 }
 
 /**
@@ -337,37 +305,23 @@ void gns_hulc_stats (void)
 {
   uint64_t sum = g_data.stat.rx_packets_32 + g_data.stat.rx_packets_33 +
                  g_data.stat.rx_packets_34 + g_data.stat.rx_packets_48 +
-                 g_data.stat.rx_errors;
+                 g_data.stat.rx_packets_unknown;
 
   if (sum == 0ULL)
      return;
 
   LOG_STDOUT ("! \n");
   LOG_STDOUT ("GNS-HULC statistics:\n");
-
-  LOG_STDOUT (" %8llu RX-packets-32 (unstuffed: %llu).\n",
-              g_data.stat.rx_packets_32, g_data.stat.rx_unstuffed_32);
-
-  LOG_STDOUT (" %8llu RX-packets-33 (unstuffed: %llu).\n",
-              g_data.stat.rx_packets_33, g_data.stat.rx_unstuffed_33);
-
-  LOG_STDOUT (" %8llu RX-packets-34 (unstuffed: %llu).\n",
-              g_data.stat.rx_packets_34, g_data.stat.rx_unstuffed_34);
-
-  LOG_STDOUT (" %8llu RX-packets-48 (unstuffed: %llu).\n",
-              g_data.stat.rx_packets_48, g_data.stat.rx_unstuffed_48);
-
-  LOG_STDOUT (" %8llu RX-unknown.\n",   g_data.stat.rx_packets_unknown);
-  LOG_STDOUT (" %8llu TX-packets.\n",   g_data.stat.tx_packets);
+  LOG_STDOUT (" %8llu RX-packets-32.\n", g_data.stat.rx_packets_32);
+  LOG_STDOUT (" %8llu RX-packets-33.\n", g_data.stat.rx_packets_33);
+  LOG_STDOUT (" %8llu RX-packets-34.\n", g_data.stat.rx_packets_34);
+  LOG_STDOUT (" %8llu RX-packets-48.\n", g_data.stat.rx_packets_48);
+  LOG_STDOUT (" %8llu RX-unknown.\n", g_data.stat.rx_packets_unknown);
+  LOG_STDOUT (" %8llu TX-packets.\n", g_data.stat.tx_packets);
   LOG_STDOUT (" %8llu RX-junk-data.\n", g_data.stat.pkt_junk);
-
-  double percent = (100.0 * g_data.stat.pkt_too_short) /
-                   (g_data.stat.rx_packets_33 + g_data.stat.rx_packets_34 +
-                    g_data.stat.rx_packets_48 + g_data.stat.rx_packets_unknown);
-
-  LOG_STDOUT (" %8llu Too short packets (%.2f%%).\n", g_data.stat.pkt_too_short, percent);
-  LOG_STDOUT (" %8llu Dequeued packets\n", g_data.stat.pkt_dequeued);
-  LOG_STDOUT (" %8llu mode_S errors.\n", g_data.stat.mode_S_errors);
+  LOG_STDOUT (" %8llu Enqueued packets.\n", g_data.stat.pkt_enqueued);
+  LOG_STDOUT (" %8llu Dequeued packets.\n", g_data.stat.pkt_dequeued);
+  LOG_STDOUT (" %8llu Too short packets (%.2f%%).\n", g_data.stat.pkt_too_short, (100.0 * g_data.stat.pkt_too_short) / sum);
 }
 
 uint64_t gns_hulc_junk (void)
@@ -429,16 +383,24 @@ static void set_defaults (void)
   g_data.Beast.CRC            = true;
 }
 
-static bool decoder_header (const header_32_33 *hdr, uint64_t *ts_msec, const char *func)
+/**
+ * Called for both 0x32 and 0x33 message-types.
+ *
+ * Decode the header from a `header_32_33` header
+ * and return a relative/absolute timestamp and signal-level.
+ */
+static void decoder_header (const header_32_33 *hdr, uint64_t *ts_msec, double *sig_level, const char *func)
 {
-  static bool done = false;
+  static bool done = false;    /* got `tz_info`? */
   static LONG timezone = 0;    /* in minutes */
   static LONG dst_adjust = 0;  /* in minutes */
   static LONG UTC_adjust = 0;  /* in minutes */
   const char *junk = NULL;     /* got local junk data? */
-  char        ts_buf [100];    /* timestamp info */
+  char        ts_buf [200];    /* time-stamp buffer */
+  uint64_t    timestamp;
 
-  *ts_msec = 0ULL;
+  *ts_msec   = 0ULL;
+  *sig_level = 0.0;
 
   if  (!done)
   {
@@ -456,11 +418,8 @@ static bool decoder_header (const header_32_33 *hdr, uint64_t *ts_msec, const ch
     done = true;
   }
 
-  /* With GPS detected, the upper 18 bits are seconds since last midnight 00:00:00 UTC
-   * With no GPS, the timestamp is a 48-bit unsigned number counting at 12 MHz.
+  /* With no GPS, the timestamp is a 48-bit unsigned number counting at 12 MHz.
    */
-  uint64_t timestamp;
-
   if (!g_data.GPS.detected)
   {
     timestamp = (mg_ntohl (hdr->ts1) << 16) + mg_ntohs (hdr->ts2);
@@ -469,12 +428,14 @@ static bool decoder_header (const header_32_33 *hdr, uint64_t *ts_msec, const ch
   }
   else
   {
-    timestamp = mg_ntohl (hdr->ts1) >> (32 - 18); /* get upper 18 bits */
+    /* With GPS detected, the upper 18 bits are seconds since last midnight 00:00:00 UTC
+     */
+    timestamp = mg_ntohl (hdr->ts1) >> (32 - 18);
 
-    if (timestamp > 24*3600)
+    if (timestamp >= 24*3600)
     {
-      junk = ", junk-data!";
-      g_data.stat.pkt_junk++;
+      junk = "timestamp-junk";
+      pkt_add_junk ("%s: %llu", junk, timestamp);
     }
 
     /* Lower 30 bits are nanoseconds of current second
@@ -490,91 +451,125 @@ static bool decoder_header (const header_32_33 *hdr, uint64_t *ts_msec, const ch
     uint16_t seconds   = (uint16_t) local_sec % 60;
 
     *ts_msec = 1000 * local_sec + seconds + microsec / 1000;
-    snprintf (ts_buf, sizeof(ts_buf), "absolute %llu, nanosec: %u: %02u:%02u:%02u:%06u",
+    snprintf (ts_buf, sizeof(ts_buf), "absolute %llu, nanosec: %10u: %02u:%02u:%02u:%06u",
               timestamp, nanosec, hours, minutes, seconds, microsec);
   }
 
   char dbFS [10] = "-";
 
   if (hdr->RSSI > 0)
-     snprintf (dbFS, sizeof(dbFS), "%.1f", 10.0 * log10((double)hdr->RSSI / 255.0));  /* is this right? */
+  {
+    double level = (double) hdr->RSSI / 255.0;   /* is this right? */
+
+    snprintf (dbFS, sizeof(dbFS), "%.1f", 10.0 * log10(level));
+    *sig_level = level;
+  }
 
   if (junk)
-       DEBUG1 ("%s(): timestamp: %s, RSSI: %d / %s dBFS%s\n\n",
+       DEBUG1 ("%s(): timestamp: %s, RSSI: %d / %s dBFS, %s\n\n",
                func, ts_buf, hdr->RSSI, dbFS, junk);
   else DEBUG2 ("%s(): timestamp: %s, RSSI: %d / %s dBFS\n\n",
                func, ts_buf, hdr->RSSI, dbFS);
-
-  return (junk == NULL);
 }
 
-static void decode_common (const RX_packet *pkt, int valid_bits, const char *func)
+/**
+ * Common decoders both 0x32 and 0x33 message-types.
+ *
+ * The only variable is number of bits in `msg`.
+ * For `decode_msg_32()` it is `MODES_SHORT_MSG_BITS == 56` and
+ * For `decode_msg_33()` it is `MODES_LONG_MSG_BITS == 112`.
+ */
+static void decode_common (const uint8_t *msg, int valid_bits, const char *func)
 {
   const header_32_33 *hdr;
-  const uint8_t      *msg;
+  uint64_t            timestamp;
+  double              sig_level;
+  int                 DF, score, rc;
+  bool                DF_handled;
   modeS_message       mm;
-  uint64_t            ts;
-  int                 DF, rc;
 
-  if (pkt->msg_len < sizeof(*hdr))
-     g_data.pkt_junk = ", junk-data";
+  /* The DFs we handle:
+   */
+  static int valid_DFs[] = {  0,  4,  5, 11, 16, 17, 18, 20,
+                             21, 24, 25, 26, 27, 28, 29, 30, 31 };
 
-  msg = pkt->msg;
+  /* Extra DFs valid for non-interactive mode.
+   * Ref. modeS_message_display()
+   */
+  static int extra_DFs[] = { 19,    /* Military Extended Squitter */
+                             22,    /* Military Use */
+                             32 };  /* Special code for Mode A/C */
 
-  DEBUG2 ("%s(): msg[0]: 0x%02X, msg[1]: 0x%02X, msg_len: %u%s\n",
-          func, msg[0], msg[1], pkt->msg_len,
-          g_data.pkt_junk ? g_data.pkt_junk : "");
-
-  HEX_DUMP2 (msg, min(pkt->msg_len, sizeof(pkt->msg)), NULL);
-
-  hdr = (const header_32_33*) &pkt->msg [2];
-  decoder_header (hdr, &ts, func);
+  hdr = (const header_32_33*) msg;
+  decoder_header (hdr, &timestamp, &sig_level, func);
 
   msg = (const uint8_t*) (hdr + 1);
-  DF  = msg [0] >> 3;    /* Downlink Format */
 
-  rc = modeS_message_score (msg, valid_bits);
-  DEBUG2 ("%s(), DF: %2d, modeS_message_score(): %d\n", func, DF, rc);
+  /* Check and handle Downlink Format
+   */
+  DF = msg [0] >> 3;
+  DF_handled = (memchr (valid_DFs, DF, sizeof(valid_DFs)) != NULL);
+  if (!DF_handled && !Modes.interactive)
+      DF_handled = (memchr (extra_DFs, DF, sizeof(extra_DFs)) != NULL);
 
-  mm.timestamp_msg     = ts;
-  mm.sys_timestamp_msg = g_data.GPS.detected ? ts : MSEC_TIME();
+  if (!DF_handled)
+  {
+    DEBUG2 ("%s(): DF %d unhandled\n", func, DF);
+    return;
+  }
+  score = modeS_message_score (msg, valid_bits);
+  if (score < 0)
+  {
+    DEBUG2 ("%s(): DF %d score: %d\n", func, DF, score);
+    return;
+  }
 
+  mm.timestamp_msg     = timestamp;
+  mm.sys_timestamp_msg = g_data.GPS.detected ? timestamp : MSEC_TIME();
+
+  g_data.stat.mode_S_messages++;
   rc = decode_mode_S_message (&mm, msg);
   if (rc == 0)
   {
+    aircraft *a;
+
     modeS_user_message (&mm);
+    a = aircraft_find (mm.addr);
+    if (a)
+    {
+      a->sig_levels [a->sig_idx++] = sig_level;
+      a->sig_idx &= DIM(a->sig_levels) - 1;
+    }
   }
   else
   {
     g_data.stat.mode_S_errors++;
-    DEBUG1 ("%s(): DF: %2d, decode_mode_S_message(): %d\n", func, DF, rc);
+    DEBUG1 ("%s(): DF %-2d, decode_mode_S_message(): %d\n", func, DF, rc);
   }
 }
 
 /**
  * Decode msg-type 0x32; "Mode-S Short Squitter" raw data at `pkt->msg + 2`
- *
- * Comparable to `readBeast()` in readsb.
  */
-static void decode_msg_32 (const RX_packet *pkt, uint32_t msg_len)
+static void decode_msg_32 (const RX_packet *pkt, int msg_len)
 {
-  assert (pkt->msg_len >= MODES_SHORT_MSG_BYTES);   /* >= 7 */
-  decode_common (pkt, MODES_SHORT_MSG_BITS, __FUNCTION__);
+  assert (msg_len >= MODES_SHORT_MSG_BYTES);   /* >= 7 */
+  decode_common (pkt->msg + 2, MODES_SHORT_MSG_BITS, __FUNCTION__);
 }
 
 /**
  * Decode msg-type 0x33; "Mode-S Extended Squitter" raw data at `pkt->msg + 2`
  */
-static void decode_msg_33 (const RX_packet *pkt, uint32_t msg_len)
+static void decode_msg_33 (const RX_packet *pkt, int msg_len)
 {
-  assert (pkt->msg_len >= MODES_LONG_MSG_BYTES);  /* >= 14 */
-  decode_common (pkt, MODES_LONG_MSG_BITS, __FUNCTION__);
+  assert (msg_len >= MODES_LONG_MSG_BYTES);  /* >= 14 */
+  decode_common (pkt->msg + 2, MODES_LONG_MSG_BITS, __FUNCTION__);
 }
 
 /**
  * Decode msg-type 0x34; No idea what this is. Show it raw.
  */
-static void decode_msg_34 (const RX_packet *pkt, uint32_t msg_len)
+static void decode_msg_34 (const RX_packet *pkt, int msg_len)
 {
   const uint8_t *msg = pkt->msg;
 
@@ -595,7 +590,7 @@ static void decode_msg_34 (const RX_packet *pkt, uint32_t msg_len)
  * And should always be x10.
  *
  * This is a the response to the Firmware request command; `"#00\r\n"`
- * sent in `gns_hulc_init()` and `send_option()`.
+ * sent in ` send_firmware_req()`.
  */
 static void show_firmware_resp (const uint8_t *cmd, uint32_t cmd_len)
 {
@@ -606,7 +601,10 @@ static void show_firmware_resp (const uint8_t *cmd, uint32_t cmd_len)
   char          *end = p + sizeof(fw_buf);
 
   if (cmd_len != 16)
-     g_data.pkt_junk = ", Firmware-junk";
+  {
+    pkt_add_junk ("Firmware-junk: %u", cmd_len);
+    return;
+  }
 
   HEX_DUMP1 (cmd, cmd_len, ", Firmware-resp:");
 
@@ -616,11 +614,10 @@ static void show_firmware_resp (const uint8_t *cmd, uint32_t cmd_len)
   DEBUG1 ("%s\n", fw_buf);
 }
 
-static void send_firmware_req (void *unused)
+static void send_firmware_req (void)
 {
   DEBUG1 ("%s()\n", __FUNCTION__);
   send_option ((const uint8_t*)"#00\r\n", 5, ", Firmware request:");
-  (void) unused;
 }
 
 /**
@@ -638,7 +635,7 @@ static void send_firmware_req (void *unused)
  *                               |__ hsm or firmware
  * ```
  */
-static void decode_msg_48 (const RX_packet *pkt, uint32_t msg_len)
+static void decode_msg_48 (const RX_packet *pkt, int msg_len)
 {
   char              flags_str [200] = "";
   char             *comma;
@@ -646,10 +643,6 @@ static void decode_msg_48 (const RX_packet *pkt, uint32_t msg_len)
   time_t            xTime;
   uint8_t           ID, len;
   bool              gps_valid, gps_fix;
-  pos_t             gps_pos = { 360.0, 360.0 };   /* not a VALID_POS() */
-  const char       *junk1 = NULL;             /* local junk checks */
-  const char       *junk2 = NULL;
-  const char       *junk3 = NULL;
   const uint8_t    *msg   = pkt->msg;
   const uint8_t    *firmware = msg + 4;
   const status_msg *hsm = (const status_msg*) &pkt->msg [4];
@@ -658,45 +651,32 @@ static void decode_msg_48 (const RX_packet *pkt, uint32_t msg_len)
 
   /**
    * Command lengths:
-   * ID = 0x01, should be 24
-   * ID = 0x24, should be 16.
+   *   for ID = 0x01 it should be 24
+   *   for ID = 0x24 it should be 16.
    */
   len = msg [3];
-
-  if (ID != 0x01 && ID != 0x24)
-  {
-    junk1 = ", junk-data-1!";
-    g_data.stat.pkt_junk++;
-  }
-
-  if (msg_len < sizeof(*hsm))
-  {
-    junk2 = ", junk-data-2!";
-    g_data.stat.pkt_junk++;
-  }
 
   if (ID == 0x24)
   {
     show_firmware_resp (firmware, len);
     return;
   }
-
-  /* ID == 0x01 */
+  if (ID != 0x01)
+  {
+    pkt_add_junk ("ID: %u", ID);
+    return;
+  }
 
   if (len < sizeof(*hsm))
   {
-    junk3 = ", junk-data-3!";
-    g_data.stat.pkt_junk++;
+    pkt_add_junk ("ID: 1, len: %u", len);
     return;
   }
 
   flags = mg_ntohs (hsm->flags);
   xTime = mg_ntohl (hsm->xTime);
 
-  if (junk1 || junk2 || junk3)
-     DEBUG1 ("%s(): junk1: '%s', junk2: '%s', junk3: '%s'\n", __FUNCTION__, junk1, junk2, junk3);
-
-  DEBUG2 ("%s(): ID: %u, len: %u, msg[0]: 0x%02X, msg[1]: 0x%02X, msg[2]: 0x%02X, msg[3]: 0x%02X, msg_len: %u\n",
+  DEBUG2 ("%s(): ID: %u, len: %u, msg[0]: 0x%02X, msg[1]: 0x%02X, msg[2]: 0x%02X, msg[3]: 0x%02X, msg_len: %d\n",
           __FUNCTION__, ID, len, msg[0], msg[1], msg[2], msg[3], msg_len);
 
   HEX_DUMP2 (msg, msg_len, NULL);
@@ -736,7 +716,7 @@ static void decode_msg_48 (const RX_packet *pkt, uint32_t msg_len)
   if ((flags & 0x0020) == 0x0020)
      strcat_s (flags_str, sizeof(flags_str),  "Excessive NMEA, ");
 
-  DEBUG2 ("msg_len:        %u, sizeof(*hsm): %zd, len: %u\n", msg_len, sizeof(*hsm), len);
+  DEBUG2 ("msg_len:        %d, sizeof(*hsm): %zd, len: %u\n", msg_len, sizeof(*hsm), len);
   DEBUG2 ("hsm.serial:     %u\n", mg_ntohl (hsm->serial));
 
   comma = strrchr (flags_str, ',');   /* remove last ", " */
@@ -757,6 +737,8 @@ static void decode_msg_48 (const RX_packet *pkt, uint32_t msg_len)
   }
   else
   {
+    pos_t gps_pos = { 360.0, 360.0 };  /* not a VALID_POS() */
+
     gps_pos.lat = binary_angle (hsm->latitude);
     gps_pos.lon = binary_angle (hsm->longitude);
 
@@ -765,14 +747,14 @@ static void decode_msg_48 (const RX_packet *pkt, uint32_t msg_len)
     g_data.GPS.HDOP       = (double)hsm->hdop / 10;
 
     DEBUG2 ("gps_valid:      true\n");
-    DEBUG2 ("hsm.latitude:   %+10.08f\n", g_data.GPS.pos.lat);
-    DEBUG2 ("hsm.longitude:  %+10.08f\n", g_data.GPS.pos.lon);
+    DEBUG2 ("hsm.latitude:   %+10.08f\n", gps_pos.lat);
+    DEBUG2 ("hsm.longitude:  %+10.08f\n", gps_pos.lon);
     DEBUG2 ("hsm.altitude:   %d\n", g_data.GPS.altitude);
     DEBUG2 ("hsm.satellites: %d\n", g_data.GPS.satellites);
     DEBUG2 ("hsm.hdop:       %.2f\n", g_data.GPS.HDOP);   /* HDOP; Horizontal Dilution of Precision */
 
     if (gps_fix && g_data.GPS.detected &&
-        !junk1 && !junk2 && VALID_POS(gps_pos) &&
+        !g_data.pkt_junk && VALID_POS(gps_pos) &&
         g_data.GPS.HDOP < GPS_HDOP_WORST)                 /* lower number is better */
     {
       g_data.GPS.pos = gps_pos;
@@ -794,57 +776,114 @@ static void decode_msg_48 (const RX_packet *pkt, uint32_t msg_len)
 
   if (g_data.gps_file)
   {
-    FILETIME  now;
-    ULONGLONG elapsed_s;
-    double    delta_gc_distance = 0.0;
-    static pos_t _home_pos = { 60.3053642, 5.3041353 };
-    static bool done_header = false;
+    pos_t        gps_pos2;
+    FILETIME     now;
+    double       elapsed_s, delta_gc_distance;
+    static pos_t home_pos2 = { 60.3053642, 5.3041353 };
+    static bool  done = false;
 
-    if (!done_header)
+    if (!done)
     {
-      fprintf (g_data.gps_file, "# seconds, valid,  latitude,       longitude,    altitude,     "
-               "delta great circle distance, my pos: %+.08f, %+.08f\n",
-               _home_pos.lat, _home_pos.lon);
-      done_header = true;
+      fprintf (g_data.gps_file, "# seconds, valid,  latitude,       longitude,    altitude,    "
+               "num-sat,  delta GC distance, my pos: %+.08f, %+.08f\n",
+               home_pos2.lat, home_pos2.lon);
+      done = true;
     }
 
     get_FILETIME_now (&now);
-    elapsed_s = *(ULONGLONG*) &now - *(ULONGLONG*) &Modes.start_FILETIME; /* in 100 nsec units */
 
-    gps_pos.lat = binary_angle (hsm->latitude);
-    gps_pos.lon = binary_angle (hsm->longitude);
+    /* Program runtime; in 100 nsec units to seconds as a double
+     */
+    elapsed_s = (double) (*(ULONGLONG*)&now - *(ULONGLONG*)&Modes.start_FILETIME) / 1E7;
 
-    delta_gc_distance = geo_great_circle_dist (&gps_pos, &_home_pos);
+    gps_pos2.lat = binary_angle (hsm->latitude);
+    gps_pos2.lon = binary_angle (hsm->longitude);
 
-    fprintf (g_data.gps_file, "%4.0f:      %d,      %+13.08f, %+13.08f, %5u,        %.3f\n",
-             (double)elapsed_s / 1E7, gps_valid && !junk1 && !junk2, gps_pos.lat, gps_pos.lon,
-             mg_ntohs(hsm->altitude), delta_gc_distance);
+    delta_gc_distance = geo_great_circle_dist (&gps_pos2, &home_pos2);
+
+    if (g_data.pkt_junk)
+       gps_valid = false;
+
+    fprintf (g_data.gps_file, "%4.0f:      %d,      %+13.08f, %+13.08f, %5u,       %2d,       %.3f\n",
+             elapsed_s, gps_valid, gps_pos2.lat, gps_pos2.lon,
+             mg_ntohs(hsm->altitude), g_data.GPS.satellites, delta_gc_distance);
   }
 }
 
 /**
- * Check the packet for too short or too big `pkt->msg_len`.
+ * Check the packet for "too short" or "too large" `pkt->msg_len`.
+ * Also check minimum size based on message-type.
  */
-static bool pkt_check (const RX_packet *pkt)
+#define TOO_SHORT(pkt, min_len)                                                    \
+        g_data.stat.pkt_too_short++;                                               \
+        snprintf (err_buf, sizeof(err_buf), ", too short. min_len: %zd", min_len); \
+        HEX_DUMP1 (pkt->msg, pkt->msg_len, err_buf)
+
+#define TOO_LARGE(pkt, max_len)                                                    \
+        g_data.stat.pkt_too_large++;                                               \
+        snprintf (err_buf, sizeof(err_buf), ", too large. max_len: %zd", max_len); \
+        HEX_DUMP1 (pkt->msg, min(pkt->msg_len, 200), err_buf)
+
+static bool pkt_enqueue_check (const RX_packet *pkt)
 {
-  if (pkt->msg_len < RX_MIN_SIZE)
+  size_t min_len;
+  char   err_buf [40];
+
+  assert (pkt->msg_len > 0);
+  assert (pkt->msg [0] == 0x1A);     /* SOP; Start-of-Packet */
+
+  if (pkt->msg_len < RX_MIN_SIZE)   /* == 16 */
   {
-    g_data.stat.pkt_too_short++;
-    g_data.stat.pkt_too_short_bytes += pkt->msg_len;
-    DEBUG2 ("msg_len: %u, msg_type: 0x%02X, too short. Min-size: %zd\n",
-            pkt->msg_len, pkt->msg_type, RX_MIN_SIZE);
-    HEX_DUMP1 (pkt->msg, pkt->msg_len, ", too short");
+    TOO_SHORT (pkt, RX_MIN_SIZE);
     return (false);
   }
 
-  if (pkt->msg_len >= RX_MAX_SIZE)
+  if (pkt->msg_len >= RX_MAX_SIZE)  /* Impossible */
   {
-    g_data.stat.pkt_too_big++;
-    DEBUG2 ("msg_len: %u, msg_type: 0x%02X, too big. Max-size: %zd\n", pkt->msg_len, pkt->msg_type, RX_MAX_SIZE);
-    HEX_DUMP2 (pkt->msg, min(pkt->msg_len, 200), ", too big");
+    TOO_LARGE (pkt, RX_MAX_SIZE);
     return (false);
   }
 
+  switch (MSG_TYPE(pkt))
+  {
+    case MODES_SHORT_SQ:
+         g_data.stat.rx_packets_32++;
+         min_len = 2 + /* sizeof(header_32_33) + */ MODES_SHORT_MSG_BYTES;   /* == 2 + 7 + 7 == 16 */
+         break;
+
+    case MODES_EXT_SQ:
+         g_data.stat.rx_packets_33++;
+         min_len = 2 + /* sizeof(header_32_33) + */ MODES_LONG_MSG_BYTES;    /* == 2 + 7 + 14 == 23 */
+         break;
+
+    case HULC_MSG_34:
+         g_data.stat.rx_packets_34++;
+         min_len = 5;
+         break;
+
+    case HULC_STATUS:
+         g_data.stat.rx_packets_48++;
+         if (pkt->msg[2] == 0x01)               /* Periodic HULC Status Message, == 4 + 20  */
+              min_len = 4 + sizeof(status_msg);
+         else if (pkt->msg[2] == 0x24)          /* Reply to Command, == 20 */
+              min_len = 4 + 16;
+         else min_len = RX_MIN_SIZE;            /* == 16 */
+         break;
+
+    default:
+         g_data.stat.rx_packets_unknown++;
+         snprintf (err_buf, sizeof(err_buf), ", Unknown, msg_len: %d, msg_type: 0x%02X",
+                   pkt->msg_len, MSG_TYPE(pkt));
+         DEBUG1 ("%s\n", err_buf + 2);
+         HEX_DUMP1 (pkt->msg, min(pkt->msg_len, sizeof(pkt->msg)), err_buf);
+         return (false);
+  }
+
+  if (pkt->msg_len < min_len)
+  {
+    TOO_SHORT (pkt, min_len);
+    return (false);
+  }
   return (true);
 }
 
@@ -853,35 +892,28 @@ static bool pkt_check (const RX_packet *pkt)
  *
  * The critical-section `g_data.crit` is held on entry.
  */
-static bool pkt_enqueue (const RX_packet *pkt)
+static void pkt_enqueue (const RX_packet *pkt)
 {
-  RX_packet *copy = NULL;
-  bool  rc;
+  RX_packet *copy;
 
-  g_data.stat.pkt_enqueued_bytes += pkt->msg_len;
+  if (!pkt_enqueue_check(pkt))
+     return;
 
-  copy = malloc (sizeof(*pkt));
+  copy = calloc (sizeof(*pkt), 1);
   if (!copy)
   {
     g_data.stat.pkt_OOM++;
-    DEBUG1 ("malloc() failed\n");
-    rc =  false;
-    goto failed;
+    DEBUG1 ("calloc() failed\n");
+    return;
   }
 
-  assert (g_data.got_x1A);
-  assert (pkt->msg_len > 0);
-  assert (pkt->msg [0] == 0x1A);  /* SOP */
-
-  copy->msg [0]  = pkt->msg [0];
-  copy->msg [1]  = pkt->msg [1];
-  copy->msg_type = pkt->msg [1];
-  copy->usec     = get_usec_now();
-  copy->next     = NULL;
+  copy->msg [0] = pkt->msg [0];
+  copy->msg [1] = pkt->msg [1];
+  copy->usec    = get_usec_now();
 
   const uint8_t *src = pkt->msg + 2;
   uint8_t       *dst = copy->msg + 2;
-  uint32_t       i, unstuffed;
+  int            i, unstuffed;
 
   for (i = unstuffed = 0; i < pkt->msg_len - 2; i++)
   {
@@ -895,52 +927,20 @@ static bool pkt_enqueue (const RX_packet *pkt)
 
   copy->msg_len = 2 + i - unstuffed;
 
-  rc = pkt_check (copy);
-
   if (g_data.hex_file)
   {
-    hex_dump_csv (g_data.hex_file, pkt->msg,  pkt->msg_len,  "before:", rc);
-    hex_dump_csv (g_data.hex_file, copy->msg, copy->msg_len, "after: ", rc);
-    fputs ("\n", g_data.hex_file);
+    hex_dump_csv (g_data.hex_file, pkt->msg,  pkt->msg_len,  "before:");
+    hex_dump_csv (g_data.hex_file, copy->msg, copy->msg_len, "after: ");
+    fputc ('\n', g_data.hex_file);
   }
 
-  if (!rc)
-     goto failed;
-
-  switch (copy->msg_type)
-  {
-    case MODES_SHORT_SQ:       /* 0x32 */
-         g_data.stat.rx_packets_32++;
-         g_data.stat.rx_unstuffed_32 += unstuffed;
-         break;
-    case MODES_EXT_SQ:         /* 0x33 */
-         g_data.stat.rx_packets_33++;
-         g_data.stat.rx_unstuffed_33 += unstuffed;
-         break;
-    case HULC_MSG_34:          /* 0x34 */
-         g_data.stat.rx_packets_34++;
-         g_data.stat.rx_unstuffed_34 += unstuffed;
-         break;
-    case HULC_STATUS:          /* 0x48 */
-         g_data.stat.rx_packets_48++;
-         g_data.stat.rx_unstuffed_48 += unstuffed;
-         break;
-    default:
-         g_data.stat.rx_packets_unknown++;
-         DEBUG1 ("Rx-unknown, copy->msg_len: %u, copy->msg_type: 0x%02X\n",
-                 copy->msg_len, copy->msg_type);
-         HEX_DUMP1 (copy->msg, min(copy->msg_len, sizeof(copy->msg)), NULL);
-         rc = false;
-         goto failed;
-  }
-
-  LIST_ADD_TAIL (RX_packet, &g_data.pkt_list, copy);
+  LIST_ADD_TAIL (RX_packet, (RX_packet**)&g_data.pkt_list, copy);
 
   g_data.stat.pkt_enqueued++;
 
   /**
    * The idea behind `g_data.stat.pkt_max_len` is to check if a fixed-size
-   * array could be used instead of `malloc()`. An array large enough to guarantee
+   * array could be used instead of `calloc()`. An array large enough to guarantee
    * we never run out of packet-space in `pkt_enqueue()`. Experience shows that
    * `g_data.stat.pkt_max_len` can grow to approx. 60.
    */
@@ -951,13 +951,6 @@ static bool pkt_enqueue (const RX_packet *pkt)
     g_data.stat.pkt_max_len = len;
     DEBUG1 ("pkt_max_len: %u\n", g_data.stat.pkt_max_len);
   }
-
-failed:
-  if (!rc && copy)
-     free (copy);
-
-  DEBUG2 ("\n");
-  return (rc);
 }
 
 /**
@@ -965,10 +958,10 @@ failed:
  */
 static uint32_t pkt_list_len (void)
 {
-  const RX_packet *pkt;
-  uint32_t num = 0;
+  volatile const RX_packet *pkt = g_data.pkt_list;
+  uint32_t num;
 
-  for (pkt = g_data.pkt_list; pkt; pkt = pkt->next)
+  for (num = 0; pkt; pkt = pkt->next)
       num++;
   return (num);
 }
@@ -978,16 +971,17 @@ static uint32_t pkt_list_len (void)
  */
 static void pkt_free (void)
 {
-  RX_packet *pkt, *pkt_next;
+  volatile RX_packet *pkt, *pkt_next;
 
   EnterCriticalSection (&g_data.crit);
 
   for (pkt = g_data.pkt_list; pkt; pkt = pkt_next)
   {
-    LIST_DELETE (RX_packet, &g_data.pkt_list, pkt);
+    LIST_DELETE (RX_packet, (RX_packet**)&g_data.pkt_list, pkt);
     pkt_next = pkt->next;
-    free (pkt);
+    free ((void*)pkt);
   }
+
   LeaveCriticalSection (&g_data.crit);
 }
 
@@ -1001,14 +995,11 @@ const char *state_name (state_func f)
           f == state_got_1A   ? "state_got_1A  " : "?");
 }
 
-/*
+/**
  * Wait for a single `ch == 0x1A` to mark the *END* of a packet.
  * Then enter `state_put_ch()`. Otherwise discard this `ch`.
- *
- * In the extremely seldom case, that the FSM starts with 0x1A,0x1A
- * then wait for another single 0x1A marking the packet.
  */
-static void state_get_sync (uint8_t ch, int idx)
+static void state_get_sync (uint8_t ch)
 {
   if (ch == 0x1A)
   {
@@ -1017,17 +1008,22 @@ static void state_get_sync (uint8_t ch, int idx)
     g_data.old_ch  = -1;      /* we do not know or care */
     g_data.got_x1A = true;
 
+    if (g_data.Beast.enable)
+         send_beast_options();
+    else send_firmware_req();
+
     DEBUG1 ("got x1A sync\n");
     g_data.state = state_put_ch;
   }
-  (void) idx;
+  else
+    g_data.old_ch = ch;
 }
 
-/*
+/**
  * If `ch == 0x1A` enter `state_got_1A()` to possibly unstuff.
- * Otherwise append `ch` byte to `g_data.pkt_current.msg []`.
+ * Otherwise append `ch` byte to `g_data.pkt_current.msg[]`.
  */
-static void state_put_ch (uint8_t ch, int idx)
+static void state_put_ch (uint8_t ch)
 {
   if (ch == 0x1A)
   {
@@ -1036,105 +1032,84 @@ static void state_put_ch (uint8_t ch, int idx)
   else
   {
     g_data.pkt_current.msg [g_data.pkt_current.msg_len++] = ch;
+    assert (g_data.pkt_current.msg_len <= sizeof(g_data.pkt_current.msg));
   }
-  (void) idx;
+
+  g_data.old_ch = ch;
 }
 
-/*
- * Got 0xx1A, check if this `ch` is a 0x1A too.
+/**
+ * Got 0x1A, check if this `ch` is a 0x1A too.
  * If so, do the unstuffing in `pkt_enqueue()` later.
+ *
  * Otherwise, call `pkt_enqueue()` for current packet and start a new.
  */
-static void state_got_1A (uint8_t ch, int idx)
+static void state_got_1A (uint8_t ch)
 {
-  if (ch == 0x1A)
+  if (ch == 0x1A && g_data.old_ch == 0x1A)
   {
     g_data.pkt_current.msg [g_data.pkt_current.msg_len++] = 0x1A;
     g_data.pkt_current.msg [g_data.pkt_current.msg_len++] = 0x1A;
+    assert (g_data.pkt_current.msg_len <= sizeof(g_data.pkt_current.msg));
+    g_data.old_ch = ch;
   }
   else
   {
-    DEBUG2 ("ch: %s, old_ch: %s,                                   "
-            "idx: %4d, old_idx: %4d, pkt_current.msg_len: %u, calling pkt_enqueue()\n",
-            ch_str(ch), ch_str(g_data.old_ch),
-            idx, g_data.old_idx,
-            g_data.pkt_current.msg_len);
+    DEBUG2 ("ch: %s, old_ch: %s, pkt_current.msg_len: %d, calling pkt_enqueue()\n",
+            hex_ch_str(ch), hex_ch_str(g_data.old_ch), g_data.pkt_current.msg_len);
 
     EnterCriticalSection (&g_data.crit);
+
     pkt_enqueue (&g_data.pkt_current);
+
     LeaveCriticalSection (&g_data.crit);
 
     /* Restart `g_data.pkt_current`
      */
     memset (&g_data.pkt_current, '\0', sizeof(g_data.pkt_current));
+    g_data.old_ch = -1;
 
-    g_data.pkt_current.msg [0] = 0x1A;
-    g_data.pkt_current.msg [1] = ch;    /* First `ch` in next `pkt_current.msg` */
-    g_data.pkt_current.msg_len = 2;
+    g_data.pkt_current.msg [0]  = 0x1A;
+    g_data.pkt_current.msg [1]  = ch;    /* `ch` in next `pkt_current.msg[1]` (msg-type) */
+    g_data.pkt_current.msg_len  = 2;
   }
 
   g_data.state = state_put_ch;
 }
 
 /**
- * \def DEBUG_CH()
- * \li Trace current `ch` and `g_data.old_ch`.
- * \li Show the state transition; old-state -> current state.
- * \li Show the `g_data.sio_buf[]` indices.
- */
-#define DEBUG_CH(idx)                                                     \
-        DEBUG2 ("ch: %s, old_ch: %s, %s -> %s, idx: %4d, old_idx: %4d\n", \
-                ch_str(ch), ch_str(g_data.old_ch),                        \
-                state_name(old_state), state_name(g_data.state),          \
-                idx, g_data.old_idx)
-
-/**
  * \def DEBUG_IDX()
  * Trace the legal range of `g_data.sio_buf[]` indices.
- * and whether we are processing "fresh-data" or "old-data".
+ * And if we are processing "old-data" or "fresh-data".
  */
-#define DEBUG_IDX(what, first, last)                                         \
+#define DEBUG_IDX(what, max_idx)                                             \
         DEBUG2 ("Processing %s: sio_len: %d, idx: [%d - %d>, old_idx: %d\n", \
-                what, g_data.sio_len, first, last, g_data.old_idx)
+                what, g_data.sio_len, g_data.old_idx, max_idx, g_data.old_idx)
 
 /**
  * Possibly fill up `g_data.sio_buf[]` with fresh data.
  * Return the max-index for new or old data.
  *
- * \li If `g_data.old_data == true`, continue reading from old-index.
- * \li If `g_data.old_data == false`, read from `[ 0 -- *idx_max >`.
+ * \li If `g_data.old_data == true`, continue reading from `g_data.old_idx` until
+ *     reaching `g_data.sio_len` or size-of current-packet.
+ * \li If `g_data.old_data == false`, read from index 0 up-to minimum of
+ *     `g_data.sio_len` and sizeof current-packet.
  */
 static bool get_COM_data (int *idx_max)
 {
-  if (g_data.old_data)   /* process old data */
+  /* Process old data?
+   */
+  if (g_data.old_data)
   {
-    *idx_max = min (g_data.sio_len, sizeof(g_data.pkt_current.msg)) + g_data.old_idx;
+    *idx_max = g_data.old_idx + min (g_data.sio_len, sizeof(g_data.pkt_current.msg));
 
-    DEBUG_IDX ("old data", g_data.old_idx, *idx_max);
+    DEBUG_IDX ("old data", *idx_max);
     return (true);
   }
 
   /* Fill up with fresh data
    */
   g_data.sio_len = COM_read (Modes.gns_hulc.handle, g_data.sio_buf, COM_RX_SIZE);
-  if (g_data.sio_len == 0)
-  {
-    DEBUG2 ("sio_len: 0\n");
-
-    /**
-     * \todo
-     * This dead_count should depend on `Sleep()` time
-     * in `data_thread_fn()` and port baud-rate.
-     */
-    if (++g_data.COM.dead_count >= COM_DEAD_COUNT)
-    {
-      LOG_STDERR ("Port `%s' seems dead. No data %u times in a row.\7\n", g_data.COM.dev_name, COM_DEAD_COUNT);
-      Modes.exit = Modes.no_stats = true;
-      return (false);
-    }
-    return (true);
-  }
-
   if (g_data.sio_len < 0)
   {
     LOG_STDERR ("Modes.exit: COM-port problem; %s\n", win_strerror(GetLastError()));
@@ -1142,24 +1117,43 @@ static bool get_COM_data (int *idx_max)
     return (false);
   }
 
+  if (g_data.sio_len == 0)
+  {
+    DEBUG2 ("sio_len: 0\n");
+
+    /**
+     * We are in initial state `state_get_sync()`.
+     *
+     * \todo
+     * This dead_count should depend on `Sleep (GNS_HULC_SLEEP)` time
+     * in `gns_hulc_read_loop()` and port baud-rate.
+     */
+    if (g_data.state == state_get_sync && ++g_data.COM.dead_count >= COM_DEAD_COUNT)
+    {
+      LOG_STDERR ("Port `%s' seems dead. No data %u times in a row.\7\n",
+                  g_data.COM.dev_name, COM_DEAD_COUNT);
+      Modes.exit = Modes.no_stats = true;
+      return (false);
+    }
+    return (true);
+  }
+
   if (g_data.sio_len > 0)
      g_data.COM.dead_count = 0;
 
   *idx_max = min (g_data.sio_len, sizeof(g_data.pkt_current.msg));
-  DEBUG_IDX ("fresh data", g_data.old_idx, *idx_max);
+  DEBUG_IDX ("fresh data", *idx_max);
 
   return (true);
 }
 
 /**
- * The detail of it all is here.
+ * The inner details of `gns_hulc_read_loop()`.
  */
 static int hulc_read (void)
 {
-  int idx, delta_idx, start_idx, idx_max = -1;
   int old_enqueued = g_data.stat.pkt_enqueued;
-
-  state_func old_state;
+  int idx_max;
 
   if (!get_COM_data(&idx_max))
      return (-1);
@@ -1170,22 +1164,23 @@ static int hulc_read (void)
     return (0);
   }
 
-  start_idx = g_data.old_idx;
+  int start_idx = g_data.old_idx;
+  int idx;
 
   for (idx = start_idx; idx < idx_max; idx++)
   {
-    int ch = g_data.sio_buf [idx];
+    int        ch        = g_data.sio_buf [idx];
+    int        old_ch    = g_data.old_ch;
+    state_func old_state = g_data.state;
 
-    old_state = g_data.state;
+    (*g_data.state) (ch);
 
-    (*g_data.state) (ch, idx);
-
-    DEBUG_CH (idx);
-
-    g_data.old_ch = ch;
+    DEBUG2 ("ch: %s, old_ch: %s, %s -> %s, idx: %4d, old_idx: %4d\n",
+            hex_ch_str(ch), hex_ch_str(old_ch), state_name(old_state), state_name(g_data.state),
+            idx, g_data.old_idx);
   }
 
-  delta_idx = idx - start_idx;
+  int delta_idx = idx - start_idx;
 
   if (delta_idx < g_data.sio_len)
   {
@@ -1211,6 +1206,9 @@ static int hulc_read (void)
     /* On next iteration sets `g_data.sio_len = COM_read()`
      */
   }
+
+  /* How many packets enqueued in this call?
+   */
   return (g_data.stat.pkt_enqueued - old_enqueued);
 }
 
@@ -1221,6 +1219,32 @@ static void check_max_messages (void)
 {
   if (Modes.max_messages > 0 && Modes.stat.messages_shown >= Modes.max_messages)
      Modes.debug &= ~(DEBUG_GNS_HULC | DEBUG_GNS_HULC2);
+}
+
+/**
+ * Append formatted string to `g_data.pkt_junk`.
+ */
+static void pkt_add_junk (const char *fmt, ...)
+{
+  static char  buf [300];
+  static char *dst, *end;
+
+  g_data.stat.pkt_junk++;
+
+  if (!g_data.pkt_junk)
+  {
+    g_data.pkt_junk = buf;
+    dst = buf;
+    end = dst + sizeof(buf) - 1;
+  }
+
+  if (end - dst > 20)
+  {
+    va_list args;
+    va_start (args, fmt);
+    dst += vsnprintf (dst, end - dst, fmt, args);
+    va_end (args);
+  }
 }
 
 /**
@@ -1237,7 +1261,7 @@ void gns_hulc_read_loop (void)
     if (hulc_read() < 0)
        break;
 
-    Sleep (Modes.gns_hulc.poll_ms);   /* default 50 msec */
+    Sleep (GNS_HULC_SLEEP);
 /*  check_max_messages(); */
   }
 }
@@ -1252,77 +1276,60 @@ void gns_hulc_read_loop (void)
  * If the the packet-list is empty, Sleep() for `Modes.gns_hulc.poll_ms`
  * (50 msec by default).
  *
- * Then traverse the packet-list assuming it's nio longer empty.
+ * Then traverse the packet-list assuming it's no longer empty.
  * After processing each, free the RX-packet.
  */
 void gns_hulc_poll (void)
 {
-  RX_packet    *pkt, *pkt_next;
-  uint8_t      *msg;
-  double        now;
-  static double prev_usec = 0.0;
+  volatile RX_packet *pkt, *pkt_next;
+  uint32_t count = 0;
 
-  /* If something bad happend or we were told to stop, return zero.
+  /* Something bad happend or we were told to stop.
    */
   if (Modes.exit)
      return;
 
-  if (!g_data.pkt_list)
-     Sleep (Modes.gns_hulc.poll_ms);
-
+#if 0
   EnterCriticalSection (&g_data.crit);
+#else
+  if (!TryEnterCriticalSection (&g_data.crit))
+     return;
+#endif
 
-  now = get_usec_now();
-
-  for (pkt = g_data.pkt_list; pkt; pkt = pkt_next)
+  for (pkt = g_data.pkt_list; pkt; pkt = pkt_next, count++)
   {
-    double diff1_ms, diff2_ms;
-
-    pkt_next = pkt->next;
-
-    diff1_ms = (now -  pkt->usec) / 1E3;
-    diff2_ms = (prev_usec > 0.0) ? (pkt->usec - prev_usec) / 1E3 : 0.0;
-    prev_usec = pkt->usec;
-
-    DEBUG2 ("pkt->msg_type: 0x%02X, pkt->msg_len: %u, diff1: %.1f, diff2: %.1f\n",
-            pkt->msg_type, pkt->msg_len, diff1_ms, diff2_ms);
-
-    HEX_DUMP2 (pkt->msg, pkt->msg_len, NULL);
+    DEBUG2 ("count: %u, msg_type: 0x%02X, diff: %.1f msec\n",
+            count, MSG_TYPE(pkt), (get_usec_now() -  pkt->usec) / 1E3);
 
     g_data.pkt_junk = NULL;
 
-    switch (pkt->msg_type)
+    switch (MSG_TYPE(pkt))
     {
       case MODES_SHORT_SQ:
-           decode_msg_32 (pkt, pkt->msg_len);
+           decode_msg_32 ((const RX_packet*)pkt, pkt->msg_len);
            break;
+
       case MODES_EXT_SQ:
-           decode_msg_33 (pkt, pkt->msg_len);
+           decode_msg_33 ((const RX_packet*)pkt, pkt->msg_len);
            break;
+
       case HULC_MSG_34:
-           decode_msg_34 (pkt, pkt->msg_len);
+           decode_msg_34 ((const RX_packet*)pkt, pkt->msg_len);
            break;
+
       case HULC_STATUS:
-           decode_msg_48 (pkt, pkt->msg_len);
-           break;
-      default:          /* cannot happen */
-           msg = pkt->msg;
-           DEBUG2 ("Rx-unknown: msg[0]: 0x%02X, msg[1]: 0x%02X, msg[2]: 0x%02X, msg_len: %u\n",
-                   msg[0], msg[1], msg[2], pkt->msg_len);
-           HEX_DUMP2 (msg, pkt->msg_len, NULL);
+           decode_msg_48 ((const RX_packet*)pkt, pkt->msg_len);
            break;
     }
 
     g_data.stat.pkt_dequeued++;
 
     if (g_data.pkt_junk)
-    {
-      g_data.stat.pkt_junk++;
-      DEBUG1 ("g_data.pkt_junk: '%s'\n", g_data.pkt_junk);
-    }
+       DEBUG1 ("pkt_junk: %s\n", g_data.pkt_junk);
 
-    LIST_DELETE (RX_packet, &g_data.pkt_list, pkt);
-    free (pkt);
+    LIST_DELETE (RX_packet, (RX_packet**)&g_data.pkt_list, pkt);
+    pkt_next = pkt->next;
+    free ((void*)pkt);
   }
 
   LeaveCriticalSection (&g_data.crit);
@@ -1351,10 +1358,10 @@ static bool send_option (const uint8_t *msg, int msg_sz, const char *what)
  */
 static bool send_beast_option (uint8_t opt)
 {
-  uint8_t msg[3] = { 0x1A, '1', opt };
+  uint8_t msg [3] = { 0x1A, '1', opt };
   char    what [30];
 
-  snprintf (what, sizeof(what), ", Beast option %u/%c:", opt, opt);
+  snprintf (what, sizeof(what), ", Beast option %c:", opt);
   return send_option (msg, sizeof(msg), what);
 }
 
@@ -1417,67 +1424,9 @@ static double binary_angle (int32_t angle)
   return (ret);
 }
 
-/**
- * Look in the Registry COM-port mapping at `COM_KEY_NAME` for
- * a NT-namespace name for `COMx`.
- *
- * \eg if `look_for == "COM4"` and `RegEnumValue()` returns
- *     `value == "\Device\VCP0"` and `data == "COM4"`,
- *     then return `"\Device\VCP0"` for the name-space name.
- *     (the first Virtual COM-port).
- */
-static char *get_name_space (uint16_t port)
-{
-  static char ret [100];
-  char   look_for [100];
-  HKEY   key;
-  DWORD  rc, num = 0;
+static char hex_digits[] = "0123456789ABCDEF";
 
-  strcpy (ret, "?");
-  snprintf (look_for, sizeof(look_for), "COM%u", port);
-
-  DEBUG2 ("look_for: '%s'\n", look_for);
-
-  rc = RegOpenKeyExA (HKEY_LOCAL_MACHINE, COM_KEY_NAME, 0, KEY_READ, &key);
-  if (rc != ERROR_SUCCESS)
-  {
-    DEBUG2 ("RegOpenKeyExA (\"HKLM\\%s\") failed; %s\n", COM_KEY_NAME, win_strerror(rc));
-    return (ret);
-  }
-
-  while (1)
-  {
-    char  value [100] = { '\0' };
-    char  data [100]  = { '\0' };
-    DWORD value_size  = sizeof(value);
-    DWORD data_size   = sizeof(data);
-    DWORD type        = REG_NONE;
-    const char *err = "No more items";
-
-    rc = RegEnumValue (key, num++, value, &value_size, NULL, &type, (BYTE*)&data, &data_size);
-    if (rc != ERROR_NO_MORE_ITEMS)
-       err = win_strerror (GetLastError());
-
-    DEBUG2 ("RegEnumValue(): %s\n", err);
-    if (rc == ERROR_NO_MORE_ITEMS)
-       goto quit;
-
-    if (type != REG_SZ)
-       continue;
-
-    if (!strnicmp(data, look_for, strlen(look_for)))
-    {
-      strncpy (ret, value, sizeof(ret)-1);
-      goto quit;
-    }
-  }
-quit:
-  RegCloseKey (key);
-  DEBUG2 ("ret: '%s'\n", ret);
-  return (ret);
-}
-
-static const char *ch_str (int ch)
+static const char *hex_ch_str (int ch)
 {
   static char buf [2][3];
   static int  idx = 0;
@@ -1546,16 +1495,12 @@ static void hex_dump (const uint8_t *buf, size_t len, unsigned line, const char 
   LeaveCriticalSection (&Modes.print_mutex);
 }
 
-static void hex_dump_csv (FILE *f, const uint8_t *buf, size_t len, const char *what, bool rc)
+static void hex_dump_csv (FILE *f, const uint8_t *buf, int len, const char *what)
 {
-  fprintf (f, "%s rc: %d: ", what, rc);
+  fprintf (f, "%s:", what);
 
-  for (size_t i = 0; i < len; i++)
-  {
-    fprintf (f, "%02X", buf[i]);
-    if (i < len - 1)
-       fputc (' ', f);
-  }
-  fputs ("\n", f);
+  for (int i = 0; i < len; i++)
+      fprintf (f, " %02X", buf[i]);
+  fputc ('\n', f);
 }
 

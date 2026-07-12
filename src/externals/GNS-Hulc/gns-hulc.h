@@ -14,14 +14,6 @@
  */
 #define GNS_HULC_DEFAULT_COMPORT  1
 
-/**
- * \def GNS_HULC_SLEEP
- *
- * Sleep() time in `gns_hulc_read_loop()` if the packet-queue is empty.
- * Also the Sleep() time in `main_data_loop()` between polls.
- */
-#define GNS_HULC_SLEEP 50
-
 HANDLE   gns_hulc_init (uint16_t port);
 void     gns_hulc_exit (HANDLE hnd);
 void     gns_hulc_stats (void);
