@@ -1343,7 +1343,7 @@ static void main_data_loop (void)
   if (Modes.gns_hulc.handle)
      sleep_ms = Modes.gns_hulc.poll_ms;  /* default 50 msec */
 
-   else if (!Modes.FIFO_active)          /* `modeS_init_hardware()` was not called */
+  else if (!Modes.FIFO_active)           /* `modeS_init_hardware()` was not called */
      sleep_ms = 100;
 
   if (Modes.silent)
@@ -2862,32 +2862,34 @@ static bool display_brief_message (modeS_message *mm)
   return (true);
 }
 
-static const char *ac_type_str[] = {
-                  "Aircraft Type D",
-                  "Aircraft Type C",
-                  "Aircraft Type B",
-                  "Aircraft Type A"
-                 };
-
 /*
  * Decode the extended squitter message.
  */
-static bool display_extended_squitter (const modeS_message *mm)
+static bool display_extended_squitter (modeS_message *mm)
 {
+  static char ac_types[] = "DCBA";
+
   if (mm->ME_type >= 1 && mm->ME_type <= 4)
   {
     /* Aircraft identification
      */
-    LOG_STDOUT ("    Aircraft Type  : %s\n", ac_type_str[mm->aircraft_type]);
+    mm->aircraft_type = mm->ME_type - 1;
+    LOG_STDOUT ("    Aircraft Type  : Type %c\n", ac_types[mm->aircraft_type]);
     LOG_STDOUT ("    Identification : %s\n", mm->flight);
     return (true);
   }
 
   if (mm->ME_type >= 9 && mm->ME_type <= 18)
   {
+    int altitude;
+
+    if (Modes.metric)
+         altitude = (int) (double) (mm->altitude / 3.2828);
+    else altitude = mm->altitude;
+
     LOG_STDOUT ("    F flag   : %s\n", mm->odd_flag ? "odd" : "even");
     LOG_STDOUT ("    T flag   : %s\n", mm->UTC_flag ? "UTC" : "non-UTC");
-    LOG_STDOUT ("    Altitude : %d feet\n", mm->altitude);
+    LOG_STDOUT ("    Altitude : %d %s\n", altitude, UNIT_NAME());
     LOG_STDOUT ("    Latitude : %d (not decoded)\n", mm->raw_latitude);
     LOG_STDOUT ("    Longitude: %d (not decoded)\n", mm->raw_longitude);
     return (true);
@@ -2976,6 +2978,8 @@ static void display_addr (const modeS_message *mm, int extra_space)
  */
 static bool modeS_message_display (modeS_message *mm)
 {
+  static char hex_digits[] = "0123456789ABCDEF";
+
   /* Did we specify a filter?
    */
   if (!aircraft_match(mm->addr))
@@ -3003,10 +3007,11 @@ static bool modeS_message_display (modeS_message *mm)
 
   *p++ = '*';
   left--;
+
   for (i = 0; i < mm->msg_bits / 8 && left > 5; i++)
   {
-    snprintf (p, left, "%02x", mm->msg[i]);
-    p    += 2;
+    *p++ = hex_digits [mm->msg[i] >> 4];
+    *p++ = hex_digits [mm->msg[i] & 15];
     left -= 2;
   }
   *p++ = ';';
@@ -3025,15 +3030,20 @@ static bool modeS_message_display (modeS_message *mm)
      LOG_STDOUT ("RSSI: %.1lf dBFS\n", 10 * log10(mm->sig_level));
 
   const char *ground = "";
+  int         altitude;
 
   if ((mm->AC_flags & MODES_ACFLAGS_AOG_VALID) && (mm->AC_flags & MODES_ACFLAGS_AOG))
      ground = ", Ground";
+
+  if (Modes.metric)
+       altitude = (int) (double) (mm->altitude / 3.2828);
+  else altitude = mm->altitude;
 
   if (mm->msg_type == 0)
   {
     /* DF0 */
     LOG_STDOUT ("DF 0: Short Air-Air Surveillance.\n");
-    LOG_STDOUT ("  Altitude    : %d %s%s\n", mm->altitude, UNIT_NAME(mm->unit), ground);
+    LOG_STDOUT ("  Altitude    : %d %s%s\n", altitude, UNIT_NAME(), ground);
     display_addr (mm, 0);
   }
   else if (mm->msg_type == 4 || mm->msg_type == 20)
@@ -3042,7 +3052,7 @@ static bool modeS_message_display (modeS_message *mm)
     LOG_STDOUT ("  Flight Status: %s\n", flight_status_str [mm->flight_status]);
     LOG_STDOUT ("  DR           : %d\n", mm->DR_status);
     LOG_STDOUT ("  UM           : %d\n", mm->UM_status);
-    LOG_STDOUT ("  Altitude     : %d %s\n", mm->altitude, UNIT_NAME(mm->unit));
+    LOG_STDOUT ("  Altitude     : %d %s\n", altitude, UNIT_NAME());
     display_addr (mm, 1);
 
     if (mm->msg_type == 20)
@@ -3077,10 +3087,10 @@ static bool modeS_message_display (modeS_message *mm)
     LOG_STDOUT ("DF 17: ADS-B message.\n");
     LOG_STDOUT ("  Capability  : %d (%s)\n", mm->capa, capability_str[mm->capa]);
     display_addr (mm, 0);
+
     LOG_STDOUT ("  Extended Squitter Type: %d\n", mm->ME_type);
     LOG_STDOUT ("  Extended Squitter Sub : %d\n", mm->ME_subtype);
     LOG_STDOUT ("  Extended Squitter Name: %s\n", get_ME_description(mm));
-
     display_extended_squitter (mm);
   }
   else if (mm->msg_type == 18)
@@ -3110,7 +3120,7 @@ static bool modeS_message_display (modeS_message *mm)
   }
   else if (mm->msg_type == 32)
   {
-    /* DF 32 is special code we use for Mode A/C */
+    /* DF32 is special code we use for Mode A/C */
     LOG_STDOUT ("SSR : Mode A/C Reply.\n");
     if (mm->flight_status & 0x0080)
        LOG_STDOUT ("  Mode A : %04x IDENT\n", mm->identity);
@@ -3118,7 +3128,7 @@ static bool modeS_message_display (modeS_message *mm)
     {
       LOG_STDOUT ("  Mode A : %04x\n", mm->identity);
       if (mm->AC_flags & MODES_ACFLAGS_ALTITUDE_VALID)
-         LOG_STDOUT ("  Mode C : %d feet\n", mm->altitude);
+         LOG_STDOUT ("  Mode C : %d %s\n", altitude, UNIT_NAME());
     }
   }
   else
@@ -3312,11 +3322,13 @@ void modeS_user_message (modeS_message *mm)
    * In silent-mode, do nothing just to consentrate on network traces.
    */
   ignore = Modes.interactive || Modes.silent;
-  if (!ignore)
+  if (ignore)
+     return;
+
+  if (modeS_message_display(mm))
   {
-    if (modeS_message_display (mm))
-       Modes.stat.messages_shown++;
-    if (!Modes.raw && !Modes.only_addr)
+    Modes.stat.messages_shown++;
+    if ((!Modes.raw && !Modes.only_addr) || aircraft_match_filter())
     {
       puts ("");
       modeS_log ("\n\n");
@@ -4348,7 +4360,7 @@ static bool parse_cmd_line (int argc, char **argv)
   }
 
   argv += optind;
-  if (*argv && !aircraft_match_init (*argv))
+  if (*argv && !aircraft_match_init(*argv))
      rc = false;
   return (rc);
 }
