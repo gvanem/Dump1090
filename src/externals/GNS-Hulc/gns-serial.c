@@ -18,6 +18,10 @@
 #pragma warning(disable: 4005)
 #endif
 
+#ifndef PHYSICAL_ADDRESS
+#define PHYSICAL_ADDRESS LARGE_INTEGER
+#endif
+
 #include <ntddser.h>
 
 #ifdef _MSC_VER
