@@ -147,7 +147,7 @@ GENERATED = $(OBJ_DIR)/cflags_$(CC).h \
 TOOLS_ROOT = $(realpath $(VCToolkitInstallDir))
 
 CFLAGS = -nologo -c -Z7 -W4        \
-         -arch:AVX2 -std:clatest   \
+         -arch:AVX2                \
          -FI./dump1090_config.h    \
          -Fd./$(OBJ_DIR)/vc14x.pdb \
          -I.                       \
