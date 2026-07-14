@@ -19,7 +19,6 @@ void     gns_hulc_exit (HANDLE hnd);
 void     gns_hulc_stats (void);
 void     gns_hulc_tests (void);
 bool     gns_hulc_set_beast (const char *arg);
-bool     gns_hulc_set_baud (const char *arg);
 bool     gns_hulc_set_port (const char *arg);
 bool     gns_hulc_gps_enable (const char *arg);
 bool     gns_hulc_gps_info (pos_t *pos, int *altitude, int *num, double *hdop);

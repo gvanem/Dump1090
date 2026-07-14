@@ -181,7 +181,6 @@ static const cfg_table config[] = {
     { "http-log-ignore",      ARG_FUNC,    (void*) http_log_add_ignore },
     { "http-url4",            ARG_FUNC,    (void*) set_http_url4 },
     { "http-url6",            ARG_FUNC,    (void*) set_http_url6 },
-    { "hulc-baud",            ARG_FUNC,    (void*) gns_hulc_set_baud },
     { "hulc-beastmode",       ARG_FUNC,    (void*) gns_hulc_set_beast },
     { "hulc-bufsize",         ARG_FUNC,    (void*) gns_hulc_set_buf_size },
     { "hulc-gps-enable",      ARG_FUNC,    (void*) gns_hulc_gps_enable },
