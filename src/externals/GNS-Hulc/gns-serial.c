@@ -8,52 +8,14 @@
 #include "GNS-Hulc/gns-private.h"
 #include "GNS-Hulc/gns-hulc.h"
 
-/*
- * '#include <ntddser.h>' is needed for
- * `DeviceIoControl()` but causes a lot of redefinitions warnings.
- * Turn them off.
- */
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable: 4005)
-#endif
-
-#ifndef PHYSICAL_ADDRESS
-#define PHYSICAL_ADDRESS LARGE_INTEGER
-#endif
-
-#include <ntddser.h>
-
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
-
-
-/**
- * \def COM_DEVICEMAP
- * \def COM_DEVICES
- * The HKLM Registry keys for Serial-COM to Device mappings and device addresses.
- */
-#define COM_DEVICEMAP "Hardware\\Devicemap\\SerialCOMM"
-#define COM_DEVICES   "SYSTEM\\CurrentControlSet\\Control\\COM Name Arbiter\\Devices"
-
 static char *get_name_space (uint16_t port);
-static void  get_port_mappings (void);
 
 /**
  * Setup the serial line baudrate, flowcontrol, parity etc.
  */
 HANDLE COM_init (uint16_t port)
 {
-  COMMPROP     comprop;
-  COMSTAT      comstat;
-  COMMTIMEOUTS cto;
-  DCB          dcb;
-  HANDLE       hnd;
-
   strncpy (g_data.COM.name_space, get_name_space(port), sizeof(g_data.COM.name_space)-1);
-  if (Modes.debug & DEBUG_GNS_HULC)
-     get_port_mappings();
 
   /* "\\.\COMx".
    */
@@ -64,31 +26,18 @@ HANDLE COM_init (uint16_t port)
   DEBUG2 ("Modes.selected_dev:  '%s'\n", Modes.selected_dev ? Modes.selected_dev  : "<none>");
   DEBUG2 ("name_space:          '%s'\n", g_data.COM.name_space);
 
-  hnd = CreateFileA (g_data.COM.dev_name, GENERIC_READ | GENERIC_WRITE,
-                     0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-
+  HANDLE hnd = CreateFileA (g_data.COM.dev_name, GENERIC_READ | GENERIC_WRITE,
+                            0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
   if (hnd == INVALID_HANDLE_VALUE)
   {
     LOG_STDERR ("Error opening %s: %s\n", g_data.COM.dev_name, win_strerror(GetLastError()));
     return (NULL);
   }
 
-  memset (&comprop, '\0', sizeof(comprop));
-  if (!GetCommProperties(hnd, &comprop))
-  {
-    LOG_STDERR ("GetCommProperties() failed: %s\n", win_strerror(GetLastError()));
-    return (NULL);
-  }
-
-  memset (&comstat, '\0', sizeof(comstat));
-  if (!ClearCommError(hnd, NULL, &comstat))
-  {
-    LOG_STDERR ("ClearCommError() failed: %s\n", win_strerror(GetLastError()));
-    return (NULL);
-  }
-
   /* Setup baudrate and other communication settings
    */
+  DCB dcb;
+
   memset (&dcb, '\0', sizeof(dcb));
   dcb.DCBlength = sizeof(dcb);
 
@@ -115,18 +64,21 @@ HANDLE COM_init (uint16_t port)
   dcb.fAbortOnError = FALSE;
   dcb.fErrorChar    = FALSE;
 
-  /* Set RTS + DTR flow-control
+  /* Enable RTS flow-control. Disable DSR flow-control.
+   * Hulc uses RTS/CTS handshaking (not DSR/DTR).
    */
   dcb.fRtsControl  = RTS_CONTROL_ENABLE;
   dcb.fDtrControl  = DTR_CONTROL_ENABLE;
-  dcb.fOutxDsrFlow = TRUE;
   dcb.fOutxCtsFlow = FALSE;
+  dcb.fOutxDsrFlow = FALSE;
 
   if (!SetCommState(hnd, &dcb))
   {
     LOG_STDERR ("SetCommState() failed: %s\n", win_strerror(GetLastError()));
     return (NULL);
   }
+
+  COMMTIMEOUTS cto;
 
   memset (&cto, '\0', sizeof(cto));
   GetCommTimeouts (hnd, &cto);
@@ -151,44 +103,13 @@ HANDLE COM_init (uint16_t port)
 
   /* No event monitoring.
    */
-  if (!SetCommMask(hnd, 0))
+  DWORD events = 0;
+
+  if (!SetCommMask(hnd, events))
   {
     LOG_STDERR ("SetCommMask() failed: %s\n", win_strerror(GetLastError()));
     return (NULL);
   }
-
-  DWORD bits1 = 0;
-  DWORD bits2 = 0;
-  DWORD bytes = 0;
-  char  bits_str [200] = "";
-
-  GetCommModemStatus (hnd, &bits1);
-
-  if (bits1 & MS_CTS_ON)
-     strcat_s (bits_str, sizeof(bits_str), "SP_SIG_CTS|");
-  if (bits1 & MS_DSR_ON)
-     strcat_s (bits_str, sizeof(bits_str), "SP_SIG_DSR|");
-  if (bits1 & MS_RLSD_ON)
-     strcat_s (bits_str, sizeof(bits_str), "SP_SIG_DCD|");
-  if (bits1 & MS_RING_ON)
-     strcat_s (bits_str, sizeof(bits_str), "SP_SIG_RI|");
-
-  if (DeviceIoControl(hnd, IOCTL_SERIAL_GET_DTRRTS, NULL, 0,
-                      &bits2, sizeof(bits2), &bytes, NULL))
-  {
-    if (bits2 & SERIAL_DTR_STATE)
-       strcat_s (bits_str, sizeof(bits_str), "DTR_STATE|");
-    if (bits2 & SERIAL_RTS_STATE)
-       strcat_s (bits_str, sizeof(bits_str), "RTS_STATE|");
-  }
-
-  if (bits_str[0] == '\0')
-     strcpy (bits_str, "<none> ");
-
-  DEBUG2 ("GetCommModemStatus():  %.*s\n", (int)strlen(bits_str) - 1, bits_str);
-
-  if (Modes.debug & DEBUG_GNS_HULC)
-     COM_get_status (hnd);
 
   /* Flush the port and it's I/O buffers just in case
    */
@@ -199,11 +120,13 @@ HANDLE COM_init (uint16_t port)
 }
 
 /**
- * Restore the startup DCB + CTO if known.
+ * Restore the startup `DCB` and `CTO` if known and
+ * it's not a fatal-exit condition.
  */
 void COM_exit (HANDLE hnd)
 {
-  if (hnd && hnd != INVALID_HANDLE_VALUE && g_data.COM.old_DCB.DCBlength > 0)
+  if (hnd && hnd != INVALID_HANDLE_VALUE &&
+      g_data.COM.old_DCB.DCBlength > 0 && !g_data.fatal_exit)
   {
     if (!SetCommTimeouts(hnd, &g_data.COM.old_CTO))
        LOG_STDERR ("SetCommTimeouts() failed: %s\n", win_strerror(GetLastError()));
@@ -229,7 +152,6 @@ int COM_read (HANDLE hnd, uint8_t *data, size_t len)
     g_data.stat.rx_errors++;
     return (-1);
   }
-  g_data.stat.rx_bytes += bytes;
   return (bytes);
 }
 
@@ -255,56 +177,110 @@ int COM_write (HANDLE hnd, const uint8_t *data, size_t len)
     g_data.stat.tx_errors++;
     return (-1);
   }
-  g_data.stat.tx_bytes += bytes;
   return (bytes);
 }
 
-/**
- * Get some details from the driver.
- */
-#define COM_REQUEST(hnd, code, in_buf, in_size, out_buf, out_size, bytes)                     \
-        do {                                                                                  \
-          bytes = 0;                                                                          \
-          if (!DeviceIoControl (hnd, code, in_buf, in_size, out_buf, out_size, &bytes, NULL)) \
-          {                                                                                   \
-            DEBUG1 ("DeviceIoControl() failed: %s\n", win_strerror(GetLastError()));          \
-            return (false);                                                                   \
-          }                                                                                   \
-        } while (0)
-
-
-bool COM_get_status (HANDLE hnd)
+bool COM_get_comstat (HANDLE hnd, DWORD *err_mask, COMSTAT *comstat)
 {
-  SERIAL_STATUS    status;
-  SERIALPERF_STATS perf;
-  DWORD            bytes;
+  if (err_mask)
+     *err_mask = 0;
 
-  /*
-   * https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddser/ni-ntddser-ioctl_serial_get_commstatus
-   */
-  COM_REQUEST (hnd, IOCTL_SERIAL_GET_COMMSTATUS, NULL, 0, &status, sizeof(status), bytes);
+  if (comstat)
+     memset (comstat, '\0', sizeof(*comstat));
 
-  DEBUG1 ("IOCTL_SERIAL_GET_COMMSTATUS (bytes: %lu):\n", bytes);
-  DEBUG1 ("  status.Errors:                %lu\n", status.Errors);
-  DEBUG1 ("  status.HoldReasons:           %lu\n", status.HoldReasons);
-  DEBUG1 ("  status.AmountInInQueue:       %lu\n", status.AmountInInQueue);
-  DEBUG1 ("  status.AmountInOutQueue:      %lu\n", status.AmountInOutQueue);
-  DEBUG1 ("  status.EofReceived:           %d\n",  status.EofReceived);
-  DEBUG1 ("  status.WaitForImmediate:      %d\n",  status.WaitForImmediate);
-
-  /*
-   * https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddser/ni-ntddser-ioctl_serial_get_stats
-   */
-  COM_REQUEST (hnd, IOCTL_SERIAL_GET_STATS, NULL, 0, &perf, sizeof(perf), bytes);
-  DEBUG1 ("IOCTL_SERIAL_GET_STATS (bytes: %lu):\n", bytes);
-  DEBUG1 ("  perf.ReceivedCount:           %lu\n", perf.ReceivedCount);
-  DEBUG1 ("  perf.TransmittedCount:        %lu\n", perf.TransmittedCount);
-  DEBUG1 ("  perf.FrameErrorCount:         %lu\n", perf.FrameErrorCount);
-  DEBUG1 ("  perf.SerialOverrunErrorCount: %lu\n", perf.SerialOverrunErrorCount);
-  DEBUG1 ("  perf.BufferOverrunErrorCount: %lu\n", perf.BufferOverrunErrorCount);
-  DEBUG1 ("  perf.ParityErrorCount:        %lu\n", perf.ParityErrorCount);
+  if (!ClearCommError(hnd, err_mask, comstat))
+  {
+    LOG_STDERR ("ClearCommError() failed: %s\n", win_strerror(GetLastError()));
+    return (false);
+  }
   return (true);
 }
+
+#define ADD_VALUE(v)  { (DWORD)v, #v }
+
+static const search_list com_events[] = {
+             ADD_VALUE (EV_RXCHAR),
+             ADD_VALUE (EV_RXFLAG),
+             ADD_VALUE (EV_TXEMPTY),
+             ADD_VALUE (EV_CTS),
+             ADD_VALUE (EV_DSR),
+             ADD_VALUE (EV_RLSD),
+             ADD_VALUE (EV_BREAK),
+             ADD_VALUE (EV_ERR),
+             ADD_VALUE (EV_RING),
+             ADD_VALUE (EV_PERR),
+             ADD_VALUE (EV_RX80FULL),
+             ADD_VALUE (EV_EVENT1),
+             ADD_VALUE (EV_EVENT2)
+           };
+#undef ADD_VALUE
+
+/**
+ * Call WaitCommEvents to poll for events.
+ * Wanted events are set once in below `SetCommMask()`.
+ */
+bool COM_poll_events (void)
+{
+  static bool done = false;
+  uint64_t    start;
+  const char *ev_str;
+  DWORD       events = 0;
+
+  if (!done)
+  {
+    if (!SetCommMask(Modes.gns_hulc.handle, EV_RXCHAR | EV_CTS | EV_DSR | EV_TXEMPTY | EV_ERR))
+       LOG_STDERR ("SetCommMask() failed: %s\n", win_strerror(GetLastError()));
+    done = true;
+  }
+
+  start = get_usec_now();
+
+  if (!WaitCommEvent(Modes.gns_hulc.handle, &events, NULL))
+  {
+    DEBUG1 ("WaitCommEvent() failed: %s\n", win_strerror(GetLastError()));
+    return (false);
+  }
+
+  ev_str = flags_decode (events, com_events, DIM(com_events));
+
+  if (events & EV_ERR)
+  {
+    DEBUG1 ("WaitCommEvent(): %s, %.0f usec\n", ev_str, get_usec_now() - start);
+    COM_poll_error();
+  }
+  else
+  {
+    DEBUG1 ("WaitCommEvent(): %s, %.0f usec\n", ev_str, get_usec_now() - start);
+  }
+  return (events & EV_RXCHAR);
+}
+
+/**
+ * Check error-mask for errors.
+ * This is typically Rx-overruns (CE_OVERRUN).
+ */
+void COM_poll_error (void)
+{
+  static DWORD err_mask_old;
+  DWORD        err_mask = 0;
+
+  if (!ClearCommError(Modes.gns_hulc.handle, &err_mask, NULL) ||
+      err_mask == err_mask_old)
+     return;
+
+  err_mask_old = err_mask;
+  if (err_mask & CE_OVERRUN)
+  {
+    g_data.stat.rx_overruns++;
+    LOG_FILEONLY ("CE_OVERRUN\n");
+  }
+}
+
+/**
+ * \def COM_DEVICEMAP
+ * The HKLM Registry key for Serial-COM to Device mappings.
+ */
+#define COM_DEVICEMAP "Hardware\\Devicemap\\SerialCOMM"
 
 /**
  * Look in the Registry COM-port mapping at `COM_DEVICEMAP` for
@@ -365,52 +341,4 @@ quit:
   DEBUG2 ("ret: '%s'\n", ret);
   return (ret);
 }
-
-/**
- * Just prints the COM-port to physical serial map. Like:
- * ```
- *  1: COM9 -> \\?\usb#vid_1390&pid_5454#bq4395a97393#{86e0d1e0-8089-11d0-9ce4-08003e301f73}
- *  ...
- *  4: COM5 -> \\?\ftdibus#vid_0403+pid_6001+a5069rr4a#0000#{86e0d1e0-8089-11d0-9ce4-08003e301f73}
- * ```
- */
-static void get_port_mappings (void)
-{
-  HKEY  key;
-  DWORD num = 0;
-  DWORD rc = RegOpenKeyExA (HKEY_LOCAL_MACHINE, COM_DEVICES, 0, KEY_READ, &key);
-
-  if (rc != ERROR_SUCCESS)
-  {
-    DEBUG1 ("RegOpenKeyExA (\"HKLM\\%s\") failed; %s\n", COM_DEVICES, win_strerror(rc));
-    return;
-  }
-
-  while (1)
-  {
-    char  value [100] = { '\0' };
-    char  data [200]  = { '\0' };
-    DWORD value_size  = sizeof(value);
-    DWORD data_size   = sizeof(data);
-    DWORD type        = REG_NONE;
-
-    if (RegEnumValue(key, num, value, &value_size, NULL, &type, (BYTE*)&data, &data_size) != ERROR_SUCCESS)
-       break;
-
-    if (type == REG_SZ)
-    {
-      DEBUG1 ("%lu: %s -> %s\n", num, value, data);
-
-      /**
-       * \todo
-       * And if the above 'data' start with e.g. "\\?\FTDIBUS#", get things like
-       * "FriendlyName" and "Service" from this branch:
-       * "HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\FTDIBUS\VID_x+PID_yxx\0000\Device Parameters"
-       */
-    }
-    num++;
-  }
-  RegCloseKey (key);
-}
-
 

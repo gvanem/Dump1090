@@ -50,7 +50,6 @@
  * \def GNS_HULC_SLEEP
  *
  * Sleep() time in `gns_hulc_read_loop()`.
- * Also the default Sleep() time when polling an empty queue.
  */
 #define GNS_HULC_SLEEP  50
 
@@ -191,15 +190,14 @@ typedef struct Beast_settings {
  * Statistics for GNS-Hulc.
  */
 typedef struct GNS_stats {
-        uint64_t  rx_bytes;            /**< Count of `COM_read()` bytes */
         uint64_t  rx_packets_32;       /**< Count of msg-type == MODES_SHORT_SQ packets */
         uint64_t  rx_packets_33;       /**< Count of msg-type == MODES_EXT_SQ packets */
         uint64_t  rx_packets_34;       /**< Count of msg-type == HULC_MSG_34 packets */
         uint64_t  rx_packets_48;       /**< Count of msg-type == HULC_STATUS packets */
         uint64_t  rx_packets_unknown;  /**< Count of unknown msg-type packets */
-        uint64_t  tx_bytes;            /**< Count of `COM_write()` bytes */
         uint64_t  tx_packets;          /**< Count of `COM_write()` calls */
         uint64_t  rx_errors;           /**< Count of `COM_read()` errors */
+        uint64_t  rx_overruns;         /**< Count of `CE_OVERRUN` errors from `ClearCommError()` */
         uint64_t  tx_errors;           /**< Count of `COM_write()` errors */
         uint64_t  pkt_junk;            /**< Count of junk detected in a packet */
         uint64_t  pkt_enqueued;        /**< Count of packets enqueued in `pkt_enqueue()` */
@@ -207,12 +205,9 @@ typedef struct GNS_stats {
         uint64_t  pkt_OOM;             /**< Count of times where `malloc()` in `pkt_enqueue()` failed */
         uint64_t  pkt_too_large;       /**< Count of too large packets; more than `RX_MAX_SIZE == 50`. Cannot happen */
         uint64_t  pkt_too_short;       /**< Count of too short packets; less than `RX_MIN_SIZE == 14` */
-        uint64_t  mode_S_messages;     /**< Count of calls to `decode_mode_S_message()` */
         uint64_t  mode_S_errors;       /**< Count of errors from `decode_mode_S_message()` */
-        uint64_t  modem_status_change;
         uint64_t  GPS_fix_lost;        /**< Count of times where we lost GPS-fix */
         uint64_t  GPS_fix_regained;    /**< Count of times where we regained GPS-fix */
-        uint32_t  pkt_max_len;         /**< Maximum number of enqueued packets to `g_data.pkt_list` */
       } GNS_statistics;
 
 /**
@@ -228,7 +223,7 @@ typedef void (*state_func) (uint8_t ch);
 typedef struct RX_packet {
         uint8_t           msg [RX_MAX_SIZE]; /**< Packet data created in `hulc_read()` */
         int               msg_len;           /**< The length of msg */
-        double            usec;              /**< The micro-sec timestamp at enqueue */
+        double            usec;              /**< The micro-sec timestamp at `pkt_enqueue()` */
         struct RX_packet *next;              /**< The next packet when added to `g_data.pkt_list` */
       } RX_packet;
 
@@ -251,8 +246,8 @@ typedef struct GNS_priv {
         RX_packet           pkt_current;    /**< The packet we're processing now */
         volatile RX_packet *pkt_list;       /**< Linked-list of packets. \todo make it a fixed-size list */
         const char         *pkt_junk;       /**< To track junk-data in the `decode_msg_x()` functions */
-        FILE               *hex_file;       /**< Files for debugging */
-        FILE               *gps_file;
+        FILE               *gps_file;       /**< File for tracing GPS data */
+        volatile bool       fatal_exit;     /**< Exit due to a fatal condition. */
 
         GPS_status          GPS;
         COM_settings        COM;
@@ -266,5 +261,6 @@ HANDLE COM_init  (uint16_t port);
 void   COM_exit  (HANDLE handle);
 int    COM_read  (HANDLE hnd, uint8_t *data, size_t len);
 int    COM_write (HANDLE hnd, const uint8_t *data, size_t len);
-bool   COM_get_status (HANDLE hnd);
+bool   COM_poll_events (void);
+void   COM_poll_error (void);
 

@@ -26,31 +26,26 @@
 #include "GNS-Hulc/gns-hulc.h"
 #include "aircraft.h"
 
-#define USE_HEX_FILE       0
-#define USE_GPS_FILE       1
+#define USE_WAITCOMMEVENT  0
+#define USE_GPS_FILE       0
 
-#define GPS_HAVE_FIX_LOW   6
-#define GPS_HAVE_FIX_HIGH  15
+#define GPS_HAVE_FIX_LOW   5
+#define GPS_HAVE_FIX_HIGH  10
 #define GPS_HDOP_WORST     20
 
 GNS_priv g_data;
 
 static void        set_defaults (void);
-static bool        send_option (const uint8_t *msg, int msg_sz, const char *what);
-static void        send_beast_options (void);
-static void        send_firmware_req (void);
+static void        send_all_options (void);
+static void        state_get_sync (uint8_t ch);
+static void        state_put_ch (uint8_t ch);
+static void        state_got_1A (uint8_t ch);
 static void        pkt_enqueue (const RX_packet *pkt);
-static uint32_t    pkt_list_len (void);
 static void        pkt_free (void);
 static void        pkt_add_junk (_Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(1, 2);
 static double      binary_angle (int32_t angle);
 static const char *hex_ch_str (int ch);
 static void        hex_dump (const uint8_t *buf, size_t len, unsigned line, const char *what);
-static void        hex_dump_csv (FILE *f, const uint8_t *buf, int len, const char *what);
-
-static void state_get_sync (uint8_t ch);
-static void state_put_ch (uint8_t ch);
-static void state_got_1A (uint8_t ch);
 
 /**
  * \def HEX_DUMP1()
@@ -70,26 +65,6 @@ static void state_got_1A (uint8_t ch);
              hex_dump (buf, len, __LINE__, what); \
         } while (0)
 
-
-/*
- * Config-callback for "hulc-baud = x".
- */
-bool gns_hulc_set_baud (const char *arg)
-{
-  char    *end;
-  uint64_t val = strtoull (arg, &end, 10);
-
-  set_defaults();
-
-  if (end > arg)
-     g_data.COM.baud_rate = (uint32_t) val;
-
-  /* Not fatal, but give a warning since this rate will probably not work
-   */
-  if (g_data.COM.baud_rate != COM_BAUD_RATE)
-     cfg_illegal_val ("hulc-baud", arg);
-  return (true);
-}
 
 /*
  * Config-callback for "hulc-beastmode = yes|no".
@@ -145,6 +120,9 @@ bool gns_hulc_set_port (const char *arg)
 
   FREE (Modes.gns_hulc.name);
   Modes.gns_hulc.name = mg_mprintf ("HULC-%d", Modes.gns_hulc.port);
+
+  FREE (Modes.selected_dev);
+  Modes.selected_dev = mg_mprintf ("gns-hulc%d", Modes.gns_hulc.port);
   return (true);
 }
 
@@ -155,47 +133,6 @@ bool gns_hulc_gps_enable (const char *arg)
 {
   set_defaults();
   g_data.GPS.enable = cfg_true (arg);
-  return (true);
-}
-
-/**
- * Config-callback for "hulc-bufsize = <uint32_t value>".
- * Lowest minimum is `IOBUF_SIZE`.
- */
-bool gns_hulc_set_buf_size (const char *arg)
-{
-  char   *end;
-  int64_t val = strtoll (arg, &end, 10);
-
-  set_defaults();
-
-  if (end > arg && val > 0 && val < UINT_MAX)
-  {
-    COM_RX_SIZE = max (val, IOBUF_SIZE);
-    DEBUG1 ("sio_buf_size: %d\n", COM_RX_SIZE);
-  }
-  else
-    cfg_illegal_val ("hulc-bufsize", arg);
-  return (true);
-}
-
-/**
- * Config-callback for "hulc-poll-ms = <millisec>".
- */
-bool gns_hulc_set_poll_ms (const char *arg)
-{
-  char   *end;
-  int64_t val = strtoll (arg, &end, 10);
-
-  set_defaults();
-
-  if (end > arg && val > 0 && val < UINT_MAX)
-  {
-    Modes.gns_hulc.poll_ms = val;
-    DEBUG1 ("Modes.gns_hulc.poll_ms: %u\n", Modes.gns_hulc.poll_ms);
-  }
-  else
-    cfg_illegal_val ("hulc-poll-ms", arg);
   return (true);
 }
 
@@ -226,6 +163,39 @@ bool gns_hulc_gps_info (pos_t *pos, int *altitude, int *num, double *hdop)
 }
 
 /**
+ * Config-callback for "hulc-bufsize = <uint32_t value>".
+ * Lowest minimum is `IOBUF_SIZE`.
+ */
+bool gns_hulc_set_buf_size (const char *arg)
+{
+  char   *end;
+  int64_t val = strtoll (arg, &end, 10);
+
+  set_defaults();
+
+  if (end > arg && val > 0 && val < UINT_MAX)
+       COM_RX_SIZE = max (val, IOBUF_SIZE);
+  else cfg_illegal_val ("hulc-bufsize", arg);
+  return (true);
+}
+
+/**
+ * Config-callback for "hulc-poll-ms = <millisec>".
+ */
+bool gns_hulc_set_poll_ms (const char *arg)
+{
+  char   *end;
+  int64_t val = strtoll (arg, &end, 10);
+
+  set_defaults();
+
+  if (end > arg && val > 0 && val < UINT_MAX)
+       Modes.gns_hulc.poll_ms = val;
+  else cfg_illegal_val ("hulc-poll-ms", arg);
+  return (true);
+}
+
+/**
  * Initialise all GNS-HULC stuff once.
  */
 HANDLE gns_hulc_init (uint16_t port)
@@ -235,7 +205,7 @@ HANDLE gns_hulc_init (uint16_t port)
 
   set_defaults();
 
-  g_data.sio_buf = calloc (COM_RX_SIZE+1, 1);
+  g_data.sio_buf = calloc (COM_RX_SIZE, 1);
 
   InitializeCriticalSection (&g_data.crit);
 
@@ -258,17 +228,14 @@ HANDLE gns_hulc_init (uint16_t port)
   DEBUG1 ("sio_buf_size: %d, state: state_get_sync()\n", COM_RX_SIZE);
   g_data.state = state_get_sync;
 
-#if USE_HEX_FILE
-  file = mg_mprintf ("%s\\gns-hex.txt", Modes.tmp_dir);
-  g_data.hex_file = fopen (file, "w+");
-  free (file);
-#endif
-
 #if USE_GPS_FILE
   file = mg_mprintf ("%s\\gns-gps.txt", Modes.tmp_dir);
   g_data.gps_file = fopen (file, "w+");
   free (file);
 #endif
+
+  if (!Modes.error_correct_1 && !Modes.error_correct_2)
+     g_data.Beast.FEC = false;
 
   (void) file;
   return (hnd);
@@ -283,19 +250,16 @@ void gns_hulc_exit (HANDLE hnd)
   if (hnd)
   {
     COM_exit (hnd);
-    Sleep (GNS_HULC_SLEEP);
     CloseHandle (hnd);
   }
 
   FREE (Modes.gns_hulc.name);
   FREE (g_data.COM.dev_name);
   FREE (g_data.sio_buf);
+  FCLOSE (g_data.gps_file);
   pkt_free();
 
   DeleteCriticalSection (&g_data.crit);
-
-  FCLOSE (g_data.hex_file);
-  FCLOSE (g_data.gps_file);
 }
 
 /**
@@ -304,8 +268,7 @@ void gns_hulc_exit (HANDLE hnd)
 void gns_hulc_stats (void)
 {
   uint64_t sum = g_data.stat.rx_packets_32 + g_data.stat.rx_packets_33 +
-                 g_data.stat.rx_packets_34 + g_data.stat.rx_packets_48 +
-                 g_data.stat.rx_packets_unknown;
+                 g_data.stat.rx_packets_48 + g_data.stat.rx_packets_unknown;
 
   if (sum == 0ULL)
      return;
@@ -314,19 +277,22 @@ void gns_hulc_stats (void)
   LOG_STDOUT ("GNS-HULC statistics:\n");
   LOG_STDOUT (" %8llu RX-packets-32.\n", g_data.stat.rx_packets_32);
   LOG_STDOUT (" %8llu RX-packets-33.\n", g_data.stat.rx_packets_33);
-  LOG_STDOUT (" %8llu RX-packets-34.\n", g_data.stat.rx_packets_34);
   LOG_STDOUT (" %8llu RX-packets-48.\n", g_data.stat.rx_packets_48);
   LOG_STDOUT (" %8llu RX-unknown.\n", g_data.stat.rx_packets_unknown);
-  LOG_STDOUT (" %8llu TX-packets.\n", g_data.stat.tx_packets);
   LOG_STDOUT (" %8llu RX-junk-data.\n", g_data.stat.pkt_junk);
-  LOG_STDOUT (" %8llu Enqueued packets.\n", g_data.stat.pkt_enqueued);
-  LOG_STDOUT (" %8llu Dequeued packets.\n", g_data.stat.pkt_dequeued);
+  LOG_STDOUT (" %8llu RX-overruns.\n", g_data.stat.rx_overruns);
+  LOG_STDOUT (" %8llu TX-packets.\n", g_data.stat.tx_packets);
   LOG_STDOUT (" %8llu Too short packets (%.2f%%).\n", g_data.stat.pkt_too_short, (100.0 * g_data.stat.pkt_too_short) / sum);
 }
 
 uint64_t gns_hulc_junk (void)
 {
   return (g_data.stat.pkt_junk);
+}
+
+uint64_t gns_hulc_overrun (void)
+{
+  return (g_data.stat.rx_overruns);
 }
 
 uint64_t gns_hulc_too_short (void)
@@ -367,12 +333,11 @@ static void set_defaults (void)
   Modes.gns_hulc.port    = GNS_HULC_DEFAULT_COMPORT;
   Modes.gns_hulc.poll_ms = GNS_HULC_SLEEP;
 
+  g_data.COM.baud_rate  = COM_BAUD_RATE;
   g_data.sio_buf_size   = IOBUF_SIZE;   /* 2 kByte */
   g_data.GPS.have_fix   = false;
   g_data.GPS.enable     = false;
   g_data.GPS.satellites = 0;
-
-  g_data.COM.baud_rate  = COM_BAUD_RATE;
 
   g_data.Beast.enable         = false;
   g_data.Beast.filter_DF045   = false;
@@ -509,25 +474,24 @@ static void decode_common (const uint8_t *msg, int valid_bits, const char *func)
    */
   DF = msg [0] >> 3;
   DF_handled = (memchr (valid_DFs, DF, sizeof(valid_DFs)) != NULL);
-  if (!DF_handled && !Modes.interactive)
-      DF_handled = (memchr (extra_DFs, DF, sizeof(extra_DFs)) != NULL);
+  if (!Modes.interactive)
+      DF_handled |= (memchr (extra_DFs, DF, sizeof(extra_DFs)) != NULL);
 
   if (!DF_handled)
   {
-    DEBUG2 ("%s(): DF %d unhandled\n", func, DF);
+    DEBUG2 ("%s(): DF %-2d unhandled\n", func, DF);
     return;
   }
   score = modeS_message_score (msg, valid_bits);
   if (score < 0)
   {
-    DEBUG2 ("%s(): DF %d score: %d\n", func, DF, score);
+    DEBUG2 ("%s(): DF %-2d score: %d\n", func, DF, score);
     return;
   }
 
   mm.timestamp_msg     = timestamp;
   mm.sys_timestamp_msg = g_data.GPS.detected ? timestamp : MSEC_TIME();
 
-  g_data.stat.mode_S_messages++;
   rc = decode_mode_S_message (&mm, msg);
   if (rc == 0)
   {
@@ -594,30 +558,21 @@ static void decode_msg_34 (const RX_packet *pkt, int msg_len)
  */
 static void show_firmware_resp (const uint8_t *cmd, uint32_t cmd_len)
 {
-  const uint8_t *param = cmd + 1;
-  uint32_t       i;
-  char           fw_buf [200];
-  char          *p = fw_buf;
-  char          *end = p + sizeof(fw_buf);
-
   if (cmd_len != 16)
   {
     pkt_add_junk ("Firmware-junk: %u", cmd_len);
     return;
   }
 
-  HEX_DUMP1 (cmd, cmd_len, ", Firmware-resp:");
-
-  p += snprintf (p, end - p, "CMD: %02X: ", *cmd);
-  for (i = 0; i < cmd_len - 1; i++)
-      p += snprintf (p, end - p, "P[%d]: %02X ", i, param[i]);
-  DEBUG1 ("%s\n", fw_buf);
-}
-
-static void send_firmware_req (void)
-{
-  DEBUG1 ("%s()\n", __FUNCTION__);
-  send_option ((const uint8_t*)"#00\r\n", 5, ", Firmware request:");
+  /**
+   * A 16-byte response is like:
+   * ```
+   *  00 00 80 04 81           -- Fixed 00-80-04-81 for compatibility reasons
+   *  15 0A 01                 -- yy-ww-bb is Version year, week, build-number
+   *  01 02 03 01 00 00 00 00  -- Internal Use
+   * ```
+   */
+  DEBUG1 ("len: %u, yy-ww-bb: %02X %02X %02X\n", cmd_len, cmd[5], cmd[6], cmd[7]);
 }
 
 /**
@@ -643,8 +598,7 @@ static void decode_msg_48 (const RX_packet *pkt, int msg_len)
   time_t            xTime;
   uint8_t           ID, len;
   bool              gps_valid, gps_fix;
-  const uint8_t    *msg   = pkt->msg;
-  const uint8_t    *firmware = msg + 4;
+  const uint8_t    *msg = pkt->msg;
   const status_msg *hsm = (const status_msg*) &pkt->msg [4];
 
   ID = msg [2];
@@ -658,7 +612,8 @@ static void decode_msg_48 (const RX_packet *pkt, int msg_len)
 
   if (ID == 0x24)
   {
-    show_firmware_resp (firmware, len);
+    HEX_DUMP1 (pkt->msg, pkt->msg_len, ", Firmware-resp:");
+    show_firmware_resp (msg + 4, len);
     return;
   }
   if (ID != 0x01)
@@ -682,7 +637,6 @@ static void decode_msg_48 (const RX_packet *pkt, int msg_len)
   HEX_DUMP2 (msg, msg_len, NULL);
 
   gps_valid = gps_fix = false;
-  g_data.GPS.detected = false;
 
   if ((flags & 0x8000) == 0x8000)
   {
@@ -799,7 +753,7 @@ static void decode_msg_48 (const RX_packet *pkt, int msg_len)
     gps_pos2.lat = binary_angle (hsm->latitude);
     gps_pos2.lon = binary_angle (hsm->longitude);
 
-    delta_gc_distance = geo_great_circle_dist (&gps_pos2, &home_pos2);
+    delta_gc_distance = geo_great_circle_dist (&gps_pos2, Modes.home_pos_ok ? &Modes.home_pos : &home_pos2);
 
     if (g_data.pkt_junk)
        gps_valid = false;
@@ -830,7 +784,7 @@ static bool pkt_enqueue_check (const RX_packet *pkt)
   char   err_buf [40];
 
   assert (pkt->msg_len > 0);
-  assert (pkt->msg [0] == 0x1A);     /* SOP; Start-of-Packet */
+  assert (pkt->msg [0] == 0x1A);    /* SOP; Start-of-Packet */
 
   if (pkt->msg_len < RX_MIN_SIZE)   /* == 16 */
   {
@@ -899,17 +853,18 @@ static void pkt_enqueue (const RX_packet *pkt)
   if (!pkt_enqueue_check(pkt))
      return;
 
-  copy = calloc (sizeof(*pkt), 1);
+  copy = malloc (sizeof(*pkt));
   if (!copy)
   {
     g_data.stat.pkt_OOM++;
-    DEBUG1 ("calloc() failed\n");
+    DEBUG1 ("malloc() failed\n");
     return;
   }
 
   copy->msg [0] = pkt->msg [0];
   copy->msg [1] = pkt->msg [1];
   copy->usec    = get_usec_now();
+  copy->next    = NULL;
 
   const uint8_t *src = pkt->msg + 2;
   uint8_t       *dst = copy->msg + 2;
@@ -927,43 +882,9 @@ static void pkt_enqueue (const RX_packet *pkt)
 
   copy->msg_len = 2 + i - unstuffed;
 
-  if (g_data.hex_file)
-  {
-    hex_dump_csv (g_data.hex_file, pkt->msg,  pkt->msg_len,  "before:");
-    hex_dump_csv (g_data.hex_file, copy->msg, copy->msg_len, "after: ");
-    fputc ('\n', g_data.hex_file);
-  }
-
   LIST_ADD_TAIL (RX_packet, (RX_packet**)&g_data.pkt_list, copy);
 
   g_data.stat.pkt_enqueued++;
-
-  /**
-   * The idea behind `g_data.stat.pkt_max_len` is to check if a fixed-size
-   * array could be used instead of `calloc()`. An array large enough to guarantee
-   * we never run out of packet-space in `pkt_enqueue()`. Experience shows that
-   * `g_data.stat.pkt_max_len` can grow to approx. 60.
-   */
-  uint32_t len = pkt_list_len();
-
-  if (len > g_data.stat.pkt_max_len)
-  {
-    g_data.stat.pkt_max_len = len;
-    DEBUG1 ("pkt_max_len: %u\n", g_data.stat.pkt_max_len);
-  }
-}
-
-/**
- * Return length of `g_data.pkt_list` now.
- */
-static uint32_t pkt_list_len (void)
-{
-  volatile const RX_packet *pkt = g_data.pkt_list;
-  uint32_t num;
-
-  for (num = 0; pkt; pkt = pkt->next)
-      num++;
-  return (num);
 }
 
 /**
@@ -998,6 +919,8 @@ const char *state_name (state_func f)
 /**
  * Wait for a single `ch == 0x1A` to mark the *END* of a packet.
  * Then enter `state_put_ch()`. Otherwise discard this `ch`.
+ *
+ * Also send all start-up options; Firmware-request or Beast options.
  */
 static void state_get_sync (uint8_t ch)
 {
@@ -1008,12 +931,10 @@ static void state_get_sync (uint8_t ch)
     g_data.old_ch  = -1;      /* we do not know or care */
     g_data.got_x1A = true;
 
-    if (g_data.Beast.enable)
-         send_beast_options();
-    else send_firmware_req();
-
     DEBUG1 ("got x1A sync\n");
     g_data.state = state_put_ch;
+
+    send_all_options();
   }
   else
     g_data.old_ch = ch;
@@ -1027,15 +948,15 @@ static void state_put_ch (uint8_t ch)
 {
   if (ch == 0x1A)
   {
-    g_data.state = state_got_1A;
+    g_data.state  = state_got_1A;
+    g_data.old_ch = 0x1A;
   }
   else
   {
     g_data.pkt_current.msg [g_data.pkt_current.msg_len++] = ch;
+    g_data.old_ch = ch;
     assert (g_data.pkt_current.msg_len <= sizeof(g_data.pkt_current.msg));
   }
-
-  g_data.old_ch = ch;
 }
 
 /**
@@ -1050,8 +971,10 @@ static void state_got_1A (uint8_t ch)
   {
     g_data.pkt_current.msg [g_data.pkt_current.msg_len++] = 0x1A;
     g_data.pkt_current.msg [g_data.pkt_current.msg_len++] = 0x1A;
+    g_data.old_ch = 0x1A;
     assert (g_data.pkt_current.msg_len <= sizeof(g_data.pkt_current.msg));
-    g_data.old_ch = ch;
+
+    g_data.state = state_put_ch;
   }
   else
   {
@@ -1072,19 +995,26 @@ static void state_got_1A (uint8_t ch)
     g_data.pkt_current.msg [0]  = 0x1A;
     g_data.pkt_current.msg [1]  = ch;    /* `ch` in next `pkt_current.msg[1]` (msg-type) */
     g_data.pkt_current.msg_len  = 2;
-  }
 
-  g_data.state = state_put_ch;
+    g_data.state = state_put_ch;
+  }
 }
 
 /**
- * \def DEBUG_IDX()
  * Trace the legal range of `g_data.sio_buf[]` indices.
  * And if we are processing "old-data" or "fresh-data".
+ *
+ * Used with `--debug H`.
  */
-#define DEBUG_IDX(what, max_idx)                                             \
-        DEBUG2 ("Processing %s: sio_len: %d, idx: [%d - %d>, old_idx: %d\n", \
-                what, g_data.sio_len, g_data.old_idx, max_idx, g_data.old_idx)
+static void debug_idx (const char *what, int max_idx)
+{
+  EnterCriticalSection (&Modes.print_mutex);
+
+  DEBUG2 ("Processing %s: sio_len: %d, idx: [%d - %d>, old_idx: %d\n",
+          what, g_data.sio_len, g_data.old_idx, max_idx, g_data.old_idx);
+
+  LeaveCriticalSection (&Modes.print_mutex);
+}
 
 /**
  * Possibly fill up `g_data.sio_buf[]` with fresh data.
@@ -1103,36 +1033,46 @@ static bool get_COM_data (int *idx_max)
   {
     *idx_max = g_data.old_idx + min (g_data.sio_len, sizeof(g_data.pkt_current.msg));
 
-    DEBUG_IDX ("old data", *idx_max);
+    if (1 && (Modes.debug & DEBUG_GNS_HULC2))
+       debug_idx ("old data", *idx_max);
     return (true);
   }
 
-  /* Fill up with fresh data
+#if (USE_WAITCOMMEVENT)
+  /*
+   * Poll for an EV_RXCHAR event and call `COM_read()`.
    */
-  g_data.sio_len = COM_read (Modes.gns_hulc.handle, g_data.sio_buf, COM_RX_SIZE);
+  if (COM_poll_events())
+#endif
+  {
+    /*
+     * Fill up with fresh data
+     */
+    g_data.sio_len = COM_read (Modes.gns_hulc.handle, g_data.sio_buf, COM_RX_SIZE);
+  }
+
   if (g_data.sio_len < 0)
   {
-    LOG_STDERR ("Modes.exit: COM-port problem; %s\n", win_strerror(GetLastError()));
-    Modes.exit = true;
+    LOG_STDERR ("Modes.fatal.exit: COM-port problem; %s\n", win_strerror(GetLastError()));
+    Modes.exit = g_data.fatal_exit = true;
     return (false);
   }
 
   if (g_data.sio_len == 0)
   {
-    DEBUG2 ("sio_len: 0\n");
-
     /**
-     * We are in initial state `state_get_sync()`.
+     * If we are in initial state `state_get_sync()`, check the
+     * "dead-counter"
      *
      * \todo
-     * This dead_count should depend on `Sleep (GNS_HULC_SLEEP)` time
-     * in `gns_hulc_read_loop()` and port baud-rate.
+     * This count should depend on port baud-rate.
      */
     if (g_data.state == state_get_sync && ++g_data.COM.dead_count >= COM_DEAD_COUNT)
     {
       LOG_STDERR ("Port `%s' seems dead. No data %u times in a row.\7\n",
                   g_data.COM.dev_name, COM_DEAD_COUNT);
       Modes.exit = Modes.no_stats = true;
+      g_data.fatal_exit = true;
       return (false);
     }
     return (true);
@@ -1142,7 +1082,8 @@ static bool get_COM_data (int *idx_max)
      g_data.COM.dead_count = 0;
 
   *idx_max = min (g_data.sio_len, sizeof(g_data.pkt_current.msg));
-  DEBUG_IDX ("fresh data", *idx_max);
+  if (1 && (Modes.debug & DEBUG_GNS_HULC2))
+     debug_idx ("fresh data", *idx_max);
 
   return (true);
 }
@@ -1159,10 +1100,7 @@ static int hulc_read (void)
      return (-1);
 
   if (!g_data.old_data && g_data.sio_len == 0)
-  {
-    DEBUG2 ("Nothing to do\n");
-    return (0);
-  }
+     return (0);
 
   int start_idx = g_data.old_idx;
   int idx;
@@ -1170,13 +1108,13 @@ static int hulc_read (void)
   for (idx = start_idx; idx < idx_max; idx++)
   {
     int        ch        = g_data.sio_buf [idx];
-    int        old_ch    = g_data.old_ch;
     state_func old_state = g_data.state;
 
     (*g_data.state) (ch);
 
     DEBUG2 ("ch: %s, old_ch: %s, %s -> %s, idx: %4d, old_idx: %4d\n",
-            hex_ch_str(ch), hex_ch_str(old_ch), state_name(old_state), state_name(g_data.state),
+            hex_ch_str(ch), hex_ch_str(g_data.old_ch),
+            state_name(old_state), state_name(g_data.state),
             idx, g_data.old_idx);
   }
 
@@ -1248,11 +1186,10 @@ static void pkt_add_junk (const char *fmt, ...)
 }
 
 /**
- * Called from `data_thread_fn()`.
+ * Called from `data_thread_fn()` separate from main-thread.
  *
  * In this infinite loop, read serial data and fill `g_data.pkt_list`
- * with RX_packet (`g_data.pkt_current`). These packets are then polled by the below
- * `gns_hulc_poll()`.
+ * with RX_packet (`g_data.pkt_current`).
  */
 void gns_hulc_read_loop (void)
 {
@@ -1261,8 +1198,12 @@ void gns_hulc_read_loop (void)
     if (hulc_read() < 0)
        break;
 
-    Sleep (GNS_HULC_SLEEP);
-/*  check_max_messages(); */
+#if (USE_WAITCOMMEVENT == 0)
+    COM_poll_error();
+    Sleep (10);
+#endif
+
+    check_max_messages();
   }
 }
 
@@ -1271,13 +1212,7 @@ void gns_hulc_read_loop (void)
  * the `g_data.pkt_list`.
  *
  * Since `LIST_ADD_TAIL()` was used in `pkt_enqueue()`, this will process
- * the oldest packets first.
- *
- * If the the packet-list is empty, Sleep() for `Modes.gns_hulc.poll_ms`
- * (50 msec by default).
- *
- * Then traverse the packet-list assuming it's no longer empty.
- * After processing each, free the RX-packet.
+ * the oldest packets first. After processing each, free the RX-packet.
  */
 void gns_hulc_poll (void)
 {
@@ -1286,15 +1221,11 @@ void gns_hulc_poll (void)
 
   /* Something bad happend or we were told to stop.
    */
-  if (Modes.exit)
+  if (Modes.exit || g_data.fatal_exit)
      return;
 
-#if 0
-  EnterCriticalSection (&g_data.crit);
-#else
-  if (!TryEnterCriticalSection (&g_data.crit))
+  if (!TryEnterCriticalSection(&g_data.crit))
      return;
-#endif
 
   for (pkt = g_data.pkt_list; pkt; pkt = pkt_next, count++)
   {
@@ -1345,12 +1276,15 @@ static bool send_option (const uint8_t *msg, int msg_sz, const char *what)
 {
   int rc = COM_write (Modes.gns_hulc.handle, msg, msg_sz);
 
-  if (rc == msg_sz)
-  {
-    g_data.stat.tx_packets++;
-    HEX_DUMP1 (msg, msg_sz, what);
-  }
+  g_data.stat.tx_packets++;
+  HEX_DUMP1 (msg, msg_sz, what);
   return (rc == msg_sz);
+}
+
+static void send_firmware_req (void)
+{
+  DEBUG1 ("%s()\n", __FUNCTION__);
+  send_option ((const uint8_t*)"#00\r\n", 5, ", Firmware request:");
 }
 
 /**
@@ -1361,7 +1295,7 @@ static bool send_beast_option (uint8_t opt)
   uint8_t msg [3] = { 0x1A, '1', opt };
   char    what [30];
 
-  snprintf (what, sizeof(what), ", Beast option %c:", opt);
+  snprintf (what, sizeof(what), ", Beast option '%c':", opt);
   return send_option (msg, sizeof(msg), what);
 }
 
@@ -1370,36 +1304,43 @@ static bool send_beast_option (uint8_t opt)
  */
 static void send_beast_options (void)
 {
+  send_beast_option ('B');         /* set classic beast mode */
+  send_beast_option ('C');         /* use binary format */
+  send_beast_option ('H');         /* RTS enabled */
+
+  if (g_data.Beast.filter_DF1117)
+       send_beast_option ('D');    /* enable DF11/17-only filter*/
+  else send_beast_option ('d');    /* disable DF11/17-only filter, deliver all messages */
+
+  if (g_data.Beast.mlat_timestamp)
+       send_beast_option ('E');    /* enable mlat timestamps */
+  else send_beast_option ('e');    /* disable mlat timestamps */
+
+  if (g_data.Beast.CRC)
+       send_beast_option ('f');    /* enable CRC checks */
+  else send_beast_option ('F');    /* disable CRC checks */
+
+  if (g_data.Beast.filter_DF045)
+       send_beast_option ('G');    /* enable DF0/4/5 filter */
+  else send_beast_option ('g');    /* disable DF0/4/5 filter, deliver all messages */
+
+  if (g_data.Beast.FEC)
+       send_beast_option ('i');    /* FEC enabled */
+  else send_beast_option ('I');    /* FEC disabled */
+
+  if (g_data.Beast.mode_AC)
+       send_beast_option ('J');    /* Mode A/C enabled */
+  else send_beast_option ('j');    /* Mode A/C disabled */
+}
+
+/**
+ * Send all Beast / Hulc start-up options
+ */
+static void send_all_options (void)
+{
   if (g_data.Beast.enable)
-  {
-    send_beast_option ('B');         /* set classic beast mode */
-    send_beast_option ('C');         /* use binary format */
-    send_beast_option ('H');         /* RTS enabled */
-
-    if (g_data.Beast.filter_DF1117)
-         send_beast_option ('D');    /* enable DF11/17-only filter*/
-    else send_beast_option ('d');    /* disable DF11/17-only filter, deliver all messages */
-
-    if (g_data.Beast.mlat_timestamp)
-         send_beast_option ('E');    /* enable mlat timestamps */
-    else send_beast_option ('e');    /* disable mlat timestamps */
-
-    if (g_data.Beast.CRC)
-         send_beast_option ('f');    /* enable CRC checks */
-    else send_beast_option ('F');    /* disable CRC checks */
-
-    if (g_data.Beast.filter_DF045)
-         send_beast_option ('G');    /* enable DF0/4/5 filter */
-    else send_beast_option ('g');    /* disable DF0/4/5 filter, deliver all messages */
-
-    if (g_data.Beast.FEC)
-         send_beast_option ('i');    /* FEC enabled */
-    else send_beast_option ('I');    /* FEC disbled */
-
-    if (g_data.Beast.mode_AC)
-         send_beast_option ('J');    /* Mode A/C enabled */
-    else send_beast_option ('j');    /* Mode A/C disabled */
-  }
+     send_beast_options();
+  send_firmware_req();
 }
 
 /*
@@ -1411,14 +1352,14 @@ static void send_beast_options (void)
  * Convert 32-bit signed binary angular measure to double degree.
  * See https://www.globalspec.com/reference/14722/160210/Chapter-7-5-3-Binary-Angular-Measure
  *
- * \param angle  Data buffer start (MSB first)
- * \retval       Angular degree
+ * \param in angle on network order
+ * \retval Angular degree
  */
 static double binary_angle (int32_t angle)
 {
   double ret = (double) mg_ntohl (angle) * STEP_SIZE;
 
-  if (ret > 180.0)
+  if (ret >= 180.0)
      ret -= 360.0;
   assert (ret >= -180.0 && ret < 180.0);
   return (ret);
@@ -1495,12 +1436,4 @@ static void hex_dump (const uint8_t *buf, size_t len, unsigned line, const char 
   LeaveCriticalSection (&Modes.print_mutex);
 }
 
-static void hex_dump_csv (FILE *f, const uint8_t *buf, int len, const char *what)
-{
-  fprintf (f, "%s:", what);
-
-  for (int i = 0; i < len; i++)
-      fprintf (f, " %02X", buf[i]);
-  fputc ('\n', f);
-}
 
