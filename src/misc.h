@@ -603,12 +603,12 @@ typedef struct global_data {
         bool          cpr_trace;                  /**< Report CPR events to .log-file? default true */
         bool          console_icon;               /**< In interactive-mode, do a `SendMessage (WM_SETICON)` for our icon */
 
-        smartlist_t   *logfile_ignore;            /**< Messages to ignore when writing to`logfile`. A list of `log_ignore` */
+        smartlist_t  *logfile_ignore;             /**< Messages to ignore when writing to`logfile`. A list of `log_ignore` */
 
 #if defined(USE_BIN_FILES)
-        bin_data       bin;                       /**< Binary-files and data */
+        bin_data      bin;                        /**< Binary-files and data */
 #endif
-        char           chk_marker [4];            /**< To check if this structure is "out of wack" */
+        char          chk_marker [4];             /**< To check if this structure is "out of wack" */
       } global_data;
 
 extern global_data Modes;
