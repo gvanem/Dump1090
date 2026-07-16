@@ -739,18 +739,20 @@ int interactive_title_stats (void)
 
   if (Modes.gns_hulc.handle)
   {
-    pos_t pos;
-    int   num, altitude;
-    char  GPS_info [100];
-    char  counters [100] = "";
+    pos_t    pos;
+    char     GPS_info [100];
+    char     counters [100] = "";
+    uint64_t too_short = gns_hulc_too_short();
+    uint64_t junk      = gns_hulc_junk();
+    uint64_t overrun   = gns_hulc_overrun();
 
-    if (Modes.debug & DEBUG_GNS_HULC)
-       snprintf (counters, sizeof(counters), " (%llu / %llu)", gns_hulc_too_short(), gns_hulc_junk());
+    if (too_short + junk + overrun > 0ULL)
+       snprintf (counters, sizeof(counters), " (%llu / %llu / %llu)", too_short, junk, overrun);
 
-    if (gns_hulc_gps_info(&pos, &altitude, &num, NULL))
-         snprintf (GPS_info, sizeof(GPS_info), "%.06lf %s / %.06lf %s, alt: %d, num: %d",
+    if (gns_hulc_gps_info(&pos, NULL, NULL, NULL))
+         snprintf (GPS_info, sizeof(GPS_info), "%.06lf %s / %.06lf %s",
                    fabs(pos.lon), pos.lon > 0.0 ? "E" : "W",
-                   fabs(pos.lat), pos.lat > 0.0 ? "N" : "S", altitude, num);
+                   fabs(pos.lat), pos.lat > 0.0 ? "N" : "S");
     else strcpy (GPS_info, "no fix");
 
     return modeS_SetConsoleTitlef ("%sDev: %s, GPS: %s%s",
