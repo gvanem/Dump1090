@@ -272,7 +272,7 @@ void COM_poll_error (void)
   if (err_mask & CE_OVERRUN)
   {
     g_data.stat.rx_overruns++;
-    LOG_FILEONLY ("CE_OVERRUN\n");
+    DEBUG1 ("CE_OVERRUN\n");
   }
 }
 
