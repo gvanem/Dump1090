@@ -1200,7 +1200,7 @@ void gns_hulc_read_loop (void)
 
 #if (USE_WAITCOMMEVENT == 0)
     COM_poll_error();
-    Sleep (10);
+ /* Sleep (10); */
 #endif
 
     check_max_messages();
