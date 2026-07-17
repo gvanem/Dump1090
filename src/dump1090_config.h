@@ -261,6 +261,7 @@
 #define MG_ENABLE_MD5           0  /* No need for MD5 code */
 #define MG_ENABLE_DIRLIST       0  /* No need for directory listings in HTTP */
 #define MG_ENABLE_CUSTOM_MILLIS 1  /* Enable 64-bit tick-time */
+#define MG_ENABLE_POLL          1  /* Enable `WSAPoll()` */
 #define MG_TLS                  3  /* Enable MG_TLS_BUILTIN code */
 #define MG_TLS_SSLKEYLOGFILE    1  /* Enable logging to `$(SSLKEYLOGFILE)` */
 
