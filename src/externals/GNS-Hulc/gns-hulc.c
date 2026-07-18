@@ -121,8 +121,6 @@ bool gns_hulc_set_port (const char *arg)
   FREE (Modes.gns_hulc.name);
   Modes.gns_hulc.name = mg_mprintf ("HULC-%d", Modes.gns_hulc.port);
 
-  FREE (Modes.selected_dev);
-  Modes.selected_dev = mg_mprintf ("gns-hulc%d", Modes.gns_hulc.port);
   return (true);
 }
 
@@ -236,6 +234,9 @@ HANDLE gns_hulc_init (uint16_t port)
 
   if (!Modes.error_correct_1 && !Modes.error_correct_2)
      g_data.Beast.FEC = false;
+
+  FREE (Modes.selected_dev);
+  Modes.selected_dev = mg_mprintf ("gns-hulc%d", Modes.gns_hulc.port);
 
   (void) file;
   return (hnd);

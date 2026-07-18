@@ -60,7 +60,7 @@ if %LOCAL_TEST% == 1 (
   if not exist "%APPVEYOR_BUILD_FOLDER%" (echo No '%APPVEYOR_BUILD_FOLDER%'. Edit this .bat-file & exit /b 1)
 )
 
-set MAKE_ARGS=CPU=x64 USE_MP_COMPILE=1 USE_PACKED_DLL=0 USE_BIN_FILES=1 USE_MG_DNS=1
+set MAKE_ARGS=CPU=x64 USE_MP_COMPILE=1 USE_PACKED_DLL=1 USE_BIN_FILES=1
 
 ::
 :: A Certificate Authority (CA) bundle is needed for
