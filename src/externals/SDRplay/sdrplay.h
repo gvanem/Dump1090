@@ -20,6 +20,8 @@ bool sdrplay_set_minver (const char *arg);
 bool sdrplay_set_tuner (const char *arg);
 bool sdrplay_set_USB_bulk_mode (const char *arg);
 bool sdrplay_set_decay_filter (const char *arg);
+bool sdrplay_set_gain_sweep_secs (const char *arg);
+bool sdrplay_set_capture_secs (const char *arg);
 int  sdrplay_set_freq_correction (sdrplay_dev *device, int ppm);
 int  sdrplay_set_gain (sdrplay_dev *device, int gain);
 int  sdrplay_get_gain (sdrplay_dev *device, int *gain);

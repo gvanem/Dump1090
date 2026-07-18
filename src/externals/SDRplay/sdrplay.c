@@ -80,6 +80,12 @@ typedef struct sdrplay_priv {
         int                            ADSB_mode;      /**< == sdrplay_api_ControlParamsT::adsbMode */
         int                            gain_reduction;
         int                            ppm_value;
+        int                            gain_sweep_secs;   /**< 0 = disabled; else seconds per step of `gain_sweep_values[]` */
+        int                            gain_sweep_index;  /**< current index into `gain_sweep_values[]` */
+        double                         gain_sweep_last_change; /**< `get_usec_now()` timestamp of the last step change */
+        int                            capture_secs;      /**< 0 = disabled; else seconds of raw IQ to capture to 'capture.sc16' */
+        double                         capture_start;     /**< `get_usec_now()` timestamp of when capture began */
+        FILE                          *capture_fp;        /**< open file handle while capturing, else NULL */
 
         sdrplay_api_RspDuoModeT        mode;
         sdrplay_api_CallbackFnsT       callbacks;
@@ -134,6 +140,13 @@ typedef struct sdrplay_priv {
  * artificially low one.
  */
 static sdrplay_priv sdr = { .max_sig_acc = (RSP_MIN_GAIN_THRESH << RSP_ACC_SHIFT) };
+
+/* TESTING TOOL: fixed gRdB (0-59, direct -- NOT the tenths-of-dB `gain`
+ * cfg convention) values cycled through by `sdrplay-gain-sweep-secs`.
+ * Edit this array directly if you want different/finer test points.
+ */
+static const int gain_sweep_values[] = { 0, 10, 20, 24, 30, 34, 40, 50, 59 };
+#define GAIN_SWEEP_NUM_VALUES  DIM(gain_sweep_values)
 
 /**
  * \def SDRPLAY_HANDLE current HANDLE of selected device
@@ -667,6 +680,72 @@ static void sdrplay_callback_A (short                       *xi,
     }
   }
 
+  /* TESTING TOOL: automated gain sweep (see `sdrplay_set_gain_sweep_secs()`)
+   */
+  if (sdr.gain_sweep_secs > 0)
+  {
+    double now = get_usec_now();
+
+    if (sdr.gain_sweep_last_change == 0.0)
+    {
+      /* first call since the sweep was enabled -- force decay_filter off
+       * (see the doc-comment on sdrplay_set_gain_sweep_secs()) and jump
+       * straight to the first test value rather than whatever gRdB
+       * happened to be configured otherwise.
+       */
+      sdr.decay_filter = false;
+      sdr.gain_sweep_index = 0;
+      sdr.gain_sweep_last_change = now;
+
+      EnterCriticalSection (&Modes.print_mutex);
+      sdr.ch_params->tunerParams.gain.gRdB = gain_sweep_values[0];
+      CALL_FUNC (sdrplay_api_Update, SDRPLAY_HANDLE, sdr.chosen_dev->tuner,
+                 sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
+      LeaveCriticalSection (&Modes.print_mutex);
+
+      TRACE ("GAIN SWEEP: starting, step 1/%d, gRdB=%d, %d sec/step\n",
+             (int)GAIN_SWEEP_NUM_VALUES, gain_sweep_values[0], sdr.gain_sweep_secs);
+    }
+    else if (sdr.decay_filter)
+    {
+      /* defensively re-assert every call in case something else (e.g. a
+       * cfg line parsed after this one) turned it back on mid-run
+       */
+      sdr.decay_filter = false;
+    }
+
+    if (now - sdr.gain_sweep_last_change > (double)sdr.gain_sweep_secs * 1E6)
+    {
+      if (sdr.gain_sweep_index + 1 >= (int)GAIN_SWEEP_NUM_VALUES)
+      {
+        /* Last step's duration has elapsed -- one full pass is complete.
+         * Trigger the same graceful shutdown path used elsewhere, so
+         * `Decoder statistics:` prints automatically without needing to
+         * time a manual Ctrl+C.
+         */
+        TRACE ("GAIN SWEEP: complete (%d/%d steps done), shutting down\n",
+               (int)GAIN_SWEEP_NUM_VALUES, (int)GAIN_SWEEP_NUM_VALUES);
+        sdr.gain_sweep_secs = 0;   /* stop re-entering this block */
+        Modes.exit = true;
+      }
+      else
+      {
+        sdr.gain_sweep_index++;
+        sdr.gain_sweep_last_change = now;
+
+        EnterCriticalSection (&Modes.print_mutex);
+        sdr.ch_params->tunerParams.gain.gRdB = gain_sweep_values[sdr.gain_sweep_index];
+        CALL_FUNC (sdrplay_api_Update, SDRPLAY_HANDLE, sdr.chosen_dev->tuner,
+                   sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
+        LeaveCriticalSection (&Modes.print_mutex);
+
+        TRACE ("GAIN SWEEP: step %d/%d, gRdB=%d\n",
+               sdr.gain_sweep_index + 1, (int)GAIN_SWEEP_NUM_VALUES,
+               gain_sweep_values[sdr.gain_sweep_index]);
+      }
+    }
+  }
+
   /* Send buffer downstream if enough available
    */
   if (new_buf_flag)
@@ -681,6 +760,38 @@ static void sdrplay_callback_A (short                       *xi,
     (*sdr.rx_callback) ((uint8_t*)sdr.rx_data + end * sizeof(SAMPLE_TYPE),
         MODES_RSP_BUF_SIZE * sizeof(SAMPLE_TYPE),
         sdr.rx_context);
+
+    /* TESTING TOOL: raw IQ capture (see `sdrplay_set_capture_secs()`).
+     * Taps the *exact same* bytes just handed to `rx_callback()` above,
+     * so the captured file is guaranteed to match what the live
+     * pipeline actually sees -- no separate/approximate capture path
+     * that could subtly differ in format or timing.
+     */
+    if (sdr.capture_secs > 0)
+    {
+      if (!sdr.capture_fp)
+      {
+        sdr.capture_fp = fopen ("capture.sc16", "wb");
+        if (sdr.capture_fp)
+             TRACE ("CAPTURE: writing raw SC16 IQ to 'capture.sc16' for %d seconds\n", sdr.capture_secs);
+        else TRACE ("CAPTURE: failed to open 'capture.sc16' for writing\n");
+        sdr.capture_start = get_usec_now();
+      }
+
+      if (sdr.capture_fp)
+      {
+        fwrite (sdr.rx_data + end, sizeof(SAMPLE_TYPE), MODES_RSP_BUF_SIZE, sdr.capture_fp);
+
+        if (get_usec_now() - sdr.capture_start > (double)sdr.capture_secs * 1E6)
+        {
+          fclose (sdr.capture_fp);
+          sdr.capture_fp = NULL;
+          sdr.capture_secs = 0;   /* stop re-entering this block */
+          TRACE ("CAPTURE: complete, shutting down\n");
+          Modes.exit = true;
+        }
+      }
+    }
   }
 
   /* Stash static values in `sdr` struct
@@ -1676,6 +1787,64 @@ bool sdrplay_set_USB_bulk_mode (const char *arg)
 bool sdrplay_set_decay_filter (const char *arg)
 {
   sdr.decay_filter = cfg_true (arg);
+  return (true);
+}
+
+/**
+ * Config-parser callback; <br>
+ * parses "sdrplay-gain-sweep-secs" and sets `sdr.gain_sweep_secs`.
+ *
+ * TESTING TOOL: when > 0, automatically cycles `gRdB` through
+ * `gain_sweep_values[]` (hardcoded above), spending this many seconds at
+ * each value, then triggering a clean shutdown once the full set has been
+ * covered (so `Decoder statistics:` prints automatically -- no loop, no
+ * need to time a manual Ctrl+C). Intended for controlled A/B gain testing
+ * within a single run (same traffic window for every test point).
+ *
+ * NB: `sdrplay-gain` (fixed manual gain) is ignored while a sweep is
+ * active, since the gain table lookup and device write both happen once
+ * at `sdrplay_api_Init()` time and this feature has no way to force it
+ * off at runtime. `sdrplay-decay-filter`, on the other hand, IS forced
+ * off automatically while a sweep is active (see `sdrplay_callback_A()`),
+ * since that one's just a software flag we can safely override every
+ * step, regardless of what the cfg says.
+ */
+bool sdrplay_set_gain_sweep_secs (const char *arg)
+{
+  char *end;
+  long  secs = strtol (arg, &end, 10);
+
+  if (end == arg || *end != '\0' || secs < 0)
+  {
+    LOG_STDERR ("\nIllegal 'sdrplay-gain-sweep-secs = %s' (expected a non-negative integer; 0 disables).\n", arg);
+    return (false);
+  }
+  sdr.gain_sweep_secs = (int) secs;
+  return (true);
+}
+
+/**
+ * Config-parser callback; <br>
+ * parses "sdrplay-capture-secs" and sets `sdr.capture_secs`.
+ *
+ * TESTING TOOL: when > 0, captures this many seconds of raw SC16 IQ data
+ * to 'capture.sc16' in the current directory, tapping the exact same
+ * bytes handed to `rx_callback()` -- guaranteed to match what the live
+ * pipeline actually processes. Triggers a clean shutdown once capture
+ * completes. Replay with:
+ *   dump1090 --infile capture.sc16 --informat SC16
+ */
+bool sdrplay_set_capture_secs (const char *arg)
+{
+  char *end;
+  long  secs = strtol (arg, &end, 10);
+
+  if (end == arg || *end != '\0' || secs < 0)
+  {
+    LOG_STDERR ("\nIllegal 'sdrplay-capture-secs = %s' (expected a non-negative integer; 0 disables).\n", arg);
+    return (false);
+  }
+  sdr.capture_secs = (int) secs;
   return (true);
 }
 

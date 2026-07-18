@@ -147,8 +147,10 @@ static const cfg_table config[] = {
     { "airspy-dll",           ARG_FUNC,    (void*) airspy_set_dll_name },
     { "sdrplay-adsb-mode",    ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
     { "sdrplay-antenna",      ARG_FUNC,    (void*) sdrplay_set_antenna },
+    { "sdrplay-capture-secs", ARG_FUNC,    (void*) sdrplay_set_capture_secs },   /* TESTING TOOL: raw IQ capture */
     { "sdrplay-decay-filter", ARG_FUNC,    (void*) sdrplay_set_decay_filter },
     { "sdrplay-dll",          ARG_FUNC,    (void*) sdrplay_set_dll_name },
+    { "sdrplay-gain-sweep-secs", ARG_FUNC, (void*) sdrplay_set_gain_sweep_secs },   /* TESTING TOOL: automated gain sweep */
     { "sdrplay-if-mode",      ARG_FUNC,    (void*) sdrplay_set_if_mode },
     { "sdrplay-minver",       ARG_FUNC,    (void*) sdrplay_set_minver },
     { "sdrplay-tuner",        ARG_FUNC,    (void*) sdrplay_set_tuner },
@@ -2473,24 +2475,6 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
          }
 #endif
          return (-1); /* no good */
-
-    case 24: /* Comm-D (ELM) */
-    case 25: /* Comm-D (ELM) */
-    case 26: /* Comm-D (ELM) */
-    case 27: /* Comm-D (ELM) */
-    case 28: /* Comm-D (ELM) */
-    case 29: /* Comm-D (ELM) */
-    case 30: /* Comm-D (ELM) */
-    case 31: /* Comm-D (ELM) */
-        /* These messages use Address/Parity,
-         * and also use some of the DF bits to carry data. Remap them all to a single
-         * DF for simplicity.
-         */
-        mm->msg_type = 24;
-        mm->source   = SOURCE_MODE_S;
-        mm->addr     = mm->CRC;
-        mm->reliable = false;
-        break;
 
     default:
          /* All other message types, we don't know how to handle their CRCs, give up
