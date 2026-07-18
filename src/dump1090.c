@@ -1969,10 +1969,19 @@ static void decode_extended_squitter (modeS_message *mm)
            vert_rate = ((msg[8] & 0x07) << 6) | (msg[9] >> 2);
            if (vert_rate)
            {
+             /* FIX: this used to do `(vert_rate - 1) * 64` here, but
+              * `vert_rate` was already decremented two lines above --
+              * a duplicate decrement, found by direct comparison against
+              * mutability's mode_s.c (which does `vert_rate * 64` at this
+              * point, no second `-1`). Applied *after* the sign flip, so
+              * every non-zero vertical rate was off by one quantization
+              * unit (64 ft/min), in a sign-dependent direction (climb vs
+              * descend pushed differently).
+              */
              vert_rate--;
              if (msg[8] & 0x08)
                 vert_rate = 0 - vert_rate;
-             mm->vert_rate = (vert_rate - 1) * 64;
+             mm->vert_rate = vert_rate * 64;
              mm->AC_flags |= MODES_ACFLAGS_VERTRATE_VALID;
            }
          }
@@ -2473,24 +2482,6 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
          }
 #endif
          return (-1); /* no good */
-
-    case 24: /* Comm-D (ELM) */
-    case 25: /* Comm-D (ELM) */
-    case 26: /* Comm-D (ELM) */
-    case 27: /* Comm-D (ELM) */
-    case 28: /* Comm-D (ELM) */
-    case 29: /* Comm-D (ELM) */
-    case 30: /* Comm-D (ELM) */
-    case 31: /* Comm-D (ELM) */
-        /* These messages use Address/Parity,
-         * and also use some of the DF bits to carry data. Remap them all to a single
-         * DF for simplicity.
-         */
-        mm->msg_type = 24;
-        mm->source   = SOURCE_MODE_S;
-        mm->addr     = mm->CRC;
-        mm->reliable = false;
-        break;
 
     default:
          /* All other message types, we don't know how to handle their CRCs, give up
