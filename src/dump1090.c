@@ -665,13 +665,14 @@ static void modeS_init_log (void)
 }
 
 /**
- * Initialize hardware stuff **after** to initialising RTLSDR/SDRPlay.
+ * Initialize FIFO and magnitude-converter stuff **after** the hardware-device init
+ * was done. Only devices that generates raw samples needs this function.
  *
  * Also needed for a remote `rtl_tcp / rtl_tcp2 /rtl_udp` program. <br>
  * A remote connection to `rtl_tcp` will be done in `net_init()` later in main.
  *
- * This function is not called for `--net-only` (i.e. `Modes.net_only == true`)
- * and services like RAW_IN or SBS_IN.
+ * This function is not called for `--net-only` (i.e. `Modes.net_only == true`),
+ * `--device gns-hulc` and services like RAW_IN or SBS_IN.
  */
 static bool modeS_init_hardware (void)
 {
@@ -801,7 +802,7 @@ static bool modeS_init_hardware (void)
                 Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : NONE_STR,
                 (double)Modes.sample_rate / 1E6,
                 Modes.rtltcp.remote ? Modes.rtltcp.remote : NONE_STR,
-                Modes.selected_dev,
+                Modes.selected_dev  ? Modes.selected_dev  : NONE_STR,
                 Modes.bytes_per_sample,
                 Modes.trailing_samples,
                 Modes.input_format, convert_format_name(Modes.input_format),
