@@ -147,9 +147,12 @@ static const cfg_table config[] = {
     { "airspy-dll",           ARG_FUNC,    (void*) airspy_set_dll_name },
     { "sdrplay-adsb-mode",    ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
     { "sdrplay-antenna",      ARG_FUNC,    (void*) sdrplay_set_antenna },
+    { "sdrplay-capture-secs", ARG_FUNC,    (void*) sdrplay_set_capture_secs },   /* TESTING TOOL: raw IQ capture */
     { "sdrplay-decay-filter", ARG_FUNC,    (void*) sdrplay_set_decay_filter },
     { "sdrplay-dll",          ARG_FUNC,    (void*) sdrplay_set_dll_name },
+    { "sdrplay-gain-sweep-secs", ARG_FUNC, (void*) sdrplay_set_gain_sweep_secs },   /* TESTING TOOL: automated gain sweep */
     { "sdrplay-if-mode",      ARG_FUNC,    (void*) sdrplay_set_if_mode },
+    { "sdrplay-lna-state",    ARG_FUNC,    (void*) sdrplay_set_lna_state },
     { "sdrplay-minver",       ARG_FUNC,    (void*) sdrplay_set_minver },
     { "sdrplay-tuner",        ARG_FUNC,    (void*) sdrplay_set_tuner },
     { "sdrplay-usb-bulk",     ARG_FUNC,    (void*) sdrplay_set_USB_bulk_mode  },
@@ -1970,10 +1973,19 @@ static void decode_extended_squitter (modeS_message *mm)
            vert_rate = ((msg[8] & 0x07) << 6) | (msg[9] >> 2);
            if (vert_rate)
            {
+             /* FIX: this used to do `(vert_rate - 1) * 64` here, but
+              * `vert_rate` was already decremented two lines above --
+              * a duplicate decrement, found by direct comparison against
+              * mutability's mode_s.c (which does `vert_rate * 64` at this
+              * point, no second `-1`). Applied *after* the sign flip, so
+              * every non-zero vertical rate was off by one quantization
+              * unit (64 ft/min), in a sign-dependent direction (climb vs
+              * descend pushed differently).
+              */
              vert_rate--;
              if (msg[8] & 0x08)
                 vert_rate = 0 - vert_rate;
-             mm->vert_rate = (vert_rate - 1) * 64;
+             mm->vert_rate = vert_rate * 64;
              mm->AC_flags |= MODES_ACFLAGS_VERTRATE_VALID;
            }
          }
