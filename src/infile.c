@@ -255,11 +255,11 @@ bool informat_set (const char *arg)
 {
   convert_format f = INPUT_ILLEGAL;
 
-  if (!strcmp(arg, "uc8"))
+  if (!stricmp(arg, "uc8"))
      f = INPUT_UC8;
-  else if (!strcmp(arg, "sc16"))
+  else if (!stricmp(arg, "sc16"))
      f = INPUT_SC16;
-  else if (!strcmp(arg, "sc16q11"))
+  else if (!stricmp(arg, "sc16q11"))
      f = INPUT_SC16Q11;
 
   if (f != INPUT_ILLEGAL)
