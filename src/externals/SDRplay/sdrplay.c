@@ -123,7 +123,17 @@ typedef struct sdrplay_priv {
         sdrplay_api_ErrorInfoT           error_info;
       } sdrplay_priv;
 
-static sdrplay_priv sdr;
+/* FIX: `max_sig_acc` was never explicitly seeded, leaving it at 0 from the
+ * zeroed `sdr` struct. That's an incorrect starting point for an
+ * exponentially-decaying filter meant to track signal peaks -- it causes
+ * an artificial ramp-down for the first several packets after stream
+ * start, since the filter has to "climb" from 0 up to a realistic level
+ * before its gain decisions mean anything. Seeded at the low-gain
+ * threshold (scaled by the same `RSP_ACC_SHIFT` the callback itself
+ * uses) so the filter starts at a neutral point instead of an
+ * artificially low one.
+ */
+static sdrplay_priv sdr = { .max_sig_acc = (RSP_MIN_GAIN_THRESH << RSP_ACC_SHIFT) };
 
 /**
  * \def SDRPLAY_HANDLE current HANDLE of selected device
@@ -538,7 +548,22 @@ static void sdrplay_callback_A (short                       *xi,
    */
   new_buf_flag = ((rx_data_idx & (MODES_RSP_BUF_SIZE-1)) < (end & (MODES_RSP_BUF_SIZE-1))) ? false : true;
 
-  /* Now interleave data from I/Q into circular buffer, and note max I value
+  /* Now interleave data from I/Q into circular buffer, and note max I value.
+   *
+   * FIX: max_sig is now accumulated across BOTH count1 and count2 before
+   * the decay filter / gain decision runs below. Previously the decision
+   * ran immediately after the count1 loop, using only count1's max_sig --
+   * and whenever count2 was nonzero (data wrapping around the end of the
+   * circular buffer), that wrapped segment's contribution to max_sig was
+   * computed in a *later* loop, too late to affect the decision that had
+   * already been made and already committed to sdr.max_sig_acc. The
+   * wrapped segment's peak was silently discarded every time, biasing the
+   * decay filter's peak estimate low on exactly the callbacks where a
+   * wrap occurs -- which, per the arithmetic above, is precisely when the
+   * buffer-wrap / gain-decision condition below is also about to fire.
+   * This is the suspected cause of a monotonic gRdB ramp-to-ceiling seen
+   * in live capture (never settling, unlike a fixed/manual-gain session
+   * that decodes cleanly on identical hardware).
    */
   input_index = 0;
   max_sig = 0;
@@ -555,25 +580,66 @@ static void sdrplay_callback_A (short                       *xi,
        max_sig = sig_I;
   }
 
-  /* Apply slowly decaying filter to max signal value
+  /* This code is triggered as we reach the end of our circular buffer.
+   * NOTE: the rx_data_idx reset must happen here, before the count2 loop
+   * below, since count2's writes depend on rx_data_idx already having
+   * wrapped back to 0. Only the decay-filter / gain-decision logic has
+   * been moved -- to after count2 -- not this reset.
+   *
+   * `full_buf_wrap` is captured here and reused after count2 below. This
+   * is NOT the same event as `new_buf_flag` (which fires on every
+   * MODES_RSP_BUF_SIZE segment boundary, ~every callback, and drives
+   * "send buffer downstream") -- this is the much rarer wrap of the
+   * entire MODES_RSP_BUFFERS-segment circular buffer back to index 0,
+   * which is what originally gated the gain decision.
    */
+  {
+    bool full_buf_wrap = (rx_data_idx >= (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS));
+
+    if (full_buf_wrap)
+       rx_data_idx = 0;  /* pointer back to start of buffer */
+
+    /* Insert any remaining signal at start of buffer, continuing to track
+     * max_sig across this segment too (see FIX note above).
+     */
+    for (i = (count2 >> 1) - 1; i >= 0; i--)
+    {
+      sig_I = xi [input_index];
+      dptr [rx_data_idx++] = SAMPLE_SCALE (sig_I);
+
+      sig_Q = xq [input_index++];
+      dptr [rx_data_idx++] = SAMPLE_SCALE (sig_Q);
+
+      if (sig_I > max_sig)
+         max_sig = sig_I;
+    }
+
+    /* Apply slowly decaying filter to max signal value. Runs every call,
+     * same as before -- just now sees the complete max_sig (count1 +
+     * count2) rather than count1 alone.
+     *
+     * FIX: this #if/#else/abs() branch was accidentally collapsed to just
+     * the USE_8BIT_SAMPLES arm during an earlier pass at this
+     * restructuring, even on a USE_8BIT_SAMPLES==0 (SC16) build --
+     * `max_sig -= 127` is meaningless for signed 16-bit samples and,
+     * unlike abs(), does nothing to correct a negative peak. Restored.
+     */
 #if USE_8BIT_SAMPLES
-  max_sig -= 127;
+    max_sig -= 127;
 #else
-  max_sig = abs(max_sig);
+    max_sig = abs (max_sig);
 #endif
 
-  max_sig_acc += max_sig;
-  max_sig = max_sig_acc >> RSP_ACC_SHIFT;
-  max_sig_acc -= max_sig;
+    max_sig_acc += max_sig;
+    max_sig = max_sig_acc >> RSP_ACC_SHIFT;
+    max_sig_acc -= max_sig;
 
-  /* This code is triggered as we reach the end of our circular buffer
-   */
-  if (rx_data_idx >= (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS))
-  {
-    rx_data_idx = 0;  /* pointer back to start of buffer */
-
-    if (sdr.decay_filter)
+    /* Gain decision: gated on full_buf_wrap, the exact same condition that
+     * originally guarded this block (`rx_data_idx >= MODES_RSP_BUF_SIZE *
+     * MODES_RSP_BUFFERS`), just captured earlier since rx_data_idx itself
+     * has since moved on through the count2 loop.
+     */
+    if (full_buf_wrap && sdr.decay_filter)
     {
       EnterCriticalSection (&Modes.print_mutex);
 
@@ -599,17 +665,6 @@ static void sdrplay_callback_A (short                       *xi,
       }
       LeaveCriticalSection (&Modes.print_mutex);
     }
-  }
-
-  /* Insert any remaining signal at start of buffer
-   */
-  for (i = (count2 >> 1) - 1; i >= 0; i--)
-  {
-    sig_I = xi [input_index];
-    dptr [rx_data_idx++] = SAMPLE_SCALE (sig_I);
-
-    sig_Q = xq [input_index++];
-    dptr [rx_data_idx++] = SAMPLE_SCALE (sig_Q);
   }
 
   /* Send buffer downstream if enough available
@@ -824,7 +879,17 @@ static int sdrplay_init_async (sdrplay_dev *device,
   sdr.rx_callback           = callback;
   sdr.rx_context            = context;
 
-#if 0
+  /* FIX: the disabled `#if 0` branch here is the CORRECT configuration.
+   * Empirically confirmed: with the API's IQ-balance correction enabled
+   * (the #else branch below), Q amplitude collapsed to 5-8x smaller than
+   * I within a few seconds of stream start, badly distorting the
+   * magnitude signal fed to the demodulator. Switching to DC-offset
+   * correction instead keeps I/Q within ~1:1 of each other and roughly
+   * tripled the number of valid preambles/usable messages on an RSP2.
+   * If testing on other RSP models surfaces a regression, this is the
+   * first place to look.
+   */
+#if 1
   sdr.ch_params->ctrlParams.dcOffset.IQenable = 0;
   sdr.ch_params->ctrlParams.dcOffset.DCenable = 1;
 #else
@@ -832,11 +897,23 @@ static int sdrplay_init_async (sdrplay_dev *device,
   sdr.ch_params->ctrlParams.dcOffset.DCenable = 0;
 #endif
 
-  if (sdr.chosen_dev->hwVer != SDRPLAY_RSP1_ID)
+  /* FIX: `sdrplay_api_EXTENDED_MIN_GR` (0-59dB manual gain range) and the
+   * API's own hardware AGC are documented as mutually exclusive: per the
+   * SDRplay API spec, "the extended range cannot be used by the internal
+   * AGC algorithm and will be disabled when enabling the AGC." Requesting
+   * the extended range unconditionally -- as this used to do -- silently
+   * defeated AGC even after correctly enabling `ctrlParams.agc.enable`
+   * below, which is almost certainly why manual `gain = X` worked but
+   * `agc = true` didn't visibly do anything: gRdB just sat frozen at
+   * whatever the manual/default value was. Only request the extended
+   * range when AGC is off; leave the normal (default) range in place
+   * when AGC is on so the hardware loop can actually work.
+   */
+  if (sdr.chosen_dev->hwVer != SDRPLAY_RSP1_ID && !Modes.dig_agc)
      sdr.ch_params->tunerParams.gain.minGr = sdrplay_api_EXTENDED_MIN_GR;
 
   sdr.ch_params->ctrlParams.agc.enable = Modes.dig_agc ? sdrplay_api_AGC_CTRL_EN : sdrplay_api_AGC_DISABLE;
-  sdr.ch_params->ctrlParams.agc.setPoint_dBfs = -45;
+  sdr.ch_params->ctrlParams.agc.setPoint_dBfs = -60;   /* FIX: was -45; -60 is the API spec's documented default */
 
   sdr.ch_params->tunerParams.gain.gRdB     = sdr.gain_reduction;
   sdr.ch_params->tunerParams.gain.LNAstate = 0;
