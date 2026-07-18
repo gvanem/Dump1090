@@ -9,7 +9,18 @@
 #include "sdrplay.h"
 #include "sdrplay_api.h"
 
-#define MODES_RSP_BUF_SIZE   (256*1024)   /**< 256k, same as MODES_ASYNC_BUF_SIZE */
+/* FIX: was hardcoded `(256*1024)` -- a fixed *sample* count that only
+ * happens to line up with `MODES_ASYNC_BUF_SIZE` (a *byte* count used
+ * elsewhere) for 1-byte-per-sample formats. Under SC16 (this fork's
+ * actual live-capture format, 2+ bytes/sample), the two stop meaning the
+ * same thing, silently mismatching this buffer's real size against what
+ * the rest of the codebase assumes -- the same class of sample-count-vs-
+ * byte-count bug already found and fixed in infile.c's `bin_read()` for
+ * the file-replay path. Deriving it directly from `MODES_ASYNC_BUF_SIZE /
+ * sizeof(SAMPLE_TYPE)` keeps both correct and consistent regardless of
+ * sample format.
+ */
+#define MODES_RSP_BUF_SIZE   (MODES_ASYNC_BUF_SIZE / sizeof(SAMPLE_TYPE))
 #define MODES_RSP_BUFFERS     16          /**< Must be power of 2 */
 
 #define RSP_MIN_GAIN_THRESH   512         /**< Increase gain if peaks below this */
@@ -965,6 +976,15 @@ static int sdrplay_init_async (sdrplay_dev *device,
   TRACE ("Reinit for USE_8BIT_SAMPLES == %d, using %s\n",
          USE_8BIT_SAMPLES, convert_format_name(Modes.input_format));
 
+  /* FIX: `Modes.converter_state` was already allocated once by the first
+   * `convert_init()` call in `modeS_init_hardware()` (dump1090.c). This
+   * reinit call overwrote `Modes.converter_state` with a fresh allocation
+   * without ever freeing the old one -- a leaked `convert_state` (32
+   * bytes) every time an SDRplay device is (re-)initialized. Flagged by
+   * gvanem on the original PR #46 -- free the old state first.
+   */
+  convert_cleanup (&Modes.converter_state);
+
   Modes.converter_func = convert_init (Modes.input_format,
                                        Modes.sample_rate,
                                        Modes.DC_filter,
@@ -1473,7 +1493,32 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   sdr.cancelling = false;
   sdr.API_locked = false;
 
-  sdr.gain_reduction = MODES_RSP_INITIAL_GR;
+  /* FIX: `gain = X` in dump1090.cfg (parsed into `Modes.gain`, tenths of a
+   * dB, RTLSDR-style) previously had NO effect on SDRplay at all: nothing
+   * in the codebase ever called `sdrplay_set_gain()`, so the device was
+   * always stuck at the hardcoded `MODES_RSP_INITIAL_GR` default
+   * regardless of config. Wired up here, using the same gRdB conversion
+   * `sdrplay_set_gain()` itself uses.
+   *
+   * If `agc = true`, `gain = X` is deliberately disregarded entirely --
+   * the hardware AGC owns gRdB once running, and a manual gain value
+   * would just be the ignored starting point AGC immediately overrides
+   * anyway. This way, flipping `agc` between true/false in cfg doesn't
+   * also require remembering to flip `gain` between a manual value and
+   * auto in lockstep.
+   */
+  if (Modes.dig_agc || Modes.gain_auto)
+     sdr.gain_reduction = MODES_RSP_INITIAL_GR;
+  else
+  {
+    int gRdB = (gain_table[NUM_GAINS - 1] - (int)Modes.gain) / 10;
+
+    if (gRdB < 0)
+       gRdB = 0;
+    else if (gRdB > 59)
+       gRdB = 59;
+    sdr.gain_reduction = gRdB;
+  }
   sdr.disable_broadcast_notch = true;
   sdr.disable_DAB_notch       = true;
 
