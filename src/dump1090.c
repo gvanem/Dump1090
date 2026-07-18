@@ -556,7 +556,7 @@ static void modeS_set_defaults (void)
 
   /* No device selected yet
    */
-  Modes.rtlsdr.index    = 0;   /* but the first RTLSDR device found is the default */
+  Modes.rtlsdr.index    = -1;   /* but the first RTLSDR device found is the default */
   Modes.sdrplay.index   = -1;
   Modes.airspy.index    = -1;
   Modes.gns_hulc.handle = NULL;
