@@ -147,10 +147,13 @@ static const cfg_table config[] = {
     { "airspy-dll",           ARG_FUNC,    (void*) airspy_set_dll_name },
     { "sdrplay-adsb-mode",    ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
     { "sdrplay-antenna",      ARG_FUNC,    (void*) sdrplay_set_antenna },
+    { "sdrplay-capture-secs", ARG_FUNC,    (void*) sdrplay_set_capture_secs },   /* TESTING TOOL: raw IQ capture */
     { "sdrplay-decay-filter", ARG_FUNC,    (void*) sdrplay_set_decay_filter },
     { "sdrplay-dll",          ARG_FUNC,    (void*) sdrplay_set_dll_name },
+    { "sdrplay-gain-sweep-secs", ARG_FUNC, (void*) sdrplay_set_gain_sweep_secs },   /* TESTING TOOL: automated gain sweep */
     { "sdrplay-if-mode",      ARG_FUNC,    (void*) sdrplay_set_if_mode },
     { "sdrplay-lna-state",    ARG_FUNC,    (void*) sdrplay_set_lna_state },   /* FEATURE: RF front-end LNA gain state; was hardcoded to 0 with no cfg control at all */
+    { "sdrplay-lna-state",    ARG_FUNC,    (void*) sdrplay_set_lna_state },
     { "sdrplay-minver",       ARG_FUNC,    (void*) sdrplay_set_minver },
     { "sdrplay-tuner",        ARG_FUNC,    (void*) sdrplay_set_tuner },
     { "sdrplay-usb-bulk",     ARG_FUNC,    (void*) sdrplay_set_USB_bulk_mode  },
@@ -666,13 +669,14 @@ static void modeS_init_log (void)
 }
 
 /**
- * Initialize hardware stuff **after** to initialising RTLSDR/SDRPlay.
+ * Initialize FIFO and magnitude-converter stuff **after** the hardware-device init
+ * was done. Only devices that generates raw samples needs this function.
  *
  * Also needed for a remote `rtl_tcp / rtl_tcp2 /rtl_udp` program. <br>
  * A remote connection to `rtl_tcp` will be done in `net_init()` later in main.
  *
- * This function is not called for `--net-only` (i.e. `Modes.net_only == true`)
- * and services like RAW_IN or SBS_IN.
+ * This function is not called for `--net-only` (i.e. `Modes.net_only == true`),
+ * `--device gns-hulc` and services like RAW_IN or SBS_IN.
  */
 static bool modeS_init_hardware (void)
 {
@@ -802,7 +806,7 @@ static bool modeS_init_hardware (void)
                 Modes.sdrplay.index, Modes.sdrplay.name ? Modes.sdrplay.name : NONE_STR,
                 (double)Modes.sample_rate / 1E6,
                 Modes.rtltcp.remote ? Modes.rtltcp.remote : NONE_STR,
-                Modes.selected_dev,
+                Modes.selected_dev  ? Modes.selected_dev  : NONE_STR,
                 Modes.bytes_per_sample,
                 Modes.trailing_samples,
                 Modes.input_format, convert_format_name(Modes.input_format),
@@ -1970,10 +1974,19 @@ static void decode_extended_squitter (modeS_message *mm)
            vert_rate = ((msg[8] & 0x07) << 6) | (msg[9] >> 2);
            if (vert_rate)
            {
+             /* FIX: this used to do `(vert_rate - 1) * 64` here, but
+              * `vert_rate` was already decremented two lines above --
+              * a duplicate decrement, found by direct comparison against
+              * mutability's mode_s.c (which does `vert_rate * 64` at this
+              * point, no second `-1`). Applied *after* the sign flip, so
+              * every non-zero vertical rate was off by one quantization
+              * unit (64 ft/min), in a sign-dependent direction (climb vs
+              * descend pushed differently).
+              */
              vert_rate--;
              if (msg[8] & 0x08)
                 vert_rate = 0 - vert_rate;
-             mm->vert_rate = (vert_rate - 1) * 64;
+             mm->vert_rate = vert_rate * 64;
              mm->AC_flags |= MODES_ACFLAGS_VERTRATE_VALID;
            }
          }
@@ -2376,15 +2389,40 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
     case 4:  /* Surveillance, altitude reply */
     case 5:  /* Surveillance, altitude reply */
     case 16: /* Long air-air surveillance */
+    case 24: /* Comm-D (ELM) */
+    case 25: /* Comm-D (ELM) */
+    case 26: /* Comm-D (ELM) */
+    case 27: /* Comm-D (ELM) */
+    case 28: /* Comm-D (ELM) */
+    case 29: /* Comm-D (ELM) */
+    case 30: /* Comm-D (ELM) */
+    case 31: /* Comm-D (ELM) */
          /* These message types use Address/Parity, i.e. our CRC syndrome is the sender's ICAO address.
           * We can't tell if the CRC is correct or not as we don't know the correct address.
-          * Accept the message if it appears to be from a previously-seen aircraft
+          * Accept the message if it appears to be from a previously-seen aircraft.
+          *
+          * FIX: DF24-31 (Comm-D/ELM) used to be handled in a separate switch
+          * arm further down with NO ICAO_FILTER_TEST() check at all -- any
+          * message with this DF, however corrupted, was accepted
+          * unconditionally via `mm->addr = mm->CRC`, then persisted as a
+          * brand-new aircraft with zero validation (aircraft_create() in
+          * aircraft.c performs no plausibility checks of its own -- this
+          * function is the only gate in the whole pipeline). Merged into
+          * this branch so DF24-31 gets the same gate as DF0/4/5/16 -- which
+          * also matches mutability's decodeModesMessage() and this fork's
+          * own modeS_message_score(), both of which already group case 24
+          * here.
           */
          if (!ICAO_FILTER_TEST(mm->CRC))
             return (-1);
 
          mm->addr = mm->CRC;
          mm->reliable = false;
+         if (mm->msg_type >= 24)
+         {
+           mm->msg_type = 24;   /* remap DF25-31 to a single DF24 for simplicity */
+           mm->source   = SOURCE_MODE_S;
+         }
          break;
 
     case 11: /* All-call reply */
@@ -2424,9 +2462,22 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
 
     case 17:   /* Extended squitter */
     case 18:   /* Extended squitter/non-transponder */
-         mm->reliable = (mm->error_bits == 0);
+         /* FIX: `mm->reliable` used to be set here unconditionally, using
+          * `mm->error_bits` *before* it gets assigned the real correction
+          * count a few lines below (it's reset to 0 for every message type
+          * further up, and only overwritten with `ei->errors` after this
+          * point). That meant `reliable` was unconditionally `(0 == 0)` ==
+          * true for every single DF17/18 message, clean or not -- exactly
+          * the message types carrying position/altitude/identification.
+          * Moved to the end of this case, after `error_bits` is actually
+          * known, so a message that needed correction is no longer
+          * mislabeled as reliable.
+          */
          if (mm->CRC == 0)
-            break;  /* all good */
+         {
+           mm->reliable = true;   /* genuinely clean, 0 corrections needed */
+           break;
+         }
 
          ei = crc_checksum_diagnose (mm->CRC, mm->msg_bits);
          if (!ei)
@@ -2439,9 +2490,30 @@ static int _decode_mode_S_message (modeS_message *mm, const uint8_t *_msg)
 
          /* We are conservative here: only accept corrected messages that
           * match an existing aircraft.
+          *
+          * FIX: this must NOT be conditional on `addr1 != addr2`. A 2-bit
+          * CRC "fix" only means *some* 2-bit flip zeroes the syndrome; per
+          * crc.c's own ~35% false-positive rate for 2-bit correction, a
+          * coincidental syndrome match can be entirely wrong even when the
+          * bits it happens to flip are outside the address field (bits
+          * 8-31). In that case addr1 == addr2, so the old `addr1 != addr2`
+          * guard never re-validated the address at all -- letting an
+          * unverified, possibly fabricated address straight through.
+          * Confirmed empirically against a live capture: 9/9 flagged ghost
+          * ICAOs were DF17 messages with 2-bit corrections whose
+          * corrected-bit positions were both outside 8-31.
+          *
+          * Single-bit corrections keep the original `addr1 != addr2`
+          * behaviour, since crc.c's single-bit syndrome space has
+          * essentially no collision risk -- only 2-bit correction carries
+          * the documented ambiguity that makes this necessary.
           */
-         if (addr1 != addr2 && !ICAO_FILTER_TEST(addr2))
+         if (mm->error_bits == 2 && !ICAO_FILTER_TEST(addr2))
             return (-1);
+         if (mm->error_bits == 1 && addr1 != addr2 && !ICAO_FILTER_TEST(addr2))
+            return (-1);
+
+         mm->reliable = (mm->error_bits == 0);
          break;
 
     case 20: /* Comm-B, altitude reply */

@@ -1625,12 +1625,6 @@ const char *compiler_info (void)
   return (buf);
 }
 
-#if defined(MG_ENABLE_POLL)
-  #define NETPOLLER  "WSAPoll()"
-#else
-  #define NETPOLLER  "select()"
-#endif
-
 static const char *build_features (void)
 {
   static char        buf [150];
@@ -1657,7 +1651,6 @@ static const char *build_features (void)
   #if defined(USE_SDRCONNECT)
     "SDRConnect",
   #endif
-    "NETPOLLER=" NETPOLLER,
     NULL
   };
   const char *f;

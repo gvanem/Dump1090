@@ -90,7 +90,21 @@ static int bin_read (void)
 {
   uint64_t bytes_read = 0;
   bool     eof = false;
-  size_t   readbuf_sz = MODES_MAG_BUF_SAMPLES * Modes.bytes_per_sample;
+  size_t   readbuf_sz = MODES_ASYNC_BUF_SIZE;   /* FIX: was `MODES_MAG_BUF_SAMPLES *
+                                                  * Modes.bytes_per_sample`. `MODES_MAG_BUF_SAMPLES`
+                                                  * (in misc.h) is `MODES_ASYNC_BUF_SIZE / 2`, a stale
+                                                  * UC8-era constant hardcoded for 2 bytes/sample.
+                                                  * Multiplying that *sample count* by the *actual*
+                                                  * runtime `Modes.bytes_per_sample` (4 for SC16) double-
+                                                  * counted the format width, making `readbuf_sz` 2x too
+                                                  * large for SC16/SC16Q11. `bin_read()` then read, converted,
+                                                  * and wrote a 131072-sample chunk into FIFO buffers that
+                                                  * `dump1090.c`'s `fifo_init()` call actually allocated for
+                                                  * only 65536 samples (`MODES_ASYNC_BUF_SIZE /
+                                                  * Modes.bytes_per_sample`, done correctly there) --
+                                                  * a ~256KB heap overflow on every full chunk read.
+                                                  * `MODES_ASYNC_BUF_SIZE` is already a byte count, so no
+                                                  * multiplication by `bytes_per_sample` belongs here at all. */
   void    *readbuf = calloc (readbuf_sz, 1);
 
   if (!readbuf)
@@ -103,6 +117,19 @@ static int bin_read (void)
   {
     int      nread = 0;
     int      toread = 0;
+    int      chunk_bytes_read = 0;   /* FIX: total bytes actually filled into
+                                       * `readbuf` this pass. `nread` alone only
+                                       * reflects the *last* `_read()` call, which
+                                       * is 0 on the EOF-terminating call even when
+                                       * earlier calls in the same pass filled the
+                                       * buffer with real data. Using bare `nread`
+                                       * for `samples_read` below silently turned
+                                       * any file (or final chunk of any file)
+                                       * smaller than `readbuf_sz` into "0 samples",
+                                       * so the converter/demodulator never saw the
+                                       * data at all -- not a demod bug, the data
+                                       * just never arrived.
+                                       */
     char    *rdata;
     uint32_t samples_read;
     struct   mag_buf *out_buf;
@@ -129,11 +156,12 @@ static int bin_read (void)
       }
       rdata      += nread;
       bytes_read += nread;
+      chunk_bytes_read += nread;      /* FIX: accumulate this pass's total */
       toread     -= nread;
       TRACE ("  nread: %d, bytes_read: %llu, eof: %d\n", nread, bytes_read, eof);
     }
 
-    samples_read = nread / Modes.bytes_per_sample;
+    samples_read = chunk_bytes_read / Modes.bytes_per_sample;   /* FIX: was `nread` */
 
     /* Convert the new data
      */
@@ -227,16 +255,34 @@ bool informat_set (const char *arg)
 {
   convert_format f = INPUT_ILLEGAL;
 
-  if (!strcmp(arg, "uc8"))
+  if (!stricmp(arg, "uc8"))
      f = INPUT_UC8;
-  else if (!strcmp(arg, "sc16"))
+  else if (!stricmp(arg, "sc16"))
      f = INPUT_SC16;
-  else if (!strcmp(arg, "sc16q11"))
+  else if (!stricmp(arg, "sc16q11"))
      f = INPUT_SC16Q11;
 
   if (f != INPUT_ILLEGAL)
   {
     Modes.input_format = f;
+
+    /* FIX: keep `Modes.bytes_per_sample` in sync with the chosen format.
+     * It defaults to 2 (UC8: 1 byte I + 1 byte Q) at program start and
+     * was never updated here for SC16/SC16Q11 (2 bytes I + 2 bytes Q = 4).
+     * Every downstream sample-count calculation in `bin_read()` and the
+     * `convert_*_generic()` functions divides byte counts by this value --
+     * leaving it at 2 for SC16 silently computed exactly double the true
+     * sample count everywhere. For small files that padded harmlessly into
+     * unread (zeroed) buffer space; for full-size chunks it walks straight
+     * off the end of the actual read buffer.
+     */
+    switch (f)
+    {
+      case INPUT_UC8:      Modes.bytes_per_sample = 2; break;  /* 1 + 1 bytes */
+      case INPUT_SC16:
+      case INPUT_SC16Q11:  Modes.bytes_per_sample = 4; break;  /* 2 + 2 bytes */
+      default:             break;
+    }
     return (true);
   }
   return (false);

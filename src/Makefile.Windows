@@ -28,13 +28,6 @@ USE_CRT_DEBUG ?= 0
 USE_BIN_FILES ?= 0
 
 #
-# Option for polling of network events in 'externals/mongoose.c':
-#   USE_WSAPOLL=1: use 'WSAPoll()'
-#   USE_WSAPOLL=0: use 'select()'
-#
-USE_WSAPOLL ?= 1
-
-#
 # Enable SDRConnect code in 'externals/SDRconnect' which let
 # a (remote) SDRConnect program feed 'net_io.c' with data over WebSocket.
 #
@@ -376,10 +369,6 @@ ifeq ($(USE_PACKED_DLL),1)
   TARGETS   += ../web-pages.dll
   CFLAGS    += -DUSE_PACKED_DLL
   GENERATED += $(WEB_SRC)
-endif
-
-ifeq ($(USE_WSAPOLL),1)
-  CFLAGS += -DMG_ENABLE_POLL=1
 endif
 
 OBJECTS = $(call c_to_obj, $(SOURCES))
