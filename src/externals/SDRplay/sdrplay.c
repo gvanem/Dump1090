@@ -1913,10 +1913,11 @@ bool sdrplay_set_capture_secs (const char *arg)
     return (false);
   }
   sdr.capture_secs = (int) secs;
+  return (true);
 }
 
 /**
- * Config-parser callback; <br> 
+ * Config-parser callback; <br>
  * parses "sdrplay-lna-state" and sets `sdr.lna_state`.
  *
  * Controls `tunerParams.gain.LNAstate` -- the RF front-end gain state,
