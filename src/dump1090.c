@@ -152,6 +152,7 @@ static const cfg_table config[] = {
     { "sdrplay-dll",          ARG_FUNC,    (void*) sdrplay_set_dll_name },
     { "sdrplay-gain-sweep-secs", ARG_FUNC, (void*) sdrplay_set_gain_sweep_secs },   /* TESTING TOOL: automated gain sweep */
     { "sdrplay-if-mode",      ARG_FUNC,    (void*) sdrplay_set_if_mode },
+    { "sdrplay-lna-state",    ARG_FUNC,    (void*) sdrplay_set_lna_state },   /* FEATURE: RF front-end LNA gain state; was hardcoded to 0 with no cfg control at all */
     { "sdrplay-lna-state",    ARG_FUNC,    (void*) sdrplay_set_lna_state },
     { "sdrplay-minver",       ARG_FUNC,    (void*) sdrplay_set_minver },
     { "sdrplay-tuner",        ARG_FUNC,    (void*) sdrplay_set_tuner },

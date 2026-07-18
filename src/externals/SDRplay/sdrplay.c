@@ -79,6 +79,7 @@ typedef struct sdrplay_priv {
         int                            curr_gain;
         int                            ADSB_mode;      /**< == sdrplay_api_ControlParamsT::adsbMode */
         int                            gain_reduction;
+        int                            lna_state;      /**< == tunerParams.gain.LNAstate; RF front-end gain state */
         int                            ppm_value;
 
         sdrplay_api_RspDuoModeT        mode;
@@ -916,7 +917,15 @@ static int sdrplay_init_async (sdrplay_dev *device,
   sdr.ch_params->ctrlParams.agc.setPoint_dBfs = -60;   /* FIX: was -45; -60 is the API spec's documented default */
 
   sdr.ch_params->tunerParams.gain.gRdB     = sdr.gain_reduction;
-  sdr.ch_params->tunerParams.gain.LNAstate = 0;
+  /* FEATURE: was hardcoded to 0 (max sensitivity / min attenuation) with
+   * no way to change it. Now configurable via `sdrplay-lna-state` in
+   * dump1090.cfg -- see sdrplay_set_lna_state() below. Empirically, this
+   * setting has a much larger effect on decode quality than baseband gain
+   * alone: raising LNAstate reduces RF front-end gain *before* the
+   * receiver's own noise floor is added, which can collapse SNR margin in
+   * a way baseband gRdB can never recover afterward.
+   */
+  sdr.ch_params->tunerParams.gain.LNAstate = sdr.lna_state;
   sdr.ch_params->tunerParams.rfFreq.rfHz   = Modes.freq;
 
   sdr.ch_params->tunerParams.dcOffsetTuner.dcCal     = 4;
@@ -1329,6 +1338,7 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   TRACE ("ADSB_mode:    %d / %s\n", sdr.ADSB_mode, sdrplay_adsb_mode(sdr.ADSB_mode));
   TRACE ("USB_mode:     %d / %s\n", sdr.USB_mode, sdrplay_USB_mode_name(sdr.USB_mode));
   TRACE ("decay_filter: %d\n", sdr.decay_filter);
+  TRACE ("lna_state:    %d\n", sdr.lna_state);
 
   if (sdr.min_version == 0.0)
      sdr.min_version = SDRPLAY_API_VERSION;   /* = 3.14F */
@@ -1676,6 +1686,33 @@ bool sdrplay_set_USB_bulk_mode (const char *arg)
 bool sdrplay_set_decay_filter (const char *arg)
 {
   sdr.decay_filter = cfg_true (arg);
+  return (true);
+}
+
+/**
+ * Config-parser callback; <br>
+ * parses "sdrplay-lna-state" and sets `sdr.lna_state`.
+ *
+ * Controls `tunerParams.gain.LNAstate` -- the RF front-end gain state,
+ * previously hardcoded to `0` (max sensitivity / min attenuation) with
+ * no way to change it. Valid range is device/antenna-port/frequency-band
+ * dependent (e.g. RSP2 on ports A/B: 0-8, fewer states on Hi-Z or other
+ * models). Only a generous sanity bound is checked here; the SDRplay API
+ * itself will reject a genuinely out-of-range value at
+ * `sdrplay_api_Update()`/`sdrplay_api_Init()` time, the same way an
+ * invalid `gRdB` already does.
+ */
+bool sdrplay_set_lna_state (const char *arg)
+{
+  char *end;
+  long  state = strtol (arg, &end, 10);
+
+  if (end == arg || *end != '\0' || state < 0 || state > 9)
+  {
+    LOG_STDERR ("\nIllegal 'sdrplay-lna-state = %s' (expected a small non-negative integer; valid range is device/band dependent).\n", arg);
+    return (false);
+  }
+  sdr.lna_state = (int) state;
   return (true);
 }
 
