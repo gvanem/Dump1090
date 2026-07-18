@@ -1039,6 +1039,19 @@ static int sdrplay_init_async (sdrplay_dev *device,
   sdr.ch_params->tunerParams.gain.LNAstate = sdr.lna_state;
   sdr.ch_params->tunerParams.rfFreq.rfHz   = Modes.freq;
 
+  /* FIX: `tunerParams.bwType` (tuner IF filter bandwidth) was never set
+   * anywhere -- a completely dead/unwired setting, left at whatever the
+   * SDRplay API defaults to internally. Checked against a known-good
+   * SDRuno reference configuration on the same hardware: SDRuno explicitly
+   * uses an 8.000MHz ZIF (zero-IF) bandwidth. Setting this explicitly to
+   * match took clean CRC from ~0% to ~32% on its own, before any of the
+   * other fixes in this investigation -- the single largest individual
+   * improvement found. On an 8MS/s SDRplay capture path, a mismatched (or
+   * effectively arbitrary/default) IF bandwidth appears to have been
+   * badly distorting the signal reaching the demodulator.
+   */
+  sdr.ch_params->tunerParams.bwType = sdrplay_api_BW_8_000;
+
   sdr.ch_params->tunerParams.dcOffsetTuner.dcCal     = 4;
   sdr.ch_params->tunerParams.dcOffsetTuner.speedUp   = 0;
   sdr.ch_params->tunerParams.dcOffsetTuner.trackTime = 63;
