@@ -192,7 +192,7 @@ static errorinfo *prepare_error_table (int bits, int max_correct, int max_detect
   errorinfo *table, base_entry;
 
   assert (bits >= 0 && bits <= MODES_LONG_MSG_BITS);
-  assert (max_correct >=0 && max_correct <= MODES_MAX_BITERRORS);
+  assert (max_correct >= 0 && max_correct <= MODES_MAX_BITERRORS);
   assert (max_detect >= max_correct);
 
   if (!max_correct)
@@ -206,6 +206,12 @@ static errorinfo *prepare_error_table (int bits, int max_correct, int max_detect
       maxsize += combinations (bits - 5, i);  /* space needed for all i-bit errors */
 
   table = malloc (maxsize * sizeof(errorinfo));
+  if (!table)
+  {
+    *size_out = 0;
+    return (NULL);
+  }
+
   base_entry.syndrome = 0;
   base_entry.errors = 0;
   for (i = 0; i < MODES_MAX_BITERRORS; ++i)
@@ -293,7 +299,6 @@ void crc_init (int fix_bits)
 
     default:
          /* Detect up to 4 bit errors; this reduces our 2-bit coverage to about 65%.
-          * This can take a little while - tell the user.
           */
          short_errors = prepare_error_table (MODES_SHORT_MSG_BITS, 2, 4, &short_errors_sz);
          long_errors  = prepare_error_table (MODES_LONG_MSG_BITS, 2, 4, &long_errors_sz);
