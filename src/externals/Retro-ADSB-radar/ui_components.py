@@ -15,13 +15,15 @@ class RadarScope:
         self.center_y = center_y
         self.radius   = radius
         self.font     = utils.load_font (config.RADAR_FONT_SIZE)
+        self.range_unit = [ "NM", "km" ][config.METRIC]
+        self.range_mult = [ 1.852, 1.0 ][config.METRIC]
 
     def lat_lon_to_screen (self, lat: float, lon: float) -> Optional[Tuple[int, int]]:
         """Convert lat/lon to screen coordinates
         """
         lat_km = (lat - config.LAT) * 111
         lon_km = (lon - config.LON) * 111 * math.cos(math.radians(config.LAT))
-        range_km = config.RADIUS_NM * 1.852
+        range_km = config.RADIUS * self.range_mult
         x = self.center_x + (lon_km / range_km) * self.radius
         y = self.center_y - (lat_km / range_km) * self.radius
 
@@ -51,8 +53,8 @@ class RadarScope:
         for ring in range(1, 4):
             ring_radius = int ((ring / 3) * self.radius)
             pygame.draw.circle (self.screen, config.DIM_GREEN, (self.center_x, self.center_y), ring_radius, 2)
-            range_nm = int ((ring / 3) * config.RADIUS_NM)
-            text = self.font.render (f"{range_nm}NM", True, config.DIM_GREEN)
+            Range = int ((ring / 3) * config.RADIUS)
+            text = self.font.render (f"{Range}{self.range_unit}", True, config.DIM_GREEN)
             self.screen.blit (text, (self.center_x + ring_radius - 20, self.center_y + 5))
 
         pygame.draw.line (self.screen, config.DIM_GREEN, (self.center_x - self.radius, self.center_y), (self.center_x + self.radius, self.center_y), 2)
@@ -77,9 +79,13 @@ class DataTable:
         self.screen = screen
         self.rect = pygame.Rect (x, y, width, height)
         self.font = utils.load_font (config.TABLE_FONT_SIZE)
+        self.range_unit = [ "NM", "km" ][config.METRIC]
 
     def draw (self, aircraft_list: List[Aircraft], status: str, last_update: float):
-        """Draw aircraft data table"""
+        """Draw aircraft data table.
+           aircraft_list is on aeronatical units. Convert to metric
+           if config.METRIC == True
+        """
         pygame.draw.rect (self.screen, config.BRIGHT_GREEN, self.rect, 3)
         title = self.font.render ("AIRCRAFT DATA", True, config.AMBER)
         title_rect = title.get_rect (centerx=self.rect.centerx, y=self.rect.y + 10)
@@ -111,16 +117,26 @@ class DataTable:
             if aircraft.on_ground:
                alt_text = "Ground"
             elif isinstance(aircraft.altitude, int) and (aircraft.altitude > 0):
-               alt_text = int(aircraft.altitude)
+               if config.METRIC:
+                  alt_text = int(aircraft.altitude / 3.2828)
+               else:
+                  alt_text = int(aircraft.altitude)
             else:
                alt_text = "   N/A"
+
+            speed    = aircraft.speed
+            distance = aircraft.distance
+            track    = aircraft.track
+            if config.METRIC:
+               speed    = round(speed * 1.852)
+               distance = distance * 1.852
 
             columns = [
                 f"{aircraft.callsign:<8}",
                 f"{alt_text:>6}",
-                f"{aircraft.speed:>3}"       if aircraft.speed    > 0 else "N/A",
-                f"{aircraft.distance:>4.1f}" if aircraft.distance > 0 else "N/A ",
-                f"{aircraft.track:>3.0f}°"  if aircraft.track    > 0 else "N/A"
+                f"{speed:>3}"        if speed    > 0 else "N/A",
+                f"{distance:>4.1f}"  if distance > 0 else "N/A ",
+                f"{track:>3.0f}°"   if track    > 0 else "N/A"
             ]
             for j, value in enumerate (columns):
                 text = self.font.render (str(value), True, colour)
@@ -134,7 +150,7 @@ class DataTable:
         status_info = [
             f"STATUS:   {status}",
             f"CONTACTS: {len(aircraft_list)} ({military_count} MIL)",
-            f"RANGE:    {config.RADIUS_NM}NM",
+            f"RANGE:    {config.RADIUS}{self.range_unit}",
             f"INTERVAL: {config.FETCH_INTERVAL}s",
             f"NEXT UPD: {countdown_text}"
         ]

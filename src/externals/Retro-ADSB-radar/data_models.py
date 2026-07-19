@@ -31,7 +31,8 @@ class Aircraft:
     lat = data ["lat"]
     lon = data ["lon"]
     distance, bearing = calculate_distance_bearing (config.LAT, config.LON, lat, lon)
-    if distance > config.RADIUS_NM:
+    distance_divisor = [ 1.852, 1.0 ][config.METRIC]
+    if distance / distance_divisor > config.RADIUS:
        return None
 
     hex_code = data ["hex"].lower()

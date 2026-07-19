@@ -21,9 +21,10 @@ from ui_components import RadarScope, DataTable
 
 def main():
     """Main application loop"""
+    range_unit = [ "NM", "km" ][config.METRIC]
     print ("\nStarting Retro ADS-B Radar...")
     print (f" - Location: {config.AREA_NAME} ({config.LAT}°, {config.LON}°)")
-    print (f" - Range:    {config.RADIUS_NM} NM")
+    print (f" - Range:    {config.RADIUS} {range_unit}")
     print (f" - Display:  {config.SCREEN_WIDTH}x{config.SCREEN_HEIGHT} at {config.FPS} FPS")
 
     #

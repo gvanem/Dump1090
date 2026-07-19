@@ -17,6 +17,7 @@ TAR1090_URL     = config.get ("General", "TAR1090_URL", fallback="http://localho
 USER_AGENT      = config.get ("General", "USER_AGENT", fallback=None)
 BLINK_MILITARY  = config.getboolean ("General", "BLINK_MILITARY", fallback=True)
 VERBOSE         = config.getboolean ("General", "VERBOSE", fallback=False)
+METRIC          = config.getboolean ("General", "METRIC", fallback=False)
 
 #
 # Audio Settings
@@ -31,7 +32,7 @@ ATC_AUTO_START = config.getboolean ("Audio", "AUTO_START", fallback=False)
 LAT       = config.getfloat ("Location", "LAT", fallback=0.0)
 LON       = config.getfloat ("Location", "LON", fallback=0.0)
 AREA_NAME = config.get      ("Location", "AREA_NAME", fallback="UNKNOWN")
-RADIUS_NM = config.getint   ("Location", "RADIUS_NM", fallback=60)
+RADIUS    = config.getint   ("Location", "RADIUS", fallback=60)
 
 #
 # Display Settings
@@ -66,6 +67,7 @@ if FONT_PATH.startswith("$0"):
 
 if VERBOSE:
    print (f"BOTTOM_FONT_SIZE: {BOTTOM_FONT_SIZE}")
-   print (f"FONT_PATH: {FONT_PATH}")
+   print (f"FONT_PATH:  {FONT_PATH}")
+   print (f"METRIC:     {METRIC}")
    print (f"script_dir: {script_dir}")
 
