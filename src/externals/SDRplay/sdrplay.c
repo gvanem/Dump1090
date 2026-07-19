@@ -81,23 +81,24 @@ typedef struct sdrplay_priv {
         volatile bool                  cancelling;
         volatile bool                  uninit_done;
 
-        sdrplay_api_DeviceT            devices [4];     /**< 4 should be enough for `sdr::sdrplay_api_GetDevices()`. */
-        sdrplay_api_DeviceT           *chosen_dev;      /**< `sdrplay_select()` sets this to one of the above */
+        sdrplay_api_DeviceT            devices [4];        /**< 4 should be enough for `sdr::sdrplay_api_GetDevices()`. */
+        sdrplay_api_DeviceT           *chosen_dev;         /**< `sdrplay_select()` sets this to one of the above */
         unsigned int                   num_devices;
         char                           last_err [256];
         int                            last_rc;
-        int                            max_sig_acc;    /**< accumulated max-signal for `sdr.decay_filter` */
+        int                            max_sig_acc;        /**< accumulated max-signal for `sdr.decay_filter` */
         int                            curr_gain;
-        int                            ADSB_mode;      /**< == sdrplay_api_ControlParamsT::adsbMode */
+        int                            ADSB_mode;          /**< == sdrplay_api_ControlParamsT::adsbMode */
         int                            gain_reduction;
-        int                            lna_state;      /**< == tunerParams.gain.LNAstate; RF front-end gain state */
+        int                            lna_state;          /**< == tunerParams.gain.LNAstate; RF front-end gain state */
         int                            ppm_value;
-        int                            gain_sweep_secs;   /**< 0 = disabled; else seconds per step of `gain_sweep_values[]` */
-        int                            gain_sweep_index;  /**< current index into `gain_sweep_values[]` */
-        double                         gain_sweep_last_change; /**< `get_usec_now()` timestamp of the last step change */
-        int                            capture_secs;      /**< 0 = disabled; else seconds of raw IQ to capture to 'capture.sc16' */
-        double                         capture_start;     /**< `get_usec_now()` timestamp of when capture began */
-        FILE                          *capture_fp;        /**< open file handle while capturing, else NULL */
+        int                            gain_sweep_secs;    /**< 0 = disabled; else seconds per step of `gain_sweep_values[]` */
+        int                            gain_sweep_index;   /**< current index into `gain_sweep_values[]` */
+        double                         gain_sweep_last_ts; /**< `get_usec_now()` timestamp of the last step change */
+        int                            capture_secs;       /**< 0 = disabled; else seconds of raw IQ to capture to '%TEMP%\dump1090\capture.sc16' */
+        double                         capture_start;      /**< `get_usec_now()` timestamp of when capture began */
+        FILE                          *capture_fp;         /**< open file handle while capturing, else NULL */
+        bool                           capture_fail;       /**< try to open file once */
 
         sdrplay_api_RspDuoModeT        mode;
         sdrplay_api_CallbackFnsT       callbacks;
@@ -158,7 +159,11 @@ static sdrplay_priv sdr = { .max_sig_acc = (RSP_MIN_GAIN_THRESH << RSP_ACC_SHIFT
  * Edit this array directly if you want different/finer test points.
  */
 static const int gain_sweep_values[] = { 0, 10, 20, 24, 30, 34, 40, 50, 59 };
+
 #define GAIN_SWEEP_NUM_VALUES  DIM(gain_sweep_values)
+
+static void sdrplay_sweep_func (void);
+static void sdrplay_capture_func (uint32_t end);
 
 /**
  * \def SDRPLAY_HANDLE current HANDLE of selected device
@@ -692,71 +697,8 @@ static void sdrplay_callback_A (short                       *xi,
     }
   }
 
-  /* TESTING TOOL: automated gain sweep (see `sdrplay_set_gain_sweep_secs()`)
-   */
   if (sdr.gain_sweep_secs > 0)
-  {
-    double now = get_usec_now();
-
-    if (sdr.gain_sweep_last_change == 0.0)
-    {
-      /* first call since the sweep was enabled -- force decay_filter off
-       * (see the doc-comment on sdrplay_set_gain_sweep_secs()) and jump
-       * straight to the first test value rather than whatever gRdB
-       * happened to be configured otherwise.
-       */
-      sdr.decay_filter = false;
-      sdr.gain_sweep_index = 0;
-      sdr.gain_sweep_last_change = now;
-
-      EnterCriticalSection (&Modes.print_mutex);
-      sdr.ch_params->tunerParams.gain.gRdB = gain_sweep_values[0];
-      CALL_FUNC (sdrplay_api_Update, SDRPLAY_HANDLE, sdr.chosen_dev->tuner,
-                 sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
-      LeaveCriticalSection (&Modes.print_mutex);
-
-      TRACE ("GAIN SWEEP: starting, step 1/%d, gRdB=%d, %d sec/step\n",
-             (int)GAIN_SWEEP_NUM_VALUES, gain_sweep_values[0], sdr.gain_sweep_secs);
-    }
-    else if (sdr.decay_filter)
-    {
-      /* defensively re-assert every call in case something else (e.g. a
-       * cfg line parsed after this one) turned it back on mid-run
-       */
-      sdr.decay_filter = false;
-    }
-
-    if (now - sdr.gain_sweep_last_change > (double)sdr.gain_sweep_secs * 1E6)
-    {
-      if (sdr.gain_sweep_index + 1 >= (int)GAIN_SWEEP_NUM_VALUES)
-      {
-        /* Last step's duration has elapsed -- one full pass is complete.
-         * Trigger the same graceful shutdown path used elsewhere, so
-         * `Decoder statistics:` prints automatically without needing to
-         * time a manual Ctrl+C.
-         */
-        TRACE ("GAIN SWEEP: complete (%d/%d steps done), shutting down\n",
-               (int)GAIN_SWEEP_NUM_VALUES, (int)GAIN_SWEEP_NUM_VALUES);
-        sdr.gain_sweep_secs = 0;   /* stop re-entering this block */
-        Modes.exit = true;
-      }
-      else
-      {
-        sdr.gain_sweep_index++;
-        sdr.gain_sweep_last_change = now;
-
-        EnterCriticalSection (&Modes.print_mutex);
-        sdr.ch_params->tunerParams.gain.gRdB = gain_sweep_values[sdr.gain_sweep_index];
-        CALL_FUNC (sdrplay_api_Update, SDRPLAY_HANDLE, sdr.chosen_dev->tuner,
-                   sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
-        LeaveCriticalSection (&Modes.print_mutex);
-
-        TRACE ("GAIN SWEEP: step %d/%d, gRdB=%d\n",
-               sdr.gain_sweep_index + 1, (int)GAIN_SWEEP_NUM_VALUES,
-               gain_sweep_values[sdr.gain_sweep_index]);
-      }
-    }
-  }
+     sdrplay_sweep_func();
 
   /* Send buffer downstream if enough available
    */
@@ -773,37 +715,8 @@ static void sdrplay_callback_A (short                       *xi,
         MODES_RSP_BUF_SIZE * sizeof(SAMPLE_TYPE),
         sdr.rx_context);
 
-    /* TESTING TOOL: raw IQ capture (see `sdrplay_set_capture_secs()`).
-     * Taps the *exact same* bytes just handed to `rx_callback()` above,
-     * so the captured file is guaranteed to match what the live
-     * pipeline actually sees -- no separate/approximate capture path
-     * that could subtly differ in format or timing.
-     */
     if (sdr.capture_secs > 0)
-    {
-      if (!sdr.capture_fp)
-      {
-        sdr.capture_fp = fopen ("capture.sc16", "wb");
-        if (sdr.capture_fp)
-             TRACE ("CAPTURE: writing raw SC16 IQ to 'capture.sc16' for %d seconds\n", sdr.capture_secs);
-        else TRACE ("CAPTURE: failed to open 'capture.sc16' for writing\n");
-        sdr.capture_start = get_usec_now();
-      }
-
-      if (sdr.capture_fp)
-      {
-        fwrite (sdr.rx_data + end, sizeof(SAMPLE_TYPE), MODES_RSP_BUF_SIZE, sdr.capture_fp);
-
-        if (get_usec_now() - sdr.capture_start > (double)sdr.capture_secs * 1E6)
-        {
-          fclose (sdr.capture_fp);
-          sdr.capture_fp = NULL;
-          sdr.capture_secs = 0;   /* stop re-entering this block */
-          TRACE ("CAPTURE: complete, shutting down\n");
-          Modes.exit = true;
-        }
-      }
-    }
+       sdrplay_capture_func (end);
   }
 
   /* Stash static values in `sdr` struct
@@ -868,9 +781,10 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
   sdr.API_locked = true;
 
   CALL_FUNC (sdrplay_api_GetDevices, sdr.devices, &sdr.num_devices, DIM(sdr.devices));
+
+  TRACE ("Found %d devices\n", sdr.num_devices);
   if (sdr.num_devices == 0)
   {
-    TRACE ("Found %d devices\n", sdr.num_devices);
     LOG_STDERR ("No SDRplay devices found.\n");
     CALL_FUNC (sdrplay_api_UnlockDeviceApi);
     return (false);
@@ -933,12 +847,6 @@ static bool sdrplay_select (const char *wanted_name, int wanted_index)
     return (false);
   }
 
-#if 0
-  CALL_FUNC (sdrplay_api_SelectDevice, device);
-  if (sdr.last_rc != sdrplay_api_Success)
-     return (false);
-#endif
-
   sdr.chosen_dev = device;        /**< we only support 1 device */
 
   Modes.selected_dev = mg_mprintf ("sdrplay-%s", current_dev);
@@ -976,12 +884,9 @@ static int sdrplay_init_async (sdrplay_dev *device,
   TRACE ("Reinit for USE_8BIT_SAMPLES == %d, using %s\n",
          USE_8BIT_SAMPLES, convert_format_name(Modes.input_format));
 
-  /* FIX: `Modes.converter_state` was already allocated once by the first
-   * `convert_init()` call in `modeS_init_hardware()` (dump1090.c). This
-   * reinit call overwrote `Modes.converter_state` with a fresh allocation
-   * without ever freeing the old one -- a leaked `convert_state` (32
-   * bytes) every time an SDRplay device is (re-)initialized. Flagged by
-   * gvanem on the original PR #46 -- free the old state first.
+  /* `Modes.converter_state` is already allocated by the first
+   * `convert_init()` call in `modeS_init_hardware()`. Hence free
+   * this state first.
    */
   convert_cleanup (&Modes.converter_state);
 
@@ -1046,8 +951,8 @@ static int sdrplay_init_async (sdrplay_dev *device,
 
   sdr.ch_params->ctrlParams.agc.enable = Modes.dig_agc ? sdrplay_api_AGC_CTRL_EN : sdrplay_api_AGC_DISABLE;
   sdr.ch_params->ctrlParams.agc.setPoint_dBfs = -60;   /* FIX: was -45; -60 is the API spec's documented default */
+  sdr.ch_params->tunerParams.gain.gRdB = sdr.gain_reduction;
 
-  sdr.ch_params->tunerParams.gain.gRdB     = sdr.gain_reduction;
   /* FEATURE: was hardcoded to 0 (max sensitivity / min attenuation) with
    * no way to change it. Now configurable via `sdrplay-lna-state` in
    * dump1090.cfg -- see sdrplay_set_lna_state() below. Empirically, this
@@ -1689,8 +1594,8 @@ int sdrplay_exit (sdrplay_dev *device)
   if (device)
      sdrplay_release (device);
 
-  free (sdr.rx_data);
-  sdr.rx_data = NULL;
+  FREE (sdr.rx_data);
+  FCLOSE (sdr.capture_fp);
 
   if (!sdrplay_funcs[0].mod_handle)
   {
@@ -1875,7 +1780,7 @@ bool sdrplay_set_decay_filter (const char *arg)
  * off at runtime. `sdrplay-decay-filter`, on the other hand, IS forced
  * off automatically while a sweep is active (see `sdrplay_callback_A()`),
  * since that one's just a software flag we can safely override every
- * step, regardless of what the cfg says.
+ * step, regardless of what the config says.
  */
 bool sdrplay_set_gain_sweep_secs (const char *arg)
 {
@@ -1892,15 +1797,87 @@ bool sdrplay_set_gain_sweep_secs (const char *arg)
 }
 
 /**
+ * Test Function: automated gain sweep, \ref `sdrplay_set_gain_sweep_secs()`
+ */
+static void sdrplay_sweep_func (void)
+{
+  double now = get_usec_now();
+
+  if (sdr.gain_sweep_last_ts == 0.0)
+  {
+    /* first call since the sweep was enabled -- force decay_filter off
+     * (see the doc-comment on sdrplay_set_gain_sweep_secs()) and jump
+     * straight to the first test value rather than whatever gRdB
+     * happened to be configured otherwise.
+     */
+    sdr.decay_filter = false;
+    sdr.gain_sweep_index   = 0;
+    sdr.gain_sweep_last_ts = now;
+
+    EnterCriticalSection (&Modes.print_mutex);
+    sdr.ch_params->tunerParams.gain.gRdB = gain_sweep_values [0];
+
+    CALL_FUNC (sdrplay_api_Update, SDRPLAY_HANDLE, sdr.chosen_dev->tuner,
+               sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
+
+    LeaveCriticalSection (&Modes.print_mutex);
+
+    LOG_STDOUT ("GAIN SWEEP: starting, step 1/%d, gRdB=%d, %d sec/step\n",
+                (int)GAIN_SWEEP_NUM_VALUES, gain_sweep_values[0], sdr.gain_sweep_secs);
+  }
+  else if (sdr.decay_filter)
+  {
+    /* defensively re-assert every call in case something else (e.g. a
+     * cfg line parsed after this one) turned it back on mid-run
+     */
+    sdr.decay_filter = false;
+  }
+
+  if (now - sdr.gain_sweep_last_ts > (double)sdr.gain_sweep_secs * 1E6)
+  {
+    if (sdr.gain_sweep_index + 1 >= (int)GAIN_SWEEP_NUM_VALUES)
+    {
+      /* Last step's duration has elapsed -- one full pass is complete.
+       * Trigger the same graceful shutdown path used elsewhere, so
+       * `Decoder statistics:` prints automatically without needing to
+       * time a manual Ctrl+C.
+       */
+      LOG_STDOUT ("GAIN SWEEP: complete (%d/%d steps done), shutting down\n",
+                  (int)GAIN_SWEEP_NUM_VALUES, (int)GAIN_SWEEP_NUM_VALUES);
+      sdr.gain_sweep_secs = 0;   /* stop re-entering this block */
+      Modes.exit = true;
+    }
+    else
+    {
+      sdr.gain_sweep_index++;
+      sdr.gain_sweep_last_ts = now;
+
+      EnterCriticalSection (&Modes.print_mutex);
+
+      sdr.ch_params->tunerParams.gain.gRdB = gain_sweep_values [sdr.gain_sweep_index];
+
+      CALL_FUNC (sdrplay_api_Update, SDRPLAY_HANDLE, sdr.chosen_dev->tuner,
+                 sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
+
+      LeaveCriticalSection (&Modes.print_mutex);
+
+      LOG_STDOUT ("GAIN SWEEP: step %d/%d, gRdB=%d\n",
+                  sdr.gain_sweep_index + 1, (int)GAIN_SWEEP_NUM_VALUES,
+                  gain_sweep_values[sdr.gain_sweep_index]);
+    }
+  }
+}
+
+/**
  * Config-parser callback; <br>
  * parses "sdrplay-capture-secs" and sets `sdr.capture_secs`.
  *
  * TESTING TOOL: when > 0, captures this many seconds of raw SC16 IQ data
- * to 'capture.sc16' in the current directory, tapping the exact same
+ * to '%TEMP%\dump1090\capture.sc16' in the current directory, tapping the exact same
  * bytes handed to `rx_callback()` -- guaranteed to match what the live
  * pipeline actually processes. Triggers a clean shutdown once capture
  * completes. Replay with:
- *   dump1090 --infile capture.sc16 --informat SC16
+ *   dump1090 --infile %TEMP%\dump1090\capture.sc16 --informat SC16
  */
 bool sdrplay_set_capture_secs (const char *arg)
 {
@@ -1914,6 +1891,47 @@ bool sdrplay_set_capture_secs (const char *arg)
   }
   sdr.capture_secs = (int) secs;
   return (true);
+}
+
+/**
+ * Test function: raw IQ capture (see `sdrplay_set_capture_secs()`).
+ *
+ * Taps the *exact same* bytes just handed to `rx_callback()` above,
+ * so the captured file is guaranteed to match what the live
+ * pipeline actually sees -- no separate/approximate capture path
+ * that could subtly differ in format or timing.
+ */
+static void sdrplay_capture_func (uint32_t end)
+{
+  if (!sdr.capture_fp && !sdr.capture_fail)
+  {
+    char *capture = mg_mprintf ("%s\\capture.sc16", Modes.tmp_dir);
+
+    sdr.capture_fp = fopen (capture, "wb");
+    if (sdr.capture_fp)
+    {
+      LOG_STDOUT ("CAPTURE: writing raw SC16 IQ to '%s' for %d seconds\n", capture, sdr.capture_secs);
+      sdr.capture_start = get_usec_now();
+    }
+    else
+    {
+      LOG_STDOUT ("CAPTURE: failed to open '%s'; errno %d/%s\n", capture, errno, strerror(errno));
+      sdr.capture_fail = true;
+    }
+    FREE (capture);
+  }
+
+  if (sdr.capture_fp)
+  {
+    fwrite (sdr.rx_data + end, sizeof(SAMPLE_TYPE), MODES_RSP_BUF_SIZE, sdr.capture_fp);
+
+    if (get_usec_now() - sdr.capture_start > (double)sdr.capture_secs * 1E6)
+    {
+      sdr.capture_secs = 0;   /* stop re-entering this block */
+      LOG_STDOUT ("CAPTURE: complete, shutting down\n");
+      Modes.exit = true;
+    }
+  }
 }
 
 /**
