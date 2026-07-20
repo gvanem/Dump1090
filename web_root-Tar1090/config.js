@@ -49,7 +49,7 @@
 // actual_range_outline_dash = null; // null - solid line, [5, 5] - dashed line with 5 pixel lines and spaces in between
 
 // Enable / disable showing the actual range outline when first visiting the page
-   actual_range_show = true;
+// actual_range_show = true;
 
 // which map is displayed to new visitors
 // MapType_tar1090 = "osm";
