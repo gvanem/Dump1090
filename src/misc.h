@@ -558,6 +558,7 @@ typedef struct global_data {
         char         *logfile_initial;            /**< The initial `--logfile file` w/o the below pattern. */
         bool          logfile_daily;              /**< Create a new `logfile` at midnight; pattern always `x-<YYYY-MM-DD>.log`. */
         FILE         *log;                        /**< Open it for exclusive write access. */
+        FILE         *log_cfg;                    /**< "cfg_file.log" file specially for `cfg_file.c` stuff. */
         uint64_t      loops;                      /**< Read input file in a loop. */
         uint32_t      debug;                      /**< `DEBUG()` mode bits. */
         int           raw;                        /**< Raw output format. */

@@ -20,10 +20,18 @@
 
 /**
  * \def TRACE()
- * For development; more compact `DEBUG (DEBUG_GENERAL...)` macro.
+ * For development; prints to file specified by the
+ * `%DUMP1090_CFG_DEBUG%` env-var.
  */
 #undef  TRACE
-#define TRACE(fmt, ...)  DEBUG (DEBUG_CFG_FILE, fmt, ## __VA_ARGS__)
+#define TRACE(fmt, ...)                              \
+        do {                                         \
+          if (Modes.log_cfg)                         \
+             fprintf (Modes.log_cfg, "%s(%u): " fmt, \
+                      __FILE__, __LINE__,            \
+                      ## __VA_ARGS__);               \
+        } while (0)
+
 #define TRACE_ARG(type)  TRACE ("Doing '%s' for '%s = %s'.\n", #type, key, value)
 
 /**
@@ -141,6 +149,8 @@ bool cfg_open_and_parse (const char *fname, const cfg_table *table)
 
   ctx->table = (cfg_table*) table;
   ctx->file  = file;
+  if (g_idx == 0)
+     ctx->current_line = 1;
 
   TRACE ("g_idx: %d\n", g_idx);
   g_idx++;
@@ -203,12 +213,15 @@ static int cfg_include_file (const char *value)
   if (!ignore)
   {
     const cfg_table *table = g_ctx [g_idx-1].table;
+    const char      *old_file;
     bool  rc;
 
     table = g_ctx [0].table;
     TRACE ("new_file \"%s\", ignore: %d, g_idx: %d, table: 0x%p\n", new_file, ignore, g_idx, table);
     rc = cfg_open_and_parse (new_file, table);
-    TRACE ("finished with new_file \"%s\", g_idx: %d, rc: %d\n", new_file, g_idx, rc);
+    old_file = g_ctx [g_idx-1].current_file;
+    TRACE ("finished with new_file \"%s\", back to old_file: \"%s\", g_idx: %d, rc: %d\n",
+           new_file, old_file, g_idx, rc);
     return (rc ? 1 : 0);
   }
   return (1);
@@ -295,6 +308,12 @@ static bool cfg_parse_line (cfg_context *ctx, char **key_p, char **value_p)
       if (num == 1 || !ctx->current_val[0])
            TRACE ("%s(%u): Empty value for '%s'\n", ctx->current_file, ctx->current_line, ctx->current_key);
       else TRACE ("%s(%u): No match for key/val in '%s'\n", ctx->current_file, ctx->current_line, p);
+      if (!stricmp(ctx->current_key, "include"))
+      {
+        CFG_WARN ("Syntax error; it must be `include = file'. Not `include file'\n");
+        exit (1);
+      }
+
       ctx->current_line++;
       continue;
     }

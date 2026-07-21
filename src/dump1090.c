@@ -595,6 +595,12 @@ static void modeS_set_defaults (void)
   Modes.error_correct_2  = false;
   Modes.http_log_enable  = false;
 
+  /* Special debug for 'cfg_file.c'
+   */
+  const char *dbg = getenv ("DUMP1090_CFG_DEBUG");
+  if (dbg)
+     Modes.log_cfg = fopen (dbg, "wt");
+
   InitializeCriticalSection (&Modes.data_mutex);
   InitializeCriticalSection (&Modes.print_mutex);
 }
@@ -3916,6 +3922,7 @@ static void modeS_cleanup (void)
   speak_exit();
 
   modeS_log_exit();
+  FCLOSE (Modes.log_cfg);
 
 #if defined(_DEBUG)
   crtdbug_exit();
