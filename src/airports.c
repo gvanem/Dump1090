@@ -1667,7 +1667,7 @@ uint32_t airports_init (void)
    * to show the "DEP DST" columns.
    *
    * If we have 0 airports, it's little point showing these columns
-   * allthough the ADSB-LOL API does not need that information.
+   * although the ADSB-LOL API does not need that information.
    */
 done:
   g_data.last_rc = rc ? (g_data.ap_stats.CSV_numbers > 0 || g_data.no_db) : 0;

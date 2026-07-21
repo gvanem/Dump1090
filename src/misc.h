@@ -27,7 +27,7 @@
 #define IS_SLASH(c)        ((c) == '\\' || (c) == '/')
 #define DIM(array)         (sizeof(array) / sizeof(array[0]))
 #define NONE_STR           "<none>"   /* None or "Not applicable" */
-#define NONE_VAL           "none"     /* A 'None' .cfg-file value */
+#define NONE_VAL           "none"     /* A `None` .cfg-file value */
 #define STDIN_FILENO       0
 
 /**
@@ -394,8 +394,8 @@ typedef struct sdrplay_conf {
         int   *gains;
         int    gain_count;
         bool   diversity_mode;    /**< \todo for RSPduo, enable 2 tuners in diversity mode */
-        int    antenna_port;      /**< -1, 'A', 'B' or 'C' */
-        int    tuner;             /**< -1, 'A' or 'B' */
+        int    antenna_port;      /**< -1, `A`, `B` or `C` */
+        int    tuner;             /**< -1, `A` or `B` */
       } sdrplay_conf;
 
 /**
@@ -569,7 +569,7 @@ typedef struct global_data {
         int           interactive;                /**< Interactive mode */
         uint16_t      interactive_rows;           /**< Interactive mode: max number of rows. */
         uint32_t      interactive_ttl;            /**< Interactive mode: TTL before deletion. */
-        int           win_location;               /**< Use 'Windows Location API' to get the 'Modes.home_pos'. */
+        int           win_location;               /**< Use `Windows Location API` to get the `Modes.home_pos`. */
         int           only_addr;                  /**< Print only ICAO addresses. */
         int           metric;                     /**< Use metric units. */
         bool          error_correct_1;            /**< Fix 1 bit errors (default: true). */
@@ -590,17 +590,18 @@ typedef struct global_data {
         FILE         *http_log;                   /**< The `FILE*` the HTTP server log-file. */
         char         *aircraft_db;                /**< The `aircraft-database.csv` file. */
         char         *aircraft_db_url;            /**< Value of key `aircrafts-update = url` */
-        int           strip_level;                /**< For '--strip X' mode. */
+        int           strip_level;                /**< For `--strip X` mode. */
         pos_t         home_pos;                   /**< Coordinates of home position. */
         cartesian_t   home_pos_cart;              /**< Coordinates of home position (cartesian). */
         bool          home_pos_ok;                /**< We have a good home position. */
+        bool          home_pos_hulc;              /**< If `Modes.home_pos_ok`, are we using position from GNS-Hulc? */
         uint64_t      max_dist;                   /**< Absolute maximum decoding distance, in metres */
-        uint64_t      min_dist;                   /**< Absolute minimum distance for '--only-addr', in metres */
+        uint64_t      min_dist;                   /**< Absolute minimum distance for `--only-addr`, in metres */
         bool          wininet_HTTP2;              /**< Enable HTTP/2 for WinInet API. */
         const char   *wininet_last_error;         /**< Last error from WinInet API. */
         char         *tests;                      /**< Perform tests specified by pattern. */
         int           tui_interface;              /**< Selected `--tui` interface. */
-        bool          update;                     /**< Option `--update' was used to update missing .csv-files */
+        bool          update;                     /**< Option `--update` was used to update missing .csv-files */
         bool          cpr_trace;                  /**< Report CPR events to .log-file? default true */
         bool          console_icon;               /**< In interactive-mode, do a `SendMessage (WM_SETICON)` for our icon */
 
@@ -636,7 +637,7 @@ extern global_data Modes;
 #define MODES_ICAO_CACHE_TTL         60   /* Time to live of cached addresses (sec). */
 
 /**
- * Flags for the various `demod-*.c' functions:
+ * Flags for the various `demod-*.c` functions:
  */
 #define MODEAC_MSG_SQUELCH_LEVEL   0x07FF                 /* Average signal strength limit */
 #define MODES_MSG_SQUELCH_DB       4.0                    /* Minimum SNR, in dB */
@@ -651,7 +652,7 @@ extern global_data Modes;
 #define MAX_POWER                  (MAX_AMPLITUDE * MAX_AMPLITUDE)
 
 /**
- * When debug is set to `DEBUG_NOPREAMBLE', the first sample must be
+ * When debug is set to `DEBUG_NOPREAMBLE`, the first sample must be
  * at least greater than a given level for us to dump the signal.
  */
 #define DEBUG_NOPREAMBLE_LEVEL     25
@@ -844,7 +845,7 @@ void background_tasks (void);
 void rx_callback (uint8_t *buf, uint32_t len, void *ctx);
 
 /*
- * Functions in `misc.c'
+ * Functions in `misc.c`
  */
 bool        misc_init (void);
 const char *get_user_name (void);
@@ -891,7 +892,7 @@ bool        test_add (char **pattern, const char *what);
 bool        test_contains (const char *pattern, const char *what);
 void        puts_long_line (const char *start, size_t indent);
 void        fputs_long_line (FILE *file, const char *start, size_t indent);
-const char *mz_version (void);                 /* in 'externals/zip.c' */
+const char *mz_version (void);                 /* in `externals/zip.c` */
 void        show_version_info (bool verbose);
 const char *compiler_info (void);
 const char *__DATE__str (void);
@@ -908,7 +909,7 @@ char       *mg_hex_upper (const void *buf, size_t len, char *to);
 const char *hex_string (const void *data, size_t len);
 
 /*
- * in `pconsole.c'. Not used yet.
+ * in `pconsole.c`. Not used yet.
  */
 typedef struct pconsole_t pconsole_t;
 bool pconsole_create (pconsole_t *pty, const char *cmd_path, const char **cmd_argv);
@@ -939,7 +940,7 @@ const wchar_t *u8_format (const char *s, int min_width);
 #endif
 
 /**
- * GNU-like `getopt_long()' / `getopt_long_only()'.
+ * GNU-like `getopt_long()` / `getopt_long_only()`.
  *
  * \def no_argument
  * The option takes no argument
@@ -966,7 +967,7 @@ typedef struct option {
          */
         int  has_arg;
         int *flag;    /**< if not NULL, set *flag to val when option found. */
-        int  val;     /**< if flag not NULL, value to set `*flag to'; else return value. */
+        int  val;     /**< if flag not NULL, value to set `*flag` to; else return value. */
       } option;
 
 int getopt_long (int, char * const *, const char *, const option *, int *);
