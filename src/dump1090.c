@@ -3451,7 +3451,7 @@ static void show_help (const char *fmt, ...)
   {
     printf ("A 1090 MHz receiver, decoder and web-server for ADS-B (Automatic Dependent Surveillance - Broadcast).\n"
             "Usage: %s [options] <filter-spec>:\n"
-            "  --config <file>       Select config-file (default: `%s')\n"
+            "  --config/-c <file>    Select config-file (default: `%s')\n"
             "  --debug <flags>       A = Log the the ADSB-LOL details to log-file.\n"
             "                        c = Log frames with bad CRC.\n"
             "                        C = Log frames with good CRC.\n"
@@ -4347,7 +4347,7 @@ static bool parse_cmd_line (int argc, char **argv)
   int  c, show_ver = 0, idx = 0;
   bool rc = true;
 
-  while ((c = getopt_long (argc, argv, "+hs:?V", long_options, &idx)) != EOF)
+  while ((c = getopt_long (argc, argv, "+hc:s:?V", long_options, &idx)) != EOF)
   {
     switch (c)
     {
