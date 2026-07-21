@@ -3538,7 +3538,10 @@ static void flush_logs (uint64_t now)
 }
 
 /**
- * Poll the asynchronous result from `Location API`.
+ * Poll the asynchronous result from Window's `Location API`.
+ *
+ * And with `--device gns-hulc`, check if can replace `Modes.home_pos` with
+ * position from `gns_hulc_gps_info()`.
  */
 static void poll_location (void)
 {
@@ -3558,14 +3561,29 @@ static void poll_location (void)
        LOG_FILEONLY ("Ignoring the 'homepos' config value since we use the 'Windows Location API':"
                      " Latitude: %.8f, Longitude: %.8f.\n",
                      Modes.home_pos.lat, Modes.home_pos.lon);
-    Modes.home_pos_ok = true;
+    Modes.home_pos_ok   = true;
+    Modes.home_pos_hulc = false;
+  }
+
+  /* Do this once although it's possible our position could change at runtime (untested).
+   * The returned `pos` is the same as shown on the Title-bar in `--interactive` mode.
+   */
+  if (!Modes.home_pos_hulc &&
+      gns_hulc_gps_enabled() && gns_hulc_gps_info(&pos, NULL, NULL, NULL))
+  {
+    Modes.home_pos = pos;
+    geo_spherical_to_cartesian (NULL, &Modes.home_pos, &Modes.home_pos_cart);
+    Modes.home_pos_ok   = true;
+    Modes.home_pos_hulc = true;
+    shown_home_pos      = false;   /* print it once more below */
   }
 
   if (Modes.home_pos_ok && !shown_home_pos)
   {
-    LOG_FILEONLY ("Modes.home_pos: %.07lf %s, %.07lf %s\n",
+    LOG_FILEONLY ("Modes.home_pos: %.07lf %s, %.07lf %s, Modes.home_pos_hulc=%d\n",
                   fabs(Modes.home_pos.lon), Modes.home_pos.lon > 0.0 ? "E" : "W",
-                  fabs(Modes.home_pos.lat), Modes.home_pos.lat > 0.0 ? "N" : "S");
+                  fabs(Modes.home_pos.lat), Modes.home_pos.lat > 0.0 ? "N" : "S",
+                  Modes.home_pos_hulc);
     shown_home_pos = true;
   }
 }
