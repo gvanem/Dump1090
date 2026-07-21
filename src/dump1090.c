@@ -1044,6 +1044,11 @@ static bool modeS_init_RTLSDR (void)
     return (false);
   }
 
+  /* Select on index 0 if name/index not already specified.
+   */
+  if (!Modes.rtlsdr.name && Modes.rtlsdr.index == -1)
+      Modes.rtlsdr.index = 0;
+
   LOG_STDOUT ("Found %d device(s):\n", device_count);
   for (i = 0; i < device_count; i++)
   {
@@ -1081,6 +1086,12 @@ static bool modeS_init_RTLSDR (void)
     if (Modes.rtlsdr.name)
          LOG_STDERR ("Error opening the RTLSDR device `%s`: %s\n", Modes.rtlsdr.name, err);
     else LOG_STDERR ("Error opening the RTLSDR device `%d`: %s\n", Modes.rtlsdr.index, err);
+    return (false);
+  }
+
+  if (Modes.sample_rate == 8000000)
+  {
+    LOG_STDERR ("RTLSDR cannot use 8 MS/s sample-rate.\n");
     return (false);
   }
 
