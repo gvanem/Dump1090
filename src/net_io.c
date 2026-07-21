@@ -661,7 +661,7 @@ static int net_ev_handler_http (mg_connection *c, mg_http_message *hm, mg_http_u
     aircraft_receiver_json (rbuf, &resp_size);
 
     DEBUG (DEBUG_NET2, "Feeding conn-id %lu with receiver-data:\n%.100s\n", c->id, rbuf);
-    mg_http_reply (c, 200, MODES_CONTENT_TYPE_JSON "\r\n", rbuf);
+    mg_http_reply (c, 200, "Header: " MODES_CONTENT_TYPE_JSON "\r\n", rbuf);
     cli->HTTP_bytes_sent += resp_size;
     return (200);
   }
