@@ -9,35 +9,13 @@
 #include "sdrplay.h"
 #include "sdrplay_api.h"
 
-/* FIX: was hardcoded `(256*1024)` -- a fixed *sample* count that only
- * happens to line up with `MODES_ASYNC_BUF_SIZE` (a *byte* count used
- * elsewhere) for 1-byte-per-sample formats. Under SC16 (this fork's
- * actual live-capture format, 2+ bytes/sample), the two stop meaning the
- * same thing, silently mismatching this buffer's real size against what
- * the rest of the codebase assumes -- the same class of sample-count-vs-
- * byte-count bug already found and fixed in infile.c's `bin_read()` for
- * the file-replay path. Deriving it directly from `MODES_ASYNC_BUF_SIZE /
- * sizeof(SAMPLE_TYPE)` keeps both correct and consistent regardless of
- * sample format.
- */
-#define MODES_RSP_BUF_SIZE   (MODES_ASYNC_BUF_SIZE / sizeof(SAMPLE_TYPE))
+#define MODES_RSP_BUF_SIZE   (MODES_ASYNC_BUF_SIZE / sizeof(uint16_t))
 #define MODES_RSP_BUFFERS     16          /**< Must be power of 2 */
 
 #define RSP_MIN_GAIN_THRESH   512         /**< Increase gain if peaks below this */
 #define RSP_MAX_GAIN_THRESH  1024         /**< Decrease gain if peaks above this */
 #define RSP_ACC_SHIFT          13         /**< Sets time constant of averaging filter */
 #define MODES_RSP_INITIAL_GR   20
-#define USE_8BIT_SAMPLES        0
-
-#if USE_8BIT_SAMPLES
-  #define SAMPLE_SCALE(x)   (((x) + 32) >> 6)  /* from 14 to 8 bit */
-  #define SAMPLE_TYPE       uint8_t
-  #define SAMPLE_TYPE_STR  "uint8_t"
-#else
-  #define SAMPLE_SCALE(x)  (x)   /* pass raw signed 16-bit samples through */
-  #define SAMPLE_TYPE       uint16_t
-  #define SAMPLE_TYPE_STR  "uint16_t"
-#endif
 
 /**
  * \def CALL_FUNC()
@@ -142,7 +120,8 @@ typedef struct sdrplay_priv {
         sdrplay_api_ErrorInfoT           error_info;
       } sdrplay_priv;
 
-/* FIX: `max_sig_acc` was never explicitly seeded, leaving it at 0 from the
+/**
+ * FIX: `max_sig_acc` was never explicitly seeded, leaving it at 0 from the
  * zeroed `sdr` struct. That's an incorrect starting point for an
  * exponentially-decaying filter meant to track signal peaks -- it causes
  * an artificial ramp-down for the first several packets after stream
@@ -154,7 +133,8 @@ typedef struct sdrplay_priv {
  */
 static sdrplay_priv sdr = { .max_sig_acc = (RSP_MIN_GAIN_THRESH << RSP_ACC_SHIFT) };
 
-/* TESTING TOOL: fixed gRdB (0-59, direct -- NOT the tenths-of-dB `gain`
+/**
+ * TESTING: fixed gRdB (0-59, direct -- NOT the tenths-of-dB `gain`
  * cfg convention) values cycled through by `sdrplay-gain-sweep-secs`.
  * Edit this array directly if you want different/finer test points.
  */
@@ -555,13 +535,13 @@ static void sdrplay_callback_A (short                       *xi,
                                 unsigned int                 reset,
                                 void                        *cb_context)
 {
-  int          i, count1, count2;
-  int          sig_I, sig_Q, max_sig;
-  bool         new_buf_flag;
-  uint32_t     end, input_index;
-  uint32_t     rx_data_idx = sdr.rx_data_idx;
-  int          max_sig_acc = sdr.max_sig_acc;
-  SAMPLE_TYPE *dptr = (SAMPLE_TYPE*) sdr.rx_data;
+  int       i, count1, count2;
+  int       sig_I, sig_Q, max_sig;
+  bool      new_buf_flag;
+  uint32_t  end, input_index;
+  uint32_t  rx_data_idx = sdr.rx_data_idx;
+  int       max_sig_acc = sdr.max_sig_acc;
+  uint16_t *dptr = (uint16_t*) sdr.rx_data;
 
   /**
    * `count1` is lesser of input samples and samples to end of buffer.
@@ -574,11 +554,13 @@ static void sdrplay_callback_A (short                       *xi,
 
   count1 = (num_samples << 1) - count2;   /* count1 is samples fitting before the end of buf */
 
-  /* Flag is set if this packet takes us past a multiple of MODES_RSP_BUF_SIZE
+  /**
+   * Flag is set if this packet takes us past a multiple of MODES_RSP_BUF_SIZE
    */
   new_buf_flag = ((rx_data_idx & (MODES_RSP_BUF_SIZE-1)) < (end & (MODES_RSP_BUF_SIZE-1))) ? false : true;
 
-  /* Now interleave data from I/Q into circular buffer, and note max I value.
+  /**
+   * Now interleave data from I/Q into circular buffer, and note max I value.
    *
    * FIX: max_sig is now accumulated across BOTH count1 and count2 before
    * the decay filter / gain decision runs below. Previously the decision
@@ -601,10 +583,10 @@ static void sdrplay_callback_A (short                       *xi,
   for (i = (count1 >> 1) - 1; i >= 0; i--)
   {
     sig_I = xi [input_index];
-    dptr [rx_data_idx++] = SAMPLE_SCALE (sig_I);
+    dptr [rx_data_idx++] = sig_I;
 
     sig_Q = xq [input_index++];
-    dptr [rx_data_idx++] = SAMPLE_SCALE (sig_Q);
+    dptr [rx_data_idx++] = sig_Q;
 
     if (sig_I > max_sig)
        max_sig = sig_I;
@@ -635,10 +617,10 @@ static void sdrplay_callback_A (short                       *xi,
     for (i = (count2 >> 1) - 1; i >= 0; i--)
     {
       sig_I = xi [input_index];
-      dptr [rx_data_idx++] = SAMPLE_SCALE (sig_I);
+      dptr [rx_data_idx++] = sig_I;
 
       sig_Q = xq [input_index++];
-      dptr [rx_data_idx++] = SAMPLE_SCALE (sig_Q);
+      dptr [rx_data_idx++] = sig_Q;
 
       if (sig_I > max_sig)
          max_sig = sig_I;
@@ -647,18 +629,8 @@ static void sdrplay_callback_A (short                       *xi,
     /* Apply slowly decaying filter to max signal value. Runs every call,
      * same as before -- just now sees the complete max_sig (count1 +
      * count2) rather than count1 alone.
-     *
-     * FIX: this #if/#else/abs() branch was accidentally collapsed to just
-     * the USE_8BIT_SAMPLES arm during an earlier pass at this
-     * restructuring, even on a USE_8BIT_SAMPLES==0 (SC16) build --
-     * `max_sig -= 127` is meaningless for signed 16-bit samples and,
-     * unlike abs(), does nothing to correct a negative peak. Restored.
      */
-#if USE_8BIT_SAMPLES
-    max_sig -= 127;
-#else
     max_sig = abs (max_sig);
-#endif
 
     max_sig_acc += max_sig;
     max_sig = max_sig_acc >> RSP_ACC_SHIFT;
@@ -711,9 +683,9 @@ static void sdrplay_callback_A (short                       *xi,
     end &= ~(MODES_RSP_BUF_SIZE - 1);
 
     sdr.rx_num_callbacks++;
-    (*sdr.rx_callback) ((uint8_t*)sdr.rx_data + end * sizeof(SAMPLE_TYPE),
-        MODES_RSP_BUF_SIZE * sizeof(SAMPLE_TYPE),
-        sdr.rx_context);
+    (*sdr.rx_callback) ((uint8_t*)sdr.rx_data + end * sizeof(uint16_t),
+                        MODES_RSP_BUF_SIZE * sizeof(uint16_t),
+                        sdr.rx_context);
 
     if (sdr.capture_secs > 0)
        sdrplay_capture_func (end);
@@ -873,18 +845,13 @@ static int sdrplay_init_async (sdrplay_dev *device,
   Modes.measure_noise = false;
   Modes.DC_filter     = false;
 
-#if USE_8BIT_SAMPLES
-  Modes.input_format     = INPUT_UC8;   /* Unsigned, Complex, 8 bit per sample. Always */
-  Modes.bytes_per_sample = 2;
-#else
   Modes.input_format     = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always */
   Modes.bytes_per_sample = 4;
-#endif
 
-  TRACE ("Reinit for USE_8BIT_SAMPLES == %d, using %s\n",
-         USE_8BIT_SAMPLES, convert_format_name(Modes.input_format));
+  TRACE ("Reinit for %s\n", convert_format_name(Modes.input_format));
 
-  /* `Modes.converter_state` is already allocated by the first
+  /**
+   * `Modes.converter_state` is already allocated by the first
    * `convert_init()` call in `modeS_init_hardware()`. Hence free
    * this state first.
    */
@@ -916,7 +883,8 @@ static int sdrplay_init_async (sdrplay_dev *device,
   sdr.rx_callback           = callback;
   sdr.rx_context            = context;
 
-  /* FIX: the disabled `#if 0` branch here is the CORRECT configuration.
+  /**
+   * FIX: the disabled `#if 0` branch here is the CORRECT configuration.
    * Empirically confirmed: with the API's IQ-balance correction enabled
    * (the #else branch below), Q amplitude collapsed to 5-8x smaller than
    * I within a few seconds of stream start, badly distorting the
@@ -934,7 +902,8 @@ static int sdrplay_init_async (sdrplay_dev *device,
   sdr.ch_params->ctrlParams.dcOffset.DCenable = 0;
 #endif
 
-  /* FIX: `sdrplay_api_EXTENDED_MIN_GR` (0-59dB manual gain range) and the
+  /**
+   * FIX: `sdrplay_api_EXTENDED_MIN_GR` (0-59dB manual gain range) and the
    * API's own hardware AGC are documented as mutually exclusive: per the
    * SDRplay API spec, "the extended range cannot be used by the internal
    * AGC algorithm and will be disabled when enabling the AGC." Requesting
@@ -953,7 +922,8 @@ static int sdrplay_init_async (sdrplay_dev *device,
   sdr.ch_params->ctrlParams.agc.setPoint_dBfs = -60;   /* FIX: was -45; -60 is the API spec's documented default */
   sdr.ch_params->tunerParams.gain.gRdB = sdr.gain_reduction;
 
-  /* FEATURE: was hardcoded to 0 (max sensitivity / min attenuation) with
+  /**
+   * FEATURE: was hardcoded to 0 (max sensitivity / min attenuation) with
    * no way to change it. Now configurable via `sdrplay-lna-state` in
    * dump1090.cfg -- see sdrplay_set_lna_state() below. Empirically, this
    * setting has a much larger effect on decode quality than baseband gain
@@ -964,7 +934,8 @@ static int sdrplay_init_async (sdrplay_dev *device,
   sdr.ch_params->tunerParams.gain.LNAstate = sdr.lna_state;
   sdr.ch_params->tunerParams.rfFreq.rfHz   = Modes.freq;
 
-  /* FIX: `tunerParams.bwType` (tuner IF filter bandwidth) was never set
+  /**
+   * FIX: `tunerParams.bwType` (tuner IF filter bandwidth) was never set
    * anywhere -- a completely dead/unwired setting, left at whatever the
    * SDRplay API defaults to internally. Checked against a known-good
    * SDRuno reference configuration on the same hardware: SDRuno explicitly
@@ -1057,10 +1028,9 @@ static int sdrplay_init_async (sdrplay_dev *device,
          tuner, sdr.dev_params->devParams->fsFreq.fsHz / 1E6,
          sdrplay_adsb_mode(sdr.ch_params->ctrlParams.adsbMode));
 
-  TRACE ("decimation-enable: %d, decimation-factor: %d, SAMPLE_TYPE: %s\n",
+  TRACE ("decimation-enable: %d, decimation-factor: %d, SAMPLE_TYPE: uint16_t\n",
          sdr.ch_params->ctrlParams.decimation.enable,
-         sdr.ch_params->ctrlParams.decimation.decimationFactor,
-         SAMPLE_TYPE_STR);
+         sdr.ch_params->ctrlParams.decimation.decimationFactor);
 
   CALL_FUNC (sdrplay_api_Init, SDRPLAY_HANDLE, &sdr.callbacks, NULL);
   if (sdr.last_rc != sdrplay_api_Success)
@@ -1398,7 +1368,8 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   sdr.cancelling = false;
   sdr.API_locked = false;
 
-  /* FIX: `gain = X` in dump1090.cfg (parsed into `Modes.gain`, tenths of a
+  /**
+   * FIX: `gain = X` in dump1090.cfg (parsed into `Modes.gain`, tenths of a
    * dB, RTLSDR-style) previously had NO effect on SDRplay at all: nothing
    * in the codebase ever called `sdrplay_set_gain()`, so the device was
    * always stuck at the hardcoded `MODES_RSP_INITIAL_GR` default
@@ -1431,7 +1402,7 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   Modes.sdrplay.BW_mode     = 1;            /* 5 MHz */
   Modes.sdrplay.over_sample = true;
 
-  sdr.rx_data = malloc (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS * sizeof(SAMPLE_TYPE));
+  sdr.rx_data = malloc (MODES_RSP_BUF_SIZE * MODES_RSP_BUFFERS * sizeof(uint16_t));
   if (!sdr.rx_data)
      goto nomem;
 
@@ -1767,7 +1738,7 @@ bool sdrplay_set_decay_filter (const char *arg)
  * Config-parser callback; <br>
  * parses "sdrplay-gain-sweep-secs" and sets `sdr.gain_sweep_secs`.
  *
- * TESTING TOOL: when > 0, automatically cycles `gRdB` through
+ * TESTING: when > 0, automatically cycles `gRdB` through
  * `gain_sweep_values[]` (hardcoded above), spending this many seconds at
  * each value, then triggering a clean shutdown once the full set has been
  * covered (so `Decoder statistics:` prints automatically -- no loop, no
@@ -1872,7 +1843,7 @@ static void sdrplay_sweep_func (void)
  * Config-parser callback; <br>
  * parses "sdrplay-capture-secs" and sets `sdr.capture_secs`.
  *
- * TESTING TOOL: when > 0, captures this many seconds of raw SC16 IQ data
+ * TESTING: when > 0, captures this many seconds of raw SC16 IQ data
  * to '%TEMP%\dump1090\capture.sc16' in the current directory, tapping the exact same
  * bytes handed to `rx_callback()` -- guaranteed to match what the live
  * pipeline actually processes. Triggers a clean shutdown once capture
@@ -1923,7 +1894,7 @@ static void sdrplay_capture_func (uint32_t end)
 
   if (sdr.capture_fp)
   {
-    fwrite (sdr.rx_data + end, sizeof(SAMPLE_TYPE), MODES_RSP_BUF_SIZE, sdr.capture_fp);
+    fwrite (sdr.rx_data + end, sizeof(uint16_t), MODES_RSP_BUF_SIZE, sdr.capture_fp);
 
     if (get_usec_now() - sdr.capture_start > (double)sdr.capture_secs * 1E6)
     {
