@@ -242,16 +242,10 @@ bool COM_poll_events (void)
   }
 
   ev_str = flags_decode (events, com_events, DIM(com_events));
-
+  DEBUG1 ("WaitCommEvent(): %s, %.0f usec\n", ev_str, get_usec_now() - start);
   if (events & EV_ERR)
-  {
-    DEBUG1 ("WaitCommEvent(): %s, %.0f usec\n", ev_str, get_usec_now() - start);
-    COM_poll_error();
-  }
-  else
-  {
-    DEBUG1 ("WaitCommEvent(): %s, %.0f usec\n", ev_str, get_usec_now() - start);
-  }
+     COM_poll_error();
+
   return (events & EV_RXCHAR);
 }
 

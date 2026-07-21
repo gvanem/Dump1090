@@ -56,6 +56,7 @@
 /**
  * \def WHICH_THREAD()
  * Which thread are we currently executing in?
+ * Not used.
  */
 #define WHICH_THREAD()  (GetCurrentThreadId() == Modes.reader_thread_id ? \
                          "data_thread_fn" : "main")
@@ -157,9 +158,9 @@ typedef enum msg_types {
  * This gets parsed in `decode_msg_48()`; the HULC Status message.
  */
 typedef struct GPS_status {
-        bool   have_fix;
-        bool   detected;
-        bool   enable;
+        bool   have_fix;    /**< Have we got a good GPS fix? Needs >= 20 satelittes */
+        bool   detected;    /**< true if `decode_msg_48()` flags reported so */
+        bool   enable;      /**< true if config "hulc-gps-enable = yes" */
 
        /**
         * HDOP; Horizontal Dilution of Precision.
@@ -167,9 +168,9 @@ typedef struct GPS_status {
         * \ref https://en.wikipedia.org/wiki/Dilution_of_precision
         */
         double   HDOP;
-        int      satellites;
-        int      altitude;
-        pos_t    pos;
+        int      satellites;  /**< Number of satellites reported in `decode_msg_48()` */
+        int      altitude;    /**< Our altitude reported in `decode_msg_48()` */
+        pos_t    pos;         /**< Our position reported in `decode_msg_48()` */
       } GPS_status;
 
 /**
@@ -226,7 +227,6 @@ typedef struct RX_packet {
         double            usec;              /**< The micro-sec timestamp at `pkt_enqueue()` */
         struct RX_packet *next;              /**< The next packet when added to `g_data.pkt_list` */
       } RX_packet;
-
 
 /**
  * \typedef struct GNS_priv

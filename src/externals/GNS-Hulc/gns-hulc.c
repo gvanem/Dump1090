@@ -9,7 +9,6 @@
  * of a packet MUST be converted to a single 0x1A; i.e. unstuffing.
  *
  * All this resembles \ref HDLC or \ref SLIP
- *
  * where a SOP is the frame delimiter.
  *
  * But unlike HDLC, this GNS-HULC protocol does *NOT* end with a frame delimiter
@@ -1034,7 +1033,7 @@ static bool get_COM_data (int *idx_max)
   {
     *idx_max = g_data.old_idx + min (g_data.sio_len, sizeof(g_data.pkt_current.msg));
 
-    if (1 && (Modes.debug & DEBUG_GNS_HULC2))
+    if (Modes.debug & DEBUG_GNS_HULC2)
        debug_idx ("old data", *idx_max);
     return (true);
   }
@@ -1083,7 +1082,7 @@ static bool get_COM_data (int *idx_max)
      g_data.COM.dead_count = 0;
 
   *idx_max = min (g_data.sio_len, sizeof(g_data.pkt_current.msg));
-  if (1 && (Modes.debug & DEBUG_GNS_HULC2))
+  if (Modes.debug & DEBUG_GNS_HULC2)
      debug_idx ("fresh data", *idx_max);
 
   return (true);
