@@ -308,7 +308,7 @@ RTLSDR_API int rtlsdr_set_tuner_gain_index (rtlsdr_dev_t *dev, unsigned int inde
  * \param apply_bw: 1 to really apply configure the tuner chip; 0 for just returning applied_bw
  * \return 0 on success
  */
-RTLSDR_API int rtlsdr_set_and_get_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t bw, uint32_t *applied_bw, int apply_bw );
+RTLSDR_API int rtlsdr_set_and_get_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t bw, uint32_t *applied_bw, int apply_bw);
 
 /*!
  * Set the bandwidth for the device.
@@ -317,7 +317,7 @@ RTLSDR_API int rtlsdr_set_and_get_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t b
  * \param bw bandwidth in Hz. Zero means automatic BW selection.
  * \return 0 on success
  */
-RTLSDR_API int rtlsdr_set_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t bw );
+RTLSDR_API int rtlsdr_set_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t bw);
 
 /*!
  * Set the mixer sideband for the device.
