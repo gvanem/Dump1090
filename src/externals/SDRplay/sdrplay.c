@@ -1911,12 +1911,15 @@ static void sdrplay_capture_func (uint32_t end)
  *
  * Controls `tunerParams.gain.LNAstate` -- the RF front-end gain state,
  * previously hardcoded to `0` (max sensitivity / min attenuation) with
- * no way to change it. Valid range is device/antenna-port/frequency-band
- * dependent (e.g. RSP2 on ports A/B: 0-8, fewer states on Hi-Z or other
+ * no way to change it. Valid range is device / antenna-port / frequency-band
+ * dependent (e.g. RSP2 on ports A/B: 0 - 8, fewer states on Hi-Z or other
  * models). Only a generous sanity bound is checked here; the SDRplay API
  * itself will reject a genuinely out-of-range value at
  * `sdrplay_api_Update()`/`sdrplay_api_Init()` time, the same way an
  * invalid `gRdB` already does.
+ *
+ * \ref "5 Gain Reduction Tables" in `SDRplay_API_Specification_v3.14.pdf` for
+ * details on `tunerParams.gain.LNAstate`.
  */
 bool sdrplay_set_lna_state (const char *arg)
 {
