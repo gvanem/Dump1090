@@ -313,11 +313,6 @@ bool gns_hulc_gps_enabled (void)
   return (g_data.GPS.detected && g_data.GPS.enable && g_data.GPS.have_fix);
 }
 
-void gns_hulc_tests (void)
-{
-  LOG_STDERR ("%s() does nothing yet\n", __FUNCTION__);
-}
-
 /**
  * Set all defaults once
  */
@@ -451,6 +446,7 @@ static void decode_common (const uint8_t *msg, int valid_bits, const char *func)
   double              sig_level;
   int                 DF, score, rc;
   bool                DF_handled;
+  uint64_t            now;
   modeS_message       mm;
 
   /* The DFs we handle:
@@ -489,8 +485,9 @@ static void decode_common (const uint8_t *msg, int valid_bits, const char *func)
     return;
   }
 
+  now = MSEC_TIME();
   mm.timestamp_msg     = timestamp;
-  mm.sys_timestamp_msg = g_data.GPS.detected ? timestamp : MSEC_TIME();
+  mm.sys_timestamp_msg = g_data.GPS.detected ? timestamp : now;
 
   rc = decode_mode_S_message (&mm, msg);
   if (rc == 0)
@@ -503,6 +500,7 @@ static void decode_common (const uint8_t *msg, int valid_bits, const char *func)
     {
       a->sig_levels [a->sig_idx++] = sig_level;
       a->sig_idx &= DIM(a->sig_levels) - 1;
+      a->seen_last = now;
     }
   }
   else

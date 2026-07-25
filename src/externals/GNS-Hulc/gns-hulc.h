@@ -17,7 +17,6 @@
 HANDLE   gns_hulc_init (uint16_t port);
 void     gns_hulc_exit (HANDLE hnd);
 void     gns_hulc_stats (void);
-void     gns_hulc_tests (void);
 bool     gns_hulc_set_beast (const char *arg);
 bool     gns_hulc_set_port (const char *arg);
 bool     gns_hulc_gps_enable (const char *arg);
