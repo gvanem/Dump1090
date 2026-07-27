@@ -103,7 +103,6 @@ static void text_handler (enum mg_event ev, const mg_ws_message *ws)
  */
 static void ws_handler (enum mg_event ev, const mg_ws_message *ws)
 {
-  char ev_buf [200] = "";
   bool is_text   = ((ws->flags & 15) == WEBSOCKET_OP_TEXT);
   bool is_binary = ((ws->flags & 15) == WEBSOCKET_OP_BINARY) && (ws->data.len > 2);
 
