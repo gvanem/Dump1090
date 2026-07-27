@@ -49,7 +49,8 @@
 #define MODES_NET_SERVICE_HTTP6     5
 #define MODES_NET_SERVICE_RTL_TCP   6
 #define MODES_NET_SERVICE_DNS       7
-#define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_DNS + 1)
+#define MODES_NET_SERVICE_WEBSOCK   8
+#define MODES_NET_SERVICES_NUM     (MODES_NET_SERVICE_WEBSOCK + 1)
 
 #define MODES_NET_SERVICE_FIRST     0
 #define MODES_NET_SERVICE_LAST     (MODES_NET_SERVICES_NUM - 1)
@@ -91,6 +92,7 @@
 #define DEBUG_RAW_SBS2   0x10000
 #define DEBUG_GNS_HULC   0x20000
 #define DEBUG_GNS_HULC2  0x40000
+#define DEBUG_WEBSOCKET  0x80000
 
 /**
  * \def DEBUG(bit, fmt, ...)
@@ -202,7 +204,7 @@ typedef struct connection {
 typedef struct net_service {
         mg_connection  **c;                /**< A pointer to the returned Mongoose connection(s) */
         char             descr [100];      /**< A textual description of this service */
-        char             protocol [4];     /**< Or scheme; equals "tcp" or "http" unless `is_udp == 1` */
+        char             protocol [4];     /**< Or scheme; equals "tcp", "http" or "ws" unless `is_udp == 1` */
         uint16_t         port;             /**< The port number */
         mg_host_name     host;             /**< The host name/address if `Modes.net_active == true` */
         uint32_t         num_connections;  /**< Number of clients/servers connected to this service */
@@ -210,6 +212,7 @@ typedef struct net_service {
         bool             active_send;      /**< We are the sending side. Never duplex */
         bool             is_ip6;           /**< The above `host` address is an IPv6 address */
         bool             is_udp;           /**< The above `host` address was prefixed with `udp://` */
+        bool             is_ws;            /**< The above `host` address was prefixed with `ws://` */
         char            *url;              /**< The allocated url for `mg_listen()` or `mg_connect()` */
         char            *last_err;         /**< Last error from a `MG_EV_ERROR` event */
         DWORD            last_wsa_err;     /**< Last WSA-error from `net_error_details()` */
@@ -263,16 +266,17 @@ typedef struct statistics {
         uint64_t        FIFO_full;
         uint64_t        samples_processed;
         uint64_t        samples_dropped;
-        uint64_t        samples_recv_rtltcp;  /**< Samples from RTL_TCP. Equals `samples_processed` if nothing dropped by FIFO */
-        uint64_t        cmd_sent_rtltcp;      /**< Commands sent to RTL_TCP */
+        uint64_t        samples_recv_sdrconnect; /**< Samples from SDRConnect.*/
+        uint64_t        samples_recv_rtltcp;     /**< Samples from RTL_TCP. Equals `samples_processed` if nothing dropped by FIFO */
+        uint64_t        cmd_sent_rtltcp;         /**< Commands sent to RTL_TCP */
         uint64_t        valid_preamble;
         uint64_t        demod_modeac;
-        uint64_t        demod_accepted [3];   /**< MODES_MAX_BITERRORS+1 */
+        uint64_t        demod_accepted [3];      /**< MODES_MAX_BITERRORS+1 */
         uint64_t        demodulated;
         uint64_t        demod_rejected_unknown;
-        uint64_t        CRC_good;             /**< good message; no CRC fixed */
-        uint64_t        CRC_bad;              /**< unfixable message */
-        uint64_t        CRC_fixed;            /**< 1 or 2 bit error fixed */
+        uint64_t        CRC_good;                /**< good message; no CRC fixed */
+        uint64_t        CRC_bad;                 /**< unfixable message */
+        uint64_t        CRC_fixed;               /**< 1 or 2 bit error fixed */
         uint64_t        CRC_single_bit_fix;
         uint64_t        CRC_two_bits_fix;
         uint64_t        out_of_phase;
@@ -358,14 +362,15 @@ typedef struct statistics {
  * Not used for a RTL_TCP connection.
  */
 typedef struct rtlsdr_conf {
-        char  *name;              /**< The manufacturer name of the RTLSDR device to use. As in e.g. `"--device silver"` */
-        int    index;             /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"` */
-        void  *device;            /**< The RTLSDR handle from `rtlsdr_open()` */
-        int    ppm_error;         /**< Set RTLSDR frequency correction (negative or positive) */
-        bool   calibrate;         /**< Enable calibration for R820T/R828D type devices */
-        int   *gains;             /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
-        int    gain_count;        /**< Number of gain values in above array */
-        bool   power_cycle;       /**< \todo power down and up again before calling any RTLSDR API function */
+        char    *name;            /**< The manufacturer name of the RTLSDR device to use. As in e.g. `"--device silver"` */
+        int      index;           /**< The index of the RTLSDR device to use. As in e.g. `"--device 1"` */
+        void    *device;          /**< The RTLSDR handle from `rtlsdr_open()` */
+        int      ppm_error;       /**< Set RTLSDR frequency correction (negative or positive) */
+        bool     calibrate;       /**< Enable calibration for R820T/R828D type devices */
+        int     *gains;           /**< Gain table reported from `rtlsdr_get_tuner_gains()` */
+        int      gain_count;      /**< Number of gain values in above array */
+        uint32_t band_width;      /**< The wanted bandwidth. Default is 0. */
+        bool     power_cycle;     /**< \todo power down and up again before calling any RTLSDR API function */
       } rtlsdr_conf;
 
 /**
@@ -418,6 +423,13 @@ typedef struct gns_hulc_conf {
         HANDLE    handle;    /**< COM-port handle from `gns_hulc_init()` */
         uint32_t  poll_ms;   /**< Max-poll time for `gns_hulc_poll()` */
       } gns_hulc_conf;
+
+/**
+ * The device configuration for a SDRConnect host.
+ */
+typedef struct sdrconnect_conf {
+        char     *name;      /**< Name for SDRConnect host */
+      } sdrconnect_conf;
 
 #if defined(USE_BIN_FILES)
   /**
@@ -508,7 +520,6 @@ typedef struct global_data {
         int                 dig_agc;                  /**< Enable digital AGC. */
         int                 bias_tee;                 /**< Enable bias-T voltage on coax input. */
         int                 gain_auto;                /**< Use auto-gain. */
-        uint32_t            band_width;               /**< The wanted bandwidth. Default is 0. */
         uint16_t            gain;                     /**< The gain setting for the active device (local or remote). Default is MODES_AUTO_GAIN. */
         uint32_t            freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
         uint64_t            sample_counter;           /**< Accumulated count of samples */
@@ -525,6 +536,7 @@ typedef struct global_data {
         rtlsdr_conf         rtlsdr;                   /**< RTLSDR local specific settings. */
         rtltcp_conf         rtltcp;                   /**< RTLSDR remote specific settings. */
         sdrplay_conf        sdrplay;                  /**< SDRplay specific settings. */
+        sdrconnect_conf     sdrconnect;               /**< SDRconnect specific settings. */
         airspy_conf         airspy;                   /**< AirSpy specific settings. */
         gns_hulc_conf       gns_hulc;                 /**< GNS-HULC specific settings. */
 
@@ -543,6 +555,7 @@ typedef struct global_data {
         mg_connection *http6_out;                   /**< HTTP listening connection. IPv6 */
         mg_connection *rtl_tcp_in;                  /**< RTL_TCP active connection. IPv4 only */
         mg_connection *dns_in;                      /**< DNS active connection. IPv4 only */
+        mg_connection *websock_in;                  /**< WebSocket active connection. */
         mg_mgr         mgr;                         /**< Only one Mongoose connection manager */
         char          *dns4;                        /**< Use default Windows DNSv4 server (not 8.8.8.8) */
         char          *dns6;                        /**< Or a IPv6 server */

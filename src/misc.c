@@ -1648,9 +1648,6 @@ static const char *build_features (void)
   #if defined(USE_PACKED_DLL)
     "Packed-Web",
   #endif
-  #if defined(USE_SDRCONNECT)
-    "SDRConnect",
-  #endif
     NULL
   };
   const char *f;

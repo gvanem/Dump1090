@@ -30,6 +30,7 @@
 #include "AirSpy/airspy.h"
 #include "GNS-Hulc/gns-hulc.h"
 #include "SDRplay/sdrplay.h"
+#include "SDRconnect/sdrconnect.h"
 #include "raw-sbs.h"
 #include "speech.h"
 #include "location.h"
@@ -171,7 +172,7 @@ static const cfg_table config[] = {
     { "airports-url",         ARG_FUNC,    (void*) airports_set_url },
     { "aircrafts",            ARG_FUNC,    (void*) aircraft_set_csv },
     { "aircrafts-url",        ARG_FUNC,    (void*) aircraft_set_url },
-    { "bandwidth",            ARG_FUNC,    (void*) set_bandwidth },
+    { "rtlsdr-bandwidth",     ARG_FUNC,    (void*) set_bandwidth },
     { "fifo-bufs",            ARG_ATO_U32, (void*) &Modes.FIFO_bufs },
     { "fifo-acquire",         ARG_ATO_U32, (void*) &Modes.FIFO_acquire_ms },
     { "fifo-dequeue",         ARG_ATO_U32, (void*) &Modes.FIFO_dequeue_ms },
@@ -762,6 +763,13 @@ static bool modeS_init_hardware (void)
     Modes.input_format = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always? */
     Modes.bytes_per_sample = 4;
   }
+  else if (Modes.sdrconnect.name)
+  {
+    /* A SDRConnect server
+     */
+    Modes.input_format = INPUT_SC16;  /* Signed, Complex, 16 bit per sample. Always? */
+    Modes.bytes_per_sample = 4;
+  }
 
   unsigned mag_buf_samples = MODES_ASYNC_BUF_SIZE / Modes.bytes_per_sample;
 
@@ -1010,9 +1018,6 @@ static bool modeS_init (void)
   if (test_contains (Modes.tests, "me"))
      test_print_unrecognized_ME();
 
-  if (test_contains (Modes.tests, "hulc") || test_contains (Modes.tests, "gns"))
-     gns_hulc_tests();
-
   if (!rc)
      return (false);
 
@@ -1137,17 +1142,17 @@ static bool modeS_init_RTLSDR (void)
     return (false);
   }
 
-  if (Modes.band_width > 0)
+  if (Modes.rtlsdr.band_width > 0)
   {
     uint32_t applied_bw = 0;
 
     rc = rtlsdr_set_and_get_tuner_bandwidth (Modes.rtlsdr.device, 0, &applied_bw, 0);
     if (rc == 0)
-         LOG_STDOUT ("Bandwidth reported by device: %.3f MHz.\n", applied_bw/1E6);
+         LOG_STDOUT ("Bandwidth reported by device: %.3f MHz.\n", applied_bw / 1E6);
     else LOG_STDOUT ("Bandwidth reported by device: <unknown>.\n");
 
-    LOG_STDOUT ("Setting Bandwidth to: %.3f MHz.\n", Modes.band_width/1E6);
-    rc = rtlsdr_set_tuner_bandwidth (Modes.rtlsdr.device, Modes.band_width);
+    LOG_STDOUT ("Setting Bandwidth to: %.3f MHz.\n", Modes.rtlsdr.band_width / 1E6);
+    rc = rtlsdr_set_tuner_bandwidth (Modes.rtlsdr.device, Modes.rtlsdr.band_width);
     if (rc != 0)
     {
       LOG_STDERR ("Error setting bandwidth: %d.\n", rc);
@@ -1223,9 +1228,7 @@ static mag_buf *rx_callback_to_fifo (uint32_t in_len, unsigned *to_convert)
 
 /**
  * This RX-data callback gets data from the local RTLSDR, a remote RTLSDR
- * device or a local SDRplay / AirSpy device asynchronously.
- *
- * Also with `-DUSE_SDRCONNECT`.
+ * device, a SDRConnect server or a local SDRplay / AirSpy device asynchronously.
  *
  * We then allocate a FIFO-buffer, call the "IQ to magnitude" converter function and
  * depending on sample-rate call the correct `Modes.demod_func` function.
@@ -1335,13 +1338,14 @@ static DWORD WINAPI data_thread_fn (void *arg)
     gns_hulc_read_loop();
     modeS_signal_handler (0);    /* break out of main_data_loop() */
   }
-  else if (Modes.rtl_tcp_in || Modes.raw_in)
+  else if (Modes.rtl_tcp_in || Modes.raw_in || Modes.websock_in)
   {
     while (!Modes.exit)
     {
      /* Not much to do here. For RTL_TCP, enqueueing to the FIFO is
       * done in `rx_callback()` via `rtl_tcp_recv_data()` in net_io.c.
       * For RAW_IN, everything runs out of `background_tasks()`.
+      * Similar for WebSocket IQ-data.
       */
       Sleep (100);
     }
@@ -3477,6 +3481,7 @@ static void show_help (const char *fmt, ...)
             "                        P = Log a single plane at a time with details (ref `LOG_FOLLOW()`).\n"
             "                        r = Log RAW-IN / SBS-IN details.\n"
             "                        R = Log more RAW-IN / SBS-IN details.\n"
+            "                        w = Log WebSocket debug for SDRConnect.\n"
             "  --device <N / name>   Select RTLSDR/SDRPlay device (default: 0; first found).\n"
             "                        e.g. `--device 1'               - select on RTLSDR index.\n"
             "                             `--device RTL2838-silver'  - select on RTLSDR name.\n"
@@ -3485,6 +3490,7 @@ static void show_help (const char *fmt, ...)
             "                             `--device sdrplayRSP1A'    - select on SDRPlay name.\n"
             "                             `--device tcp://host:port' - select remote RTLSDR tcp service (default port=%u).\n"
             "                             `--device udp://host:port' - select remote RTLSDR udp service (default port=%u).\n"
+            "                             `--device ws://host:port'  - select remote SDRConnect service (default port=%u).\n"
             "                             `--device gns-hulc<N>'     - select serial-port HULC smart antenna (default N=%d for COM%d).\n"
             "  --infile <filename>   Read data from file (use `-' for stdin).\n"
             "  --informat <format>   Format for `--infile`; `UC8`, `SC16` or `SC16Q11` (default: `UC8`)\n"
@@ -3498,11 +3504,11 @@ static void show_help (const char *fmt, ...)
             "  --samplerate/-s <S/s> Sample-rate (2M, 2.4M, 8M). Overrides setting in config-file.\n"
             "  --strip <level>       Output the missing I/Q parts that are below the specified level.\n"
             "  --test <test-spec>    A comma-list of tests to perform (`airport', `aircraft', `console', `cpr',\n"
-            "                        `locale', `misc`, `me`, `net' or `*')\n"
+            "                        `locale', `misc', `me`, `net' or `*')\n"
             "  --update              Update missing or old \"*.csv\" files and exit.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
-            Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP,
+            Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_WEBSOCK,
             GNS_HULC_DEFAULT_COMPORT, GNS_HULC_DEFAULT_COMPORT);
 
     printf ("  Shows only matching ICAO-addresses;     `dump1090.exe --only-addr 4A*`.\n"
@@ -3682,8 +3688,10 @@ void modeS_signal_handler (int sig)
   }
   else if (sig == 0)
   {
-    TRACE ("Breaking 'main_data_loop()'%s, shutting down ...\n",
-           aircraft_internal_error() ? " due to `aircraft.c` internal error" : "");
+    if (Modes.rtl_tcp_in)
+         LOG_STDOUT ("RTL_TCP error: %lu\n", modeS_net_services[MODES_NET_SERVICE_RTL_TCP].last_wsa_err);
+    else TRACE ("Breaking 'main_data_loop()'%s, shutting down ...\n",
+                aircraft_internal_error() ? " due to `aircraft.c` internal error" : "");
   }
 
   if (Modes.rtlsdr.device)
@@ -3814,7 +3822,7 @@ static void show_decoder_stats (void)
  */
 static void show_statistics (void)
 {
-  if (PHYS_DEVICE() || Modes.rtl_tcp_in)
+  if (PHYS_DEVICE() || Modes.rtl_tcp_in || Modes.websock_in)
   {
     show_decoder_stats();
     gns_hulc_stats();
@@ -3863,6 +3871,11 @@ static void modeS_cleanup (void)
     free (Modes.rtltcp.gains);
     Modes.rtl_tcp_in = NULL;
   }
+  else if (Modes.websock_in)
+  {
+    sdrconnect_exit();
+    Modes.websock_in = NULL;
+  }
   else if (Modes.sdrplay.device)
   {
     rc = sdrplay_exit (Modes.sdrplay.device);
@@ -3900,6 +3913,7 @@ static void modeS_cleanup (void)
   free (Modes.rtlsdr.name);
   free (Modes.rtltcp.remote);
   free (Modes.sdrplay.name);
+  free (Modes.sdrconnect.name);
   free (Modes.airspy.name);
 
   free (Modes.http_log_name);
@@ -3971,6 +3985,13 @@ static void set_device (const char *arg)
       modeS_exit (1);
     }
   }
+  else if (!strnicmp(arg, "ws://", 5))
+  {
+    NET_SET_HOST_PORT (arg, MODES_NET_SERVICE_WEBSOCK, MODES_NET_PORT_WEBSOCK);
+    Modes.selected_dev = mg_mprintf ("%s", modeS_net_services [MODES_NET_SERVICE_WEBSOCK].descr);
+    Modes.sdrconnect.name = strdup (arg);
+    Modes.net = true;
+  }
   else
   {
     Modes.rtlsdr.name  = strdup (arg);
@@ -3988,19 +4009,6 @@ static void set_device (const char *arg)
     else
       Modes.sdrplay.index = -1;
   }
-#if 0     /** \todo */
-  else if (!strnicmp(arg, "sdrconnect", 10))
-  {
-    Modes.sdrconnect.name = strdup (arg);
-    if (strlen(arg) > 10 && isdigit(arg[10]))
-    {
-      Modes.sdrconnect.index    = atoi (arg + 10);
-      Modes.sdrconnect.name[10] = '\0';
-    }
-    else
-      Modes.sdrconnect.index = -1;
-  }
-#endif
   else if (!strnicmp(arg, "airspy", 6))
   {
     Modes.airspy.name = strdup (arg);
@@ -4176,6 +4184,9 @@ static void set_debug_bits (const char *flags)
       case 'R':
            Modes.debug |= (DEBUG_RAW_SBS1 | DEBUG_RAW_SBS2);
            break;
+      case 'w':
+           Modes.debug |= DEBUG_WEBSOCKET;
+           break;
       default:
            p = buf;
            end = p + sizeof(buf);
@@ -4266,8 +4277,8 @@ static bool set_home_pos_from_location_API (const char *arg)
 
 static bool set_bandwidth (const char *arg)
 {
-  Modes.band_width = ato_hertz (arg);
-  if (Modes.band_width == 0)
+  Modes.rtlsdr.band_width = ato_hertz (arg);
+  if (Modes.rtlsdr.band_width == 0)
      show_help ("Illegal band-width: %s\n", arg);
   return (true);
 }
@@ -4508,6 +4519,10 @@ int main (int argc, char **argv)
       if (rc)
          goto quit;
     }
+    else if (Modes.sdrconnect.name)
+    {
+      sdrconnect_init();
+    }
     else if (Modes.airspy.name)
     {
       rc = airspy_init (Modes.airspy.name, Modes.airspy.index, &Modes.airspy.device);
@@ -4522,7 +4537,6 @@ int main (int argc, char **argv)
       if (!Modes.gns_hulc.handle)
          goto quit;
     }
-
     else if (!net_handler_host(MODES_NET_SERVICE_RTL_TCP))
     {
       rc = modeS_init_RTLSDR();  /* not using a remote RTL_TCP input device */

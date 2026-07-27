@@ -14,6 +14,7 @@
 #include "net_io.h"
 #include "RTLSDR/rtl-sdr.h"
 #include "RTLSDR/rtl-tcp.h"
+#include "SDRconnect/sdrconnect.h"
 
 #if !(MG_TLS == MG_TLS_NONE || MG_TLS != MG_TLS_BUILTIN)
   #include "server-cert-key.h"
@@ -40,8 +41,14 @@ net_service modeS_net_services [MODES_NET_SERVICES_NUM] = {
           { &Modes.http4_out,  "HTTP4 server",   "tcp", MODES_NET_PORT_HTTP4   },  /* MODES_NET_SERVICE_HTTP4 */
           { &Modes.http6_out,  "HTTP6 server",   "tcp", MODES_NET_PORT_HTTP6   },  /* MODES_NET_SERVICE_HTTP6 */
           { &Modes.rtl_tcp_in, "RTL_TCP input",  "tcp", MODES_NET_PORT_RTL_TCP },  /* MODES_NET_SERVICE_RTL_TCP */
-          { &Modes.dns_in,     "DNS client",     "udp", MODES_NET_PORT_DNS     }   /* MODES_NET_SERVICE_DNS */
+          { &Modes.dns_in,     "DNS client",     "udp", MODES_NET_PORT_DNS     },  /* MODES_NET_SERVICE_DNS */
+          { &Modes.websock_in, "WebSock client", "tcp", MODES_NET_PORT_WEBSOCK }   /* MODES_NET_SERVICE_WEBSOCK */
         };
+
+/**
+ * Pointer to a `MG_EV_WS_CTL` or `MG_EV_WS_MSG` function.
+ */
+void (*net_ws_handler) (enum mg_event ev, const mg_ws_message *ws);
 
 /**
  * Handling a "Packed Web FileSystem".
@@ -116,6 +123,7 @@ static char        *net_store_error (intptr_t service, const char *err);
 static void         net_ev_handler (mg_connection *c, int ev, void *ev_data);
 static char        *net_error_details (intptr_t service, const mg_connection *c, const char *in_out, const void *ev_data);
 static void         net_timeout (void *arg);
+static bool         net_timer_add (intptr_t service, int timeout_ms, int flag, void (*timeout_func)(void *arg));
 static char        *net_str_addr (const mg_addr *a, char *buf, size_t len);
 static char        *net_str_addr_port (const mg_addr *a, char *buf, size_t len);
 static const char  *net_reverse_find (const mg_addr *a);
@@ -149,12 +157,17 @@ static void rtl_tcp_no_stats (intptr_t service);
 /**
  * \def HTTP_SERVICE(s)
  * Return true for `s == MODES_NET_SERVICE_HTTP4 || s == MODES_NET_SERVICE_HTTP6`.
+ *
+ * \note
+ * `MODES_NET_SERVICE_WEBSOCK` is a service that starts out as `HTTP4`.
+ * But mongoose.c hides those details. And it's not important.
  */
 #define HTTP_SERVICE(s) (s == MODES_NET_SERVICE_HTTP4 || s == MODES_NET_SERVICE_HTTP6)
 
 /**
  * \def IS_WEBSOCKET_EVENT(ev)
  * Return true if event is a Websocket event.
+ * Could be buried inside a `MODES_NET_SERVICE_HTTPx` message.
  */
 #define IS_WEBSOCKET_EVENT(ev)   ((ev) == MG_EV_WS_OPEN || (ev) == MG_EV_WS_MSG || (ev) == MG_EV_WS_CTL)
 
@@ -235,7 +248,7 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
     listen_fmt = "%s://[::]:%u";
     modeS_net_services [service].is_ip6 = true;
 
-#if !defined(USE_ASAN) || 1
+#if !defined(USE_ASAN)
     if (!Modes.dns6)
        LOG_STDERR ("WARNING: IPv6 WAN support not detected. IPv6 will only work for local-LAN.\n");
 #endif
@@ -295,7 +308,11 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
 
     if (timeout > 0)
        net_timer_add (service, timeout, MG_TIMER_ONCE, net_timeout);
-    c = mg_connect (&Modes.mgr, url, net_ev_handler, (void*)service);
+
+    if (service == MODES_NET_SERVICE_WEBSOCK)
+         c = mg_ws_connect (&Modes.mgr, modeS_net_services[MODES_NET_SERVICE_WEBSOCK].url, net_ev_handler,
+                            (void*)service, NULL);
+    else c = mg_connect (&Modes.mgr, url, net_ev_handler, (void*)service);
   }
 
   if (Modes.https_enable)
@@ -747,7 +764,7 @@ static int net_ev_handler_http (mg_connection *c, mg_http_message *hm, mg_http_u
 
 /**
  * \todo
- * The event handler for WebSocket control messages.
+ * The event handler for WebSocket events.
  */
 static int net_ev_handler_ws (mg_connection *c, const mg_ws_message *ws, int ev)
 {
@@ -755,7 +772,7 @@ static int net_ev_handler_ws (mg_connection *c, const mg_ws_message *ws, int ev)
   const char  *remote = net_str_addr_port (&c->rem, addr_buf, sizeof(addr_buf));
   int          s_idx = (c->loc.is_ip6 ? 1 : 0);
 
-  DEBUG (DEBUG_NET, "%s from %s has %zd bytes for us. is_websocket: %d.\n",
+  DEBUG (DEBUG_NET2, "%s from %s has %zd bytes for us. is_websocket: %d.\n",
          net_ev_name(ev), remote, c->recv.len, c->is_websocket);
 
   if (!c->is_websocket)
@@ -763,19 +780,27 @@ static int net_ev_handler_ws (mg_connection *c, const mg_ws_message *ws, int ev)
 
   if (ev == MG_EV_WS_OPEN)
   {
-    DEBUG (DEBUG_MONGOOSE2, "WebSock open from conn-id: %lu:\n", c->id);
+    DEBUG (DEBUG_MONGOOSE2, "MG_EV_WS_OPEN from conn-id: %lu:\n", c->id);
     HEX_DUMP (ws->data.buf, ws->data.len);
   }
   else if (ev == MG_EV_WS_MSG)
   {
-    DEBUG (DEBUG_MONGOOSE2, "WebSock message from conn-id: %lu:\n", c->id);
+    DEBUG (DEBUG_MONGOOSE2, "MG_EV_WS_MSG from conn-id: %lu:\n", c->id);
     HEX_DUMP (ws->data.buf, ws->data.len);
+
+    /* Pass on to higher-level WebSocket handler
+     */
+    if (c->is_websocket && net_ws_handler)
+      (*net_ws_handler) (MG_EV_WS_MSG, ws);
   }
   else if (ev == MG_EV_WS_CTL)
   {
-    DEBUG (DEBUG_MONGOOSE2, "WebSock control from conn-id: %lu:\n", c->id);
+    DEBUG (DEBUG_MONGOOSE, "MG_EV_WS_CTL from conn-id: %lu:\n", c->id);
     HEX_DUMP (ws->data.buf, ws->data.len);
     Modes.stat.HTTP_stat [s_idx].HTTP_websockets++;
+
+    if (c->is_websocket && net_ws_handler)
+      (*net_ws_handler) (MG_EV_WS_CTL, ws);
   }
   return (1);
 }
@@ -798,7 +823,7 @@ static void net_timeout (void *arg)
   modeS_signal_handler (0);  /* break out of main_data_loop()  */
 }
 
-bool net_timer_add (intptr_t service, int timeout_ms, int flag, void (*timeout_func)(void *arg))
+static bool net_timer_add (intptr_t service, int timeout_ms, int flag, void (*timeout_func)(void *arg))
 {
   mg_timer *t;
 
@@ -815,7 +840,7 @@ bool net_timer_add (intptr_t service, int timeout_ms, int flag, void (*timeout_f
   return (true);
 }
 
-bool net_timer_del (intptr_t service)
+static bool net_timer_del (intptr_t service)
 {
   mg_timer *t = modeS_net_services [service].timer;
 
@@ -964,6 +989,7 @@ static void connection_failed_active (const mg_connection *c, intptr_t service, 
 
   net_store_error (service, err);
   rtl_tcp_no_stats (service);
+  sdrconnect_no_stats (service);
 
   if (modeS_net_services [service].url && !Modes.silent)
      LOG_STDERR ("connect() to %s failed; %s.\n", modeS_net_services [service].url, err);
@@ -1075,13 +1101,9 @@ static void http_log_open (void)
 
 static void http_log_close (void)
 {
-  if (Modes.http_log)
-     fclose (Modes.http_log);
-
-  free (log_ignore);
-  Modes.http_log        = NULL;
+  FCLOSE (Modes.http_log);
+  FREE (log_ignore);
   Modes.http_log_enable = false;
-  log_ignore = NULL;
 }
 
 static void http_log_cli (INT_PTR service, mg_connection *c, mg_http_message *hm,
@@ -1296,7 +1318,7 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
     return;
   }
 
-  if (HTTP_SERVICE(service))
+  if (HTTP_SERVICE(service) || service == MODES_NET_SERVICE_WEBSOCK)
   {
     mg_http_message *hm;
     mg_ws_message   *ws;
@@ -1426,8 +1448,9 @@ static uint32_t net_conn_free_all (void)
       net_conn_free (conn, service);
       num++;
     }
-    free (net_handler_url(service));
-    free (net_handler_error(service, NULL));
+    free (modeS_net_services [service].last_err);
+    free (modeS_net_services[service].url);
+    modeS_net_services[service].url = modeS_net_services [service].last_err = NULL;
   }
   return (num);
 }
@@ -2090,7 +2113,7 @@ static const char *net_reverse_find (const mg_addr *a)
 }
 
 /**
- * Parse and split a `[http:// | udp:// | tcp://] host [:port]` string into a host and port.
+ * Parse and split a `[http:// | udp:// | tcp:// | ws://] host [:port]` string into a host and port.
  * Set default port if the `:port` is missing.
  */
 bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port)
@@ -2099,6 +2122,7 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   mg_addr      addr;
   ip_addr_port name;
   bool         is_udp = false;
+  bool         is_ws  = false;
   int          is_ip6 = -1;
 
   if (!strnicmp("http://", host_port, 7))
@@ -2115,6 +2139,11 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   {
     is_udp = true;
     host_port += 6;
+  }
+  else if (!strnicmp("ws://", host_port, 5))
+  {
+    is_ws = true;
+    host_port += 5;
   }
 
   str = mg_url_host (host_port);
@@ -2140,7 +2169,8 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   serv->port       = addr.port;
   serv->is_udp     = (is_udp == true);
   serv->is_ip6     = (is_ip6 == 1);
-  DEBUG (DEBUG_NET, "is_ip6: %d, host: %s, port: %u.\n", is_ip6, serv->host, serv->port);
+  serv->is_ws      = (is_ws == true);
+  DEBUG (DEBUG_NET, "is_ip6: %d, is_ws: %d, host: %s, port: %u.\n", is_ip6, is_ws, serv->host, serv->port);
   return (true);
 }
 
@@ -2515,9 +2545,10 @@ void net_show_stats (void)
     const char *url = net_handler_url (s);
     uint64_t    sum;
 
-    if (s == MODES_NET_SERVICE_RAW_IN ||  /* These are printed separately */
-        s == MODES_NET_SERVICE_SBS_IN ||
-        s == MODES_NET_SERVICE_RTL_TCP)
+    if (s == MODES_NET_SERVICE_RAW_IN  ||  /* These are printed separately */
+        s == MODES_NET_SERVICE_SBS_IN  ||
+        s == MODES_NET_SERVICE_RTL_TCP ||
+        s == MODES_NET_SERVICE_WEBSOCK)
        continue;
 
     if (i++ > 0)
@@ -2575,6 +2606,7 @@ void net_show_stats (void)
   sbs_in_stats();
   raw_in_stats();
   rtl_tcp_in_stats();
+  sdrconnect_stats();
   net_show_server_errors();
 
   LeaveCriticalSection (&Modes.print_mutex);
@@ -3066,15 +3098,19 @@ static bool net_init_dns (char **dns4_p, char **dns6_p)
    */
   *dns4_p = mg_mprintf ("udp://%s:53", fi->DnsServerList.IpAddress.String);
 
-#if !defined(USE_ASAN) || 1
+#if !defined(USE_ASAN)
   /**
    * Fake alert:
    *   If a `system ("ping.exe -6 -n 1 ipv6.google.com")` works, just assume that
    *   the `Reply from <ping6_addr> time=zz sec' will work as the DNS6 address.
    *
-   * Note:
+   * Notes:
    *   `ipv6.google.com` does not have IPv4 address, only IPv6.
    *   Therefore it is guaranteed to hit IPv6 resolution path.
+   *
+   *   And with `USE_ASAN`, the below `_popen()` triggers an abort from
+   *   Dr. Watson.
+   *   \todo Rewrite for `_wpopen()` instead? See `externals/sqlite3-shell.c`.
    */
   _set_errno (0);
   f = _popen (ping6_cmd, "r");
@@ -3316,6 +3352,15 @@ bool net_init (void)
     strcpy (modeS_net_services [MODES_NET_SERVICE_RAW_IN].protocol, "udp");
   }
 
+  /*
+   * Setup the WebSock service if '--device ws://host:port' was used.
+   */
+  if (modeS_net_services [MODES_NET_SERVICE_WEBSOCK].host[0])
+  {
+    if (!connection_setup_active(MODES_NET_SERVICE_WEBSOCK, &Modes.websock_in))
+        return (false);
+  }
+
   if (Modes.net_active)
   {
     bool raw_none = !modeS_net_services [MODES_NET_SERVICE_RAW_IN].host[0] ||
@@ -3386,7 +3431,6 @@ bool net_init (void)
      return (false);
 
   Modes.web_page_is_FA = check_flightaware();
-
   if (Modes.web_page_is_FA)
   {
     /* Since 'aircraft_init()' was already called, we have to do this here now.

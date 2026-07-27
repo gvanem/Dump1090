@@ -42,6 +42,7 @@ typedef char ip_addr_port [MAX_ADDRESS+10];
 #define MODES_NET_PORT_HTTP4     8080
 #define MODES_NET_PORT_HTTP6     8080
 #define MODES_NET_PORT_RTL_TCP   1234
+#define MODES_NET_PORT_WEBSOCK   5454
 #define MODES_NET_PORT_DNS         53
 
 extern net_service modeS_net_services [MODES_NET_SERVICES_NUM];
@@ -65,18 +66,18 @@ char       *net_handler_error (intptr_t service, DWORD *wsa_err);
 bool        net_handler_sending (intptr_t service);
 void        net_handler_send (intptr_t service, const void *msg, size_t len);
 const char *net_ev_name (int ev);
-bool        net_timer_add (intptr_t service, int timeout_ms, int flag, void (*timeout_func)(void *arg));
-bool        net_timer_del (intptr_t service);
 bool        net_set_host_port (const char *host_port, net_service *serv, uint16_t def_port);
 void        net_show_stats (void);
 bool        net_deny4 (const char *val);
 bool        net_deny6 (const char *val);
 bool        net_stat_common (intptr_t service);
 
+extern void (*net_ws_handler) (enum mg_event ev, const mg_ws_message *ws);
+
 /**
  * Used by config-parser callbacks.
  *
- * Parses a "host-X-Y = [tcp|udp]://host:port" and sets
+ * Parses a "host-X-Y = [tcp|udp|ws]://host:port" and sets
  * `&modeS_net_services [serv].host` and
  * `&modeS_net_services [serv].port`.
  */

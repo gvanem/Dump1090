@@ -680,7 +680,7 @@ static void get_est_home_distance (aircraft *a, const char **km_nmiles)
 }
 
 /*
- * Show statistics for a physical or a RTL-TCP device.
+ * Show statistics for a physical, a RTL-TCP device or SDRConnect server.
  */
 static int interactive_phys_stats (const char *silent)
 {
@@ -695,6 +695,7 @@ static int interactive_phys_stats (const char *silent)
   uint64_t        good_CRC = Modes.stat.CRC_good + Modes.stat.CRC_fixed;
   uint64_t        bad_CRC  = Modes.stat.CRC_bad;
   const char     *dev = Modes.rtl_tcp_in ? net_handler_url (MODES_NET_SERVICE_RTL_TCP) :
+                        Modes.websock_in ? Modes.sdrconnect.name :
                                            Modes.selected_dev;
 
   if (Modes.gain_auto)
@@ -759,7 +760,7 @@ int interactive_title_stats (void)
                                    silent, Modes.gns_hulc.name, GPS_info, counters);
   }
 
-  if (PHYS_DEVICE() || Modes.rtl_tcp_in)
+  if (PHYS_DEVICE() || Modes.rtl_tcp_in || Modes.websock_in)
      return interactive_phys_stats (silent);
 
   if (Modes.sbs_in)

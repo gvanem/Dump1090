@@ -28,12 +28,6 @@ USE_CRT_DEBUG ?= 0
 USE_BIN_FILES ?= 0
 
 #
-# Enable SDRConnect code in 'externals/SDRconnect' which let
-# a (remote) SDRConnect program feed 'net_io.c' with data over WebSocket.
-#
-USE_SDRCONNECT ?= 0
-
-#
 # Enable bundling *all* web_root pages inside '../web-pages.dll' as multiple resources.
 # Use e.g. as '../web-pages.dll;2' for '../web_root-FlightAware/*' as web-root.
 #
@@ -320,18 +314,20 @@ SOURCES = aircraft.c     \
           smartlist.c    \
           speech.c
 
-vpath %.c externals          \
-          externals/AirSpy   \
-          externals/GNS-Hulc \
+vpath %.c externals            \
+          externals/AirSpy     \
+          externals/GNS-Hulc   \
+          externals/SDRconnect \
           externals/SDRplay
 
-SOURCES += $(addprefix externals/, \
-             mongoose.c            \
-             sqlite3.c             \
-             zip.c                 \
-             AirSpy/airspy.c       \
-             GNS-Hulc/gns-hulc.c   \
-             GNS-Hulc/gns-serial.c \
+SOURCES += $(addprefix externals/,   \
+             mongoose.c              \
+             sqlite3.c               \
+             zip.c                   \
+             AirSpy/airspy.c         \
+             GNS-Hulc/gns-hulc.c     \
+             GNS-Hulc/gns-serial.c   \
+             SDRconnect/sdrconnect.c \
              SDRplay/sdrplay.c)
 
 vpath %.c externals/RTLSDR
@@ -347,12 +343,6 @@ SOURCES += $(addprefix externals/RTLSDR/, \
 vpath %.c  externals/PDC-Mod
 SOURCES += externals/PDC-Mod/amalgamation.c
 
-ifeq ($(USE_SDRCONNECT),1)
-  vpath %.c  externals/SDRconnect
-  SOURCES += externals/SDRconnect/sdrconnect.c
-  CFLAGS  += -DUSE_SDRCONNECT
-  RCFLAGS += -DUSE_SDRCONNECT
-endif
 
 #
 # For '../web-pages.dll':
@@ -789,32 +779,33 @@ DOXY_SOURCES = $(filter-out externals/sqlite3.c               \
 
 DOXY_SOURCES := $(addprefix ../, $(DOXY_SOURCES))
 
-DOXY_HEADERS = ../aircraft.h                       \
-               ../airports.h                       \
-               ../cfg_file.h                       \
-               ../color.h                          \
-               ../convert.h                        \
-               ../cpr.h                            \
-               ../crc.h                            \
-               ../csv.h                            \
-               ../demod.h                          \
-               ../dump1090_config.h                \
-               ../fifo.h                           \
-               ../geo.h                            \
-               ../infile.h                         \
-               ../interactive.h                    \
-               ../location.h                       \
-               ../misc.h                           \
-               ../net_io.h                         \
-               ../raw-sbs.h                        \
-               ../smartlist.h                      \
-               ../speech.h                         \
-               ../externals/zip.h                  \
-               ../externals/AirSpy/airspy.h        \
-               ../externals/GNS-Hulc/gns-hulc.h    \
-               ../externals/GNS-Hulc/gns-private.h \
-               ../externals/RTLSDR/rtl-sdr.h       \
-               ../externals/RTLSDR/rtl-tcp.h       \
+DOXY_HEADERS = ../aircraft.h                        \
+               ../airports.h                        \
+               ../cfg_file.h                        \
+               ../color.h                           \
+               ../convert.h                         \
+               ../cpr.h                             \
+               ../crc.h                             \
+               ../csv.h                             \
+               ../demod.h                           \
+               ../dump1090_config.h                 \
+               ../fifo.h                            \
+               ../geo.h                             \
+               ../infile.h                          \
+               ../interactive.h                     \
+               ../location.h                        \
+               ../misc.h                            \
+               ../net_io.h                          \
+               ../raw-sbs.h                         \
+               ../smartlist.h                       \
+               ../speech.h                          \
+               ../externals/zip.h                   \
+               ../externals/AirSpy/airspy.h         \
+               ../externals/GNS-Hulc/gns-hulc.h     \
+               ../externals/GNS-Hulc/gns-private.h  \
+               ../externals/RTLSDR/rtl-sdr.h        \
+               ../externals/RTLSDR/rtl-tcp.h        \
+               ../externals/SDRconnect/sdrconnect.h \
                ../externals/SDRplay/sdrplay.h
 
 define DUMP1090_DOXYFILE

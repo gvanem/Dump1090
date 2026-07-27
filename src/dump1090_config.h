@@ -316,14 +316,8 @@
     #define RC_FILEFLAGS  0
   #endif
 
-  #define RC_BUILD_ASAN       ""
-  #define RC_BUILD_SDRCONNECT ""
-  #define RC_BUILD_SPECTRE    ""
-
-  #if defined(USE_SDRCONNECT)
-    #undef  RC_BUILD_SDRCONNECT
-    #define RC_BUILD_SDRCONNECT "SDRConnect,"
-  #endif
+  #define RC_BUILD_ASAN     ""
+  #define RC_BUILD_SPECTRE  ""
 
   #if defined(USE_ASAN) && defined(USE_SPECTRE)
     #define RC_BUILD_FEATURES  "ASAN, Spectre"

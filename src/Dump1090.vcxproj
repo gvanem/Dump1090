@@ -183,6 +183,7 @@
     <ClCompile Include="externals\RTLSDR\tuner_fc001x.c" />
     <ClCompile Include="externals\RTLSDR\tuner_fc2580.c" />
     <ClCompile Include="externals\RTLSDR\tuner_r82xx.c" />
+    <ClCompile Include="externals\SDRconnect\sdrconnect.c" />
     <ClCompile Include="externals\SDRplay\sdrplay.c" />
   </ItemGroup>
   <ItemGroup>
@@ -222,6 +223,7 @@
     <ClInclude Include="externals\RTLSDR\rtl-sdr.h" />
     <ClInclude Include="externals\RTLSDR\rtl-sdr_export.h" />
     <ClInclude Include="externals\RTLSDR\version.h" />
+    <ClInclude Include="externals\SDRconnect\sdrconnect.h" />
     <ClInclude Include="externals\SDRplay\sdrplay.h" />
     <ClInclude Include="externals\SDRplay\sdrplay_api.h" />
     <ClInclude Include="externals\SDRplay\sdrplay_api_callback.h" />
