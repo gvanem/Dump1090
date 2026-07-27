@@ -1415,7 +1415,11 @@ static void hex_dump (const uint8_t *buf, size_t len, unsigned line, const char 
     lbuf [lbuf_idx++] = '|';
 
     for (i = 0; i < count; i++)
-       lbuf [lbuf_idx++] = iscntrl (buf[i]) ? '.' : buf [i];
+    {
+      if (buf[i] < ' ' || buf[i] >= 0x7F)
+           lbuf [lbuf_idx++] = '.';
+      else lbuf [lbuf_idx++] = buf [i];
+    }
 
     for ( ; i < 16; i++)
         lbuf [lbuf_idx++] = ' ';
