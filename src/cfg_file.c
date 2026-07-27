@@ -15,7 +15,7 @@
            fprintf (stderr, "%s(%u): WARNING: " fmt, \
                     cfg_current_file(),              \
                     cfg_current_line(),              \
-                    __VA_ARGS__);                    \
+                    ## __VA_ARGS__);                 \
         } while (0)
 
 /**
