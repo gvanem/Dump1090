@@ -7,119 +7,108 @@
 #include "misc.h"
 #include "demod.h"
 
-/**
- * \def D8M_NUM_PHASES
- * Samples per bit
- */
+ /**
+  * \def D8M_NUM_PHASES
+  * Samples per bit
+  */
 #define D8M_NUM_PHASES  8
 
-/**
- * \def D8M_WIN_LEN
- * Match window to search for peak correlation
- */
+  /**
+   * \def D8M_WIN_LEN
+   * Match window to search for peak correlation
+   */
 #define D8M_WIN_LEN  (MODES_SHORT_MSG_BITS + MODES_LONG_MSG_BITS)
 
-/**
- * \def D8M_SEARCH_BACK
- * Bits to search back relative to peak
- */
+   /**
+    * \def D8M_SEARCH_BACK
+    * Bits to search back relative to peak
+    */
 #define D8M_SEARCH_BACK  4
 
-/**
- * \def D8M_SEARCH_AHEAD
- * Bits to search ahead relative to peak
- */
+    /**
+     * \def D8M_SEARCH_AHEAD
+     * Bits to search ahead relative to peak
+     */
 #define D8M_SEARCH_AHEAD  12
 
-/**
- * \def D8M_SEARCH_WIDTH
- * Total Search width in bits
- */
+     /**
+      * \def D8M_SEARCH_WIDTH
+      * Total Search width in bits
+      */
 #define D8M_SEARCH_WIDTH  (D8M_SEARCH_BACK + D8M_SEARCH_AHEAD)
 
-/**
- * \def D8M_SEARCH_BYTES
- * Total Search width in bytes, rounded up
- */
+      /**
+       * \def D8M_SEARCH_BYTES
+       * Total Search width in bytes, rounded up
+       */
 #define D8M_SEARCH_BYTES  ((D8M_SEARCH_WIDTH + 7) / 8)
 
-/**
- * \def D8M_LOOK_BACK
- * Buffer look-back required for algorithm
- */
+       /**
+        * \def D8M_LOOK_BACK
+        * Buffer look-back required for algorithm
+        */
 #define D8M_LOOK_BACK  ((D8M_WIN_LEN + D8M_SEARCH_BACK+1) * D8M_NUM_PHASES)
 
-/**
- * \def D8M_LOOK_AHEAD
- * Buffer look-ahead required for algorithm
- */
+        /**
+         * \def D8M_LOOK_AHEAD
+         * Buffer look-ahead required for algorithm
+         */
 #define D8M_LOOK_AHEAD  ((MODES_SHORT_MSG_BITS + D8M_SEARCH_AHEAD) * D8M_NUM_PHASES)
 
-/**
- * \def DD8M_BUF_OVERLAP
- * total extra buffer compared to frame of data
- */
+         /**
+          * \def DD8M_BUF_OVERLAP
+          * total extra buffer compared to frame of data
+          */
 #define D8M_BUF_OVERLAP   (D8M_LOOK_BACK + D8M_LOOK_AHEAD)
 
-/**
- * \def D8M_SANE_MAX
- * Upper bound (in either direction) for `phase[]` / `phase_av_acc`.
- * A healthy `phase[i]` is a sum of `abs(diff)` over a 448-sample window;
- * with real-world magnitudes this should sit in the tens of thousands at
- * most. This is set two orders of magnitude above that -- generous enough
- * to never trip during normal operation, but far below where a 32-bit int
- * could overflow/wrap (~2.1 billion). Exceeding it means something has
- * already drifted/gone wrong, so it's reset back to a clean baseline
- * rather than allowed to run into overflow.
- */
+          /**
+           * \def D8M_SANE_MAX
+           * Upper bound (in either direction) for `phase[]` / `phase_av_acc`.
+           * A healthy `phase[i]` is a sum of `abs(diff)` over a 448-sample window;
+           * with real-world magnitudes this should sit in the tens of thousands at
+           * most. This is set two orders of magnitude above that -- generous enough
+           * to never trip during normal operation, but far below where a 32-bit int
+           * could overflow/wrap (~2.1 billion). Exceeding it means something has
+           * already drifted/gone wrong; when it fires, `phase[i]` is resynced to
+           * its true value (see the resync block below) rather than allowed to
+           * run into overflow.
+           */
 #define D8M_SANE_MAX  50000000
 
-static void pick_peak (const int *match, int *peak_short, int *peak_long);
-static void shift_bytes (uint8_t *msg, int len);
+static void pick_peak(const int* match, int* peak_short, int* peak_long);
+static void shift_bytes(uint8_t* msg, int len);
 
-static int *d8m_dbuf;                              /**< main data buffer */
+static int* d8m_dbuf;                              /**< main data buffer */
 static int  d8m_phase_av_acc;                      /**< lowpass match memory */
 static int  d8m_backtrack_phase_av_acc;            /**< saved version in case of backtrack */
 static int  d8m_window;                            /**< current index in match window */
 static int  d8m_win_start;                         /**< start of current match window */
 static int  d8m_start_phase;                       /**< intial phase chosen for match */
-static int  d8m_phase [D8M_NUM_PHASES];            /**< sliding window for each phase */
-static int  d8m_backtrack_phase [D8M_NUM_PHASES];  /**< saved version in case of backtrack */
-static int *d8m_match_ar;                          /**< match values over current window */
-static int *d8m_phase_ar;                          /**< best phase choices over current window */
-
-/**
- * Counts how many times the `D8M_SANE_MAX` clamp below has had to reset
- * `phase[]`/`phase_av_acc`. `phase[i]` is a sliding-window sum maintained
- * purely by incremental add/subtract -- fragile by the demodulator's own
- * doc-comment above, since any imbalance causes the sum to diverge over
- * time rather than staying bounded. This clamp is a safety net against
- * that drift; a nonzero, climbing count here means the clamp is actually
- * engaging (worth knowing if investigating decode-rate issues further),
- * not that anything is currently broken.
- */
-static uint64_t d8m_drift_resets;
+static int  d8m_phase[D8M_NUM_PHASES];            /**< sliding window for each phase */
+static int  d8m_backtrack_phase[D8M_NUM_PHASES];  /**< saved version in case of backtrack */
+static int* d8m_match_ar;                          /**< match values over current window */
+static int* d8m_phase_ar;                          /**< best phase choices over current window */
 
 /**
  * Allocate buffers must be done when `Modes.sample_rate = 8000000` selected.
  */
-int demod_8000_alloc (void)
+int demod_8000_alloc(void)
 {
 #if 0
-  /**< \todo Put this somewhere else. To fifo.c? */
+    /**< \todo Put this somewhere else. To fifo.c? */
 #endif
 
-  d8m_match_ar = calloc (D8M_WIN_LEN, sizeof(int));
-  d8m_phase_ar = calloc (D8M_WIN_LEN, sizeof(int));
-  d8m_dbuf     = calloc (D8M_BUF_OVERLAP + MODES_MAG_BUF_SAMPLES, sizeof(int));
-  return (d8m_match_ar && d8m_phase_ar && d8m_dbuf);
+    d8m_match_ar = calloc(D8M_WIN_LEN, sizeof(int));
+    d8m_phase_ar = calloc(D8M_WIN_LEN, sizeof(int));
+    d8m_dbuf = calloc(D8M_BUF_OVERLAP + MODES_MAG_BUF_SAMPLES, sizeof(int));
+    return (d8m_match_ar && d8m_phase_ar && d8m_dbuf);
 }
 
-void demod_8000_free (void)
+void demod_8000_free(void)
 {
-  free (d8m_match_ar);
-  free (d8m_phase_ar);
-  free (d8m_dbuf);
+    free(d8m_match_ar);
+    free(d8m_phase_ar);
+    free(d8m_dbuf);
 }
 
 /**
@@ -140,305 +129,334 @@ void demod_8000_free (void)
  * Therefore, take care if modifying any of the buffering or wrap-around
  * indexing.
  */
-void demod_8000 (const mag_buf *mag)
+void demod_8000(const mag_buf* mag)
 {
-  TRACE2 ("demod_8000 called, valid_length: %u, overlap: %u\n",
-          mag->valid_length, mag->overlap);
+    modeS_message   mm;
+    uint8_t         msg[MODES_LONG_MSG_BYTES + D8M_SEARCH_BYTES];
+    uint8_t         best_msg[MODES_LONG_MSG_BYTES];
+    uint8_t         data_byte = 0;
+    int             phase_av, max, best_phase;
+    int             short_msg_offset = 0;
+    int             long_msg_offset = 0;
+    int             sptr;
+    int             eptr, dptr;
+    int* dbuf;
+    int             i, sum;
+    int             message_result;
+    int             j, mlen = (int)(mag->valid_length - mag->overlap);
 
-  modeS_message   mm;
-  uint8_t         msg      [MODES_LONG_MSG_BYTES + D8M_SEARCH_BYTES];
-  uint8_t         best_msg [MODES_LONG_MSG_BYTES];
-  uint8_t         data_byte = 0;
-  int             phase_av, max, best_phase;
-  int             short_msg_offset = 0;
-  int             long_msg_offset = 0;
-  u_int           sptr;
-  int             eptr, dptr;
-  int            *dbuf;
-  int             i, sum;
-  int             message_result;
-  u_int           j, mlen = mag->valid_length;
-  const uint16_t *m = mag->data;
+    /* CORRECTION (superseding an earlier, incorrect "fix"): I previously
+     * changed this to `mag->data + mag->overlap`, reasoning that `m` and
+     * `mlen` were mismatched after porting from the original's single
+     * `mag->length` field. That reasoning was wrong. Mutability's actual
+     * header (dump1090.h) documents `length` as "number of valid samples
+     * _after_ overlap" -- i.e. exactly the same quantity as our
+     * `valid_length - overlap` -- and the real, proven-working
+     * `demodulate8000()` still reads `m = mag->data` (index 0, the old
+     * overlap tail) for that many samples, with NO offset. So the
+     * original does read old-tail-then-partial-new-data each call, same
+     * as this codebase without the offset -- and it works fine, because
+     * demod_8000 keeps its own independent lookback (`d8m_dbuf` /
+     * `D8M_BUF_OVERLAP`) across calls, making the overall stream it
+     * builds internally contiguous regardless of this per-call offset.
+     * Reverted to match the real reference behaviour.
+     */
+    const uint16_t* m = mag->data;
 
-  /* local variables initialized from static storage
-   */
-  int phase_av_acc            = d8m_phase_av_acc;
-  int backtrack_phase_av_acc  = d8m_backtrack_phase_av_acc;
-  int window                  = d8m_window;
-  int win_start               = d8m_win_start;
-  int start_phase             = d8m_start_phase;
+    /* local variables initialized from static storage
+     */
+    int phase_av_acc = d8m_phase_av_acc;
+    int backtrack_phase_av_acc = d8m_backtrack_phase_av_acc;
+    int window = d8m_window;
+    int win_start = d8m_win_start;
+    int start_phase = d8m_start_phase;
 
-  int phase [D8M_NUM_PHASES];
-  int backtrack_phase [D8M_NUM_PHASES];
-  int match_ar [D8M_WIN_LEN];
-  int phase_ar [D8M_WIN_LEN];
+    int phase[D8M_NUM_PHASES];
+    int backtrack_phase[D8M_NUM_PHASES];
+    int match_ar[D8M_WIN_LEN];
+    int phase_ar[D8M_WIN_LEN];
 
-  memcpy (phase, d8m_phase, sizeof(phase));
-  memcpy (backtrack_phase, d8m_backtrack_phase, sizeof(backtrack_phase));
-  memcpy (match_ar, d8m_match_ar, sizeof(match_ar));
-  memcpy (phase_ar, d8m_phase_ar, sizeof(phase_ar));
+    memcpy(phase, d8m_phase, sizeof(phase));
+    memcpy(backtrack_phase, d8m_backtrack_phase, sizeof(backtrack_phase));
+    memcpy(match_ar, d8m_match_ar, sizeof(match_ar));
+    memcpy(phase_ar, d8m_phase_ar, sizeof(phase_ar));
 
-  memset (&mm, '\0', sizeof(mm));
+    memset(&mm, '\0', sizeof(mm));
 
-  /* For code below, mlen must be divisible by 8. It should be, but just in case, force it.
-   * This would discard the last few samples of input.
-   */
-  mlen &= ~7;
+    /* For code below, mlen must be divisible by 8. It should be, but just in case, force it.
+     * This would discard the last few samples of input.
+     */
+    mlen &= ~7;
 
-  /* First we calculate the 4-sample diff value. This is convenient because both magnitude
-   * match and decoded data are based on this value, so we avoid recalculation.
-   */
-  dbuf = d8m_dbuf + D8M_BUF_OVERLAP;  /* point to start of new data */
+    /* First we calculate the 4-sample diff value. This is convenient because both magnitude
+     * match and decoded data are based on this value, so we avoid recalculation.
+     */
+    dbuf = d8m_dbuf + D8M_BUF_OVERLAP;  /* point to start of new data */
 
-  for (j = 0; j < mlen; j++)
-  {
-    dbuf [j] = m [j];
-    if (j < mlen - sizeof(*m) - 2)
-       dbuf [j] -= m [j + 4];     /* +4 OK because there are Modes.trailing_samples extra */
-  }
-
-  /* Now point to a location which allows the algorithm both some look-back
-   * and look-ahead in the data.
-   */
-  dbuf = d8m_dbuf + D8M_LOOK_BACK;
-
-  /* Sliding window start and end points
-   */
-  sptr = 0;
-  eptr = MODES_SHORT_MSG_BITS * D8M_NUM_PHASES;
-
-  /* Loop iterates one bit at a time, but calculates separate matches (phase[n])
-   * for each phase within the bit-period, 8 at 8MHz sampling. Effectively we have
-   * 8 distict sliding windows to choose between.
-   */
-  while (sptr < mlen)
-  {
-    /* update window */
-    max = 0;
-    for (i = 0; i < D8M_NUM_PHASES; i++)
+    for (j = 0; j < mlen; j++)
     {
-      phase[i] += abs(dbuf[eptr++]);
-      phase[i] -= abs(dbuf[sptr++]);
-
-      /* FIX: see D8M_SANE_MAX doc-comment above. Confirmed via an
-       * independent, non-accumulating ground-truth measurement (fresh
-       * |diff| sum computed with no carried-over state) staying flat
-       * while phase_av wrapped through the full range of a 32-bit int --
-       * this drift is real and severe, not a signal artifact.
-       */
-      if (phase[i] > D8M_SANE_MAX || phase[i] < -D8M_SANE_MAX)
-      {
-        phase[i] = 0;
-        d8m_drift_resets++;
-      }
-
-      if (phase[i] > max)
-         max = phase[i];
+        dbuf[j] = m[j];
+        dbuf[j] -= m[j + 4];        /* +4 OK because there are Modes.trailing_samples extra */
     }
 
-    /* low pass filter to get long-term S+N (mostly N) value
+    /* Now point to a location which allows the algorithm both some look-back
+     * and look-ahead in the data.
      */
-    phase_av_acc += phase[0];
+    dbuf = d8m_dbuf + D8M_LOOK_BACK;
 
-    /* FIX: same D8M_SANE_MAX safety net as the phase[i] clamp above,
-     * applied to the other accumulator that shares the same fragile
-     * incremental-sum design.
+    /* Sliding window start and end points
      */
-    if (phase_av_acc > D8M_SANE_MAX || phase_av_acc < -D8M_SANE_MAX)
+    sptr = 0;
+    eptr = MODES_SHORT_MSG_BITS * D8M_NUM_PHASES;
+
+    /* Loop iterates one bit at a time, but calculates separate matches (phase[n])
+     * for each phase within the bit-period, 8 at 8MHz sampling. Effectively we have
+     * 8 distict sliding windows to choose between.
+     */
+    while (sptr < mlen)
     {
-      phase_av_acc = 0;
-      d8m_drift_resets++;
-    }
-
-    phase_av = phase_av_acc >> 14;          /* phase_av is current output */
-    phase_av_acc -= phase_av;               /* phase_av_acc is filter memory */
-
-    if (sptr == 40000)  /* print occasionally */
-        TRACE2 ("max: %d, phase_av: %d, ratio: %d%%\n",
-                max, phase_av, phase_av ? (max * 200 / phase_av) : 0);
-
-    /* This code first triggers when max exceeds noise by given factor.
-     * Once triggered, it continues for 0 <= window < WIN_LEN, ie
-     * WIN_LEN contiguous bits. On the last bit, the peak-finding
-     * routine is called to locate the data-block. Then, the values
-     * are all set back by 56 bits before resuming. This is because,
-     * for long messages, it is not possible to detect peaks in the
-     * last 56 locations without more look-ahead.
-     */
-    if (window || (max * 2 > phase_av * 3))
-    {
-      /* note which of 8 phases gives the greatest match */
-      max = best_phase = 0;
-      for (i = 0; i < D8M_NUM_PHASES; i++)
-          if (phase[i] > max) {best_phase = i; max = phase[i];}
-
-      /* on first bit, record start of match window and best phase */
-      if (window == 0)
-      {
-        win_start = sptr;
-        start_phase = best_phase;
-      }
-
-      /* record match value and best phase in arrays
-       */
-      match_ar [window] = phase[start_phase];  /* use same phase consistently, even if not best */
-      phase_ar [window] = best_phase;          /* but record the best for later use */
-
-      /* save intermediate values 56 before end of match window
-       */
-      if (window == D8M_WIN_LEN - MODES_SHORT_MSG_BITS)
-      {
-        memcpy (backtrack_phase, phase, sizeof(phase));
-        backtrack_phase_av_acc = phase_av_acc;
-      }
-
-      /* end of match window, now locate peaks and look for valid messages
-       */
-      if (++window == D8M_WIN_LEN)
-      {
-        int best_result = -1;
-        int msg_bytes, msg_type, position;
-
-        window = 0; /* reset trigger value */
-
-        pick_peak (match_ar, &short_msg_offset, &long_msg_offset);
-
-        /* Now we've located the match peak, decode the bits to look for
-         * plausible message. We search twice, once around putative short-message
-         * peak, then long-message peak.
-         */
-        msg_bytes = MODES_SHORT_MSG_BYTES;
-        dptr = win_start + phase_ar[short_msg_offset] + (short_msg_offset - D8M_SEARCH_BACK) * D8M_NUM_PHASES;
-        position = dptr;
-
-        for (msg_type = 0; msg_type < 2; msg_type++)
+        /* update window */
+        max = 0;
+        for (i = 0; i < D8M_NUM_PHASES; i++)
         {
-          /* decode enough bits to search +- a few bits for message
-           */
-          for (i = 0; i < msg_bytes + D8M_SEARCH_BYTES; i++)
-          {
-            data_byte = 0;
+            phase[i] += abs(dbuf[eptr++]);
+            phase[i] -= abs(dbuf[sptr++]);
 
-            for (j = 0; j < 8; j++ )
+            /* FIX: `phase[i]` is a sliding-window sum maintained purely by
+             * incremental add/subtract, exactly the design the original
+             * author's own comment warned is "fragile... any lack of
+             * balance would cause the sum to diverge." On overflow, resync
+             * it to its true value instead of just zeroing: `phase[i]` is
+             * a sum over MODES_SHORT_MSG_BITS (56) samples spaced
+             * D8M_NUM_PHASES (8) apart, ending at the sample just added
+             * (`eptr - 1`, since `eptr` was already post-incremented
+             * above). Recomputing this exactly (rather than zeroing, which
+             * leaves every later add/subtract referenced from a false
+             * baseline) is cheap, since it only runs on the rare overflow
+             * event, not every step.
+             */
+            if (phase[i] > D8M_SANE_MAX || phase[i] < -D8M_SANE_MAX)
             {
-              sum = dbuf [dptr-1] + dbuf [dptr] + dbuf [dptr+1];
-              sum = (sum >> 31) & 0x1;                        /* sign gives data bit */
-              data_byte = (data_byte << 1) | sum;
-              dptr += D8M_NUM_PHASES;
+                int resync_sum = 0;
+                int resync_pos = eptr - 1;
+                int resync_k;
+
+                for (resync_k = 0; resync_k < MODES_SHORT_MSG_BITS; resync_k++, resync_pos -= D8M_NUM_PHASES)
+                    resync_sum += abs(dbuf[resync_pos]);
+
+                phase[i] = resync_sum;
             }
-            msg [i] = ~data_byte; /* data was inverted */
-          }
 
-          /* Search for messages by shifting data one bit and re-testing
-           */
-          for (i = 0; i < D8M_SEARCH_WIDTH; i++)
-          {
-            message_result = modeS_message_score (msg, msg_bytes * 8);
-
-            if (message_result > best_result)
-            {
-              memcpy (best_msg, msg, msg_bytes);   /* most plausible message so far */
-              best_result = message_result;
-              position = dptr - 64 + i * 8;        /* position recorded for MLAT */
-            }
-            shift_bytes (msg, msg_bytes + D8M_SEARCH_BYTES); /* shift by one bit */
-          }
-
-          msg_bytes = MODES_LONG_MSG_BYTES;
-          dptr = win_start + phase_ar[long_msg_offset] + (long_msg_offset - D8M_SEARCH_BACK) * D8M_NUM_PHASES;
+            if (phase[i] > max)
+                max = phase[i];
         }
 
-        /* Decode the received message
+        /* low pass filter to get long-term S+N (mostly N) value
          */
-        if (best_result >= 0)
+        phase_av_acc += phase[0];
+
+        if (phase_av_acc > D8M_SANE_MAX || phase_av_acc < -D8M_SANE_MAX)
+            phase_av_acc = 0;
+
+        phase_av = phase_av_acc >> 14;          /* phase_av is current output */
+        phase_av_acc -= phase_av;               /* phase_av_acc is filter memory */
+
+        /* This code first triggers when max exceeds noise by given factor.
+         * Once triggered, it continues for 0 <= window < WIN_LEN, ie
+         * WIN_LEN contiguous bits. On the last bit, the peak-finding
+         * routine is called to locate the data-block. Then, the values
+         * are all set back by 56 bits before resuming. This is because,
+         * for long messages, it is not possible to detect peaks in the
+         * last 56 locations without more look-ahead.
+         */
+        if (window || (max * 2 > phase_av * 3))
         {
-          Modes.stat.valid_preamble++;
-          mm.AC_flags = mm.error_bits = 0;
+            /* note which of 8 phases gives the greatest match */
+            max = best_phase = 0;
+            for (i = 0; i < D8M_NUM_PHASES; i++)
+                if (phase[i] > max) { best_phase = i; max = phase[i]; }
 
-          /* Set initial mm structure details
-           */
-          mm.timestamp_msg = mag->sample_timestamp + (position - D8M_LOOK_AHEAD) * 12 / 8;
+            /* on first bit, record start of match window and best phase */
+            if (window == 0)
+            {
+                win_start = sptr;
+                start_phase = best_phase;
+            }
 
-          /* compute message receive time as block-start-time + difference in the 12MHz clock
-           */
-          mm.sys_timestamp_msg = mag->sys_timestamp + receiveclock_ms_elapsed (mag->sample_timestamp, mm.timestamp_msg);
+            /* record match value and best phase in arrays
+             */
+            match_ar[window] = phase[start_phase];  /* use same phase consistently, even if not best */
+            phase_ar[window] = best_phase;          /* but record the best for later use */
 
-          Modes.stat.demodulated++;
+            /* save intermediate values 56 before end of match window
+             */
+            if (window == D8M_WIN_LEN - MODES_SHORT_MSG_BITS)
+            {
+                memcpy(backtrack_phase, phase, sizeof(phase));
+                backtrack_phase_av_acc = phase_av_acc;
+            }
 
-          /* Decode the received message
-           */
-          message_result = decode_mode_S_message (&mm, best_msg);
+            /* end of match window, now locate peaks and look for valid messages
+             */
+            if (++window == D8M_WIN_LEN)
+            {
+                int best_result = -1;
+                int msg_bytes, msg_type, position;
 
-          if (mm.addr && message_result >= 0)
-             modeS_user_message (&mm);
+                window = 0; /* reset trigger value */
+
+                pick_peak(match_ar, &short_msg_offset, &long_msg_offset);
+
+                /* Now we've located the match peak, decode the bits to look for
+                 * plausible message. We search twice, once around putative short-message
+                 * peak, then long-message peak.
+                 */
+                msg_bytes = MODES_SHORT_MSG_BYTES;
+                dptr = win_start + phase_ar[short_msg_offset] + (short_msg_offset - D8M_SEARCH_BACK) * D8M_NUM_PHASES;
+                position = dptr;
+
+                for (msg_type = 0; msg_type < 2; msg_type++)
+                {
+                    /* decode enough bits to search +- a few bits for message
+                     */
+                    for (i = 0; i < msg_bytes + D8M_SEARCH_BYTES; i++)
+                    {
+                        data_byte = 0;
+
+                        for (j = 0; j < 8; j++)
+                        {
+                            sum = dbuf[dptr - 1] + dbuf[dptr] + dbuf[dptr + 1];
+                            sum = (sum >> 31) & 0x1;                        /* sign gives data bit */
+                            data_byte = (data_byte << 1) | sum;
+                            dptr += D8M_NUM_PHASES;
+                        }
+                        msg[i] = ~data_byte; /* data was inverted */
+                    }
+
+                    /* Search for messages by shifting data one bit and re-testing
+                     */
+                    for (i = 0; i < D8M_SEARCH_WIDTH; i++)
+                    {
+                        message_result = modeS_message_score(msg, msg_bytes * 8);
+
+                        if (message_result > best_result)
+                        {
+                            memcpy(best_msg, msg, msg_bytes);   /* most plausible message so far */
+                            best_result = message_result;
+                            position = dptr - 64 + i * 8;        /* position recorded for MLAT */
+                        }
+                        shift_bytes(msg, msg_bytes + D8M_SEARCH_BYTES); /* shift by one bit */
+                    }
+
+                    msg_bytes = MODES_LONG_MSG_BYTES;
+                    dptr = win_start + phase_ar[long_msg_offset] + (long_msg_offset - D8M_SEARCH_BACK) * D8M_NUM_PHASES;
+                }
+
+                /* Decode the received message
+                 */
+                if (best_result >= 0)
+                {
+                    Modes.stat.valid_preamble++;
+                    mm.AC_flags = mm.error_bits = 0;
+
+                    /* Set initial mm structure details
+                     *
+                     * `mag->sample_timestamp` marks the start of the *new*
+                     * samples, i.e. `mag->data[mag->overlap]`. `position`
+                     * is an index relative to `m = mag->data` (index 0,
+                     * the old overlap tail -- see the correction above),
+                     * so it needs `mag->overlap` subtracted to be relative
+                     * to the new-data start that `sample_timestamp` marks.
+                     */
+                    mm.timestamp_msg = mag->sample_timestamp +
+                        (position - D8M_LOOK_AHEAD - (int)mag->overlap) * 12 / 8;
+
+                    /* compute message receive time as block-start-time + difference in the 12MHz clock
+                     */
+                    mm.sys_timestamp_msg = mag->sys_timestamp + receiveclock_ms_elapsed(mag->sample_timestamp, mm.timestamp_msg);
+
+                    Modes.stat.demodulated++;
+
+                    /* Decode the received message
+                     */
+                    message_result = decode_mode_S_message(&mm, best_msg);
+
+                    if (mm.addr && message_result >= 0)
+                        modeS_user_message(&mm);
+                }
+
+                /* now backtrack by 56 bits, as we may have missed peaks in this region
+                */
+                sptr -= (MODES_SHORT_MSG_BITS - 1) * D8M_NUM_PHASES;
+                eptr -= (MODES_SHORT_MSG_BITS - 1) * D8M_NUM_PHASES;
+                memcpy(phase, backtrack_phase, sizeof(phase));
+                phase_av_acc = backtrack_phase_av_acc;
+            }
         }
-
-        /* now backtrack by 56 bits, as we may have missed peaks in this region
-        */
-        sptr -= (MODES_SHORT_MSG_BITS-1) * D8M_NUM_PHASES;
-        eptr -= (MODES_SHORT_MSG_BITS-1) * D8M_NUM_PHASES;
-        memcpy (phase, backtrack_phase, sizeof(phase));
-        phase_av_acc = backtrack_phase_av_acc;
-      }
     }
-  }
 
-  /* Copy overlapped part of buffer from end to beginning of array
-   */
-  memcpy (d8m_dbuf + 0, d8m_dbuf + mlen, D8M_BUF_OVERLAP *  sizeof(int));
+    /* Copy overlapped part of buffer from end to beginning of array. `memmove`
+     * (not `memcpy`) is required here: when `mlen < D8M_BUF_OVERLAP` (can
+     * happen under `--infile` replay, e.g. a short/final chunk) the source
+     * and destination ranges overlap, which is undefined behaviour for
+     * `memcpy`. `memmove` handles that correctly and is identical to
+     * `memcpy` (no extra cost) in the normal live-capture case where the
+     * ranges don't overlap.
+     */
+    memmove(d8m_dbuf + 0, d8m_dbuf + mlen, D8M_BUF_OVERLAP * sizeof(int));
 
-  /* copy local variables back to static struct
-   */
-  d8m_phase_av_acc = phase_av_acc;
-  d8m_backtrack_phase_av_acc = backtrack_phase_av_acc;
-  d8m_window = window;
-  d8m_win_start = win_start - mlen;
-  d8m_start_phase = start_phase;
+    /* copy local variables back to static struct
+     */
+    d8m_phase_av_acc = phase_av_acc;
+    d8m_backtrack_phase_av_acc = backtrack_phase_av_acc;
+    d8m_window = window;
+    d8m_win_start = win_start - mlen;
+    d8m_start_phase = start_phase;
 
-  memcpy (d8m_phase, phase, sizeof(phase));
-  memcpy (d8m_backtrack_phase, backtrack_phase, sizeof(backtrack_phase));
-  memcpy (d8m_match_ar, match_ar, sizeof(match_ar));
-  memcpy (d8m_phase_ar, phase_ar, sizeof(phase_ar));
+    memcpy(d8m_phase, phase, sizeof(phase));
+    memcpy(d8m_backtrack_phase, backtrack_phase, sizeof(backtrack_phase));
+    memcpy(d8m_match_ar, match_ar, sizeof(match_ar));
+    memcpy(d8m_phase_ar, phase_ar, sizeof(phase_ar));
 }
 
 /*
  * Find maxima in the match array corresponding to short messages (56 bits)
  * and long messages (112 bits).
  */
-static void pick_peak (const int *match,            /* input array of D8M_WIN_LEN match values */
-                       int       *peak_short,       /* returned location of peak 56 */
-                       int       *peak_long)        /* returned location of peak 112 */
+static void pick_peak(const int* match,            /* input array of D8M_WIN_LEN match values */
+    int* peak_short,       /* returned location of peak 56 */
+    int* peak_long)        /* returned location of peak 112 */
 {
-  int i, match112;
-  int max0 = 0, max1 = 0;
+    int i, match112;
+    int max0 = 0, max1 = 0;
 
-  for (i = 0; i < D8M_WIN_LEN - MODES_SHORT_MSG_BITS; i++)
-  {
-    if (match[i] >= max0)
+    for (i = 0; i < D8M_WIN_LEN - MODES_SHORT_MSG_BITS; i++)
     {
-      max0 = match [i];
-      *peak_short = i;
-    }
+        if (match[i] >= max0)
+        {
+            max0 = match[i];
+            *peak_short = i;
+        }
 
-    /* synthesise 112-bit match by adding two 56-bit matches
-     */
-    match112 = match [i] + match [i + MODES_SHORT_MSG_BITS];
-    if (match112 >= max1)
-    {
-      max1 = match112;
-      *peak_long = i;
+        /* synthesise 112-bit match by adding two 56-bit matches
+         */
+        match112 = match[i] + match[i + MODES_SHORT_MSG_BITS];
+        if (match112 >= max1)
+        {
+            max1 = match112;
+            *peak_long = i;
+        }
     }
-  }
 }
 
 /*
  * 1-bit shift towards MSB[0] in an array of bytes of length len
  */
-static void shift_bytes (uint8_t *msg, int len)
+static void shift_bytes(uint8_t* msg, int len)
 {
-  int i;
+    int i;
 
-  for (i = 0; i < len - 1; i++)
-      msg[i] = (msg[i] << 1) | (msg[i+1] >> 7);
-  msg[i] <<= 1;
+    for (i = 0; i < len - 1; i++)
+        msg[i] = (msg[i] << 1) | (msg[i + 1] >> 7);
+    msg[i] <<= 1;
 }
