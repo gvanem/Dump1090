@@ -179,7 +179,7 @@ static void set_property (const char *what, const char *value)
   char buf [100];
 
   mg_snprintf (buf, sizeof(buf),
-               "{%m:%m,%m:%m"}",
+               "{%m:%m,%m:%m}",
                MG_ESC("event_type"), MG_ESC("set_property"),
                MG_ESC("property"),   MG_ESC(what),
                MG_ESC("value"),      MG_ESC(value));
@@ -193,7 +193,7 @@ static void get_property (const char *what)
   char buf [100];
 
   mg_snprintf (buf, sizeof(buf),
-               "{%m:%m,%m:%m"}",
+               "{%m:%m,%m:%m}",
                MG_ESC("event_type"), MG_ESC("get_property"),
                MG_ESC("property"),   MG_ESC(what));
 
