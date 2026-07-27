@@ -152,12 +152,29 @@ void demod_8000 (const mag_buf *mag)
   int             phase_av, max, best_phase;
   int             short_msg_offset = 0;
   int             long_msg_offset = 0;
-  u_int           sptr;
+  int             sptr;
   int             eptr, dptr;
   int            *dbuf;
   int             i, sum;
   int             message_result;
-  u_int           j, mlen = mag->valid_length;
+  int             j, mlen = (int) (mag->valid_length - mag->overlap);
+
+  /* CORRECTION (superseding an earlier, incorrect "fix"): I previously
+   * changed this to `mag->data + mag->overlap`, reasoning that `m` and
+   * `mlen` were mismatched after porting from the original's single
+   * `mag->length` field. That reasoning was wrong. Mutability's actual
+   * header (dump1090.h) documents `length` as "number of valid samples
+   * _after_ overlap" -- i.e. exactly the same quantity as our
+   * `valid_length - overlap` -- and the real, proven-working
+   * `demodulate8000()` still reads `m = mag->data` (index 0, the old
+   * overlap tail) for that many samples, with NO offset. So the
+   * original does read old-tail-then-partial-new-data each call, same
+   * as this codebase without the offset -- and it works fine, because
+   * demod_8000 keeps its own independent lookback (`d8m_dbuf` /
+   * `D8M_BUF_OVERLAP`) across calls, making the overall stream it
+   * builds internally contiguous regardless of this per-call offset.
+   * Reverted to match the real reference behaviour.
+   */
   const uint16_t *m = mag->data;
 
   /* local variables initialized from static storage
@@ -225,10 +242,27 @@ void demod_8000 (const mag_buf *mag)
        * |diff| sum computed with no carried-over state) staying flat
        * while phase_av wrapped through the full range of a 32-bit int --
        * this drift is real and severe, not a signal artifact.
+       *
+       * Resync to the true value instead of zeroing: zeroing discards
+       * the real window sum and leaves every later add/subtract this
+       * call referenced from a false baseline -- a compounding drift
+       * source in its own right. `phase[i]` is a sum over
+       * MODES_SHORT_MSG_BITS (56) samples spaced D8M_NUM_PHASES (8)
+       * apart, ending at the sample just added (`eptr - 1`, since `eptr`
+       * was already post-incremented above), so it can be recomputed
+       * exactly and cheaply -- this only runs on the rare overflow
+       * event, not every step.
        */
       if (phase[i] > D8M_SANE_MAX || phase[i] < -D8M_SANE_MAX)
       {
-        phase[i] = 0;
+        int resync_sum = 0;
+        int resync_pos = eptr - 1;
+        int resync_k;
+
+        for (resync_k = 0; resync_k < MODES_SHORT_MSG_BITS; resync_k++, resync_pos -= D8M_NUM_PHASES)
+            resync_sum += abs(dbuf[resync_pos]);
+
+        phase[i] = resync_sum;
         d8m_drift_resets++;
       }
 
@@ -356,8 +390,16 @@ void demod_8000 (const mag_buf *mag)
           mm.AC_flags = mm.error_bits = 0;
 
           /* Set initial mm structure details
+           *
+           * `mag->sample_timestamp` marks the start of the *new*
+           * samples, i.e. `mag->data[mag->overlap]`. `position`
+           * is an index relative to `m = mag->data` (index 0,
+           * the old overlap tail -- see the correction above),
+           * so it needs `mag->overlap` subtracted to be relative
+           * to the new-data start that `sample_timestamp` marks.
            */
-          mm.timestamp_msg = mag->sample_timestamp + (position - D8M_LOOK_AHEAD) * 12 / 8;
+          mm.timestamp_msg = mag->sample_timestamp +
+              (position - D8M_LOOK_AHEAD - (int) mag->overlap) * 12 / 8;
 
           /* compute message receive time as block-start-time + difference in the 12MHz clock
            */
@@ -383,9 +425,15 @@ void demod_8000 (const mag_buf *mag)
     }
   }
 
-  /* Copy overlapped part of buffer from end to beginning of array
+  /* Copy overlapped part of buffer from end to beginning of array. `memmove`
+   * (not `memcpy`) is required here: when `mlen < D8M_BUF_OVERLAP` (can
+   * happen under `--infile` replay, e.g. a short/final chunk) the source
+   * and destination ranges overlap, which is undefined behaviour for
+   * `memcpy`. `memmove` handles that correctly and is identical to
+   * `memcpy` (no extra cost) in the normal live-capture case where the
+   * ranges don't overlap.
    */
-  memcpy (d8m_dbuf + 0, d8m_dbuf + mlen, D8M_BUF_OVERLAP *  sizeof(int));
+  memmove (d8m_dbuf + 0, d8m_dbuf + mlen, D8M_BUF_OVERLAP *  sizeof(int));
 
   /* copy local variables back to static struct
    */
