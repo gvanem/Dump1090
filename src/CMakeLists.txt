@@ -53,6 +53,7 @@ set(SOURCES
     externals/RTLSDR/tuner_fc001x.c
     externals/RTLSDR/tuner_fc2580.c
     externals/RTLSDR/tuner_r82xx.c
+    externals/SDRconnect/sdrconnect.c
     externals/SDRplay/sdrplay.c
 )
 
