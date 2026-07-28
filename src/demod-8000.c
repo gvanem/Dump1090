@@ -389,6 +389,13 @@ void demod_8000 (const mag_buf *mag)
           Modes.stat.valid_preamble++;
           mm.AC_flags = mm.error_bits = 0;
 
+          /* `msglen`/`signal_len` used below for both the MLAT timestamp
+           * correction and the RSSI measurement further down -- computed
+           * once here so both stay consistent.
+           */
+          int msglen = modeS_message_len_by_type (best_msg[0] >> 3);
+          int signal_len = msglen * D8M_NUM_PHASES;
+
           /* Set initial mm structure details
            *
            * `mag->sample_timestamp` marks the start of the *new*
@@ -397,9 +404,22 @@ void demod_8000 (const mag_buf *mag)
            * the old overlap tail -- see the correction above),
            * so it needs `mag->overlap` subtracted to be relative
            * to the new-data start that `sample_timestamp` marks.
+           *
+           * MLAT FIX (same root cause as the RSSI fix further down,
+           * applied here by the same reasoning but NOT independently
+           * verified -- neither of us runs MLAT, so this hasn't been
+           * checked end-to-end against a real multilateration setup;
+           * flagging for anyone who does to confirm): live testing while
+           * fixing RSSI below showed `position` consistently marks the
+           * END of the decoded message, not the start (`dptr` walks
+           * forward through the full byte-extraction before the small
+           * `-64+i*8` adjustment, so it can't represent anything but a
+           * point near the end of that walk). MLAT timestamps should
+           * mark the message's start, so the same `- signal_len`
+           * correction used for the RSSI window is applied here too.
            */
           mm.timestamp_msg = mag->sample_timestamp +
-              (position - D8M_LOOK_AHEAD - (int) mag->overlap) * 12 / 8;
+              (position - D8M_LOOK_AHEAD - signal_len - (int) mag->overlap) * 12 / 8;
 
           /* compute message receive time as block-start-time + difference in the 12MHz clock
            */
@@ -410,6 +430,59 @@ void demod_8000 (const mag_buf *mag)
           /* Decode the received message
            */
           message_result = decode_mode_S_message (&mm, best_msg);
+
+          if (message_result >= 0)
+          {
+            /* Measure signal power for RSSI.
+             *
+             * Adapted from demod-2400.c's pattern, but NOT a direct port --
+             * several things differ at 8 MS/s / in this function's own
+             * coordinate system:
+             *
+             * 1) `position` (not `j`, which demod-2400.c uses but which
+             *    isn't meaningful here) tracks this message's location,
+             *    in the same `dbuf`-relative coordinate system already
+             *    used for the MLAT timestamp above.
+             * 2) `signal_len` uses D8M_NUM_PHASES (8 samples/bit at 8 MS/s)
+             *    directly -- demod-2400.c's `*12/5` ratio is specific to
+             *    its own 2.4 MS/s sampling and doesn't apply here.
+             * 3) Normalizing by `65535.0 * 65535.0` (squared, matching
+             *    `_mag * _mag` being a squared magnitude), not a single
+             *    `65535.0` -- the single-division version overstates
+             *    signal power by a factor of 65535.
+             * 4) `position - D8M_LOOK_AHEAD` alone maps to the *end* of
+             *    the message, not the start (confirmed by directly
+             *    inspecting the raw magnitude data around candidate
+             *    windows during testing) -- the extra `- signal_len`
+             *    steps back to the message's actual start.
+             *
+             * Unlike `dbuf` (which has D8M_LOOK_BACK/D8M_LOOK_AHEAD margin
+             * deliberately built in), `m` is the raw per-call buffer with
+             * no look-back headroom -- an unchecked read here can run
+             * outside its valid range. Bounds-checked below: if the
+             * mapped range falls outside [0, mlen), skip the measurement
+             * for this message rather than read out of bounds. sig_level
+             * stays at its memset default (0), and aircraft.c already
+             * only records a signal sample when sig_level > 0, so this
+             * message simply won't contribute an RSSI sample this time.
+             */
+            int m_start = position - D8M_LOOK_AHEAD - signal_len;
+
+            if (m_start >= 0 && m_start + signal_len <= mlen)
+            {
+              double   signal_power;
+              uint64_t scaled_signal_power = 0;
+              int      k;
+
+              for (k = 0; k < signal_len; k++)
+              {
+                uint32_t _mag = m [m_start + k];
+                scaled_signal_power += _mag * _mag;
+              }
+              signal_power = scaled_signal_power / 65535.0 / 65535.0;
+              mm.sig_level = signal_power / signal_len;
+            }
+          }
 
           if (mm.addr && message_result >= 0)
              modeS_user_message (&mm);
