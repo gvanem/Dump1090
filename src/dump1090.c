@@ -3481,8 +3481,10 @@ static void show_help (const char *fmt, ...)
             "                        P = Log a single plane at a time with details (ref `LOG_FOLLOW()`).\n"
             "                        r = Log RAW-IN / SBS-IN details.\n"
             "                        R = Log more RAW-IN / SBS-IN details.\n"
-            "                        w = Log WebSocket debug for SDRConnect.\n"
-            "  --device <N / name>   Select RTLSDR/SDRPlay device (default: 0; first found).\n"
+            "                        w = Log WebSocket debug for SDRConnect.\n",
+            Modes.who_am_I, Modes.cfg_file);
+
+    printf ("  --device <N / name>   Select RTLSDR/SDRPlay device (default: 0; first found).\n"
             "                        e.g. `--device 1'               - select on RTLSDR index.\n"
             "                             `--device RTL2838-silver'  - select on RTLSDR name.\n"
             "                             `--device sdrplay'         - select first SDRPlay device found.\n"
@@ -3508,7 +3510,7 @@ static void show_help (const char *fmt, ...)
             "  --update              Update missing or old \"*.csv\" files and exit.\n"
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
-            Modes.who_am_I, Modes.cfg_file, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_WEBSOCK,
+            MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_WEBSOCK,
             GNS_HULC_DEFAULT_COMPORT, GNS_HULC_DEFAULT_COMPORT);
 
     printf ("  Shows only matching ICAO-addresses;     `dump1090.exe --only-addr 4A*`.\n"
