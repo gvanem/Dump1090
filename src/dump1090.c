@@ -1012,11 +1012,14 @@ static bool modeS_init (void)
   if (test_contains(Modes.tests, "cpr"))
      cpr_do_tests();
 
-  if (test_contains (Modes.tests, "console"))
+  if (test_contains(Modes.tests, "console"))
      Modes.interactive = true;    /* Will force `interactive_init()` and it's tests to be called */
 
-  if (test_contains (Modes.tests, "me"))
+  if (test_contains(Modes.tests, "me"))
      test_print_unrecognized_ME();
+
+  if (test_contains(Modes.tests, "ws"))
+     sdrconnect_tests();
 
   if (!rc)
      return (false);
@@ -3721,6 +3724,13 @@ void modeS_signal_handler (int sig)
   {
      /* Nothing to do here */
   }
+  else if (Modes.websock_in)
+  {
+    mg_call (Modes.websock_in, MG_EV_CLOSE, NULL);
+    sdrconnect_exit();
+    Modes.websock_in = NULL;
+    Sleep (100);
+  }
 }
 
 static const char *format_value (double val)
@@ -3872,11 +3882,6 @@ static void modeS_cleanup (void)
   {
     free (Modes.rtltcp.gains);
     Modes.rtl_tcp_in = NULL;
-  }
-  else if (Modes.websock_in)
-  {
-    sdrconnect_exit();
-    Modes.websock_in = NULL;
   }
   else if (Modes.sdrplay.device)
   {
@@ -4188,6 +4193,9 @@ static void set_debug_bits (const char *flags)
            break;
       case 'w':
            Modes.debug |= DEBUG_WEBSOCKET;
+           break;
+      case 'W':
+           Modes.debug |= DEBUG_WEBSOCKET2;
            break;
       default:
            p = buf;
