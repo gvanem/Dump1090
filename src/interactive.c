@@ -695,7 +695,7 @@ static int interactive_phys_stats (const char *silent)
   uint64_t        good_CRC = Modes.stat.CRC_good + Modes.stat.CRC_fixed;
   uint64_t        bad_CRC  = Modes.stat.CRC_bad;
   const char     *dev = Modes.rtl_tcp_in ? net_handler_url (MODES_NET_SERVICE_RTL_TCP) :
-                        Modes.websock_in ? Modes.sdrconnect.name :
+                        Modes.websock_in ? net_handler_url (MODES_NET_SERVICE_WEBSOCK) :
                                            Modes.selected_dev;
 
   if (Modes.gain_auto)
