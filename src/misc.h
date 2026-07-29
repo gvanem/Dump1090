@@ -73,26 +73,27 @@
 /**
  * Bits for `Modes.debug`:
  */
-#define DEBUG_BADCRC     0x00001
-#define DEBUG_GOODCRC    0x00002
-#define DEBUG_DEMOD      0x00004
-#define DEBUG_DEMODERR   0x00008
-#define DEBUG_GENERAL    0x00010
-#define DEBUG_GENERAL2   0x00020
-#define DEBUG_MONGOOSE   0x00040
-#define DEBUG_MONGOOSE2  0x00080
-#define DEBUG_NOPREAMBLE 0x00100
-#define DEBUG_JSCRIPT    0x00200
-#define DEBUG_NET        0x00400
-#define DEBUG_NET2       0x00800
-#define DEBUG_ADSB_LOL   0x01000
-#define DEBUG_CFG_FILE   0x02000
-#define DEBUG_PLANE      0x04000
-#define DEBUG_RAW_SBS1   0x08000
-#define DEBUG_RAW_SBS2   0x10000
-#define DEBUG_GNS_HULC   0x20000
-#define DEBUG_GNS_HULC2  0x40000
-#define DEBUG_WEBSOCKET  0x80000
+#define DEBUG_BADCRC     0x000001
+#define DEBUG_GOODCRC    0x000002
+#define DEBUG_DEMOD      0x000004
+#define DEBUG_DEMODERR   0x000008
+#define DEBUG_GENERAL    0x000010
+#define DEBUG_GENERAL2   0x000020
+#define DEBUG_MONGOOSE   0x000040
+#define DEBUG_MONGOOSE2  0x000080
+#define DEBUG_NOPREAMBLE 0x000100
+#define DEBUG_JSCRIPT    0x000200
+#define DEBUG_NET        0x000400
+#define DEBUG_NET2       0x000800
+#define DEBUG_ADSB_LOL   0x001000
+#define DEBUG_CFG_FILE   0x002000
+#define DEBUG_PLANE      0x004000
+#define DEBUG_RAW_SBS1   0x008000
+#define DEBUG_RAW_SBS2   0x010000
+#define DEBUG_GNS_HULC   0x020000
+#define DEBUG_GNS_HULC2  0x040000
+#define DEBUG_WEBSOCKET  0x080000
+#define DEBUG_WEBSOCKET2 0x100000
 
 /**
  * \def DEBUG(bit, fmt, ...)
@@ -254,6 +255,18 @@ typedef struct HTTP_statistics {
       } HTTP_statistics;
 
 /**
+ * Statistics for WebSocket / SDRConnect server.
+ */
+typedef struct WebSock_statistics {
+        uint64_t  ping;
+        uint64_t  pong;
+        uint64_t  text;
+        uint64_t  binary;
+        uint64_t  samples_recv;
+
+      } WS_statistics;
+
+/**
  * Keep all collected statistics in this structure.
  * \todo Move to a new files `stats.h` + `stats.c`
  */
@@ -266,7 +279,6 @@ typedef struct statistics {
         uint64_t        FIFO_full;
         uint64_t        samples_processed;
         uint64_t        samples_dropped;
-        uint64_t        samples_recv_sdrconnect; /**< Samples from SDRConnect.*/
         uint64_t        samples_recv_rtltcp;     /**< Samples from RTL_TCP. Equals `samples_processed` if nothing dropped by FIFO */
         uint64_t        cmd_sent_rtltcp;         /**< Commands sent to RTL_TCP */
         uint64_t        valid_preamble;
@@ -338,6 +350,10 @@ typedef struct statistics {
         /* `HTTP_stat[0]` is for HTTP IPv4 and `HTTP_stat[1]` is for IPv6
          */
         HTTP_statistics HTTP_stat [2];
+
+        /* Statistics for WebSocket / SDRConnect server
+         */
+        WS_statistics websock;
 
         /* Network statistics for receiving SBS and RAW messages:
          */
