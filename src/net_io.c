@@ -132,6 +132,7 @@ static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str);
 static bool         client_is_extern (const mg_addr *addr);
 static bool         client_handler (mg_connection *c, intptr_t service, int ev);
 static void         http_logf (const mg_connection *c, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
+static void         hex_dump (const uint8_t *buf, size_t len, unsigned line, const char *what);
 const char         *mg_unpack (const char *path, size_t *size, time_t *mtime);
 
 /**
@@ -172,13 +173,14 @@ static void rtl_tcp_no_stats (intptr_t service);
 #define IS_WEBSOCKET_EVENT(ev)   ((ev) == MG_EV_WS_OPEN || (ev) == MG_EV_WS_MSG || (ev) == MG_EV_WS_CTL)
 
 /**
- * \def HEX_DUMP(data, len)
- * Do a hex-dump of network data if option `--debug M` was used.
+ * \def HEX_DUMP(data, len, what)
+ * Do a hex-dump of WebSocket data if option `--debug N` was used.
  */
-#define HEX_DUMP(data, len)                  \
-        do {                                 \
-          if (Modes.debug & DEBUG_MONGOOSE2) \
-             mg_hexdump (data, len);         \
+#define HEX_DUMP_WS(buf, len, what)           \
+        do {                                  \
+          if (Modes.debug & DEBUG_NET2)       \
+             hex_dump ((const uint8_t*)(buf), \
+                       len, __LINE__, what);  \
         } while (0)
 
 /**
@@ -303,16 +305,23 @@ static mg_connection *connection_setup (intptr_t service, bool listen, bool send
                       modeS_net_services [service].port);
     modeS_net_services [service].url = url;
 
-    DEBUG (DEBUG_NET, "Connecting to '%s' (service \"%s\").\n",
-           url, net_handler_descr(service));
-
     if (timeout > 0)
        net_timer_add (service, timeout, MG_TIMER_ONCE, net_timeout);
 
     if (service == MODES_NET_SERVICE_WEBSOCK)
-         c = mg_ws_connect (&Modes.mgr, modeS_net_services[MODES_NET_SERVICE_WEBSOCK].url, net_ev_handler,
-                            (void*)service, NULL);
-    else c = mg_connect (&Modes.mgr, url, net_ev_handler, (void*)service);
+    {
+      DEBUG (DEBUG_WEBSOCKET, "Connecting to '%s' (service \"%s\").\n",
+             url, net_handler_descr(service));
+      c = mg_ws_connect (&Modes.mgr, modeS_net_services[MODES_NET_SERVICE_WEBSOCK].url,
+                         net_ev_handler, (void*)service, NULL);
+      Modes.stat.HTTP_stat[0].HTTP_websockets++;
+    }
+    else
+    {
+      DEBUG (DEBUG_NET, "Connecting to '%s' (service \"%s\").\n",
+             url, net_handler_descr(service));
+      c = mg_connect (&Modes.mgr, url, net_ev_handler, (void*)service);
+    }
   }
 
   if (Modes.https_enable)
@@ -763,45 +772,38 @@ static int net_ev_handler_http (mg_connection *c, mg_http_message *hm, mg_http_u
 }
 
 /**
- * \todo
- * The event handler for WebSocket events.
+ * The event handler for WebSocket / SDRConnect events.
  */
-static int net_ev_handler_ws (mg_connection *c, const mg_ws_message *ws, int ev)
+static int net_ev_handler_ws (mg_connection *c, const mg_ws_message *ws, int ev, INT_PTR service)
 {
   ip_addr_port addr_buf;
   const char  *remote = net_str_addr_port (&c->rem, addr_buf, sizeof(addr_buf));
-  int          s_idx = (c->loc.is_ip6 ? 1 : 0);
 
   DEBUG (DEBUG_NET2, "%s from %s has %zd bytes for us. is_websocket: %d.\n",
          net_ev_name(ev), remote, c->recv.len, c->is_websocket);
 
-  if (!c->is_websocket)
-     return (0);
-
   if (ev == MG_EV_WS_OPEN)
   {
-    DEBUG (DEBUG_MONGOOSE2, "MG_EV_WS_OPEN from conn-id: %lu:\n", c->id);
-    HEX_DUMP (ws->data.buf, ws->data.len);
+    HEX_DUMP_WS (ws->data.buf, ws->data.len, ", MG_EV_WS_OPEN");
   }
   else if (ev == MG_EV_WS_MSG)
   {
-    DEBUG (DEBUG_MONGOOSE2, "MG_EV_WS_MSG from conn-id: %lu:\n", c->id);
-    HEX_DUMP (ws->data.buf, ws->data.len);
-
-    /* Pass on to higher-level WebSocket handler
-     */
-    if (c->is_websocket && net_ws_handler)
-      (*net_ws_handler) (MG_EV_WS_MSG, ws);
+    HEX_DUMP_WS (ws->data.buf, ws->data.len, ", MG_EV_WS_MSG");
   }
   else if (ev == MG_EV_WS_CTL)
   {
-    DEBUG (DEBUG_MONGOOSE, "MG_EV_WS_CTL from conn-id: %lu:\n", c->id);
-    HEX_DUMP (ws->data.buf, ws->data.len);
-    Modes.stat.HTTP_stat [s_idx].HTTP_websockets++;
-
-    if (c->is_websocket && net_ws_handler)
-      (*net_ws_handler) (MG_EV_WS_CTL, ws);
+    HEX_DUMP_WS (ws->data.buf, ws->data.len, ", MG_EV_WS_CTL");
   }
+  else
+  {
+    LOG_STDERR ("Unknown WebSock event %d for service %s.\n", ev, net_handler_descr(service));
+    Modes.exit = true;
+  }
+
+  /* Pass on to higher-level WebSocket handler
+   */
+  if (c->is_websocket && net_ws_handler)
+    (*net_ws_handler) (ev, ws);
   return (1);
 }
 
@@ -1303,7 +1305,7 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
 
   if (ev == MG_EV_CLOSE)
   {
-    client_handler (c, service, ev); //\todo move to close_handler() */
+    client_handler (c, service, ev); /**<\todo move to close_handler() */
 
     conn = connection_get (c, service, false);
     net_conn_free (conn, service);
@@ -1328,7 +1330,8 @@ static void net_ev_handler (mg_connection *c, int ev, void *ev_data)
     if (IS_WEBSOCKET_EVENT(ev))
     {
       ws = ev_data;
-      status = net_ev_handler_ws (c, ws, ev);
+      assert (c->is_websocket);
+      net_ev_handler_ws (c, ws, ev, service);
     }
     else if (ev == MG_EV_HTTP_MSG)
     {
@@ -2002,7 +2005,10 @@ static bool client_handler (mg_connection *c, intptr_t service, int ev)
 
   if (ev == MG_EV_CLOSE)
   {
-    if (client_is_extern(addr))
+    if (service == MODES_NET_SERVICE_WEBSOCK)
+       LOG_FILEONLY ("Closing WebSock connection.\n");
+
+    else if (client_is_extern(addr))
     {
       LOG_FILEONLY2 ("Closing connection: %s (conn-id: %lu, service: \"%s\").\n",
                      net_str_addr(addr, ip_buf, sizeof(ip_buf)), c->id, net_handler_descr(service));
@@ -2520,7 +2526,7 @@ bool net_stat_common (intptr_t service)
     LOG_STDOUT ("    nothing.\n");
     return (false);
   }
-  LOG_STDOUT ("  %8llu bytes recv.\n", Modes.stat.bytes_recv [service]);
+  LOG_STDOUT ("    %8llu bytes recv.\n", Modes.stat.bytes_recv [service]);
   return (true);
 }
 
@@ -3357,8 +3363,9 @@ bool net_init (void)
    */
   if (modeS_net_services [MODES_NET_SERVICE_WEBSOCK].host[0])
   {
+    strcpy (modeS_net_services [MODES_NET_SERVICE_WEBSOCK].protocol, "ws");
     if (!connection_setup_active(MODES_NET_SERVICE_WEBSOCK, &Modes.websock_in))
-        return (false);
+       return (false);
   }
 
   if (Modes.net_active)
@@ -3511,6 +3518,63 @@ void net_poll (void)
     Modes.exit = true;
   }
   flush_net_reverse();
+}
+
+/**
+ * Use this local hex-dump function; not `mg_hexdump()`.
+ */
+static void hex_dump (const uint8_t *buf, size_t len, unsigned line, const char *what)
+{
+  static char hex_digits[] = "0123456789ABCDEF";
+  size_t i, idx, count = 0;
+  char   lbuf [200];
+  int    lbuf_idx;
+
+  EnterCriticalSection (&Modes.print_mutex);
+
+  LOG_STDOUT ("net_io.c(%u): len: %zd%s\n", line, len, what ? what : "");
+
+  for (idx = 0; len > 0; len -= count)
+  {
+    count = (len > 16) ? 16 : len;
+    lbuf_idx = snprintf (lbuf, sizeof(lbuf), "%4.4X  ", (int)idx);
+
+    for (i = 0; i < count; i++)
+    {
+      lbuf [lbuf_idx++] = hex_digits [buf[i] >> 4];
+      lbuf [lbuf_idx++] = hex_digits [buf[i] & 15];
+      lbuf [lbuf_idx++] = ' ';
+    }
+    for ( ; i < 16; i++)
+    {
+      lbuf [lbuf_idx++] = ' ';
+      lbuf [lbuf_idx++] = ' ';
+      lbuf [lbuf_idx++] = ' ';
+    }
+    lbuf [lbuf_idx++] = '|';
+
+    for (i = 0; i < count; i++)
+    {
+      if (buf[i] < ' ' || buf[i] >= 0x7F)
+           lbuf [lbuf_idx++] = '.';
+      else lbuf [lbuf_idx++] = buf [i];
+    }
+
+    for ( ; i < 16; i++)
+        lbuf [lbuf_idx++] = ' ';
+
+    lbuf [lbuf_idx++] = '|';
+    lbuf [lbuf_idx++] = '\0';
+
+    LOG_STDOUT ("!%s\n", lbuf);
+
+    buf += count;
+    idx += count;
+  }
+
+  LOG_STDOUT ("! \n");
+
+  LeaveCriticalSection (&Modes.print_mutex);
 }
 
 /**
