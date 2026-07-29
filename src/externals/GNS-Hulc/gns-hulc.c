@@ -907,7 +907,7 @@ static void pkt_free (void)
 /**
  * Return the name of a state-function. Handy for tracing.
  */
-const char *state_name (state_func f)
+static const char *state_name (state_func f)
 {
   return (f == state_get_sync ? "state_get_sync" :
           f == state_put_ch   ? "state_put_ch  " :
