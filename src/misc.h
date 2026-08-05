@@ -263,7 +263,6 @@ typedef struct WebSock_statistics {
         uint64_t  text;
         uint64_t  binary;
         uint64_t  samples_recv;
-
       } WS_statistics;
 
 /**
