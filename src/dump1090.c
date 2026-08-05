@@ -3484,7 +3484,8 @@ static void show_help (const char *fmt, ...)
             "                        P = Log a single plane at a time with details (ref `LOG_FOLLOW()`).\n"
             "                        r = Log RAW-IN / SBS-IN details.\n"
             "                        R = Log more RAW-IN / SBS-IN details.\n"
-            "                        w = Log WebSocket debug for SDRConnect.\n",
+            "                        w = Log WebSocket debug for SDRConnect.\n"
+            "                        W = More WebSocket debug than flag `w'.\n",
             Modes.who_am_I, Modes.cfg_file);
 
     printf ("  --device <N / name>   Select RTLSDR/SDRPlay device (default: 0; first found).\n"
@@ -4195,7 +4196,7 @@ static void set_debug_bits (const char *flags)
            Modes.debug |= DEBUG_WEBSOCKET;
            break;
       case 'W':
-           Modes.debug |= DEBUG_WEBSOCKET2;
+           Modes.debug |= (DEBUG_WEBSOCKET | DEBUG_WEBSOCKET2);
            break;
       default:
            p = buf;
