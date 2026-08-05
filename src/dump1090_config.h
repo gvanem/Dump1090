@@ -7,8 +7,8 @@
  */
 #pragma once
 
-#define VER_MAJOR 0
-#define VER_MINOR 5
+#define VER_MAJOR 1
+#define VER_MINOR 0
 #define VER_MICRO 0
 
 /**
