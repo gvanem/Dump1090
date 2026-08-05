@@ -163,20 +163,20 @@ static void rtl_tcp_no_stats (intptr_t service);
  * `MODES_NET_SERVICE_WEBSOCK` is a service that starts out as `HTTP4`.
  * But mongoose.c hides those details. And it's not important.
  */
-#define HTTP_SERVICE(s) (s == MODES_NET_SERVICE_HTTP4 || s == MODES_NET_SERVICE_HTTP6)
+#define HTTP_SERVICE(s)  (s == MODES_NET_SERVICE_HTTP4 || s == MODES_NET_SERVICE_HTTP6)
 
 /**
  * \def IS_WEBSOCKET_EVENT(ev)
  * Return true if event is a Websocket event.
  * Could be buried inside a `MODES_NET_SERVICE_HTTPx` message.
  */
-#define IS_WEBSOCKET_EVENT(ev)   ((ev) == MG_EV_WS_OPEN || (ev) == MG_EV_WS_MSG || (ev) == MG_EV_WS_CTL)
+#define IS_WEBSOCKET_EVENT(ev)  ((ev) == MG_EV_WS_OPEN || (ev) == MG_EV_WS_MSG || (ev) == MG_EV_WS_CTL)
 
 /**
  * \def HEX_DUMP(data, len, what)
- * Do a hex-dump of WebSocket data if option `--debug N` was used.
+ * Do a hex-dump of network data if option `--debug N` was used.
  */
-#define HEX_DUMP_WS(buf, len, what)           \
+#define HEX_DUMP(buf, len, what)              \
         do {                                  \
           if (Modes.debug & DEBUG_NET2)       \
              hex_dump ((const uint8_t*)(buf), \
@@ -741,7 +741,7 @@ static int net_ev_handler_http (mg_connection *c, mg_http_message *hm, mg_http_u
 
     cli->HTTP_bytes_sent += resp_size;
 
-    DEBUG (DEBUG_NET, "Feeding conn-id %lu with outline-data:\n%.200s\n", c->id, data);
+    DEBUG (DEBUG_NET2, "Feeding conn-id %lu with outline-data:\n%.200s\n", c->id, data);
 
     mg_http_reply (c, 200, CORS_HEADER MODES_CONTENT_TYPE_JSON "\r\n", data);
     free (data);
@@ -783,17 +783,14 @@ static int net_ev_handler_ws (mg_connection *c, const mg_ws_message *ws, int ev,
          net_ev_name(ev), remote, c->recv.len, c->is_websocket);
 
   if (ev == MG_EV_WS_OPEN)
-  {
-    HEX_DUMP_WS (ws->data.buf, ws->data.len, ", MG_EV_WS_OPEN");
-  }
+     HEX_DUMP (ws->data.buf, ws->data.len, ", MG_EV_WS_OPEN");
+
   else if (ev == MG_EV_WS_MSG)
-  {
-    HEX_DUMP_WS (ws->data.buf, ws->data.len, ", MG_EV_WS_MSG");
-  }
+    HEX_DUMP (ws->data.buf, ws->data.len, ", MG_EV_WS_MSG");
+
   else if (ev == MG_EV_WS_CTL)
-  {
-    HEX_DUMP_WS (ws->data.buf, ws->data.len, ", MG_EV_WS_CTL");
-  }
+    HEX_DUMP (ws->data.buf, ws->data.len, ", MG_EV_WS_CTL");
+
   else
   {
     LOG_STDERR ("Unknown WebSock event %d for service %s.\n", ev, net_handler_descr(service));
@@ -848,7 +845,10 @@ static bool net_timer_del (intptr_t service)
 
   if (t)
   {
-    DEBUG (DEBUG_NET, "Stopping timer for %s (%s)\n", net_handler_descr(service), net_handler_url(service));
+    if (service == MODES_NET_SERVICE_WEBSOCK)
+         DEBUG (DEBUG_WEBSOCKET, "Stopping timer for %s (%s).\n", net_handler_descr(service), net_handler_url(service));
+    else DEBUG (DEBUG_NET, "Stopping timer for %s (%s)\n", net_handler_descr(service), net_handler_url(service));
+
     mg_timer_free (&Modes.mgr.timers, t);
     modeS_net_services [service].timer = NULL;
     free (t);
@@ -2177,6 +2177,11 @@ bool net_set_host_port (const char *host_port, net_service *serv, uint16_t def_p
   serv->is_ip6     = (is_ip6 == 1);
   serv->is_ws      = (is_ws == true);
   DEBUG (DEBUG_NET, "is_ip6: %d, is_ws: %d, host: %s, port: %u.\n", is_ip6, is_ws, serv->host, serv->port);
+
+  /* Warn here; it will fail in `mg_ws_connect()` later.
+   */
+  if (is_ip6 == 1 && is_ws)
+     LOG_STDERR ("SDRConnect and WebSocket does not support IPv6.\n");
   return (true);
 }
 
