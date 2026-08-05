@@ -39,6 +39,10 @@ testfiles/modes1.bin.png
 waterfall/
 src/build
 
+# Ignore built release binaries
+/dump1090.exe
+/setup.exe
+
 # Rust build artifacts for setup wizard
 tools/setupwiz/target
 
