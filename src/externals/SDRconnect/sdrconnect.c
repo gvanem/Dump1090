@@ -130,22 +130,6 @@ static void text_handler (const mg_ws_message *ws)
 }
 
 /**
- * To replace `strncpy()` which does not always 0-terminate.
- * Copies maximum `dest_size - 1` characters into `dest`.
- * We do not care for any return value.
- */
-static void json_strlcpy (char *dest, const char *src, size_t dest_size)
-{
-  assert (dest_size > 0);
-  while (*src && dest_size > 1)
-  {
-    *dest++ = *src++;
-    dest_size--;
-  }
-  *dest = '\0';  /* always 0-terminate */
-}
-
-/**
  * Since floating-point JSON-values contains `,`.
  * Convert to `.` and return a `double`.
  */
@@ -153,7 +137,7 @@ static double json_strtof (const char *val)
 {
   char copy [MAX_VAL_LEN], *p;
 
-  json_strlcpy (copy, val, sizeof(copy));
+  str_lcpy (copy, val, sizeof(copy));
   p = strchr (copy, ',');
   if (p)
      *p = '.';
@@ -200,7 +184,7 @@ static bool state_api_version (const char *key, const char *val)
 {
   if (!stricmp(key, "value"))
   {
-    json_strlcpy (g_data.api_version, val, sizeof(g_data.api_version));
+    str_lcpy (g_data.api_version, val, sizeof(g_data.api_version));
     TRACE ("g_data.api_version:   '%s'\n", g_data.api_version);
     return (true);
   }
@@ -211,7 +195,7 @@ static bool state_active_device (const char *key, const char *val)
 {
   if (!stricmp(key, "value"))
   {
-    json_strlcpy (g_data.active_device, val, sizeof(g_data.active_device));
+    str_lcpy (g_data.active_device, val, sizeof(g_data.active_device));
     TRACE ("g_data.active_device: '%s'\n", g_data.active_device);
     return (true);
   }
@@ -222,7 +206,7 @@ static bool state_valid_devices (const char *key, const char *val)
 {
   if (!stricmp(key, "value"))
   {
-    json_strlcpy (g_data.valid_devices, val, sizeof(g_data.valid_devices));
+    str_lcpy (g_data.valid_devices, val, sizeof(g_data.valid_devices));
     TRACE ("g_data.valid_devices: '%s'\n", g_data.valid_devices);
     return (true);
   }
@@ -233,7 +217,7 @@ static bool state_active_antenna (const char *key, const char *val)
 {
   if (!stricmp(key, "value"))
   {
-    json_strlcpy (g_data.active_antenna, val, sizeof(g_data.active_antenna));
+    str_lcpy (g_data.active_antenna, val, sizeof(g_data.active_antenna));
     TRACE ("g_data.active_antenna: '%s'\n", g_data.active_antenna);
     return (true);
   }
@@ -316,7 +300,7 @@ static void json_parse (mg_str json)
 
   g_data.state = state_normal;
 
-  /* Iterate over elems
+  /* Iterate over elements
    */
   while ((ofs = mg_json_next(sub, ofs, &key, &val)) > 0)
   {
@@ -328,8 +312,8 @@ static void json_parse (mg_str json)
     assert (key.len - 2 < sizeof(_key));
     assert (val.len - 2 < sizeof(_val));
 
-    json_strlcpy (_key, &key.buf[1], key.len - 1);
-    json_strlcpy (_val, &val.buf[1], val.len - 1);
+    str_lcpy (_key, &key.buf[1], key.len - 1);
+    str_lcpy (_val, &val.buf[1], val.len - 1);
 
     /* Add values to the `g_data` structure
      */

@@ -812,6 +812,22 @@ char *str_sep (char **stringp, const char *delim)
 }
 
 /**
+ * To replace `strncpy()` which does not always 0-terminate.
+ * Copies maximum `dest_size - 1` characters into `dest`.
+ * We do not care for any return value.
+ */
+void str_lcpy (char *dest, const char *src, size_t dest_size)
+{
+  assert (dest_size > 0);
+  while (*src && dest_size > 1)
+  {
+    *dest++ = *src++;
+    dest_size--;
+  }
+  *dest = '\0';  /* always 0-terminate */
+}
+
+/**
  * Strip drive-letter, directory and suffix from a filename.
  */
 char *basename (const char *fname)

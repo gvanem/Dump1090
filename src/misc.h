@@ -886,6 +886,7 @@ char       *str_trim (char *s);
 char       *str_join (char *const *array, const char *sep);
 char       *str_tokenize (char *ptr, const char *sep, char **end);
 char       *str_sep (char **stringp, const char *delim);
+void        str_lcpy (char *dest, const char *src, size_t dest_size);
 char       *basename (const char *fname);
 char       *dirname (const char *fname);
 char       *slashify (char *fname);
