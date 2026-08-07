@@ -131,7 +131,6 @@ static reverse_rec *net_reverse_add (const char *ip_str, const char *ptr_name, t
 static reverse_rec *net_reverse_resolve (const mg_addr *a, const char *ip_str);
 static bool         client_is_extern (const mg_addr *addr);
 static bool         client_handler (mg_connection *c, intptr_t service, int ev);
-static void         http_logf (const mg_connection *c, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
 static void         hex_dump (const uint8_t *buf, size_t len, unsigned line, const char *what);
 const char         *mg_unpack (const char *path, size_t *size, time_t *mtime);
 
@@ -1070,22 +1069,19 @@ static bool http_log_ignore (const char *addr)
  * Similar to Apache Access log-lines.
  * \ref https://www.manageengine.com/products/eventlog/logging-guide/apache-logging.html
  */
-static void http_logf (const mg_connection *c, const char *fmt, ...)
+static void http_logf (const connection *conn, const char *fmt, ...)
 {
-  char       buf [1000];
-  char      *p = buf;
-  char      *end = p + sizeof(buf) - 1;
-  ip_address ip_buf;
-  time_t     now;
-  va_list    args;
+  char    buf [1000];
+  char   *p = buf;
+  char   *end = p + sizeof(buf) - 1;
+  time_t  now;
+  va_list args;
 
-  net_str_addr (&c->rem, ip_buf, sizeof(ip_buf));
-
-  if (http_log_ignore(ip_buf))
+  if (http_log_ignore(conn->rem_buf))
      return;
 
   now = time (NULL);
-  p += snprintf (p, end - p, "%-16s ", ip_buf);
+  p += snprintf (p, end - p, "%-16s ", conn->rem_buf);
   p += strftime (p, end - p, "[%d/%b/%Y:%X]: ", localtime(&now));
 
   va_start (args, fmt);
@@ -1111,14 +1107,15 @@ static void http_log_close (void)
 static void http_log_cli (INT_PTR service, mg_connection *c, mg_http_message *hm,
                           int status, size_t sent_old)
 {
-  mg_str  UA_none = { "", 0 };
-  mg_str *UA = mg_http_get_header (hm, "User-Agent");
-  size_t  sent_now = connection_get (c, service, false) -> HTTP_bytes_sent;
+  mg_str            UA_none = { "", 0 };
+  mg_str           *UA = mg_http_get_header (hm, "User-Agent");
+  const connection *conn = connection_get (c, service, false);
+  size_t            sent_now = conn->HTTP_bytes_sent;
 
   if (!UA || !isalnum(UA->buf[0]))
      UA = &UA_none;
 
-  http_logf (c, "\"%.*s %.*s %.*s\" %d %zd \"%.*s\"\n",
+  http_logf (conn, "\"%.*s %.*s %.*s\" %d %zd \"%.*s\"\n",
              (int)hm->method.len, hm->method.buf,
              (int)hm->uri.len, hm->uri.buf,
              (int)hm->proto.len, hm->proto.buf,
