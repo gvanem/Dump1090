@@ -1071,17 +1071,23 @@ static bool http_log_ignore (const char *addr)
  */
 static void http_logf (const connection *conn, const char *fmt, ...)
 {
-  char    buf [1000];
-  char   *p = buf;
-  char   *end = p + sizeof(buf) - 1;
-  time_t  now;
-  va_list args;
+  char       buf [1000], *p, *end;
+  time_t     now;
+  va_list    args;
+  ip_address ip;
 
-  if (http_log_ignore(conn->rem_buf))
+  strncpy (ip, conn->rem_buf, sizeof(ip));
+  p = strrchr (ip, ':');
+  *p = '\0';
+
+  if (http_log_ignore(ip))
      return;
 
+  p = buf;
+  end = p + sizeof(buf) - 1;
+  p += snprintf (p, end - p, "%-16s ", ip);
+
   now = time (NULL);
-  p += snprintf (p, end - p, "%-16s ", conn->rem_buf);
   p += strftime (p, end - p, "[%d/%b/%Y:%X]: ", localtime(&now));
 
   va_start (args, fmt);
@@ -2087,10 +2093,10 @@ static char *net_str_addr_port (const mg_addr *a, char *buf, size_t len)
  */
 static const char *net_reverse_find (const mg_addr *a)
 {
-  ip_address   ip_buf;
-  const char  *ip_str;
-  time_t       now;
-  int          i, max;
+  ip_address  ip_buf;
+  const char *ip_str;
+  time_t      now;
+  int         i, max;
 
   if (!Modes.reverse_resolve)
      return (NULL);
