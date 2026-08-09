@@ -191,7 +191,7 @@ typedef struct connection {
         mg_connection     *c;                   /**< Remember which connection this client/server is in */
         intptr_t           service;             /**< This client's service membership */
         mg_addr            rem;                 /**< Copy of `mg_connection::rem` */
-        mg_host_name       rem_buf;             /**< Address-string of `mg_connection::rem` */
+        mg_host_name       rem_buf;             /**< Address/Port-string of `mg_connection::rem` */
         ULONG              id;                  /**< Copy of `mg_connection::id` */
         bool               HTTP_keep_alive;     /**< HTTP only: client request contains "Connection: keep-alive" */
         bool               HTTP_encoding_gzip;  /**< HTTP only: gzip compressed client data (not yet) */
