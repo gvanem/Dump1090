@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <math.h>
+#include <float.h>
 #include <winsock2.h>
 #include <windows.h>
 #include <wchar.h>
@@ -1010,3 +1011,10 @@ extern int   optind;  /**< the index of the next element to be processed in `arg
 extern int   opterr;  /**< if caller set this to zero, an error-message will never be printed. */
 extern int   optopt;  /**< on errors, an unrecognised option character is stored in `optopt`. */
 
+#if defined(_MSC_VER) && 0
+  #ifdef USE_BIN_FILES
+    #pragma detect_mismatch ("USE_BIN_FILES", "1")
+  #else
+    #pragma detect_mismatch ("USE_BIN_FILES", "0")
+  #endif
+#endif
