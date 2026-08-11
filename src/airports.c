@@ -22,6 +22,8 @@
 #include "gen_data.h"
 #endif
 
+#define USE_JSON_PARSE      0
+
 #define API_SERVICE_URL     "https://vrs-standing-data.adsb.lol/routes/%.2s/%s.json"
 #define API_SERVICE_503     "<html><head><title>503 Service Temporarily Unavailable"
 
@@ -239,6 +241,7 @@ static void         airport_CSV_test_4 (void);
 static void         airport_loc_test_1 (void);
 static void         airport_loc_test_2 (void);
 static void         airport_normalize_test (void);
+static void         airport_json_parse_test (void);
 static void         locale_test (void);
 static void         flight_info_exit (FILE *f);
 static flight_info *flight_info_create (const char *call_sign, uint32_t addr, airport_t type);
@@ -1008,6 +1011,9 @@ static bool airports_API_parse_response (flight_info *f, char *resp)
   char       *codes;
   bool        rc;
 
+#if (USE_JSON_PARSE)
+
+#else
   codes = strstr (resp, API_AIRPORT_IATA);
   if (!codes || !*codes)
      return (false);
@@ -1039,6 +1045,8 @@ static bool airports_API_parse_response (flight_info *f, char *resp)
     strcpy (f->destination, tmp.destination);
     rc = true;
   }
+#endif  /* USE_JSON_PARSE */
+
   API_TRACE ("num: %d, tmp.departure: '%s', tmp.destination: '%s'\n",
              num, tmp.departure, tmp.destination);
 
@@ -1654,6 +1662,7 @@ uint32_t airports_init (void)
     airport_API_test_1();
     airport_API_test_2();
     airport_normalize_test();
+    airport_json_parse_test();
     routes_find_test();
     airports_show_stats();
   }
@@ -2083,6 +2092,209 @@ static void airport_normalize_test (void)
     puts ("");
   }
   puts ("");
+}
+
+/**
+ * Generate a single json-file and run
+ * `jq.exe < %TEMP%\dump1090\filename > NUL` to verify it.
+ */
+static bool jq_parse (const char *data, int test_num)
+{
+  FILE *f;
+  char  jq_cmd   [MAX_PATH + 20];
+  char  tmp_file [MAX_PATH];
+
+  snprintf (tmp_file, sizeof(tmp_file), "%s\\jq-test-%d.txt", Modes.tmp_dir, test_num);
+  f = fopen (tmp_file, "w+t");
+  if (!f)
+     return (false);
+
+  fwrite (data, 1, strlen(data), f);
+  fclose (f);
+  snprintf (jq_cmd, sizeof(jq_cmd), "jq.exe < %s > NUL", tmp_file);
+  return (system (jq_cmd) == 0);
+}
+
+/**
+ * Rewritten from `json_scan()` in Mongoose's `test/unit_test.c`.
+ */
+static bool json_parse (mg_str json, int depth)
+{
+  int  num = 0;
+  int  idx = mg_json_get (json, "$", &num);
+  bool found_iata = false;
+  bool found_icao = false;
+  bool first = true;
+
+  if (json.buf[idx] != '{' && json.buf[idx] != '[')
+     return (false);
+
+  /* Iterate over elements
+   */
+  mg_str key, val;
+  mg_str sub = mg_str_n (json.buf + idx, (size_t)num);
+  size_t ofs = 0;
+
+  while ((ofs = mg_json_next(sub, ofs, &key, &val)) > 0)
+  {
+    char value [300];
+    char departure   [10+1] = "?";
+    char destination [10+1] = "?";
+
+    if (key.buf && !strnicmp("\"_airport_codes_iata\"", key.buf, key.len))
+    {
+      str_lcpy (value, &val.buf[1], val.len - 1);
+      sscanf (value, "%10[^-]-%10[^-]", departure, destination);
+      printf ("%*sIATA-route: '%-4s' -> '%-4s' (value: '%s')\n",
+              first ? 0 : 5, "", departure, destination, value);
+      first = false;
+      found_iata = true;
+    }
+    else if (key.buf && !strnicmp("\"airport_codes\"", key.buf, key.len))
+    {
+      str_lcpy (value, &val.buf[1], val.len - 1);
+      sscanf (value, "%10[^-]-%10[^-]", departure, destination);
+      printf ("%*sICAO-route: '%-4s' -> '%-4s' (value: '%s')\n",
+              first ? 0 : 5, "", departure, destination, value);
+      first = false;
+      found_icao = true;
+    }
+
+    if (*val.buf == '[' || *val.buf == '{')
+       json_parse (val, depth + 1);
+  }
+  return (found_iata || found_icao);
+}
+
+/*
+ * Edited output of `curl -L https://api.adsb.lol/api/0/route/SAS4787`
+ */
+static const char json_test_1[] = "{\n"
+       "  \"callsign\":            \"SAS4787\",\n"
+       "  \"number\":              \"4787\",\n"
+       "  \"airline_code\":        \"SAS\",\n"
+       "  \"airport_codes\":       \"ENGM-BIKF\",\n"
+       "  \"_airport_codes_iata\": \"OSL-KEF\",\n"
+       "  \"_airports\": [\n"
+       "    {\n"
+       "      \"name\":        \"Oslo Gardermoen Airport\",\n"
+       "      \"icao\":        \"ENGM\",\n"
+       "      \"iata\":        \"OSL\",\n"
+       "      \"location\":    \"Oslo\",\n"
+       "      \"countryiso2\": \"NO\",\n"
+       "      \"lat\":         60.193901,\n"
+       "      \"lon\":         11.1004,\n"
+       "      \"alt_feet\":    681.0,\n"
+       "      \"alt_meters\":  207.57\n"
+       "    },\n"
+       "    {\n"
+       "      \"name\":        \"Keflavik International Airport\",\n"
+       "      \"icao\":        \"BIKF\",\n"
+       "      \"iata\":        \"KEF\",\n"
+       "      \"location\":    \"Reykjav\u00edk\",\n"
+       "      \"countryiso2\": \"IS\",\n"
+       "      \"lat\":         63.985001,\n"
+       "      \"lon\":         -22.6056,\n"
+       "      \"alt_feet\":    171.0,\n"
+       "      \"alt_meters\":  52.12\n"
+       "    }\n"
+       "  ]\n"
+       "}\n";
+
+
+/*
+ * Edited output of `curl -L https://api.adsb.lol/api/0/route/FLI434`
+ */
+static const char json_test_2[] = "{\n"
+       "  \"callsign\":            \"FLI434\",\n"
+       "  \"number\":              \"434\",\n"
+       "  \"airline_code\":        \"FLI\",\n"
+       "  \"airport_codes\":       \"EKVG-ENGM\",\n"
+       "  \"_airport_codes_iata\": \"FAE-OSL\",\n"
+       "  \"_airports\": [\n"
+       "    {\n"
+       "      \"name\":        \"Vagar Airport\",\n"
+       "      \"icao\":        \"EKVG\",\n"
+       "      \"iata\":        \"FAE\",\n"
+       "      \"location\":    \"Vagar\",\n"
+       "      \"countryiso2\": \"FO\",\n"
+       "      \"lat\":         62.063599,\n"
+       "      \"lon\":         -7.27722,\n"
+       "      \"alt_feet\":    280.0,\n"
+       "      \"alt_meters\":  85.34\n"
+       "    },\n"
+       "    {\n"
+       "      \"name\":        \"Oslo Gardermoen Airport\",\n"
+       "      \"icao\":        \"ENGM\",\n"
+       "      \"iata\":        \"OSL\",\n"
+       "      \"location\":    \"Oslo\",\n"
+       "      \"countryiso2\": \"NO\",\n"
+       "      \"lat\":         60.193901,\n"
+       "      \"lon\":         11.1004,\n"
+       "      \"alt_feet\":    681.0,\n"
+       "      \"alt_meters\":  207.57\n"
+       "    }\n"
+       "  ]\n"
+       "}\n";
+
+/*
+ * Edited output of `curl -L https://api.adsb.lol/api/0/route/ACA902`
+ */
+static const char json_test_3[] = "{\n"
+       "  \"callsign\":            \"ACA902\",\n"
+       "  \"number\":              \"902\",\n"
+       "  \"airline_code\":        \"ACA\",\n"
+       "  \"airport_codes\":       \"CYYZ-ESSA\",\n"
+       "  \"_airport_codes_iata\": \"YYZ-ARN\",\n"
+       "  \"_airports\": [\n"
+       "    {\n"
+       "      \"name\":        \"Lester B. Pearson International Airport\",\n"
+       "      \"icao\":        \"CYYZ\",\n"
+       "      \"iata\":        \"YYZ\",\n"
+       "      \"location\":    \"Toronto\",\n"
+       "      \"countryiso2\": \"CA\",\n"
+       "      \"lat\":         43.6772,\n"
+       "      \"lon\":         -79.6306,\n"
+       "      \"alt_feet\":    569.0,\n"
+       "      \"alt_meters\":  173.43\n"
+       "    },\n"
+       "    {\n"
+       "      \"name\":        \"Stockholm-Arlanda Airport\",\n"
+       "      \"icao\":        \"ESSA\",\n"
+       "      \"iata\":        \"ARN\",\n"
+       "      \"location\":    \"Stockholm\",\n"
+       "      \"countryiso2\": \"SE\",\n"
+       "      \"lat\":         59.651901,\n"
+       "      \"lon\":         17.9186,\n"
+       "      \"alt_feet\":    137.0,\n"
+       "      \"alt_meters\":  41.76\n"
+       "    }\n"
+       "  ]\n"
+       "}\n";
+
+static void airport_json_parse_test (void)
+{
+  static const char *tests[] = { json_test_1,
+                                 json_test_2,
+                                 json_test_3
+                               };
+  size_t i;
+
+  printf ("%s():\n", __FUNCTION__);
+
+  for (i = 0; i < DIM(tests); i++)
+  {
+    mg_str json = { (char*)tests[i],
+                    strlen(tests[i])
+                  };
+
+    printf ("  %zd: ", i);
+    if (jq_parse(tests[i], i) && json_parse(json, 0))
+         puts ("     OKAY");
+    else puts ("     FAILED");
+  }
+  puts ("");
+
 }
 
 static void patch_call_signs_tests (void)
