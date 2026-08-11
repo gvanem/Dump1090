@@ -160,6 +160,8 @@ bool cfg_open_and_parse (const char *fname, const cfg_table *table)
 
   fclose (ctx->file);
   g_idx--;
+  if (g_idx == 0)
+     FCLOSE (Modes.log_cfg);
 
   memset (ctx, '\0', sizeof(*ctx));
   return (rc > 0);
