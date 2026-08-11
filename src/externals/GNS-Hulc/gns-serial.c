@@ -15,6 +15,8 @@ static char *get_name_space (uint16_t port);
  */
 HANDLE COM_init (uint16_t port)
 {
+  COM_find_all();
+
   strncpy (g_data.COM.name_space, get_name_space(port), sizeof(g_data.COM.name_space)-1);
 
   /* "\\.\COMx".
@@ -268,6 +270,28 @@ void COM_poll_error (void)
     g_data.stat.rx_overruns++;
     DEBUG1 ("CE_OVERRUN\n");
   }
+}
+
+/**
+ * Find all COM-devices from 0 to 255.
+ * \todo Add these to a `smartlist_t` to check against in `COM_init()`.
+ */
+bool COM_find_all (void)
+{
+  char DOS_device [200];
+  char port_name [10];
+  int  i, found = 0;
+
+  for (i = 0; i < 255; i++)
+  {
+    snprintf (port_name, sizeof(port_name), "COM%d", i);
+    if (QueryDosDeviceA(port_name, DOS_device, sizeof(DOS_device)))
+    {
+      DEBUG1 ("%s -> %s\n", port_name, DOS_device);
+      found++;
+    }
+  }
+  return (found >= 1);
 }
 
 /**

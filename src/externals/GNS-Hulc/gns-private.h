@@ -263,4 +263,5 @@ int    COM_read  (HANDLE hnd, uint8_t *data, size_t len);
 int    COM_write (HANDLE hnd, const uint8_t *data, size_t len);
 bool   COM_poll_events (void);
 void   COM_poll_error (void);
+bool   COM_find_all (void);
 
