@@ -417,7 +417,7 @@ void net_handler_send (intptr_t service, const void *msg, size_t len)
  * `c->rem` includes remote port and `scope_id` for IPv6.
  * This can be for either client or server.
  */
-connection *connection_get (const mg_connection *c, intptr_t service, bool is_server)
+static connection *connection_get (const mg_connection *c, intptr_t service, bool is_server)
 {
   connection *conn;
 
