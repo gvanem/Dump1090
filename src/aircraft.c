@@ -134,13 +134,6 @@ typedef struct aircraft_priv {
 
 static aircraft_priv g_data;
 
-#if defined(USE_BIN_FILES)
-  /*
-   * Includes '$(OBJ_DIR)/gen_data.h' and `struct aircraft_record` etc.
-   */
-  #include "gen_data.h"
-#endif
-
 /**
  * \def DB_COLUMNS
  * The Sqlite columns we define.
@@ -467,9 +460,9 @@ static int compare_on_distance (const void **_a, const void **_b)
   const aircraft *a = *_a;
   const aircraft *b = *_b;
 
-  if (a->distance == b->distance)
+  if (fabs(a->distance - b->distance) < DBL_EPSILON)
      return compare_on_icao (_a, _b);
-  return (a->distance - b->distance);
+  return (int)(a->distance - b->distance);
 }
 
 static int compare_on_seen (const void **_a, const void **_b)
@@ -489,9 +482,9 @@ static int compare_on_speed (const void **_a, const void **_b)
   const aircraft *a = *_a;
   const aircraft *b = *_b;
 
-  if (a->speed == b->speed)
+  if (fabs(a->speed - b->speed) < DBL_EPSILON)
      return compare_on_icao (_a, _b);
-  return (a->speed - b->speed);
+  return (int) (a->speed - b->speed);
 }
 
 static int compare_on_messages (const void **_a, const void **_b)
