@@ -510,7 +510,7 @@ static int CPR_decode_surface (double ref_lat, double ref_lon,
    * there's a little extra work to do there.
    */
 
-  if (rlat0 == 0)
+  if (fabs(rlat0) < DBL_EPSILON)  /* rlat1 ~= 0 */
   {
     if (ref_lat < -45)
          rlat0 = -90;
@@ -522,7 +522,7 @@ static int CPR_decode_surface (double ref_lat, double ref_lon,
     rlat0 -= 90;
   }
 
-  if (rlat1 == 0)
+  if (fabs(rlat1) < DBL_EPSILON)  /* rlat1 ~= 0 */
   {
     if (ref_lat < -45)
          rlat1 = -90;
