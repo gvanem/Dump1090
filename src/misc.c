@@ -42,7 +42,7 @@
 
 static bool modeS_log_reinit (const SYSTEMTIME *st);
 static bool modeS_log_ignore (const char *msg);
-static void warnx (const char *fmt, ...);
+static void warnx (_Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(1, 2);
 static void test_asprintf (void);
 extern void PDC_scr_close (void);
 static BOOL WINAPI console_handler (DWORD event);
@@ -461,6 +461,8 @@ uint32_t ato_hertz (const char *Hertz)
           tmp [len-1] = '\0';
           multiplier = 1E3;
           break;
+    default:
+          break;
   }
   ret = strtof (tmp, &end);
   if (end == tmp || *end != '\0')
@@ -585,7 +587,7 @@ static bool unescape (const char *from, size_t from_len, char *to, size_t to_len
            val += (b3 - '0');
       else val += (b3 - 'a') + 10;
 
-      ((BYTE*)to) [to_idx++] = val;
+      ((BYTE*)to) [to_idx++] = (BYTE) val;
       from_idx += 3;
     }
     else
@@ -1161,7 +1163,7 @@ static uint64_t FILETIME_to_unix_usec (const FILETIME *ft)
 /**
  * Return number of Windows 100 nsec units from the Unix epoch.
  */
-uint64_t unix_epoch_to_FILETIME (time_t sec)
+static uint64_t unix_epoch_to_FILETIME (time_t sec)
 {
   uint64_t ft = 10 * (DELTA_EPOCH_IN_USEC + 1000000 * sec);
 
@@ -1289,7 +1291,7 @@ uint64_t mg_millis (void)
 
 #if defined(_DEBUG)
 /**
- * Check for memory-leaks in `_DEBUG` mode.
+ * Check for memory-leaks in `_DEBUG` (`-MDd`) mode.
  */
 static _CrtMemState start_state;
 
@@ -1323,7 +1325,7 @@ void crtdbug_init (void)
   _CrtSetDbgFlag (flags | _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG));
   _CrtMemCheckpoint (&start_state);
 }
-#endif
+#endif  /* _DEBUG */
 
 /**
  * For the most common English Winsock2 errors.
@@ -2113,7 +2115,7 @@ int unload_dynamic_table (struct dyn_struct *tab, int tab_size)
  * Try to get a more detailed error-code and text from
  * the server response using `InternetGetLastResponseInfoA()`.
  */
-const char *wininet_strerror (DWORD err)
+static const char *wininet_strerror (DWORD err)
 {
   HMODULE mod = GetModuleHandleA ("wininet.dll");
   static char buf [512];
