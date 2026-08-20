@@ -14,12 +14,12 @@ MAKEFLAGS += --warn-undefined-variables
 #
 # Choose your weapons:
 #
-# Use CRT debug-mode.
+# Use CRT debug-mode?
 #
 USE_CRT_DEBUG ?= 0
 
 #
-# Use '../tools/gen_data.py' to generate these:
+# Enable '../tools/gen_data.py' to generate these:
 #   $(TEMP)/dump1090/standing-data/results/aircraft.bin
 #   $(TEMP)/dump1090/standing-data/results/airports.bin
 #   $(TEMP)/dump1090/standing-data/results/routes.bin
@@ -28,13 +28,13 @@ USE_CRT_DEBUG ?= 0
 USE_BIN_FILES ?= 0
 
 #
-# Enable bundling *all* web_root pages inside '../web-pages.dll' as multiple resources.
+# Enable bundling *all* web_root pages inside '../web-pages.dll' as multiple resources?
 # Use e.g. as '../web-pages.dll;2' for '../web_root-FlightAware/*' as web-root.
 #
 USE_PACKED_DLL ?= 0
 
 #
-# Enable "Address Sanitation".
+# Enable "Address Sanitation"?
 # This needs an up-to-date version of 'cl'.
 #
 # Does not work with 'USE_CRT_DEBUG = 1' and 'CC = clang-cl'.
@@ -43,7 +43,7 @@ USE_PACKED_DLL ?= 0
 USE_ASAN ?= 0
 
 #
-# Compile using 'cl -MP ...'. For MSVC only.
+# Compile using 'cl -MP ...'? For MSVC only.
 #
 USE_MP_COMPILE ?= 0
 
@@ -55,7 +55,8 @@ USE_MP_COMPILE ?= 0
 USE_WSOCK_TRACE ?= 0
 
 #
-# Enable 'astyle' and/or more PreProcess-debug in .c-file preprocessing.
+# Enable 'astyle' and/or more PreProcess-debug in .c-file preprocessing?
+# Ref. '$(call C_preprocess, ...)' below.
 #
 USE_ASTYLE   ?= 1
 USE_PP_DEBUG ?= 0
