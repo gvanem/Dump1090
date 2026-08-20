@@ -8,8 +8,9 @@
 
 * Add *Hack-RF* support.
 
-* Add support for [**SDRConnect**](https://www.sdrplay.com/sdrconnect-module-system-and-examples/) via WebSocket.
-  I.e. get the raw-data from a machine running **SDRConnect**.
+* Add support for [**SDRConnect**](https://sdrplay.com/websocket-api/) via WebSocket.
+  I.e. get the raw IQ-data from a machine <br>
+  running **SDRConnect**. :heavy_check_mark: *Done*
 
 * Improve the default web interface [`web_root/index.html`](web_root/index.html).
 
@@ -20,7 +21,8 @@
 * Enhance the algorithm to reliably decode more messages.
 
 * Add support for [**USB/IP**](https://www.kernel.org/doc/html/latest/usb/usbip_protocol.html).
-  I.e. get the USB-data from a remote Linux host.
+  I.e. get the USB-data from a remote Linux host. <br>
+  This [**repository**](https://github.com/vadimgrn/usbip-win2.git) seems a good candidate.
 
 * Improve **SBS** (*Serving Base Station*) messages when we're it's client. <br>
   Ref: http://woodair.net/sbs/article/barebones42_socket_data.htm <br>
@@ -55,7 +57,7 @@
    * `python modeslive --source net --connect 127.0.0.1 30005 beast`
    using simple C-embedding.
 
-* *Airports API* Add some config-settings to:
+* *Airports API*; Add some config-settings to:
   * expire cached records (not 10 min as it is now).
   * regenerate `airport-codes.csv` automatically in backgound using `tools/gen_airport_codes_csv.py`.
 
@@ -69,7 +71,8 @@
   * Add some features from above *Curses interface* (in JavaScript).
   * Ref: https://github.com/webui-dev/webui.git
 
-* Add *config file*. Move some command-line options into `dump1090.cfg`. :heavy_check_mark: *Done*. Like:
+* Add *config file*. Move some command-line options into `dump1090.cfg`. :heavy_check_mark: *Done*. <br>
+  Like:
   * `aircrafts = my-own-aircrafts.csv` (do not use the default `aircraft-database.csv` file).
   * `aircrafts-sql = yes` (enable the SQL-version of the above instead).
   * `metric = 1` (always show metric units).
