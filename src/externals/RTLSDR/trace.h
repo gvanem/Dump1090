@@ -1,5 +1,6 @@
 #pragma once
 #include <windows.h>
+#include <stdbool.h>
 
 /*
  * Trace printer controlled by env-var "set RTLSDR_TRACE=level":
@@ -16,5 +17,5 @@
 int         trace_level (void);
 void        trace_winusb (const char *fname, unsigned line, const char *func, DWORD win_err);
 void        trace_printf (const char *fname, unsigned line, const char *fmt, ...);
-HANDLE      trace_file (BOOL use_stderr);
+HANDLE      trace_file (bool use_stderr);
 const char *trace_strerror (DWORD err);

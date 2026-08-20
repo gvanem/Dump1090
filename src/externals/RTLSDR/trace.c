@@ -8,8 +8,8 @@
 #include "trace.h"
 #include "version.h"
 
-static BOOL                       show_version = FALSE;
-static BOOL                       show_winusb = FALSE;
+static bool                       show_version = false;
+static bool                       show_winusb  = false;
 static CONSOLE_SCREEN_BUFFER_INFO console_info;
 static HANDLE                     console_hnd = INVALID_HANDLE_VALUE;
 static FILE                      *console_file = NULL;
@@ -31,7 +31,7 @@ static int trace_init (void)
   int   rc = 0;
 
   InitializeCriticalSection (&console_cs);
-  console_hnd = trace_file (FALSE);
+  console_hnd = trace_file (false);
   atexit (trace_exit);
 
   /* Supported syntax: "level[,winsub]"
@@ -40,12 +40,12 @@ static int trace_init (void)
   {
     if (winusb >= env + 1)
     {
-      show_winusb = TRUE;
+      show_winusb = true;
       *winusb = '\0';
     }
     rc = atoi (env);
     if (rc > 0)
-       show_version = TRUE;
+       show_version = true;
   }
   return (rc);
 }
@@ -59,7 +59,7 @@ int trace_level (void)
   return (level);
 }
 
-HANDLE trace_file (BOOL use_stderr)
+HANDLE trace_file (bool use_stderr)
 {
   console_file = (use_stderr ? stderr : stdout);
   console_hnd = GetStdHandle (use_stderr ? STD_ERROR_HANDLE : STD_OUTPUT_HANDLE);
@@ -136,7 +136,7 @@ void trace_printf (const char *fname, unsigned line, const char *fmt, ...)
   {
     fprintf (console_file, "Version \"%d.%d.%d.%d\". Compiled \"%s\". ",
              RTLSDR_MAJOR, RTLSDR_MINOR, RTLSDR_MICRO, RTLSDR_NANO, __DATE__);
-    show_version = FALSE;
+    show_version = false;
   }
 
   va_start (args, fmt);
