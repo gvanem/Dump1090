@@ -1209,6 +1209,7 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 	uint32_t lo_freq;
 	uint8_t low_gain;
 	int is_rtlsdr_blog_v4;
+	int is_rtlsdr_blog_v4l;
 	uint32_t upconvert_freq;
 	uint8_t air_cable1_in;
 	uint8_t cable_2_in;
@@ -1219,10 +1220,11 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 
 
 	is_rtlsdr_blog_v4 = (priv->cfg->xtal > 24000000.0) && (priv->cfg->rafael_chip == CHIP_R828D);
+	is_rtlsdr_blog_v4l = rtlsdr_check_dongle_model(priv->rtl_dev, "RTLSDRBlog", "Blog V4L");
 
 	/* if it's an RTL-SDR Blog V4, automatically upconvert by 28.8 MHz if we tune to HF
 	 * so that we don't need to manually set any upconvert offset in the SDR software */
-	upconvert_freq = is_rtlsdr_blog_v4 ? ((freq <= MHZ(27)) ? (freq + priv->cfg->xtal) : freq) : freq;
+	upconvert_freq = (is_rtlsdr_blog_v4 || is_rtlsdr_blog_v4l) ? ((freq <= MHZ(27)) ? (freq + priv->cfg->xtal) : freq) : freq;
 
 	priv->freq = freq / 1000000;
 	calculate_abs_gain(priv);
@@ -1244,6 +1246,19 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 		 *(to avoid excessive register writes when tuning rapidly)
 		 */
 		band = (freq < MHZ(27)) ? HF : ((freq >= MHZ(27) && freq < MHZ(250)) ? VHF : UHF);
+
+		/* bypass tracking filter for HF to reduce insertion loss,
+		 * the upconverter path doesn't benefit from it.
+		 * Must be outside band-change guard since r82xx_set_mux
+		 * re-applies the tracking filter on every frequency change. */
+		if (band == HF) {
+			rc = r82xx_write_reg_mask(priv, 0x1a, 0x40, 0xc3);
+			if (rc < 0)
+				goto err;
+			rc = r82xx_write_reg(priv, 0x1b, 0x00);
+			if (rc < 0)
+				goto err;
+		}
 
 		/* switch between tuner inputs on the RTL-SDR Blog V4 */
 		if (band != priv->input) {
@@ -1272,6 +1287,52 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 			if (rc < 0)
 				goto err;
 
+		}
+	}
+	else if (is_rtlsdr_blog_v4l)
+	{
+		/* select tuner band based on frequency and only switch if there is a band change
+		 *(to avoid excessive register writes when tuning rapidly)
+		 */
+		band = (freq <= MHZ(27)) ? HF : UHF;
+
+		/* bypass tracking filter for HF to reduce insertion loss,
+		 * the upconverter path doesn't benefit from it.
+		 * Must be outside band-change guard since r82xx_set_mux
+		 * re-applies the tracking filter on every frequency change. */
+		if (band == HF) {
+			rc = r82xx_write_reg_mask(priv, 0x1a, 0x40, 0xc3);
+			if (rc < 0)
+				goto err;
+			rc = r82xx_write_reg(priv, 0x1b, 0x00);
+			if (rc < 0)
+				goto err;
+		}
+
+		/* switch between tuner inputs on the RTL-SDR Blog V4L */
+		if (band != priv->input) {
+			priv->input = band;
+
+			cable_1_in = (band == HF) ? 0x40 : 0x00;
+
+			/* Control upconverter GPIO switch on newer batches */
+			rc = rtlsdr_set_bias_tee_gpio(priv->rtl_dev, 5, !cable_1_in);
+
+			if (rc < 0)
+				goto err;
+
+			/* activate cable 1 (HF input) */
+			rc = r82xx_write_reg_mask(priv, 0x05, cable_1_in, 0x40);
+
+			if (rc < 0)
+				goto err;
+
+			/* activate air_in (UHF input) */
+			air_in = (band == UHF) ? 0x00 : 0x20;
+			rc = r82xx_write_reg_mask(priv, 0x05, air_in, 0x20);
+
+			if (rc < 0)
+				goto err;
 		}
 	}
 	else if (priv->cfg->rafael_chip == CHIP_R828D) /* Standard R828D dongle*/

@@ -26,7 +26,7 @@
  *  2. Faking some Pthread calls using Win-SDK function.
  *  3. Changed the code-style using Astyle.
  *
- * So nothing here depends on the libusb library.
+ * Hence nothing here depends on the libusb library.
  */
 #include <windows.h>
 #include <winusb.h>
@@ -829,10 +829,7 @@ static int List_Devices (int index, found_device *found)
   }
 
   if (DeviceInfoSet)
-  {
-    SetupDiDestroyDeviceInfoList (DeviceInfoSet);
-    DeviceInfoSet = NULL;
-  }
+     SetupDiDestroyDeviceInfoList (DeviceInfoSet);
 
   if (index >= count)
   {
@@ -1129,7 +1126,7 @@ int rtlsdr_set_gpio_output (rtlsdr_dev_t *dev, uint8_t gpio)
   int r;
 
   gpio = 1 << gpio;
-  r = rtlsdr_write_reg_mask (dev, SYSB, GPD, ~gpio, gpio);
+  r =  rtlsdr_write_reg_mask (dev, SYSB, GPD, ~gpio, gpio);
   r |= rtlsdr_write_reg_mask (dev, SYSB, GPOE, gpio, gpio);
 
   dev->gpio_state_known |= gpio;
@@ -1138,9 +1135,8 @@ int rtlsdr_set_gpio_output (rtlsdr_dev_t *dev, uint8_t gpio)
 }
 
 /*
- * These extra GPIO functions are not really needed.
- * They are implemented solely to make the code more similar
- * to other RTLSDR libraries.
+ * These extra GPIO functions are needed by 'PyRTLSDR'. Not here.
+ * So implement these too.
  */
 int rtlsdr_set_gpio_status (rtlsdr_dev_t *dev, int *status )
 {
@@ -2495,6 +2491,8 @@ int rtlsdr_open (rtlsdr_dev_t **out_dev, uint32_t index)
   if (reg == R82XX_CHECK_VAL)
   {
     RTL_TRACE (1, "Found Rafael Micro R820T tuner\n");
+    if (rtlsdr_check_dongle_model(dev, "RTLSDRBlog", "Blog V4L"))
+        RTL_TRACE (1, "RTL-SDR Blog V4 Lite Detected\n");
     dev->tuner_type = RTLSDR_TUNER_R820T;
     goto found;
   }
@@ -2921,11 +2919,11 @@ int rtlsdr_read_async (rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t callback, void 
    */
   dev->num_xfer_buf = 0;
   dev->overlapped = calloc (buf_num, sizeof(OVERLAPPED*));
-  dev->xfer_buf   = calloc (buf_num * sizeof(uint8_t*), 1);
+  dev->xfer_buf   = calloc (1, buf_num * sizeof(uint8_t*));
   if (dev->overlapped)
   {
     for (i = 0; i < buf_num; i++)
-        dev->overlapped [i] = calloc (sizeof(OVERLAPPED), 1);
+        dev->overlapped [i] = calloc (1, sizeof(OVERLAPPED));
   }
   if (dev->xfer_buf)
   {
