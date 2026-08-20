@@ -1012,8 +1012,10 @@ static void aircraft_test_2 (void)
 
     printf ("  0x%06X: is_mil: '%s', %s\n", tests[i].addr, is_mil, fail ? "FAIL" : "OK");
   }
+#if defined(USE_BIN_FILES)
   puts ("");
   gen_blocks_test (25);
+#endif
 }
 
 /**

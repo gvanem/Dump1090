@@ -418,6 +418,7 @@ def create_gen_data_h (h_file):
            extern const route_record    *gen_route_lookup (const char *call_sign);
            extern const blocks_record   *gen_blocks_lookup (uint32_t icao_addr);
            extern void                   gen_blocks_test (uint32_t max_num);
+           extern const blocks_record   *aircraft_find_block (uint32_t addr);
 
            #if defined(AIRCRAFT_LOOKUP)
              #define RECORD   aircraft_record

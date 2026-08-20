@@ -261,6 +261,7 @@ a_sort_t    aircraft_do_sort (int s);
 const char *aircraft_sort_name (int s);
 void        aircraft_fix_flightaware (void);
 bool        aircraft_update_CSV (const char *db_file, const char *url, time_t max_age);
+const char *aircraft_get_military (uint32_t addr);
 
 #if defined(USE_BIN_FILES)
   const char *aircraft_get_country2 (uint32_t addr, bool get_short);
@@ -271,9 +272,6 @@ bool        aircraft_update_CSV (const char *db_file, const char *url, time_t ma
    * Defines `struct aircraft_record` etc.
    */
   #include "gen_data.h"
-
-  const blocks_record *aircraft_find_block (uint32_t addr);
-  const char          *aircraft_get_military (uint32_t addr);
 #endif
 
 #define AIRCRAFT_GET_ADDR(a) aircraft_get_addr ((const uint8_t*)(a))
