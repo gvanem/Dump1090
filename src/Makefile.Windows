@@ -447,12 +447,6 @@ ifeq ($(USE_BIN_FILES),1)
   #
   BIN_DIR = $(realpath $(TEMP))/dump1090/standing-data/results
 
-  ../blocks_test.exe: $(OBJ_DIR)/gen-code-blocks.obj
-	$(call link_EXE, $@, $^ -nodefaultlib:ws2_32.lib $(ASAN_LIBS))
-
-  $(OBJ_DIR)/gen-code-blocks.obj: $(OBJ_DIR)/gen-code-blocks.c | $(CC).args
-	$(call C_compile, $@, -DTEST_CODE_BLOCKS $<)
-
   $(OBJ_DIR)/gen-code-blocks.c \
   $(OBJ_DIR)/gen_data.h        \
   $(BIN_DIR)/gen_data.h        \
@@ -540,7 +534,7 @@ $(OBJ_DIR)/packed_webfs_%.obj: $(OBJ_DIR)/packed_webfs_%.c | $(CC).args
 ../speech_test.exe: $(OBJ_DIR)/speech_test.obj $(OBJ_DIR)/misc.obj $(OBJ_DIR)/mongoose.obj $(OBJ_DIR)/smartlist.obj
 	$(call link_EXE, $@, $^ advapi32.lib ole32.lib shlwapi.lib $(ASAN_LIBS))
 
-extras: ../blocks_test.exe ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe
+extras: ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe
 
 $(CC).args: $(THIS_FILE)
 	$(call green_msg, All CFLAGS are in $(BRIGHT_WHITE)$@)
@@ -628,7 +622,6 @@ clean_VS:
 TARGETS_JUNK = $(sort $(TARGETS:.exe=.pdb) \
                       $(TARGETS:.exe=.exp) \
                       $(TARGETS:.exe=.lib) \
-                      ../blocks_test.pdb   \
                       ../color_test.pdb    \
                       ../packed_test.pdb   \
                       ../speech_test.pdb   \
@@ -644,7 +637,7 @@ clean: clean_docs clean_DLLs clean_VS
 	- @rmdir $(OBJ_DIR) 2>/dev/null
 
 realclean vclean: clean clean_gen_data
-	rm -f $(TARGETS) ../blocks_test.exe ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe ../web-pages.dll
+	rm -f $(TARGETS) ../color_test.exe ../packed_test.exe ../speech_test.exe ../utf8_test.exe ../sqlite3.exe ../web-pages.dll
 	rm -fr $(OBJ_DIR)
 
 #
@@ -1036,4 +1029,8 @@ $(OBJ_DIR)/net_io.obj:       client-cert-key.h server-cert-key.h
 
 $(OBJ_DIR)/gns-hulc.obj:   externals/GNS-Hulc/gns-hulc.c externals/GNS-Hulc/gns-private.h
 $(OBJ_DIR)/gns-serial.obj: externals/GNS-Hulc/gns-serial.c externals/GNS-Hulc/gns-private.h
+
+ifeq ($(USE_BIN_FILES),1)
+$(OBJ_DIR)/aircraft.obj: $(OBJ_DIR)/gen-code-blocks.c $(OBJ_DIR)/gen_data.h
+endif
 
