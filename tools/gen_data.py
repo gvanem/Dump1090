@@ -417,7 +417,7 @@ def create_gen_data_h (h_file):
            extern const airport_record  *gen_airport_lookup (const char *icao_addr);
            extern const route_record    *gen_route_lookup (const char *call_sign);
            extern const blocks_record   *gen_blocks_lookup (uint32_t icao_addr);
-
+           extern void                   gen_blocks_test (uint32_t max_num);
 
            #if defined(AIRCRAFT_LOOKUP)
              #define RECORD   aircraft_record
@@ -854,7 +854,7 @@ generate_c_code_top = textwrap.dedent ("""
     * to replace `aircraft_is_military()'.
     */
    static const blocks_record sorted_blocks[] = {
-      /* start     finish      count   bitmask  sign_bitmask is_mil country_ISO
+      /* start    finish      count   bitmask  sign_bitmask  is_mil country_ISO
        */
    """ % zip_dir)
 
@@ -876,49 +876,40 @@ generate_c_code_bottom_2 = textwrap.dedent ("""
      return (NULL);
    }
 
-   #ifdef TEST_CODE_BLOCKS
-   static uint32_t random_range (uint32_t min, uint32_t max)
-   {
-     double scaled = (double) rand() / RAND_MAX;
-     return (uint32_t) ((max - min + 1) * scaled) + min;
-   }
-
    static void find_and_print_block (uint32_t addr)
    {
      const blocks_record *b = aircraft_find_block (addr);
 
      if (!b)
-          printf ("%06X: not found!!\\n", addr);
-     else printf ("%06X: %5zu  %d    '%.2s'\\n",
+          printf ("  0x%06X: not found!!\\n", addr);
+     else printf ("  0x%06X: %5zu  %d    '%.2s'\\n",
                   addr, ((char*)b - (char*)&sorted_blocks[0]) / sizeof(*b), b->is_military, b->country_ISO);
    }
 
-   int main (void)
+   void gen_blocks_test (uint32_t max_num)
    {
      size_t i;
 
-     srand (time(NULL));
-     puts ("50 random ICAO-addresses:\\n"
-           "ICAO      rec  Mil  Country");
-     puts ("------------------------------");
+     printf ("%s(): %u random ICAO-addresses:\\n"
+           "  ICAO        Rec  Mil  Country\\n", __FUNCTION__, max_num);
 
-     for (i = 0; i < 50; i++)
+     for (i = 0; i < max_num; i++)
          find_and_print_block (random_range(0, 0x7FFFFF));
 
-     puts ("\\nSome 47xx addresses:");
+     puts ("\\n  Some 47xx addresses:");
      find_and_print_block (0x4780C6);
      find_and_print_block (0x4780E0);
      find_and_print_block (0x47FFFF);
-     return (0);
+     find_and_print_block (0x508003);  /* Antonov An-124-100, Ukraina, not military */
+     find_and_print_block (0x3532C1);  /* Airbus A400-M-180, Spanish Airforce */
    }
-   #endif /* TEST_CODE_BLOCKS */
    """)
 
 def gen_c_file (blocks):
   f = create_c_file (opt.gen_c)
   f.write (generate_c_code_top)
   for d in sorted (blocks.data, reverse = True, key = lambda field: field[4]):
-      f.write ("   { 0x%06X, 0x%06X, %7u, 0x%06X, 0x%06X,     %d,    \"%.2s\" },\n" % \
+      f.write ("   { 0x%06X, 0x%06X, %7u, 0x%06X, 0x%06X,     %d,     \"%.2s\" },\n" % \
         (int(d[0], 16),    # blocks_record::start
          int(d[1], 16),    # blocks_record::finish
          int(d[2]),        # blocks_record::count
