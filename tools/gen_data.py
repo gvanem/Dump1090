@@ -854,12 +854,12 @@ generate_c_code_top = textwrap.dedent ("""
     * to replace `aircraft_is_military()'.
     */
    static const blocks_record sorted_blocks[] = {
-     /* start     finish      count   bitmask  sign_bitmask is_mil country_ISO
-      */
+      /* start     finish      count   bitmask  sign_bitmask is_mil country_ISO
+       */
    """ % zip_dir)
 
 generate_c_code_bottom_1 = textwrap.dedent ("""
-     };
+    };
 
    static size_t num_sorted_blocks = %u;
    """)
