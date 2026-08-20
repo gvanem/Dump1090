@@ -385,18 +385,27 @@ static bool rtlsdr_power_cycle (rtlsdr_dev_t *dev)
 static uint16_t *gen_mag_lut (void)
 {
   uint16_t *lut;
-  int       I = 129;
-  int       Q = 129;
+  int       I, Q;
+  float     mag_sq;
 
-  Modes.mag_lut_size = (I * Q);
+  Modes.mag_lut_size = (256 * 256);
   lut = calloc (sizeof(*lut), Modes.mag_lut_size);
   if (!lut)
      return (NULL);
 
-  for (I = 0; I < 129; I++)
+  for (I = 0; I < 256; I++)
   {
-    for (Q = 0; Q < 129; Q++)
-       lut [I*129 + Q] = (uint16_t) round (360 * hypot(I, Q));
+    for (Q = 0; Q < 256; Q++)
+    {
+      float fI = (I - 127.5) / 127.5;
+      float fQ = (Q - 127.5) / 127.5;
+
+      mag_sq = hypot (fI, fQ);
+      if (mag_sq > 1.0)
+         mag_sq = 1.0;
+
+      lut [I * 256 + Q] = (uint16_t) (sqrtf(mag_sq) * 65535.0 + 0.5);
+    }
   }
   return (lut);
 }
@@ -3962,7 +3971,6 @@ static void modeS_cleanup (void)
   speak_exit();
 
   modeS_log_exit();
-  FCLOSE (Modes.log_cfg);
 
 #if defined(_DEBUG)
   crtdbug_exit();
