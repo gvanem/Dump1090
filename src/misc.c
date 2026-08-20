@@ -1500,6 +1500,19 @@ int32_t random_range2 (int32_t min, int32_t max)
 }
 
 /**
+ * Spawn `jq.exe` with an argument (a file).
+ * Return the result from `system()`.
+ */
+int run_jq (const char *arg)
+{
+  char cmd [MAX_PATH + 20];
+
+  snprintf (cmd, sizeof(cmd), "jq.exe < %s > NUL", arg);
+  errno = 0;
+  return system (cmd);
+}
+
+/**
  * Return nicely formatted string `"xx,xxx,xxx"`
  * with thousand separators (left adjusted).
  *

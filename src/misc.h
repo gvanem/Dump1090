@@ -907,6 +907,7 @@ const char *get_rtlsdr_error (int err);
 const char *qword_str (uint64_t val);
 const char *dword_str (DWORD val);
 
+int         run_jq (const char *arg);
 void       *memdup (const void *from, size_t size);
 uint32_t    random_range (uint32_t min, uint32_t max);
 int32_t     random_range2 (int32_t min, int32_t max);
