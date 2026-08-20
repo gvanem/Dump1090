@@ -21,7 +21,6 @@ bool sdrplay_set_tuner (const char *arg);
 bool sdrplay_set_USB_bulk_mode (const char *arg);
 bool sdrplay_set_decay_filter (const char *arg);
 bool sdrplay_set_gain_sweep_secs (const char *arg);
-bool sdrplay_set_capture_secs (const char *arg);
 bool sdrplay_set_lna_state (const char *arg);
 int  sdrplay_set_freq_correction (sdrplay_dev *device, int ppm);
 int  sdrplay_set_gain (sdrplay_dev *device, int gain);
@@ -38,6 +37,7 @@ const char *sdrplay_strerror (int rc);
 /*
  * for debug
  */
+bool sdrplay_set_capture_secs (const char *arg);
 void sdrplay_dump_mag_vector (const uint16_t *m, uint16_t len);
 
 #endif /* SDRPLAY_H */
