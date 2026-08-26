@@ -2101,7 +2101,6 @@ static void airport_normalize_test (void)
 static bool jq_parse (const char *data, int test_num)
 {
   FILE *f;
-  char  jq_cmd   [MAX_PATH + 20];
   char  tmp_file [MAX_PATH];
 
   snprintf (tmp_file, sizeof(tmp_file), "%s\\jq-test-%d.txt", Modes.tmp_dir, test_num);
@@ -2111,8 +2110,7 @@ static bool jq_parse (const char *data, int test_num)
 
   fwrite (data, 1, strlen(data), f);
   fclose (f);
-  snprintf (jq_cmd, sizeof(jq_cmd), "jq.exe < %s > NUL", tmp_file);
-  return (system (jq_cmd) == 0);
+  return (run_jq(tmp_file) == 0);
 }
 
 /**
