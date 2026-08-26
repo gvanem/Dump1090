@@ -25,7 +25,6 @@
 #include "GNS-Hulc/gns-hulc.h"
 #include "aircraft.h"
 
-#define USE_WAITCOMMEVENT  0
 #define USE_GPS_FILE       0
 
 #define GPS_HAVE_FIX_LOW   5
@@ -209,14 +208,14 @@ HANDLE gns_hulc_init (uint16_t port)
   hnd = COM_init (port);
   if (!hnd)
   {
-    LOG_STDERR ("COM_init (\"%s\") failed.\n", g_data.COM.dev_name);
     gns_hulc_exit (NULL);
     return (NULL);
   }
 
   LOG_STDERR ("Running GNS %s on `%s' (%s)\n",
               g_data.Beast.enable ? "Beast" : "HULC",
-              g_data.COM.dev_name, g_data.COM.name_space);
+              g_data.COM.dev_name,
+              g_data.COM.info->DOS_device[0] ? g_data.COM.info->DOS_device : "?");
 
   g_data.pkt_current.msg_len = 0;
   g_data.old_ch  = -1;
@@ -1036,18 +1035,9 @@ static bool get_COM_data (int *idx_max)
     return (true);
   }
 
-#if (USE_WAITCOMMEVENT)
-  /*
-   * Poll for an EV_RXCHAR event and call `COM_read()`.
+  /* Fill up with fresh data
    */
-  if (COM_poll_events())
-#endif
-  {
-    /*
-     * Fill up with fresh data
-     */
-    g_data.sio_len = COM_read (Modes.gns_hulc.handle, g_data.sio_buf, COM_RX_SIZE);
-  }
+  g_data.sio_len = COM_read (Modes.gns_hulc.handle, g_data.sio_buf, COM_RX_SIZE);
 
   if (g_data.sio_len < 0)
   {
@@ -1196,11 +1186,8 @@ void gns_hulc_read_loop (void)
     if (hulc_read() < 0)
        break;
 
-#if (USE_WAITCOMMEVENT == 0)
     COM_poll_error();
  /* Sleep (10); */
-#endif
-
     check_max_messages();
   }
 }

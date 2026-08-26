@@ -8,28 +8,51 @@
 #include "GNS-Hulc/gns-private.h"
 #include "GNS-Hulc/gns-hulc.h"
 
-static char *get_name_space (uint16_t port);
+#include <setupapi.h>
+#include <devguid.h>
+
+static COM_port_info port_info [64];
+
+static int  COM_find_all (COM_port_info *port, int max_ports);
+static void COM_print_info (int found, const COM_port_info *port);
 
 /**
- * Setup the serial line baudrate, flowcontrol, parity etc.
+ * Find details on all COM-ports on machine.
+ * And setup the serial line baudrate, flowcontrol, parity etc for `port`.
  */
 HANDLE COM_init (uint16_t port)
 {
-  COM_find_all();
+  HANDLE hnd;
+  int    i, count;
 
-  strncpy (g_data.COM.name_space, get_name_space(port), sizeof(g_data.COM.name_space)-1);
+  memset (&port_info, '\0', sizeof(port_info));
+  count = COM_find_all (port_info, DIM(port_info));
 
-  /* "\\.\COMx".
+  if (Modes.debug & DEBUG_GNS_HULC)
+     COM_print_info (count, port_info);
+
+  /* Iterate over `port_info` to find `port_info[i].port_number == port`.
    */
-  g_data.COM.dev_name = mg_mprintf ("\\\\.\\COM%d", port);
+  for (i = 0; i < count; i++)
+  {
+    if (port_info[i].port_number != port)
+       continue;
+    g_data.COM.info     = port_info + i;
+    g_data.COM.dev_name = mg_mprintf ("\\\\.\\%s", g_data.COM.info->port_name);  /* "\\.\COMx" */
+    break;
+  }
+  if (!g_data.COM.dev_name)
+  {
+    LOG_STDERR ("No such device COM%u\n", port);
+    return (NULL);
+  }
 
-  DEBUG2 ("Modes.gns_hulc.port:  %u\n", Modes.gns_hulc.port);
-  DEBUG2 ("Modes.gns_hulc.name:  %s\n", Modes.gns_hulc.name ? Modes.gns_hulc.name : "<none>");
+  DEBUG1 ("Modes.gns_hulc.port:  %u\n", Modes.gns_hulc.port);
+  DEBUG1 ("Modes.gns_hulc.name:  %s\n", Modes.gns_hulc.name ? Modes.gns_hulc.name : "<none>");
   DEBUG2 ("Modes.selected_dev:  '%s'\n", Modes.selected_dev ? Modes.selected_dev  : "<none>");
-  DEBUG2 ("name_space:          '%s'\n", g_data.COM.name_space);
 
-  HANDLE hnd = CreateFileA (g_data.COM.dev_name, GENERIC_READ | GENERIC_WRITE,
-                            0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  hnd = CreateFileA (g_data.COM.dev_name, GENERIC_READ | GENERIC_WRITE,
+                     0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
   if (hnd == INVALID_HANDLE_VALUE)
   {
     LOG_STDERR ("Error opening %s: %s\n", g_data.COM.dev_name, win_strerror(GetLastError()));
@@ -138,6 +161,8 @@ void COM_exit (HANDLE hnd)
   }
   memset (&g_data.COM.old_DCB, '\0', sizeof(g_data.COM.old_DCB));
   memset (&g_data.COM.old_CTO, '\0', sizeof(g_data.COM.old_CTO));
+  memset (&port_info, '\0', sizeof(port_info));
+  g_data.COM.info = NULL;
 }
 
 /**
@@ -273,90 +298,158 @@ void COM_poll_error (void)
 }
 
 /**
- * Find all COM-devices from 0 to 255.
- * \todo Add these to a `smartlist_t` to check against in `COM_init()`.
+ * Print information on COM-devices found from 0 to `found-1`.
  */
-bool COM_find_all (void)
+static void COM_print_info (int found, const COM_port_info *port)
 {
-  char DOS_device [200];
-  char port_name [10];
-  int  i, found = 0;
+  int i;
 
-  for (i = 0; i < 255; i++)
+  printf ("Found %d COM port(s):\n", found);
+  for (i = 0; i < found; i++, port++)
   {
-    snprintf (port_name, sizeof(port_name), "COM%d", i);
-    if (QueryDosDeviceA(port_name, DOS_device, sizeof(DOS_device)))
-    {
-      DEBUG1 ("%s -> %s\n", port_name, DOS_device);
-      found++;
-    }
+    printf ("  Port-name:    %s\n", port->port_name);
+    printf ("  Description:  %s\n", port->description);
+    printf ("  Manufacturer: %s\n", port->manufacturer);
+    printf ("  Hardware ID:  %s\n", port->hardware_id);
+    printf ("  DOS-device:   %s\n", port->DOS_device[0] ? port->DOS_device : "?");
+    printf ("  Driver-key:   %s\n", port->driver_key[0] ? port->driver_key : "?");
+    if (port->has_VID_PID)
+         printf ("  VID:PID:      0x%s:0x%s\n\n", port->vid, port->pid);
+    else printf ("  VID:PID:      none (a virtual/legacy port?)\n\n");
   }
-  return (found >= 1);
 }
 
 /**
- * \def COM_DEVICEMAP
- * The HKLM Registry key for Serial-COM to Device mappings.
+ * Parse VID_xxxx and PID_xxxx substrings out of a hardware ID string like
+ * "USB\VID_0403&PID_6001\SOMESERIAL" or "USB\VID_0403&PID_6001&MI_00".
+ *
+ * Non-USB ports (e.g. a physical motherboard COM1, or software-only virtual ports)
+ * often have a hardware ID like ACPI\PNP0501\... with no VID/PID.
  */
-#define COM_DEVICEMAP "Hardware\\Devicemap\\SerialCOMM"
+static void parse_VID_PID (const char *hw_id, char *vid_out, size_t vid_len,
+                           char *pid_out, size_t pid_len, bool *found)
+{
+  const char *vid_pos = strstr (hw_id, "VID_");
+  const char *pid_pos = strstr (hw_id, "PID_");
+  size_t      i = 0;
+
+  *found = false;
+  vid_out [0] = '\0';
+  pid_out [0] = '\0';
+
+  if (!vid_pos || !pid_pos)
+     return;
+
+  vid_pos += 4; /* skip "VID_" */
+  pid_pos += 4; /* skip "PID_" */
+
+  while (vid_pos[i] && vid_pos[i] != '&' && vid_pos[i] != '\\' && i < vid_len - 1)
+  {
+    vid_out [i] = vid_pos [i];
+    i++;
+  }
+  vid_out [i] = '\0';
+
+  i = 0;
+  while (pid_pos[i] && pid_pos[i] != '&' && pid_pos[i] != '\\' && i < pid_len - 1)
+  {
+    pid_out [i] = pid_pos [i];
+    i++;
+  }
+  pid_out [i] = '\0';
+
+  if (vid_out[0] && pid_out[0])
+     *found = true;
+}
 
 /**
- * Look in the Registry COM-port mapping at `COM_DEVICEMAP` for
- * a NT-namespace name for `COMx`.
- *
- * \eg if `look_for == "COM4"` and `RegEnumValue()` returns
- *     `value == "\Device\VCP0"` and `data == "COM4"`,
- *     then return `"\Device\VCP0"` for the name-space name.
- *     (the first Virtual COM-port).
+ * Find information on COM-devices from 0 to `max_ports`.
  */
-static char *get_name_space (uint16_t port)
+static int COM_find_all (COM_port_info *port, int max_ports)
 {
-  static char ret [100];
-  char   look_for [100];
-  HKEY   key;
-  DWORD  rc, num = 0;
+  SP_DEVINFO_DATA dev_info_data;
+  HDEVINFO        dev_info;
+  int             i, count = 0;
 
-  strcpy (ret, "?");
-  snprintf (look_for, sizeof(look_for), "COM%u", port);
+  /* GUID_DEVCLASS_PORTS gets a device info set for all present port devices (COM and LPT).
+   */
+  dev_info = SetupDiGetClassDevsA (&GUID_DEVCLASS_PORTS, NULL, NULL, DIGCF_PRESENT);
+  if (dev_info == INVALID_HANDLE_VALUE)
+     return (0);
 
-  DEBUG2 ("look_for: '%s'\n", look_for);
+  dev_info_data.cbSize = sizeof(dev_info_data);
 
-  rc = RegOpenKeyExA (HKEY_LOCAL_MACHINE, COM_DEVICEMAP, 0, KEY_READ, &key);
-  if (rc != ERROR_SUCCESS)
+  /* Iterates through each device.
+   */
+  for (i = 0; SetupDiEnumDeviceInfo(dev_info, (DWORD)i, &dev_info_data); i++)
   {
-    DEBUG2 ("RegOpenKeyExA (\"HKLM\\%s\") failed; %s\n", COM_DEVICEMAP, win_strerror(rc));
-    return (ret);
-  }
+    if (count >= max_ports)
+       break;
 
-  while (1)
-  {
-    char  value [100] = { '\0' };
-    char  data [100]  = { '\0' };
-    DWORD value_size  = sizeof(value);
-    DWORD data_size   = sizeof(data);
-    DWORD type        = REG_NONE;
-    const char *err = "No more items";
+    char  friendly_name [256] = "";
+    char  description [256]   = "";
+    char  manufacturer [256]  = "";
+    char  hardware_id [256]   = "";
+    char  driver_key [256]    = "";
+    DWORD data_type, required_size;
 
-    rc = RegEnumValue (key, num++, value, &value_size, NULL, &type, (BYTE*)&data, &data_size);
-    if (rc != ERROR_NO_MORE_ITEMS)
-       err = win_strerror (GetLastError());
+    SetupDiGetDeviceRegistryPropertyA (dev_info, &dev_info_data,
+                                       SPDRP_FRIENDLYNAME, &data_type,
+                                       (BYTE*)friendly_name, sizeof(friendly_name),
+                                       &required_size);
 
-    DEBUG2 ("RegEnumValue(): %s\n", err);
-    if (rc == ERROR_NO_MORE_ITEMS)
-       goto quit;
+    SetupDiGetDeviceRegistryPropertyA (dev_info, &dev_info_data,
+                                       SPDRP_DEVICEDESC, &data_type,
+                                       (BYTE*)description, sizeof(description),
+                                       &required_size);
 
-    if (type != REG_SZ)
-       continue;
+    SetupDiGetDeviceRegistryPropertyA (dev_info, &dev_info_data,
+                                       SPDRP_MFG, &data_type,
+                                       (BYTE*)manufacturer, sizeof(manufacturer),
+                                       &required_size);
 
-    if (!strnicmp(data, look_for, strlen(look_for)))
+    /* Hardware ID can be a REG_MULTI_SZ; the first one is the most
+     * specific and is what we want here.
+     */
+    SetupDiGetDeviceRegistryPropertyA (dev_info, &dev_info_data,
+                                       SPDRP_HARDWAREID, &data_type,
+                                       (BYTE*)hardware_id, sizeof(hardware_id),
+                                       &required_size);
+
+    SetupDiGetDeviceRegistryPropertyA (dev_info, &dev_info_data,
+                                       SPDRP_DRIVER, &data_type,
+                                       (BYTE*)driver_key, sizeof(driver_key),
+                                       &required_size);
+
+    /* Extract "COMx" from the friendly name, e.g. "USB Serial Port (COM5)"
+     */
+    char port_name [sizeof(friendly_name)+10] = "";
+    int  port_number = -1;
+    int  num = sscanf (friendly_name, "%256[^()] (COM%d)", port_name, &port_number);
+
+    if (num == 2 && port_number > -1)
     {
-      strncpy (ret, value, sizeof(ret)-1);
-      goto quit;
+      port->port_number = port_number;
+      snprintf (port->port_name, sizeof(port->port_name), "COM%d", port->port_number);
     }
+    else
+      port->port_number = -1;  /* unknown */
+
+    str_lcpy (port->description, description, sizeof(port->description));
+    str_lcpy (port->manufacturer, manufacturer, sizeof(port->manufacturer));
+    str_lcpy (port->hardware_id, hardware_id, sizeof(port->hardware_id));
+    str_lcpy (port->driver_key, driver_key, sizeof(port->driver_key));
+
+    parse_VID_PID (hardware_id, port->vid, sizeof(port->vid),
+                   port->pid, sizeof(port->pid), &port->has_VID_PID);
+
+    if (!strncmp(port->port_name, "COM", 3) && port->port_number > -1)
+       QueryDosDeviceA (port->port_name, port->DOS_device, sizeof(port->DOS_device));
+
+    count++;
+    port++;
   }
-quit:
-  RegCloseKey (key);
-  DEBUG2 ("ret: '%s'\n", ret);
-  return (ret);
+  SetupDiDestroyDeviceInfoList (dev_info);
+  return (count);
 }
 

@@ -83,17 +83,34 @@
         } while (0)
 
 /**
+ * \typedef COM_port_info
+ * All details for the COM-port
+ */
+typedef struct COM_port_info {
+        char port_name [32];
+        int  port_number;
+        char description [256];
+        char manufacturer [256];
+        char hardware_id [256];
+        char DOS_device [256];
+        char driver_key [256];
+        char vid [8];   /* e.g. "0403" */
+        char pid [8];   /* e.g. "6001" */
+        bool has_VID_PID;
+      } COM_port_info;
+
+/**
  * \typedef COM_settings
  * Settings for the COM-port
  */
 typedef struct COM_settings {
-        char        *dev_name;          /**< The device-name; like `\\.\COM1` */
-        char         name_space [256];  /**< The Registry mapping of port; e.g. `COM1 -> \Device\VCP0` */
-        bool         port_set;          /**< `Modes.gns_hulc.port` was already set from `parse_cmd_line()` */
-        uint32_t     baud_rate;         /**< The port baudrate. Fixed at `COM_BAUD_RATE == 921600` */
-        uint32_t     dead_count;        /**< Consecutive number of `COM_read() == 0` */
-        DCB          old_DCB;           /**< The initial Device Control Block */
-        COMMTIMEOUTS old_CTO;           /**< The initial COM timeouts */
+        char          *dev_name;        /**< The device-name; like `\\.\COM1` */
+        COM_port_info *info;            /**< The details of current port */
+        bool           port_set;        /**< `Modes.gns_hulc.port` was already set from `parse_cmd_line()` */
+        uint32_t       baud_rate;       /**< The port baudrate. Fixed at `COM_BAUD_RATE == 921600` */
+        uint32_t       dead_count;      /**< Consecutive number of `COM_read() == 0` */
+        DCB            old_DCB;         /**< The initial Device Control Block */
+        COMMTIMEOUTS   old_CTO;         /**< The initial COM timeouts */
       } COM_settings;
 
 #include <packon.h>
@@ -263,5 +280,4 @@ int    COM_read  (HANDLE hnd, uint8_t *data, size_t len);
 int    COM_write (HANDLE hnd, const uint8_t *data, size_t len);
 bool   COM_poll_events (void);
 void   COM_poll_error (void);
-bool   COM_find_all (void);
 
