@@ -140,9 +140,9 @@ typedef struct aircraft {
         a_show_t  show;                   /**< The plane's show-state */
         double    distance;               /**< Distance (in meters) to home position */
         bool      distance_ok;            /**< Distance is valid */
-        char      distance_buf [20];      /**< Buffer for `get_home_distance()` */
+        char      distance_buf [20];      /**< Buffer for `aircraft_get_home_distance()` */
         double    distance_EST;           /**< Estimated `distance` based on last `speed` and `heading`. In meters. */
-        char      distance_buf_EST [20];  /**< Buffer for `get_est_home_distance()` */
+        char      distance_buf_EST [20];  /**< Buffer for `aircraft_get_est_home_distance()` */
         double    sig_levels [4];         /**< RSSI signal-levels from the last 4 messages */
         int       sig_idx;
 
@@ -253,6 +253,8 @@ char       *aircraft_make_json (bool extended_client, size_t *size_p);
 char       *aircraft_receiver_json (char *buf, size_t *size_p);
 char       *aircraft_outline_json (const char *fname, size_t *size_p);
 bool        aircraft_set_est_home_distance (aircraft *a, uint64_t now);
+void        aircraft_get_est_home_distance (aircraft *a, const char **km_nmiles);
+void        aircraft_get_home_distance (aircraft *a, const char **km_nmiles);
 void        aircraft_remove_stale (uint64_t now);
 void        aircraft_show_stats (void);
 a_sort_t    aircraft_get_sort (void);

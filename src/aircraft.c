@@ -867,13 +867,11 @@ static void *BIN_lookup_entry (uint32_t addr, bool convert)
 
 static void free_CSV_BIN_records (void)
 {
-  free (g_data.csv_list);
-  g_data.csv_list = NULL;
+  FREE (g_data.csv_list);
   g_data.csv_len = 0;
 
 #if defined(USE_BIN_FILES)
-  free (Modes.bin.aircrafts_records);
-  Modes.bin.aircrafts_records = NULL;
+  FREE (Modes.bin.aircrafts_records);
   Modes.bin.aircrafts_records_num = 0;
 #endif
 }
@@ -998,6 +996,7 @@ static void aircraft_test_2 (void)
                 { 0, 0x508003 },  /* Antonov An-124-100, Ukraina, not military */
                 { 1, 0x3532C1 },  /* Airbus A400-M-180, Spanish Airforce */
                 { 0, 0x474747 },  /* not military */
+                { 1, 0x478123 }   /* Agustawestland AW101, Norwegian military helicopter */
               };
   int i;
 
@@ -1137,7 +1136,6 @@ static void aircraft_dump_json (char *data, const char *filename)
   FILE  *f;
   size_t sz = data ? strlen(data) : 0;
   int    rc;
-  char   jq_cmd   [MAX_PATH + 20];
   char   tmp_file [MAX_PATH];
 
   snprintf (tmp_file, sizeof(tmp_file), "%s\\%s", Modes.tmp_dir, filename);
@@ -1160,14 +1158,13 @@ static void aircraft_dump_json (char *data, const char *filename)
   fwrite (data, 1, strlen(data), f);
   free (data);
   fclose (f);
-  snprintf (jq_cmd, sizeof(jq_cmd), "jq.exe < %s > NUL", tmp_file);
-  errno = 0;
-  rc = system (jq_cmd);
+
+  rc = run_jq (tmp_file);
   if (rc == 0)
        printf ("  File %s OK.\n\n", tmp_file);
   else if (rc < 0)
        printf ("  File %s failed; errno: %d/%s\n\n", tmp_file, errno, strerror(errno));
-  else printf ("  Command '%s' failed; rc: %d.\n\n", jq_cmd, rc);
+  else printf ("  Command 'jq.exe' failed; rc: %d.\n\n", rc);
 }
 
 /**
@@ -1426,7 +1423,7 @@ static char *test_bat_code[] = {
   "echo Sleeping for 3 seconds...",
   "%WINDIR%\\system32\\timeout.exe 3 > NUL",
   "echo Launching " URL_SHOW_OUTLINE,
-  "<default-browser> " URL_SHOW_OUTLINE,
+  "c:\\Program Files\\Google\\Chrome\\Application\\chrome.exe " URL_SHOW_OUTLINE,
   NULL
 };
 
@@ -1471,7 +1468,6 @@ static void aircraft_test_5 (unsigned max_num)
   char       *readsb_outline;
   char       *outline_html;
   char       *test_bat;
-  char       *html_handler = NULL;
   char       *our_json;
   const char *our_data [2] = { NULL, NULL };
   char        exe_buf [1024];
@@ -1505,11 +1501,12 @@ static void aircraft_test_5 (unsigned max_num)
   if (AssocQueryStringA(ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_EXECUTABLE,
                         ".html", NULL, exe_buf, &exe_buf_len) == S_OK)
   {
-    int idx = DIM (test_bat_code) - 2;
+    char *browser = mg_mprintf ("\"%s\" %s", exe_buf, URL_SHOW_OUTLINE);
+    int   idx     = DIM (test_bat_code) - 2;
 
-    html_handler = mg_mprintf ("\"%s\" %s", exe_buf, URL_SHOW_OUTLINE);
-    test_bat_code [idx] = html_handler;
-    printf ("  Patching 'test_bat_code[%d]' with '%s'\n", idx, html_handler);
+    test_bat_code [idx] = browser;
+    printf ("  Patching 'test_bat_code[%d]' with '%s'\n", idx, browser);
+    free (browser);
   }
 
   /* This effectively copies data in `g_data.outline_json` to
@@ -1532,7 +1529,6 @@ static void aircraft_test_5 (unsigned max_num)
   free (our_outline);
   free (our_json);
   free (outline_html);
-  free (html_handler);
   free (test_bat);
   free (readsb_outline);
   puts ("");
@@ -1724,8 +1720,7 @@ static void aircraft_SQL_set_name (void)
   else
   {
     g_data.sql_file_found = false;
-    free (g_data.sql_file);
-    g_data.sql_file = NULL;
+    FREE (g_data.sql_file);
   }
 }
 
@@ -3418,6 +3413,43 @@ bool aircraft_set_est_home_distance (aircraft *a, uint64_t now)
   return (valid);
 }
 
+/**
+ * Return a string showing this aircraft's distance to our home position.
+ *
+ * If `Modes.metric == true`, return it in kilo-meters. <br>
+ * Otherwise Nautical Miles.
+ */
+void aircraft_get_home_distance (aircraft *a, const char **km_nmiles)
+{
+  double divisor = Modes.metric ? 1000.0 : 1852.0;
+
+  if (km_nmiles)
+     *km_nmiles = Modes.metric ? "km" : "Nm";
+
+  if (a->distance > BIG_VAL)
+       snprintf (a->distance_buf, sizeof(a->distance_buf), "%.0lf", a->distance / divisor);
+  else if (a->distance > SMALL_VAL)
+       snprintf (a->distance_buf, sizeof(a->distance_buf), "%.1lf", a->distance / divisor);
+  else a->distance_buf[0] = '\0';
+}
+
+/**
+ * As for `aircraft_get_home_distance()`, but return the estimated distance.
+ * \todo Move to aircraft.c and rename to aircraft_get_est_home_distance()
+ */
+void aircraft_get_est_home_distance (aircraft *a, const char **km_nmiles)
+{
+  double divisor = Modes.metric ? 1000.0 : 1852.0;
+
+  if (km_nmiles)
+     *km_nmiles = Modes.metric ? "km" : "Nm";
+
+  if (a->distance_EST > BIG_VAL)
+       snprintf (a->distance_buf_EST, sizeof(a->distance_buf_EST), "%.0lf", a->distance_EST / divisor);
+  else if (a->distance_EST > SMALL_VAL)
+       snprintf (a->distance_buf_EST, sizeof(a->distance_buf_EST), "%.1lf", a->distance_EST / divisor);
+  else a->distance_buf_EST[0] = '\0';
+}
 
 /**
  * Called from show_statistics() to print statistics collected here.
@@ -3549,18 +3581,14 @@ void aircraft_exit (bool free_aircrafts)
 
   free_CSV_BIN_records();
 
-  free (g_data.csv_file);
-  free (g_data.sql_file);
-  free (g_data.icao_spec);
-  free (g_data.zip_url);
-  free (g_data.outline_json);
-
-  g_data.csv_file = g_data.sql_file = g_data.icao_spec = g_data.zip_url = NULL;
-  g_data.outline_json = NULL;
+  FREE (g_data.csv_file);
+  FREE (g_data.sql_file);
+  FREE (g_data.icao_spec);
+  FREE (g_data.zip_url);
+  FREE (g_data.outline_json);
 
 #if defined(USE_BIN_FILES)
-  free (Modes.bin.aircrafts_bin);
-  Modes.bin.aircrafts_bin = NULL;
+  FREE (Modes.bin.aircrafts_bin);
 #endif
 }
 

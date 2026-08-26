@@ -642,43 +642,6 @@ void interactive_clreol (void)
     (*api->clr_eol)();
 }
 
-/**
- * Return a string showing this aircraft's distance to our home position.
- *
- * If `Modes.metric == true`, return it in kilo-meters. <br>
- * Otherwise Nautical Miles.
- */
-static void get_home_distance (aircraft *a, const char **km_nmiles)
-{
-  double divisor = Modes.metric ? 1000.0 : 1852.0;
-
-  if (km_nmiles)
-     *km_nmiles = Modes.metric ? "km" : "Nm";
-
-  if (a->distance > BIG_VAL)
-       snprintf (a->distance_buf, sizeof(a->distance_buf), "%.0lf", a->distance / divisor);
-  else if (a->distance > SMALL_VAL)
-       snprintf (a->distance_buf, sizeof(a->distance_buf), "%.1lf", a->distance / divisor);
-  else a->distance_buf[0] = '\0';
-}
-
-/**
- * As for `get_home_distance()`, but return the estimated distance.
- */
-static void get_est_home_distance (aircraft *a, const char **km_nmiles)
-{
-  double divisor = Modes.metric ? 1000.0 : 1852.0;
-
-  if (km_nmiles)
-     *km_nmiles = Modes.metric ? "km" : "Nm";
-
-  if (a->distance_EST > BIG_VAL)
-       snprintf (a->distance_buf_EST, sizeof(a->distance_buf_EST), "%.0lf", a->distance_EST / divisor);
-  else if (a->distance_EST > SMALL_VAL)
-       snprintf (a->distance_buf_EST, sizeof(a->distance_buf_EST), "%.1lf", a->distance_EST / divisor);
-  else a->distance_buf_EST[0] = '\0';
-}
-
 /*
  * Show statistics for a physical, a RTL-TCP device or SDRConnect server.
  */
@@ -1027,8 +990,8 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
 
   if (Modes.home_pos_ok && a->distance_ok)
   {
-    get_home_distance (a, &km_nmiles);
-    get_est_home_distance (a, &km_nmiles);
+    aircraft_get_home_distance (a, &km_nmiles);
+    aircraft_get_est_home_distance (a, &km_nmiles);
     strcpy_s (distance_buf, sizeof(distance_buf), a->distance_buf);
   }
 
