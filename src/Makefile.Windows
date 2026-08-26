@@ -203,10 +203,6 @@ else ifeq ($(USE_CRT_DEBUG),0)
   CFLAGS += -GS-
 endif
 
-ifeq ($(USE_BIN_FILES),1)
-  CFLAGS += -DUSE_BIN_FILES
-endif
-
 #
 # If '$(CPU)=x64', build 64-bit targets. Otherwise 32-bit targets.
 #
@@ -345,6 +341,11 @@ SOURCES += $(addprefix externals/RTLSDR/, \
 vpath %.c  externals/PDC-Mod
 SOURCES += externals/PDC-Mod/amalgamation.c
 
+ifeq ($(USE_BIN_FILES),1)
+  CFLAGS    += -DUSE_BIN_FILES
+  GENERATED += $(OBJ_DIR)/gen_data.h \
+               $(OBJ_DIR)/gen-code-blocks.c
+endif
 
 #
 # For '../web-pages.dll':
@@ -482,7 +483,7 @@ $(OBJ_DIR)/%.res: %.rc
 	$(call RC_compile, $@, $<)
 
 ifeq ($(CC)-$(USE_MP_COMPILE),cl-1)
-  $(OBJECTS): $(SOURCES) | $(CC).args $(OBJ_DIR)
+  $(OBJECTS): $(SOURCES) | $(CC).args $(GENERATED)
 	$(call green_msg, Compiling $(words $(SOURCES)) .c-files in one go...)
 	$(call C_compile, $(OBJ_DIR)\\, -MP $(SOURCES))
 
