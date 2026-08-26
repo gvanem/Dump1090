@@ -147,6 +147,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="adsb-fi.c" />
     <ClCompile Include="aircraft.c" />
     <ClCompile Include="airports.c" />
     <ClCompile Include="cfg_file.c" />
@@ -187,6 +188,7 @@
     <ClCompile Include="externals\SDRplay\sdrplay.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="adsb-fi.h" />
     <ClInclude Include="aircraft.h" />
     <ClInclude Include="airports.h" />
     <ClInclude Include="cfg_file.h" />

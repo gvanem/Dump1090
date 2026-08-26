@@ -34,6 +34,7 @@
 #include "raw-sbs.h"
 #include "speech.h"
 #include "location.h"
+#include "adsb-fi.h"
 #include "airports.h"
 #include "aircraft.h"
 #include "interactive.h"
@@ -700,7 +701,7 @@ static bool modeS_init_hardware (void)
   bool        use_rtltcp;
   const char *p;
 
-  if (Modes.net_only || Modes.tests || Modes.gns_hulc.handle)  /* no need for this */
+  if (Modes.net_only || Modes.tests || Modes.gns_hulc.handle || Modes.adsb_fi)  /* no need for this */
      return (true);
 
   /* If `--device tcp://host:port' specified
@@ -1349,6 +1350,18 @@ static DWORD WINAPI data_thread_fn (void *arg)
   {
     gns_hulc_read_loop();
     modeS_signal_handler (0);    /* break out of main_data_loop() */
+  }
+  else if (Modes.adsb_fi)
+  {
+    while (!Modes.exit)
+    {
+     /* Send request to "https://opendata.adsb.fi" and process
+      * the results. Sleep 2 sec between requests. Otherwise
+      * we will be blacklisted :-(
+      */
+      adsb_fi_read_loop();
+      Sleep (2000);
+    }
   }
   else if (Modes.rtl_tcp_in || Modes.raw_in || Modes.websock_in)
   {
@@ -3507,6 +3520,7 @@ static void show_help (const char *fmt, ...)
             "                             `--device udp://host:port' - select remote RTLSDR udp service (default port=%u).\n"
             "                             `--device ws://host:port'  - select remote SDRConnect service (default port=%u).\n"
             "                             `--device gns-hulc<N>'     - select serial-port HULC smart antenna (default N=%d for COM%d).\n"
+            "                             `--device ADSB.FI'         - get data from 'https://opendata.adsb.fi'.\n"
             "  --infile <filename>   Read data from file (use `-' for stdin).\n"
             "  --informat <format>   Format for `--infile`; `UC8`, `SC16` or `SC16Q11` (default: `UC8`)\n"
             "  --interactive         Enable interactive mode.\n"
@@ -3657,7 +3671,7 @@ void background_tasks (void)
   if (Modes.interactive)
      interactive_show_data (now);
 
-  if (PHYS_DEVICE() || Modes.rtl_tcp_in || Modes.raw_in || Modes.sbs_in)
+  if (PHYS_DEVICE() || Modes.rtl_tcp_in || Modes.raw_in || Modes.sbs_in || Modes.adsb_fi)
   {
     interactive_title_stats();
     interactive_update_gain();
@@ -4040,6 +4054,11 @@ static void set_device (const char *arg)
   {
     gns_hulc_set_port (arg);
     Modes.selected_dev = mg_mprintf ("gns-hulc%d", Modes.gns_hulc.port);
+  }
+  else if (!stricmp(arg, "adsb.fi"))
+  {
+    Modes.selected_dev = mg_mprintf ("%s", arg);
+    Modes.adsb_fi = true;
   }
 
   /* No RTLSDR now.
@@ -4547,6 +4566,12 @@ int main (int argc, char **argv)
       rc = airspy_init (Modes.airspy.name, Modes.airspy.index, &Modes.airspy.device);
       TRACE ("airspy_init(): rc: %d / %s.\n", rc, airspy_strerror(rc));
       if (rc)
+         goto quit;
+    }
+    else if (Modes.adsb_fi)
+    {
+      rc = adsb_fi_init();
+      if (!rc)
          goto quit;
     }
     else if (Modes.selected_dev && !strnicmp(Modes.selected_dev, "gns-hulc", 8))

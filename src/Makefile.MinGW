@@ -72,7 +72,8 @@ OS_LIBS = -ladvapi32 -ldnsapi -liphlpapi -lole32 -lsetupapi \
 #
 TARGETS = ../dump1090.exe
 
-SOURCES = aircraft.c     \
+SOURCES = adsb-fi.c      \
+          aircraft.c     \
           airports.c     \
           cfg_file.c     \
           color.c        \

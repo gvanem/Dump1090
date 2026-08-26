@@ -290,7 +290,8 @@ endif
 #
 TARGETS = ../dump1090.exe
 
-SOURCES = aircraft.c     \
+SOURCES = adsb-fi.c      \
+          aircraft.c     \
           airports.c     \
           cfg_file.c     \
           color.c        \
@@ -773,7 +774,8 @@ DOXY_SOURCES = $(filter-out externals/sqlite3.c               \
 
 DOXY_SOURCES := $(addprefix ../, $(DOXY_SOURCES))
 
-DOXY_HEADERS = ../aircraft.h                        \
+DOXY_HEADERS = ../adsb-fi.h                         \
+               ../aircraft.h                        \
                ../airports.h                        \
                ../cfg_file.h                        \
                ../color.h                           \

@@ -17,6 +17,7 @@ endif()
 # Define source files
 #
 set(SOURCES
+    adsb-fi.c
     aircraft.c
     airports.c
     cfg_file.c

@@ -528,6 +528,7 @@ typedef struct global_data {
         bool                no_stats;                 /**< Set to `true` in case no point showing statistics. */
         bool                mode_AC;                  /**< Enable decoding of SSR Modes A & C. */
         bool                under_appveyor;           /**< true if running on AppVeyor CI testing */
+        bool                adsb_fi;                  /**< true if "--device adsb.fi" */
         uint32_t            a_follow;                 /**< Follow and log details of this aircraft. For debugging. */
 
         /** Common stuff for RTLSDR and SDRplay:
