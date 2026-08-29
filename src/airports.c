@@ -18,10 +18,6 @@
 #include "aircraft.h"
 #include "airports.h"
 
-#if defined(USE_BIN_FILES)
-#include "gen_data.h"
-#endif
-
 #define USE_JSON_PARSE      0
 
 #define API_SERVICE_URL     "https://vrs-standing-data.adsb.lol/routes/%.2s/%s.json"
@@ -124,16 +120,16 @@ typedef struct airport_freq {
  * A flight-information record from a live or cached API request.
  */
 typedef struct flight_info {
-        char                call_sign   [10];  /**< call-sign for this flight */
-        char                departure   [30];  /**< IATA departure airport for this flight */
-        char                destination [30];  /**< IATA destination airport for this flight */
-        uint32_t            ICAO_addr;         /**< ICAO address of plane */
-        airport_t           type;              /**< the type of this record */
-        FILETIME            created;           /**< time when this record was created and requested (UTC) */
-        FILETIME            responded;         /**< time when this record had a response (UTC) */
-        int                 http_status;       /**< the HTTP status-code (or 0) */
-        bool                done_trace;        /**< relax the `API_TRACE()` for this record */
-        bool                normalized;        /**< the `call_sign[]` was normalized */
+        char         call_sign   [10];  /**< call-sign for this flight */
+        char         departure   [30];  /**< IATA departure airport for this flight */
+        char         destination [30];  /**< IATA destination airport for this flight */
+        uint32_t     ICAO_addr;         /**< ICAO address of plane */
+        airport_t    type;              /**< the type of this record */
+        FILETIME     created;           /**< time when this record was created and requested (UTC) */
+        FILETIME     responded;         /**< time when this record had a response (UTC) */
+        int          http_status;       /**< the HTTP status-code (or 0) */
+        bool         done_trace;        /**< relax the `API_TRACE()` for this record */
+        bool         normalized;        /**< the `call_sign[]` was normalized */
       } flight_info;
 
 /**
@@ -1107,8 +1103,8 @@ static bool API_thread_worker (flight_info *f)
   if (g_data.do_trace_LOL)
        API_TRACE_LOL ("request", g_data.ap_stats.API_requests_sent, request, f);
   else API_TRACE ("request # %lu: (ICAO: %06X, normalized: %d) '%s',\n",
-                  g_data.ap_stats.API_requests_sent, f->normalized,
-                  f->ICAO_addr, request);
+                  g_data.ap_stats.API_requests_sent,
+                  f->ICAO_addr, f->normalized, request);
 
   g_data.ap_stats.API_requests_sent++;
 
