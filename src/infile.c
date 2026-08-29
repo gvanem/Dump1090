@@ -216,10 +216,7 @@ int infile_read (void)
  */
 void infile_exit (void)
 {
-  if (Modes.infile)
-     free (Modes.infile);
-  Modes.infile = NULL;
-
+  FREE (Modes.infile);
   if (g_data.records)
   {
     free (g_data.records);
