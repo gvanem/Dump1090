@@ -30,6 +30,7 @@
 #define NONE_STR           "<none>"   /* None or "Not applicable" */
 #define NONE_VAL           "none"     /* A `None` .cfg-file value */
 #define STDIN_FILENO       0
+#define INVALID_ALTITUDE  (-9999)
 
 /**
  * \def PHYS_DEVICE()
@@ -528,7 +529,7 @@ typedef struct global_data {
         bool                no_stats;                 /**< Set to `true` in case no point showing statistics. */
         bool                mode_AC;                  /**< Enable decoding of SSR Modes A & C. */
         bool                under_appveyor;           /**< true if running on AppVeyor CI testing */
-        bool                adsb_fi;                  /**< true if "--device adsb.fi" */
+        bool                adsb_fi;                  /**< true for "--device adsb.fi" */
         uint32_t            a_follow;                 /**< Follow and log details of this aircraft. For debugging. */
 
         /** Common stuff for RTLSDR and SDRplay:
@@ -714,6 +715,7 @@ typedef enum datasource_t {
         SOURCE_TISB,           /**< data from a TIS-B extended squitter message */
         SOURCE_ADSR,           /**< data from a ADS-R extended squitter message */
         SOURCE_ADSB,           /**< data from a ADS-B extended squitter message */
+        SOURCE_ADSB_FI,        /**< data from a ADSB.FI JSON message */
       } datasource_t;
 
 /**
@@ -858,8 +860,8 @@ char *modeS_FILETIME_to_str (const FILETIME *ft, bool show_YMD);
 char *modeS_FILETIME_to_loc_str (const FILETIME *ft, bool show_YMD);
 void  modeS_signal_handler (int sig);
 int   modeS_vasprintf (char **bufp, _Printf_format_string_ const char *format, va_list args);
-int   modeS_asprintf  (char **bufp, _Printf_format_string_ const char *format, ...)  ATTR_PRINTF(2, 3);
-int   modeS_SetConsoleTitlef (_Printf_format_string_ const char *fmt, ...);
+int   modeS_asprintf  (char **bufp, _Printf_format_string_ const char *format, ...) ATTR_PRINTF(2, 3);
+int   modeS_SetConsoleTitlef (_Printf_format_string_ const char *fmt, ...)          ATTR_PRINTF(1, 2);
 
 /**
  * Decoding functions in `dump1090.c` needed by the various
@@ -918,6 +920,7 @@ FILE       *fopen_excl (const char *file, const char *mode);
 uint32_t    download_to_file (const char *url, const char *file);
 char       *download_to_buf  (const char *url);
 int         download_status (void);
+bool        download_init_once (void);
 int         load_dynamic_table (dyn_struct *tab, int tab_size);
 int         unload_dynamic_table (dyn_struct *tab, int tab_size);
 bool        test_add (char **pattern, const char *what);

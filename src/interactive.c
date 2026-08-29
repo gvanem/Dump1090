@@ -13,6 +13,7 @@
 #include <locale.h>
 
 #include "interactive.h"
+#include "adsb-fi.h"
 #include "aircraft.h"
 #include "airports.h"
 #include "smartlist.h"
@@ -691,37 +692,58 @@ static int interactive_phys_stats (const char *silent)
 }
 
 /*
+ * Show statistics for the GNS-Hulc device
+ */
+static int interactive_gns_hulc_stats (const char *silent)
+{
+  pos_t    pos;
+  char     GPS_info [100];
+  char     counters [100] = "";
+  uint64_t too_short = gns_hulc_too_short();
+  uint64_t junk      = gns_hulc_junk();
+  uint64_t overrun   = gns_hulc_overrun();
+
+  if (too_short + junk + overrun > 0ULL)
+     snprintf (counters, sizeof(counters), " (%llu / %llu / %llu)", too_short, junk, overrun);
+
+  if (gns_hulc_gps_info(&pos, NULL, NULL, NULL))
+       snprintf (GPS_info, sizeof(GPS_info), "%.06lf %s / %.06lf %s",
+                 fabs(pos.lon), pos.lon > 0.0 ? "E" : "W",
+                 fabs(pos.lat), pos.lat > 0.0 ? "N" : "S");
+  else strcpy (GPS_info, "no fix");
+
+  return modeS_SetConsoleTitlef ("%sDev: %s, GPS: %s%s",
+                                 silent, Modes.gns_hulc.name, GPS_info, counters);
+}
+
+/*
+ * Show statistics for the ADSB.FI connection
+ */
+static int interactive_adsb_fi_stats (const char *silent)
+{
+  return modeS_SetConsoleTitlef ("%sDev: %s, %u planes, max-dist %u %s",
+                                 silent, Modes.selected_dev,
+                                 adsb_fi_ac_len(),
+                                 adsb_fi_get_max_distance(),
+                                 Modes.metric ? "Km" : "Nm");
+}
+
+/*
  * Called every 250 msec (`MODES_INTERACTIVE_REFRESH_TIME`) to update
  * the Console Window Title.
  *
  * Called from `background_tasks()` in the main thread.
- * Show special statistics for RAW-IN / SBS / GNS-HULC.
+ * Show special statistics for GNS-HULC / ADSB.FI / SBS / RAW-IN.
  */
 int interactive_title_stats (void)
 {
   const char *silent = (Modes.silent && !Modes.interactive) ? "SILENT-MODE, " : "";
 
   if (Modes.gns_hulc.handle)
-  {
-    pos_t    pos;
-    char     GPS_info [100];
-    char     counters [100] = "";
-    uint64_t too_short = gns_hulc_too_short();
-    uint64_t junk      = gns_hulc_junk();
-    uint64_t overrun   = gns_hulc_overrun();
+     return interactive_gns_hulc_stats (silent);
 
-    if (too_short + junk + overrun > 0ULL)
-       snprintf (counters, sizeof(counters), " (%llu / %llu / %llu)", too_short, junk, overrun);
-
-    if (gns_hulc_gps_info(&pos, NULL, NULL, NULL))
-         snprintf (GPS_info, sizeof(GPS_info), "%.06lf %s / %.06lf %s",
-                   fabs(pos.lon), pos.lon > 0.0 ? "E" : "W",
-                   fabs(pos.lat), pos.lat > 0.0 ? "N" : "S");
-    else strcpy (GPS_info, "no fix");
-
-    return modeS_SetConsoleTitlef ("%sDev: %s, GPS: %s%s",
-                                   silent, Modes.gns_hulc.name, GPS_info, counters);
-  }
+  if (Modes.adsb_fi)
+     return interactive_adsb_fi_stats (silent);
 
   if (PHYS_DEVICE() || Modes.rtl_tcp_in || Modes.websock_in)
      return interactive_phys_stats (silent);
@@ -842,7 +864,7 @@ void interactive_update_gain (void)
   static int gain_idx = -1;
   int    i, ch;
 
-  if (Modes.net_only)  /* No meaning here */
+  if (Modes.net_only || Modes.adsb_fi)  /* No meaning here */
      return;
 
   if (gain_idx == -1)

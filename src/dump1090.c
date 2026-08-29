@@ -3,29 +3,17 @@
  * \ingroup Main
  * \brief   Dump1090 for Windows, a Mode-S messages decoder for RTLSDR / SDRPlay devices.
  */
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
 #include <errno.h>
 #include <malloc.h>
 #include <signal.h>
-#include <fcntl.h>
 #include <ctype.h>
-#include <limits.h>
-#include <assert.h>
-#include <sys/stat.h>
-#include <io.h>
-#include <process.h>
 
 #include "misc.h"
 #include "net_io.h"
-#include "cfg_file.h"
 #include "cpr.h"
 #include "crc.h"
 #include "demod.h"
-#include "geo.h"
-#include "convert.h"
 #include "RTLSDR/rtl-sdr.h"
 #include "AirSpy/airspy.h"
 #include "GNS-Hulc/gns-hulc.h"
@@ -146,13 +134,15 @@ static const cfg_table config[] = {
     { "console-icon",         ARG_ATOB,    (void*) &Modes.console_icon },
     { "cpr-trace",            ARG_ATOB,    (void*) &Modes.cpr_trace },
     { "DC-filter",            ARG_ATOB,    (void*) &Modes.DC_filter },
+    { "adsb-fi-max-distance", ARG_FUNC,    (void*) adsb_fi_max_distance },
+    { "adsb-fi-sleep-time",   ARG_FUNC,    (void*) adsb_fi_sleep_time },
     { "airspy-dll",           ARG_FUNC,    (void*) airspy_set_dll_name },
     { "sdrplay-adsb-mode",    ARG_FUNC,    (void*) sdrplay_set_adsb_mode },
     { "sdrplay-antenna",      ARG_FUNC,    (void*) sdrplay_set_antenna },
-    { "sdrplay-capture-secs", ARG_FUNC,    (void*) sdrplay_set_capture_secs },   /* TESTING TOOL: raw IQ capture */
+    { "sdrplay-capture-secs", ARG_FUNC,    (void*) sdrplay_set_capture_secs },    /* TESTING TOOL: raw IQ capture */
     { "sdrplay-decay-filter", ARG_FUNC,    (void*) sdrplay_set_decay_filter },
     { "sdrplay-dll",          ARG_FUNC,    (void*) sdrplay_set_dll_name },
-    { "sdrplay-gain-sweep-secs", ARG_FUNC, (void*) sdrplay_set_gain_sweep_secs },   /* TESTING TOOL: automated gain sweep */
+    { "sdrplay-gain-sweep-secs", ARG_FUNC, (void*) sdrplay_set_gain_sweep_secs }, /* TESTING TOOL: automated gain sweep */
     { "sdrplay-if-mode",      ARG_FUNC,    (void*) sdrplay_set_if_mode },
     { "sdrplay-lna-state",    ARG_FUNC,    (void*) sdrplay_set_lna_state },   /* FEATURE: RF front-end LNA gain state; was hardcoded to 0 with no cfg control at all */
     { "sdrplay-lna-state",    ARG_FUNC,    (void*) sdrplay_set_lna_state },
@@ -701,7 +691,9 @@ static bool modeS_init_hardware (void)
   bool        use_rtltcp;
   const char *p;
 
-  if (Modes.net_only || Modes.tests || Modes.gns_hulc.handle || Modes.adsb_fi)  /* no need for this */
+  /* Any need for this?
+   */
+  if (Modes.net_only || Modes.tests || Modes.gns_hulc.handle || Modes.adsb_fi)
      return (true);
 
   /* If `--device tcp://host:port' specified
@@ -1353,15 +1345,8 @@ static DWORD WINAPI data_thread_fn (void *arg)
   }
   else if (Modes.adsb_fi)
   {
-    while (!Modes.exit)
-    {
-     /* Send request to "https://opendata.adsb.fi" and process
-      * the results. Sleep 2 sec between requests. Otherwise
-      * we will be blacklisted :-(
-      */
-      adsb_fi_read_loop();
-      Sleep (2000);
-    }
+    adsb_fi_read_loop();
+    modeS_signal_handler (0);
   }
   else if (Modes.rtl_tcp_in || Modes.raw_in || Modes.websock_in)
   {
@@ -1533,8 +1518,6 @@ static int decode_ID13_field (int ID13_field)
 
   return (hex_gillham);
 }
-
-#define INVALID_ALTITUDE (-9999)
 
 /**
  * Decode the 13 bit AC altitude field (in DF20 and others).
@@ -3096,6 +3079,9 @@ static bool modeS_message_display (modeS_message *mm)
   if (mm->SBS_in)
      return (true);     /* Enough for a SBS-IN message */
 
+  if (mm->source == SOURCE_ADSB_FI)
+     return (true);     /* ADSB.FI do not provide the below raw data */
+
   /* Show the raw message.
    */
   assert (mm->msg_bits > 0);
@@ -3401,13 +3387,13 @@ int modeS_message_score (const uint8_t *msg, int valid_bits)
 void modeS_user_message (modeS_message *mm)
 {
   aircraft *a = aircraft_update_from_message (mm);
-  bool ignore;
+  bool ignore = (mm->source == SOURCE_ADSB_FI);
 
   Modes.stat.messages_total++;
 
   /* In `--net-active` mode we have no clients.
    */
-  if (a && Modes.net)
+  if (a && Modes.net && !ignore)
   {
     if (net_handler_sending(MODES_NET_SERVICE_SBS_OUT))             /* We're still sending */
        sbs_out_send (mm);                                           /* Feed SBS output clients. */
@@ -3427,8 +3413,17 @@ void modeS_user_message (modeS_message *mm)
 
   if (modeS_message_display(mm))
   {
+    bool add_nl = true;
+
+    if (mm->source == SOURCE_ADSB_FI)
+       add_nl = false;
+
+     if (Modes.raw || Modes.only_addr || aircraft_match_filter())
+        add_nl = false;
+
     Modes.stat.messages_shown++;
-    if ((!Modes.raw && !Modes.only_addr) || aircraft_match_filter())
+
+    if (add_nl)
     {
       puts ("");
       modeS_log ("\n\n");
@@ -3520,7 +3515,7 @@ static void show_help (const char *fmt, ...)
             "                             `--device udp://host:port' - select remote RTLSDR udp service (default port=%u).\n"
             "                             `--device ws://host:port'  - select remote SDRConnect service (default port=%u).\n"
             "                             `--device gns-hulc<N>'     - select serial-port HULC smart antenna (default N=%d for COM%d).\n"
-            "                             `--device ADSB.FI'         - get data from 'https://opendata.adsb.fi'.\n"
+            "                             `--device adsb.fi'         - get data from 'https://opendata.adsb.fi/api/v3'.\n"
             "  --infile <filename>   Read data from file (use `-' for stdin).\n"
             "  --informat <format>   Format for `--infile`; `UC8`, `SC16` or `SC16Q11` (default: `UC8`)\n"
             "  --interactive         Enable interactive mode.\n"
@@ -3646,6 +3641,11 @@ void background_tasks (void)
 
   if (Modes.gns_hulc.handle)
      gns_hulc_poll();
+
+  /* print or process the results from "https://opendata.adsb.fi/api"
+   */
+  if (Modes.adsb_fi)
+     adsb_fi_poll();
 
   if (Modes.exit)
      return;
@@ -3867,6 +3867,9 @@ static void show_statistics (void)
   aircraft_show_stats();
   airports_show_stats();
 
+  if (Modes.adsb_fi)
+     adsb_fi_show_stats();
+
   if (Modes.net)
      net_show_stats();
 }
@@ -3925,6 +3928,11 @@ static void modeS_cleanup (void)
   {
     gns_hulc_exit (Modes.gns_hulc.handle);
     Modes.gns_hulc.handle = NULL;
+  }
+  else if (Modes.adsb_fi)
+  {
+    adsb_fi_exit();
+    Modes.adsb_fi = false;
   }
 
   if (Modes.reader_thread)
@@ -4057,7 +4065,7 @@ static void set_device (const char *arg)
   }
   else if (!stricmp(arg, "adsb.fi"))
   {
-    Modes.selected_dev = mg_mprintf ("%s", arg);
+    Modes.selected_dev = strdup ("https://opendata.adsb.fi/api/v3");
     Modes.adsb_fi = true;
   }
 
@@ -4309,6 +4317,11 @@ static bool set_home_pos_from_location_API (const char *arg)
     Modes.win_location = true;
     if (!location_get_async())
        return (false);
+  }
+  else if (arg && !cfg_true(arg))  /* in case another .cfg-file does "location = false" */
+  {
+    Modes.win_location = false;
+    location_exit();
   }
   return (true);
 }

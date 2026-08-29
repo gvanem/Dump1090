@@ -370,6 +370,9 @@ bool aircraft_valid (const aircraft *a)
                (mode_A_only && msgs > 4) ||
                (!mode_C_old && msgs > 127);
 
+  if (Modes.adsb_fi)  /* all planes are assumed to be valid */
+     return (true);
+
   if (a->addr & MODES_NON_ICAO_ADDRESS)
      valid = false;
 
@@ -3796,9 +3799,9 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
   if ((mm->AC_flags & MODES_ACFLAGS_AOG_VALID) && ((a->AC_flags ^ mm->AC_flags) & MODES_ACFLAGS_AOG))
      a->AC_flags &= ~(MODES_ACFLAGS_LLBOTH_VALID | MODES_ACFLAGS_AOG);
 
-  /* No CPR processing for SBS-IN messages.
+  /* No CPR processing for SBS-IN / ADSB.FI messages.
    */
-  if (mm->SBS_in)
+  if (mm->SBS_in || mm->source == SOURCE_ADSB_FI)
   {
     if (mm->AC_flags & MODES_ACFLAGS_LATLON_VALID)
     {
