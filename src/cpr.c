@@ -391,8 +391,9 @@ int cpr_do_local (struct aircraft *a, const struct modeS_message *mm, uint64_t n
  * \li We assume that we always received the odd packet as last packet for
  *     simplicity. This may provide a position that is less fresh of a few seconds.
  */
-static int CPR_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat, int odd_cprlon,
-                                bool is_odd, pos_t *out)
+static int CPR_decode_airborne (int  even_cprlat, int even_cprlon,
+                                int  odd_cprlat,  int odd_cprlon,
+                                bool is_odd,      pos_t *out)
 {
   double air_dlat0 = 360.0 / 60.0;
   double air_dlat1 = 360.0 / 59.0;
@@ -464,9 +465,10 @@ static int CPR_decode_airborne (int even_cprlat, int even_cprlon, int odd_cprlat
   return (0);
 }
 
-static int CPR_decode_surface (double ref_lat, double ref_lon,
-                               int even_cprlat, int even_cprlon, int odd_cprlat, int odd_cprlon,
-                               bool is_odd, pos_t *out)
+static int CPR_decode_surface (double ref_lat,     double ref_lon,
+                               int    even_cprlat, int    even_cprlon,
+                               int    odd_cprlat,  int    odd_cprlon,
+                               bool   is_odd,      pos_t *out)
 {
   double air_dlat0 = 90.0 / 60.0;
   double air_dlat1 = 90.0 / 59.0;
@@ -597,8 +599,10 @@ static int CPR_decode_surface (double ref_lat, double ref_lon,
  * See Figure 5-5 / 5-6 and note that floor is applied to (0.5 + fRP - fEP), not
  * directly to (fRP - fEP). Eq 38 is correct.
  */
-static int CPR_decode_relative (double ref_lat, double ref_lon, int cprlat, int cprlon,
-                                bool is_odd, bool surface, pos_t *out)
+static int CPR_decode_relative (double ref_lat, double ref_lon,
+                                int    cprlat,  int    cprlon,
+                                bool   is_odd,  bool   surface,
+                                pos_t *out)
 {
   double air_dlat;
   double air_dlon;
@@ -806,10 +810,10 @@ static const surface_test CPR_surface_tests[] = {
 
      /* poles/equator cases:
       */
-     { -46.0, -180.0, 0,      0,    0,     0,   -90.0,           -180.000000,    -90.0,         -180.0 },   /* south pole */
-     { -44.0, -180.0, 0,      0,    0,     0,     0.0,           -180.000000,      0.0,         -180.0 },   /* equator */
-     {  44.0, -180.0, 0,      0,    0,     0,     0.0,           -180.000000,      0.0,         -180.0 },   /* equator */
-     {  46.0, -180.0, 0,      0,    0,     0,    90.0,           -180.000000,     90.0,         -180.0 },   /* north pole */
+     { -46.0, -180.0, 0,     0,    0,     0,   -90.0,          -180.000000,    -90.0,          -180.0 },   /* south pole */
+     { -44.0, -180.0, 0,     0,    0,     0,     0.0,          -180.000000,      0.0,          -180.0 },   /* equator */
+     {  44.0, -180.0, 0,     0,    0,     0,     0.0,          -180.000000,      0.0,          -180.0 },   /* equator */
+     {  46.0, -180.0, 0,     0,    0,     0,    90.0,          -180.000000,     90.0,          -180.0 },   /* north pole */
    };
 
 static const relative_test CPR_relative_tests[] = {
