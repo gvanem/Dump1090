@@ -2216,7 +2216,7 @@ static bool download_init (HINTERNET *h1, HINTERNET *h2, const char *url)
 
 //url_flags |= INTERNET_FLAG_EXISTING_CONNECT;
 
-  if (!strncmp(url, "https://", 8))
+  if (url && !strncmp(url, "https://", 8))
      url_flags |= INTERNET_FLAG_SECURE;
 
   *h2 = (*p_InternetOpenUrlA) (*h1, url, NULL, 0, url_flags, INTERNET_NO_CALLBACK);
@@ -2263,11 +2263,29 @@ typedef struct download_ctx {
         bool        got_last_chunk;
       } download_ctx;
 
-static int g_http_status = -1;
+static int  g_http_status = -1;
+static bool g_keep_open = false;
 
 int download_status (void)
 {
   return (g_http_status);
+}
+
+/**
+ * When using WinInet functions from 2 threads (like airports.c and adsb-fi.c), we need
+ * to keep the WinInet func-pointers and module-handle open until we exit.
+ * So load these once here.
+ */
+bool download_init_once (void)
+{
+  if (!g_keep_open &&
+      load_dynamic_table(wininet_funcs, DIM(wininet_funcs)) != DIM(wininet_funcs))
+  {
+    DEBUG (DEBUG_NET, "Failed to load the needed 'WinInet.dll' functions.\n");
+    return (false);
+  }
+  g_keep_open = true;
+  return (true);
 }
 
 static bool download_exit (download_ctx *ctx, bool rc)
@@ -2290,7 +2308,9 @@ static bool download_exit (download_ctx *ctx, bool rc)
     (*p_InternetCloseHandle) (ctx->h1);
 
   ctx->h1 = ctx->h2 = NULL;
-  unload_dynamic_table (wininet_funcs, DIM(wininet_funcs));
+
+  if (!g_keep_open)
+     unload_dynamic_table (wininet_funcs, DIM(wininet_funcs));
   return (rc);
 }
 
@@ -2375,7 +2395,8 @@ static bool download_common (download_ctx *ctx,
     }
   }
 
-  if (load_dynamic_table(wininet_funcs, DIM(wininet_funcs)) != DIM(wininet_funcs))
+  if (!g_keep_open &&
+      load_dynamic_table(wininet_funcs, DIM(wininet_funcs)) != DIM(wininet_funcs))
   {
     DEBUG (DEBUG_NET, "Failed to load the needed 'WinInet.dll' functions.\n");
     return download_exit (ctx, false);
