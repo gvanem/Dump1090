@@ -173,7 +173,7 @@ typedef struct aircraft {
         int       HAE_delta;              /**< Difference between HAE and Baro altitudes */
         uint32_t  category;               /**< A0 - D7 encoded as a single hex byte */
 
-        modeS_message        first_msg;   /**< A copy of the first message we received for this aircraft */
+        datasource_t         source;      /**< copy of `mm->source` when this aircraft was created */
         aircraft_info       *SQL;         /**< A pointer to a SQL record (or NULL) */
         const aircraft_info *CSV;         /**< A pointer to a CSV record in `Modes.aircraft_list_CSV` (or NULL) */
       } aircraft;

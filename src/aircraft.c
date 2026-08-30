@@ -365,13 +365,16 @@ bool aircraft_valid (const aircraft *a)
   bool mode_AC     = (flags & MODEAC_MSG_FLAG);
   bool mode_A_only = ((flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEA_ONLY)) == MODEAC_MSG_MODEA_ONLY);
   bool mode_C_old  = (flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD));
+  bool valid;
 
-  bool valid = (!mode_AC    && msgs > 1) ||
+  /* All planes from ADSB.FI are assumed to be valid.
+   * Unless it's a 'MODES_NON_ICAO_ADDRESS' address
+   */
+  if (a->source == SOURCE_ADSB_FI)
+       valid = true;
+  else valid = (!mode_AC    && msgs > 1) ||
                (mode_A_only && msgs > 4) ||
                (!mode_C_old && msgs > 127);
-
-  if (Modes.adsb_fi)  /* all planes are assumed to be valid */
-     return (true);
 
   if (a->addr & MODES_NON_ICAO_ADDRESS)
      valid = false;
@@ -3771,9 +3774,7 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
         a->sig_levels [i] = 1E-5;
     a->sig_idx = 0;
 
-   /* copy the first message so we can use it later.
-    */
-    a->first_msg = *mm;
+    a->source = mm->source;   /* Remember the source */
 
     /* mm->msg_type 32 is used to represent Mode A/C. These values can never change,
      * so set them once here during initialisation, and don't bother to set them every
