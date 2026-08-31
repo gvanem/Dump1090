@@ -11,9 +11,9 @@
 #define MODES_MAX_BITERRORS 2
 
 typedef struct errorinfo {
-        uint32_t syndrome;                  // CRC syndrome
-        int      errors;                    // number of errors
-        int8_t   bit [MODES_MAX_BITERRORS]; // bit positions to fix (-1 = no bit)
+        uint32_t syndrome;                  /**< CRC syndrome */
+        int      errors;                    /**< number of errors */
+        int8_t   bit [MODES_MAX_BITERRORS]; /**< bit positions to fix (-1 = no bit) */
       } errorinfo;
 
 void       crc_init (int fix_bits);
