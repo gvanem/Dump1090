@@ -723,8 +723,7 @@ static int interactive_adsb_fi_stats (const char *silent)
 {
   return modeS_SetConsoleTitlef ("%sDev: %s, %u planes, max-dist %u %s",
                                  silent, Modes.selected_dev,
-                                 adsb_fi_ac_len(),
-                                 adsb_fi_get_max_distance(),
+                                 adsb_fi_num_planes(), adsb_fi_get_max_distance(),
                                  Modes.metric ? "Km" : "Nm");
 }
 
@@ -1034,7 +1033,7 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
   /* If it's valid plane and not a helicopter, post a ADSB-LOL API
    * request for the flight-info. Or return already cached flight-info.
    */
-  if (show_dep_dst && !a->is_helicopter && call_sign[0] != ' ')
+  if (show_dep_dst && !a->is_helicopter && call_sign[0] != ' ' && call_sign[0] != '-')
   {
     const char *departure, *destination;
 

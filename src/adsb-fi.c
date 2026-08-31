@@ -3,7 +3,6 @@
  * \brief   Fetches live aircraft data from the adsb.fi opendata API.
  */
 #include "misc.h"
-#include "smartlist.h"
 #include "aircraft.h"
 #include "adsb-fi.h"
 
@@ -26,10 +25,10 @@
 #define MIN_SLEEP_TIME 1000
 
 /**
- * \def POLL_TIME
- * The time between calls to`adsb_fi_print_raw()`.
+ * \def RAW_BUF_TIME
+ * The time between calls to `print_raw()`.
  */
-#define POLL_TIME 1000
+#define RAW_BUF_TIME 1000
 
 /**
  * \def ADSB_FI_URL_FORMAT
@@ -41,12 +40,19 @@
 #define ADSB_FI_URL_FORMAT  "https://opendata.adsb.fi/api/v3/lat/%.6f/lon/%.6f/dist/%u"
 
 /**
+ * \def AC_LIST_INCREMENT
+ * `realloc()` increment in `ac_list_find_or_create()`.
+ */
+#define AC_LIST_INCREMENT 100
+
+/**
  * \typedef ac_element
  * Raw-data we add to `g_data.ac_list`
  */
 typedef struct ac_element {
         uint32_t  addr;
         uint32_t  msg_num;
+        bool      present;
         char      raw_buf [300];
       } ac_element;
 
@@ -65,16 +71,12 @@ typedef struct mm_element {
  */
 typedef struct adsb_fi_stats {
         uint32_t  total_last;      /**< total "ac" elements in JSON-data received last time */
-        uint32_t  total_recv;      /**< total JSON-messages received */
         uint64_t  bytes_sent;      /**< total request bytes sent */
         uint64_t  bytes_recv;      /**< total response bytes received */
         uint32_t  requests_sent;   /**< total requests sent */
         uint32_t  responses_recv;  /**< total responses received */
         uint32_t  http_err;        /**< total HTTP != 200 */
         uint32_t  wininet_err;     /**< total WinInet problems */
-        uint32_t  ac_missing;
-        uint32_t  ac_empty;
-
       } adsb_fi_stats;
 
 /**
@@ -87,36 +89,26 @@ typedef struct adsb_fi_priv {
         bool          max_distance_set;
         uint32_t      sleep_time;       /**< time between requests. In milli-sec */
         bool          sleep_time_set;
+        bool          print_old;        /**< print old `ac_list::raw_buf` elements? */
         adsb_fi_stats stats;            /**< accumulated statistics */
         char         *url;              /**< the URL we send to */
-
-        smartlist_t  *ac_list;          /**< list of `ac_element` */
+        char         *data;             /**< the last data we got */
+        uint32_t      ac_list_num;      /**< number of ALL `ac_element` in `ac_list` */
+        char         *ac_list_end;      /**< points to end of `ac_list` */
+        ac_element   *ac_list;          /**< list of `ac_element` */
         mm_element   *mm_list;          /**< list of `mm_element` */
      } adsb_fi_priv;
 
 static adsb_fi_priv g_data;
 
-static char *send_request (void);
-static bool  process_response (mg_str body);
-static void  json_dump (const char *data);
-
-/*
- * small test for order of printf()s:
- * With 'cl' it prints "world\nhello\n"
- * With 'clang-cl' it prints "hello\nworld\n"
- * go figure!?
- */
-static void print_order (void)
-{
-#if 1
-  int len = printf ("%s\n", "hello") + printf ("%s\n", "world");
-  (void) len;
-#endif
-}
+static char    *send_request (void);
+static uint32_t process_response (mg_str body);
+static void     print_raw (void);
+static void     json_dump (const char *data);
+static int      compare_on_addr (const void *_a, const void *_b);
 
 /**
  * Set default values unless set from config-callbacks.
- * Allocate a smartlist for responses.
  */
 bool adsb_fi_init (void)
 {
@@ -127,7 +119,7 @@ bool adsb_fi_init (void)
    * `AIRPORT_API_PENDING` records in `API_thread_worker()` for
    * "--interactive" mode.
    */
-  download_init_once();
+  bool rc = download_init_once();
 
   if (!g_data.max_distance_set)
      g_data.max_distance = MAX_DISTANCE;
@@ -135,26 +127,22 @@ bool adsb_fi_init (void)
   if (!g_data.sleep_time_set)
      g_data.sleep_time = MIN_SLEEP_TIME;
 
+  g_data.print_old = false;
+
   TRACE ("max_distance: %u miles, sleep_time: %u msec\n",
          g_data.max_distance, g_data.sleep_time);
 
-  print_order();
-
-  g_data.ac_list = smartlist_new();
-  return (g_data.ac_list != NULL);
+  return (rc);
 }
 
 void adsb_fi_exit (void)
 {
   mm_element *mm, *mm_next;
 
-  if (g_data.ac_list)
-     smartlist_wipe (g_data.ac_list, free);
-  g_data.ac_list = NULL;
+  g_data.ac_list_num = 0;
+  FREE (g_data.ac_list);
   FREE (g_data.url);
 
-  /* free all queued `g_data.mm_list` elements
-   */
   for (mm = g_data.mm_list; mm; mm = mm_next)
   {
     mm_next = mm->next;
@@ -164,11 +152,11 @@ void adsb_fi_exit (void)
 }
 
 /**
- * Return length of `g_data.ac_list`.
+ * Return number of planes received in last `process_response()`.
  */
-uint32_t adsb_fi_ac_len (void)
+uint32_t adsb_fi_num_planes (void)
 {
-  return (g_data.ac_list ? smartlist_len (g_data.ac_list) : 0);
+  return (g_data.stats.total_last);
 }
 
 /**
@@ -187,14 +175,14 @@ bool adsb_fi_max_distance (const char *arg)
   else
   {
     cfg_illegal_val ("adsb-fi-max-distance", arg);
-    LOG_FILEONLY ("Illegal adsb-fi-max-distance: %s miles\n", arg);
+    LOG_FILEONLY ("Illegal 'adsb-fi-max-distance: %s' miles\n", arg);
   }
   return (true);
 }
 
 /**
  * Return max plane distane we query for.
- * In km if `Modes.mteric == true`.
+ * In km if `Modes.metric == true`.
  */
 uint32_t adsb_fi_get_max_distance (void)
 {
@@ -219,23 +207,36 @@ bool adsb_fi_sleep_time (const char *arg)
   else
   {
     cfg_illegal_val ("adsb-fi-sleep-time", arg);
-    LOG_FILEONLY ("Illegal adsb-fi-sleep_time: %s\n", arg);
+    LOG_FILEONLY ("Illegal 'adsb-fi-sleep_time: %s'\n", arg);
   }
   return (true);
 }
 
 /**
  * Called from `data_thread_fn()` to request JSON-data from `g_data.url`.
- *
- * Process JSON-array response and add uniqueue ICAO addresses to `g_data.ac_list`.
- *
- * Then `adsb_fi_poll()` is called from the main-thread (`background_tasks()`)
- * to print this list.
+ * Process JSON-array response and add ICAO addresses to `g_data.ac_list`.
  */
 void adsb_fi_read_loop (void)
 {
   while (!Modes.exit)
   {
+    /* Flush and print any raw-buffers we've got.
+     * Once every `RAW_BUF_TIME`.
+     */
+    if (!Modes.interactive && !Modes.only_addr)
+    {
+      static uint64_t last_update;
+      uint64_t now = MSEC_TIME();
+
+      /* update-time expired?
+       */
+      if ((now - last_update) >= RAW_BUF_TIME)
+      {
+        print_raw();
+        last_update = now;
+      }
+    }
+
     /* Check for a good `Modes.home_pos` before sending a request.
      */
     if (!Modes.home_pos_ok || (Modes.home_pos.lat == -1.0 && Modes.home_pos.lon == -1.0))
@@ -253,13 +254,16 @@ void adsb_fi_read_loop (void)
       TRACE ("Fetching from '%s'\n", g_data.url);
     }
 
-    char *data = send_request();
-    if (data)
+    g_data.data = send_request();
+    if (g_data.data)
     {
-      process_response (mg_str(data));
-      g_data.stats.total_recv++;
-      json_dump (data);
-      free (data);
+      g_data.stats.total_last = process_response (mg_str(g_data.data));
+      if (g_data.stats.total_last > 0)
+      {
+        qsort (g_data.ac_list, g_data.ac_list_num, sizeof(*g_data.ac_list), compare_on_addr);
+        json_dump (g_data.data);
+      }
+      free (g_data.data);
     }
 
     /* Call `Sleep(sleep_time)` (minimum 1 sec) between requests.
@@ -270,79 +274,24 @@ void adsb_fi_read_loop (void)
 }
 
 /**
- * In non-interactive mode and w/o the `--only-addr` option,
- * print the raw plane information collected.
- */
-static void adsb_fi_print_raw (void)
-{
-  int   i, len, max = adsb_fi_ac_len();
-
-  printf ("Aircrafts in range: %u, max-dist: %u %s\n",
-          g_data.stats.total_last, adsb_fi_get_max_distance(), Modes.metric ? "km" : "Nm");
-
-  len = printf ("%-8s %-9s %8s %6s %9s %9s  %7s",
-                "ICAO", "Flight", "Alt", "GS", "Lat", "Lon",
-                Modes.metric ? "Km" : "Nm");
-
-  len += printf ("   %4s    %4s   %s\n",
-                  "Hdg", "RSSI", "Num") - 13;
-
-  puts ("------------------------------------------"
-        "------------------------------------------");
-
-  for (i = 0; i < max; i++)
-  {
-    const ac_element *ac = smartlist_get (g_data.ac_list, i);
-    uint32_t addr = ac->addr;
-
-    if (addr & MODES_NON_ICAO_ADDRESS)
-         printf ("~%06X  %-*s %-5u\n", (addr & ~MODES_NON_ICAO_ADDRESS), len, ac->raw_buf, ac->msg_num);
-    else printf ("%06X   %-*s %-5u\n", addr, len, ac->raw_buf, ac->msg_num);
-  }
-  puts ("");
-}
-
-/**
- * Called from `background_tasks()` and:
- *   \li call `modeS_user_message()` to process all `g_data.mm_list` messages
- *       in queue.
- *   \li In non-interactive mode and without `--only-addr`, print all
- *       `ac->raw_buf` elements once per `POLL_TIME` (1 sec).
+ * For all `g_data.mm_list` messages in queue,
+ * call `modeS_user_message()` to create the real planes.
  */
 void adsb_fi_poll (void)
 {
   mm_element *mm, *mm_next;
-  int num = 0;
 
-  /* Pass on all queued `g_data.mm_list` elements for further processing.
-   */
-  for (mm = g_data.mm_list; mm; mm = mm_next, num++)
+  for (mm = g_data.mm_list; mm; mm = mm_next)
   {
-    mm_next = mm->next;
     modeS_user_message (&mm->mm);
+    mm_next = mm->next;
     LIST_DELETE (mm_element, &g_data.mm_list, mm);
     free (mm);
-  }
-
-  /* Do not call `adsb_fi_print_raw()` interactive-mode or with "--only-addr"
-   */
-  if (Modes.interactive || Modes.only_addr)
-     return;
-
-  static uint64_t last_update_ms;
-  uint64_t now = MSEC_TIME();
-
-  /* poll-time expired?
-   */
-  if (last_update_ms == 0 || (now - last_update_ms) >= POLL_TIME)
-  {
-    adsb_fi_print_raw();
-    last_update_ms = now;
   }
 }
 
 /**
- * Called from show_statistics() to print statistics collected here.
+ * Called from `show_statistics()` to print statistics collected here.
  */
 void adsb_fi_show_stats (void)
 {
@@ -351,6 +300,66 @@ void adsb_fi_show_stats (void)
   LOG_STDOUT (" %9llu bytes, %u requests sent.\n", g_data.stats.bytes_sent, g_data.stats.requests_sent);
   LOG_STDOUT (" %9llu bytes, %u responses received.\n", g_data.stats.bytes_recv, g_data.stats.responses_recv);
   LOG_STDOUT (" %9u HTTP errors.\n", g_data.stats.http_err);
+}
+
+/**
+ * In non-interactive mode and w/o the `--only-addr` option,
+ * print the raw plane information collected. Also print planes
+ * that has gone absent.
+ *
+ * Called from `adsb_fi_read_loop()`. I.e. the `data_thread_fn()`.
+ */
+static void print_raw (void)
+{
+  int         i, len;
+  uint32_t    addr;
+  ac_element *ac;
+
+  printf ("Aircrafts in range: %u / %u, max-dist: %u %s\n",
+          g_data.stats.total_last, g_data.ac_list_num,
+          adsb_fi_get_max_distance(), Modes.metric ? "km" : "Nm");
+
+  len = printf ("%-8s %-9s %8s %6s %9s %9s  %7s",
+                "ICAO", "Flight", "Alt", "GS", "Lat", "Lon",
+                Modes.metric ? "Km" : "Nm");
+
+  len += printf ("   %4s    %4s   %s  %s\n",
+                 "Hdg", "RSSI", "Num", g_data.print_old ? "Present" : "");
+  len -= 33;
+
+  printf ("-------------------------------------------"
+          "-------------------------------------------%s\n",
+          g_data.print_old ? "-------" : "");
+
+  for (i = 0; i < g_data.ac_list_num; i++)
+  {
+    char buf      [100];
+    char addr_buf [10];
+    char present  [10] = "";
+
+    ac   = g_data.ac_list + i;
+    addr = ac->addr;
+
+    if (!g_data.print_old && !ac->present)
+       continue;
+
+    if (addr & MODES_NON_ICAO_ADDRESS)
+    {
+      addr &= ~MODES_NON_ICAO_ADDRESS;
+      addr_buf[0] = '~';
+      _itoa (addr, addr_buf+1, 16);
+    }
+    else
+      _itoa (addr, addr_buf, 16);
+
+    if (g_data.print_old)
+       _itoa (ac->present, present, 10);
+    ac->present = false;
+
+    snprintf (buf, sizeof(buf), "%-7s  %-*s %5u  %s", strupr(addr_buf), len, ac->raw_buf, ac->msg_num, present);
+    printf ("%s\n", buf);
+  }
+  puts ("");
 }
 
 /**
@@ -379,7 +388,7 @@ static void get_string (mg_str ac, const char *path, char *out, size_t out_sz)
 }
 
 /**
- * Returns a numeric field, or 'fallback' if missing / not a number.
+ * Returns a numeric field, or 'fallback' if missing or not a number.
  */
 static double get_number (struct mg_str ac, const char *path, double fallback)
 {
@@ -398,6 +407,7 @@ static double get_alt (mg_str ac, const char *path, int fallback)
 {
   mg_str tok = mg_json_get_tok (ac, path);
   char  *end, val [20];
+  size_t sz;
 
   if (!tok.buf)
      return (fallback);
@@ -405,17 +415,21 @@ static double get_alt (mg_str ac, const char *path, int fallback)
   if (tok.buf[0] == '"')     /* value is "ground" */
      return (0.0);
 
-  str_lcpy (val, tok.buf, tok.len + 1);
+  sz = tok.len + 1;
+  if (sz > sizeof(val))
+     sz = sizeof (val);
+
+  str_lcpy (val, tok.buf, sz);
   return strtod (val, &end);
 }
 
 /**
- * Compare on ICAO-address (which is unsigned 24 bit).
+ * The compare functions for `qsort()` and `bsearch()`.
  */
-static int compare_on_icao (const void **_a, const void **_b)
+static int compare_on_addr (const void *_a, const void *_b)
 {
-  const ac_element *a = *_a;
-  const ac_element *b = *_b;
+  const ac_element *a = (const ac_element*) _a;
+  const ac_element *b = (const ac_element*) _b;
 
   if (a->addr < b->addr)
      return (-1);
@@ -424,68 +438,63 @@ static int compare_on_icao (const void **_a, const void **_b)
   return (0);
 }
 
-static ac_element *ac_list_find (uint32_t addr)
-{
-  int i, max = adsb_fi_ac_len();
-
-  for (i = 0; i < max; i++)
-  {
-    ac_element *ac = smartlist_get (g_data.ac_list, i);
-    if (ac->addr == addr)
-       return (ac);
-  }
-  return (NULL);
-}
-
 /**
  * Find an existing element for `addr` or create a new one.
  */
 static ac_element *ac_list_find_or_create (uint32_t addr)
 {
-  ac_element *ac = ac_list_find (addr);
+  ac_element *ac = NULL;
 
-  if (!ac)
+  if (g_data.ac_list_num > 0)
+     ac = bsearch (&addr, g_data.ac_list, g_data.ac_list_num,
+                   sizeof(*g_data.ac_list), compare_on_addr);
+  if (ac)
+     return (ac);
+
+  /* init and/or check for enough space
+   */
+  if (!g_data.ac_list_end ||
+      g_data.ac_list_end - (char*)g_data.ac_list < g_data.ac_list_num * sizeof(*ac))
   {
-    ac = calloc (sizeof(*ac), 1);
-    if (ac)
-    {
-      ac->addr = addr;
-      smartlist_add (g_data.ac_list, ac);
-      smartlist_sort (g_data.ac_list, compare_on_icao, 0);
-    }
+    size_t new_sz = (g_data.ac_list_num + AC_LIST_INCREMENT) * sizeof(*ac);
+    char  *more   = realloc (g_data.ac_list, new_sz);
+
+    if (!more)
+       return (NULL);
+
+    g_data.ac_list     = (ac_element*) more;
+    g_data.ac_list_end = more + new_sz;
+    ac = (ac_element*) more + (g_data.ac_list_num * sizeof(*ac));
   }
+  else
+    ac = g_data.ac_list + g_data.ac_list_num;
+
+  ac->msg_num = 0; /* 1st raw message for this ICAO address */
+  g_data.ac_list_num++;
   return (ac);
 }
 
 /**
  * Parse received JSON data and add or modify elements to `g_data.ac_list`.
  */
-static bool process_response (mg_str body)
+static uint32_t process_response (mg_str body)
 {
-  int    off;
-  mg_str elem;
-  mg_str ac_array = mg_json_get_tok (body, "$.ac");
+  int      ofs1;
+  uint32_t num = 0;
+  mg_str   elem;
+  mg_str   ac_array = mg_json_get_tok (body, "$.ac");
 
   if (!ac_array.buf || ac_array.buf[0] != '[')
   {
     LOG_FILEONLY ("No 'ac' array found in 'body'?!\n");
-    g_data.stats.ac_missing++;
-    return (false);
+    return (num);
   }
 
-  g_data.stats.total_last = mg_json_get_long (body, "$.total", 0);
-  if (g_data.stats.total_last == 0)
-  {
-    LOG_FILEONLY ("Empty 'ac' array 'body'?!\n");
-    g_data.stats.ac_empty++;
-    return (false);
-  }
-
-  off = 0;
-  while ((off = mg_json_next(ac_array, off, NULL, &elem)) != 0)
+  ofs1 = 0;
+  while ((ofs1 = mg_json_next(ac_array, ofs1, NULL, &elem)) != 0)
   {
     ac_element *ac;
-    uint32_t    icao_addr;
+    uint32_t    icao_addr, ofs2 = 0;
     char        icao_str [16];
     char        flight_str [16];
     char        category_str [10];
@@ -500,17 +509,23 @@ static bool process_response (mg_str body)
     get_string (elem, "$.squawk", squawk_str, sizeof(squawk_str));
 
     double alt   = get_alt    (elem, "$.alt_baro", INVALID_ALTITUDE);
-    double vrate = get_number (elem, "$.baro_rate", 0.0);  /* correct field? */
-    double gs    = get_number (elem, "$.gs", -1.0);
-    double lat   = get_number (elem, "$.lat", 0.0);
-    double lon   = get_number (elem, "$.lon", 0.0);
-    double dst   = get_number (elem, "$.dst", -1.0);
-    double rssi  = get_number (elem, "$.rssi", -1.0);
-    double hdg   = get_number (elem, "$.track", 0.0);
+    double vrate = get_number (elem, "$.baro_rate", 0.0);       /* correct field? */
+    double gs    = get_number (elem, "$.gs", -1.0);             /* ground speed */
+    double lat   = get_number (elem, "$.lat", 0.0);             /* latitude */
+    double lon   = get_number (elem, "$.lon", 0.0);             /* longitude */
+    double dst   = get_number (elem, "$.dst", -1.0);            /* distance to homepos */
+    double rssi  = get_number (elem, "$.rssi", -1.0);           /* signal level */
+    double hdg   = get_number (elem, "$.true_heading", 360.0);  /* heading or track */
 
-    if (flight_str[0] == '\0')
-         str_lcpy (flight_str, "-", sizeof(flight_str));
-    else str_rtrim (flight_str);
+    if (hdg == 360.0)
+       hdg = get_number (elem, "$.track", 0.0);   /* not on "ground" */
+
+    if (flight_str[0] != '-')
+    {
+      str_rtrim (flight_str);
+      if (flight_str[0] == '.')  /* Fix e.g. ".N966JT" -> "N966JT" */
+         ofs2 = 1;
+    }
 
     if (alt == INVALID_ALTITUDE)
        str_lcpy (alt_str, "-", sizeof(alt_str));
@@ -527,48 +542,62 @@ static bool process_response (mg_str body)
     else str_lcpy (dst_str, "-", sizeof(dst_str));
 
     if (icao_str[0] == '~')  /* a non-ICAO temporary tracking address */
-         icao_addr = mg_unhex (icao_str+1) | MODES_NON_ICAO_ADDRESS;
+         icao_addr = mg_unhex (icao_str + 1) | MODES_NON_ICAO_ADDRESS;
     else icao_addr = mg_unhex (icao_str);
 
     ac = ac_list_find_or_create (icao_addr);
     if (!ac)
-       return (false);
+       return (num);
+
+    ac->msg_num++;
+    ac->addr = icao_addr;
+    ac->present = true;
 
     snprintf (ac->raw_buf, sizeof(ac->raw_buf),
               "%-9s %8s %6s %9.03f %9.03f %8s  %5.0f  %6.2f",
-              flight_str, alt_str, gs_str, lat, lon, dst_str, hdg, rssi);
+              flight_str + ofs2, alt_str, gs_str, lat, lon, dst_str, hdg, rssi);
 
-    ac->msg_num++;
-
-    mm_element    *_mm = calloc (sizeof(*_mm), 1);
     modeS_message *mm;
+    mm_element    *_mm = calloc (sizeof(*_mm), 1);
 
     if (!_mm)
-       return (false);
+       return (num);
 
     mm = &_mm->mm;
-    str_lcpy (mm->flight, flight_str, sizeof(mm->flight));
 
     mm->sys_timestamp_msg = MSEC_TIME();
     mm->source = SOURCE_ADSB_FI;
 
-    mm->AC_flags = MODES_ACFLAGS_CALLSIGN_VALID |
-                   MODES_ACFLAGS_SQUAWK_VALID   |
-                   MODES_ACFLAGS_HEADING_VALID  |
-                   MODES_ACFLAGS_LATLON_VALID   |
-                   MODES_ACFLAGS_LLEITHER_VALID |
-                   MODES_ACFLAGS_CATEGORY_VALID;
+    mm->AC_flags = MODES_ACFLAGS_LATLON_VALID |
+                   MODES_ACFLAGS_HEADING_VALID |
+                   MODES_ACFLAGS_LLEITHER_VALID;
 
     mm->addr          = icao_addr;
     mm->sig_level     = rssi;
     mm->heading       = hdg;
-    mm->identity      = atoi (squawk_str);
-    mm->category      = mg_unhex (category_str);
-    mm->velocity      = gs;
     mm->position.lat  = lat;
     mm->position.lon  = lon;
-/*  mm->aircraft_type = ??  */
+/*  mm->aircraft_type = ?? */
 
+    if (flight_str[0] != '-')
+    {
+      str_lcpy (mm->flight, flight_str + ofs2, sizeof(mm->flight));
+      mm->AC_flags |= MODES_ACFLAGS_CALLSIGN_VALID;
+    }
+
+    if (category_str[0] != '-')
+    {
+      mm->category = mg_unhex (category_str);
+      mm->AC_flags |= MODES_ACFLAGS_CATEGORY_VALID;
+    }
+
+    if (squawk_str[0] != '-')
+    {
+      mm->identity = mg_unhex (squawk_str);
+      mm->AC_flags |= MODES_ACFLAGS_SQUAWK_VALID;
+    }
+
+    mm->velocity = gs;
     if (gs == 0.0)
          mm->AC_flags |= MODES_ACFLAGS_AOG_VALID;
     else mm->AC_flags |= MODES_ACFLAGS_SPEED_VALID;
@@ -581,8 +610,9 @@ static bool process_response (mg_str body)
     mm->AC_flags |= MODES_ACFLAGS_VERTRATE_VALID;
 
     LIST_ADD_TAIL (mm_element, &g_data.mm_list, _mm);
+    num++;
   }
-  return (g_data.stats.total_last > 0);
+  return (num);
 }
 
 /**
@@ -592,12 +622,13 @@ static void json_dump (const char *data)
 {
   static uint32_t file_num = 1;
   char   tmp_file [MAX_PATH];
+  FILE  *f;
 
   if (!(Modes.debug & DEBUG_NET2))
      return;
 
   snprintf (tmp_file, sizeof(tmp_file), "%s\\adsb-fi-%u.json", Modes.tmp_dir, file_num++);
-  FILE *f = fopen (tmp_file, "w+t");
+  f = fopen (tmp_file, "w+t");
   if (f)
   {
     fwrite (data, 1, strlen(data), f);
@@ -631,6 +662,7 @@ static char *send_request (void)
 {
   uint64_t now = MSEC_TIME();
   char    *data = download_to_buf (g_data.url);
+  size_t   sz;
 
   if (!data)
   {
@@ -658,8 +690,8 @@ static char *send_request (void)
   }
   else
   {
-    size_t sz = strlen (data);
-    LOG_FILEONLY ("HTTP 200: got %zd bytes in %llu msec\n", sz, MSEC_TIME() - now);
+    sz = strlen (data);
+    TRACE ("HTTP 200: got %zd bytes in %llu msec\n", sz, MSEC_TIME() - now);
     g_data.stats.bytes_recv += sz;
     g_data.stats.responses_recv++;
   }

@@ -2614,9 +2614,14 @@ static bool sql_add_entry (uint32_t num, const aircraft_info *ai)
 static double get_signal (const aircraft *a)
 {
   double sum = 0.0;
+  bool   full_scale, half_scale;
   int    i;
-  bool   full_scale = (a->sig_idx >= (int)DIM(a->sig_levels));
-  bool   half_scale = (a->sig_idx >= (int)DIM(a->sig_levels) / 2);
+
+  if (a->source == SOURCE_ADSB_FI) /* No averaging for ADSB.FI (trust the source RSSI) */
+     return (a->sig_levels[0]);
+
+  full_scale = (a->sig_idx >= (int)DIM(a->sig_levels));
+  half_scale = (a->sig_idx >= (int)DIM(a->sig_levels) / 2);
 
   if (full_scale)
   {
@@ -3775,6 +3780,11 @@ aircraft *aircraft_update_from_message (modeS_message *mm)
     a->sig_idx = 0;
 
     a->source = mm->source;   /* Remember the source */
+
+    /* Use all RSSI-info from ADSB.FI as is.
+     */
+    if (a->source == SOURCE_ADSB_FI)
+       a->sig_levels [0] = mm->sig_level;
 
     /* mm->msg_type 32 is used to represent Mode A/C. These values can never change,
      * so set them once here during initialisation, and don't bother to set them every
