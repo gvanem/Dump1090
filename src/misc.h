@@ -138,10 +138,7 @@
  */
 #define LOG_STDOUT(fmt, ...)    modeS_flogf (stdout, fmt, ## __VA_ARGS__)
 #define LOG_STDERR(fmt, ...)    modeS_flogf (stderr, fmt, ## __VA_ARGS__)
-#define LOG_FILEONLY(fmt, ...)  do {                            \
-                                  modeS_flogf (Modes.log, fmt,  \
-                                               ## __VA_ARGS__); \
-                                } while (0)
+#define LOG_FILEONLY(fmt, ...)  modeS_flogf (Modes.log, fmt, ## __VA_ARGS__)
 
 #define LOG_FILEONLY2(fmt, ...) do {                                     \
                                   if (!(Modes.debug & DEBUG_PLANE))      \
@@ -845,10 +842,10 @@ typedef struct file_packed {
   #define ATTR_PRINTF(_1, _2)
 #endif
 
-void  modeS_log (const char *buf);
+int   modeS_log (const char *buf);
 void  modeS_logc (char c, void *param);
-void  modeS_flog (FILE *f, const char *buf);
-void  modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
+int   modeS_flog (FILE *f, const char *buf);
+int   modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...) ATTR_PRINTF(2, 3);
 void  modeS_log_set (void);
 bool  modeS_log_init (void);
 void  modeS_log_exit (void);

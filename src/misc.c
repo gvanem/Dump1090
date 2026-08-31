@@ -51,13 +51,13 @@ static BOOL WINAPI console_handler (DWORD event);
  * Log a message to the `Modes.log` file with a timestamp.
  * But no timestamp if `buf` starts with a `!`.
  */
-void modeS_log (const char *buf)
+int modeS_log (const char *buf)
 {
   const char *time = NULL;
   char  day_change [20] = "";
 
   if (!Modes.log)
-     return;
+     return (0);
 
   if (*buf == '!')
      buf++;
@@ -67,7 +67,7 @@ void modeS_log (const char *buf)
     SYSTEMTIME  now;
 
     if (modeS_log_ignore(buf))
-       return;
+       return (0);
 
     assert (Modes.start_SYSTEMTIME.wYear);
 
@@ -81,7 +81,7 @@ void modeS_log (const char *buf)
     {
       day = now.wDay;
       if (!modeS_log_reinit(&now))
-         return;
+         return (0);
     }
     else if (now.wDay != day)      /* show the date once per day */
     {
@@ -94,8 +94,8 @@ void modeS_log (const char *buf)
      buf++;
 
   if (time)
-       fprintf (Modes.log, "%s%s: %s", day_change, time, buf);
-  else fprintf (Modes.log, "%*.*s%s", TSIZE, TSIZE, "", buf);
+     return fprintf (Modes.log, "%s%s: %s", day_change, time, buf);
+  return fprintf (Modes.log, "%*.*s%s", TSIZE, TSIZE, "", buf);
 }
 
 /**
@@ -153,24 +153,28 @@ void modeS_logc (char c, void *param)
 /**
  * Print to `f` and optionally to `Modes.log`.
  */
-void modeS_flog (FILE *f, const char *buf)
+int modeS_flog (FILE *f, const char *buf)
 {
+  int len;
+
   if (f && f != Modes.log) /* to `stdout` or `stderr` */
   {
-    fputs (buf, f);
+    len = fputs (buf, f);
     fflush (f);
   }
   if (Modes.log)
-     modeS_log (buf);
+     len = modeS_log (buf);
+  return (len);
 }
 
 /**
  * The var-arg version; print to `f` and optionally to `Modes.log`.
  */
-void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...)
+int modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...)
 {
   char    buf [1000];
   char   *p = buf;
+  int     len = 0;
   va_list args;
 
   va_start (args, fmt);
@@ -181,11 +185,12 @@ void modeS_flogf (FILE *f, _Printf_format_string_ const char *fmt, ...)
   {
     if (*p == '!')
        p++;
-    fputs (p, f);
+    len = fputs (p, f);
     fflush (f);
   }
   if (Modes.log)
-     modeS_log (buf);
+     len = modeS_log (buf);
+  return (len);
 }
 
 /**
