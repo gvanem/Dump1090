@@ -1068,7 +1068,7 @@ static bool normalize_callsign (char *normalized, size_t normalized_sz, const ch
 
   if (sscanf(call_sign, "%[A-Z]%d%[A-Z]", alpha1, &num, alpha2) < 2)
   {
-    strncpy (normalized, call_sign, normalized_sz - 1);
+    str_lcpy (normalized, call_sign, normalized_sz);
     return (false);
   }
   snprintf (normalized, normalized_sz, "%s%d%s", alpha1, num, alpha2);
@@ -1102,9 +1102,9 @@ static bool API_thread_worker (flight_info *f)
    */
   if (g_data.do_trace_LOL)
        API_TRACE_LOL ("request", g_data.ap_stats.API_requests_sent, request, f);
-  else API_TRACE ("request # %lu: (ICAO: %06X, normalized: %d) '%s',\n",
+  else API_TRACE ("request # %lu: (call-sign: %s, normalized: %d) '%s',\n",
                   g_data.ap_stats.API_requests_sent,
-                  f->ICAO_addr, f->normalized, request);
+                  f->call_sign, f->normalized, request);
 
   g_data.ap_stats.API_requests_sent++;
 
