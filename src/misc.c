@@ -155,7 +155,7 @@ void modeS_logc (char c, void *param)
  */
 int modeS_flog (FILE *f, const char *buf)
 {
-  int len;
+  int len = 0;
 
   if (f && f != Modes.log) /* to `stdout` or `stderr` */
   {
