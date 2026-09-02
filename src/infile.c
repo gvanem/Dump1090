@@ -291,7 +291,7 @@ static bool csv_add_record (double timestamp, const char *msg, double delta_us)
   size_t         len, ofs = CSV_RAW_OFS;
   unsigned char *p;
 
-  if (g_data.num_records + sizeof(*rec) >= g_data.rec_allocated)
+  if (g_data.num_records >= g_data.rec_allocated / sizeof(*rec))
   {
     g_data.rec_allocated += sizeof(*rec) * CSV_REC_INCREMENT;
     more = realloc (g_data.records, g_data.rec_allocated);
