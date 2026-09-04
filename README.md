@@ -314,6 +314,13 @@ extract using the internal [**zip**](https://github.com/kuba--/zip) functions.
 And also rebuild the `aircraft-database.csv.sqlite` file using the internal bundled
 [**sqlite3.c**](src/externals/sqlite3.c).
 
+## Using adsb.fi as source
+
+JSON-data from [**opendata.adsb.fi**](https://opendata.adsb.fi) or [**api.adsb.lol**](https://api.adsb.lol) can also be used with option `--device adsb.fi`. And with faking your home-position to JFK, New York by running `dump1090.exe -net --config dump1090-JFK.cfg`, the result in a Web-browser can look like this:
+![dump1090-JFK](img/dump1090-JFK.png)
+
+There can often be > 1000 planes around JFK. This will also cause Tar1090 to consume a lot memory.
+
 ## Using VirtualRadar as viewer
 
 [**VirtualRadar**](https://virtualradarserver.co.uk/) is an excellent program for Aircraft traffic. Using it as *backend* in Dump1090 needs data on the *RAW data* form. With the `--net` option, this is normally sent on port 30002. Ref. `net-ro-port = 30002` in the config-file. Hence **VirtualRadar** needs to be configured like this:
@@ -321,7 +328,6 @@ And also rebuild the `aircraft-database.csv.sqlite` file using the internal bund
 
 And starting the Web-server in **VirtualRadar** can show the locally decoded messages like this:
 ![VirtualRadar-web](img/dump1090-VRadar-web.png)
-
 
 ## Additional options
 
