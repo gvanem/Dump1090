@@ -442,7 +442,7 @@ typedef struct gns_hulc_conf {
  * The device configuration for a SDRConnect host.
  */
 typedef struct sdrconnect_conf {
-        char     *name;      /**< Name for SDRConnect host */
+        char  *name;         /**< Name of SDRConnect host */
       } sdrconnect_conf;
 
 #if defined(USE_BIN_FILES)
@@ -493,152 +493,148 @@ typedef struct sdrconnect_conf {
  * All program global state is in this structure.
  */
 typedef struct global_data {
-        char               *who_am_I;                 /**< The full name of this program. */
-        char               *where_am_I;               /**< The directory of this program. */
-        char               *tmp_dir;                  /**< The `%TEMP%\\dump1090` directory. (no trailing `\\`). */
-        char               *results_dir;              /**< The `%TEMP%\\dump1090\\standing-data\\results` directory. */
-        char               *cfg_file;                 /**< The config-file (default: "where_am_I\\dump1090.cfg"). */
-        char               *sys_dir;                  /**< The full name of `%SystemRoot\\system32`. */
+        char               *who_am_I;               /**< The full name of this program. */
+        char               *where_am_I;             /**< The directory of this program. */
+        char               *tmp_dir;                /**< The `%TEMP%\\dump1090` directory. (no trailing `\\`). */
+        char               *results_dir;            /**< The `%TEMP%\\dump1090\\standing-data\\results` directory. */
+        char               *cfg_file;               /**< The config-file (default: "where_am_I\\dump1090.cfg"). */
+        char               *sys_dir;                /**< The full name of `%SystemRoot\\system32`. */
 
-        FILETIME            start_FILETIME;           /**< The start-time on `FILETIME` form. */
-        SYSTEMTIME          start_SYSTEMTIME;         /**< The start-time on `SYSTEMTIME` form. */
-        LONG                timezone;                 /**< Our time-zone in minutes. */
-        HANDLE              reader_thread;            /**< Device reader thread handle. */
-        DWORD               reader_thread_id;         /**< And it's thread ID. */
-        CRITICAL_SECTION    data_mutex;               /**< Mutex to synchronize buffer access. */
-        CRITICAL_SECTION    print_mutex;              /**< Mutex to synchronize printouts. */
-        uint16_t           *mag_lut;                  /**< I/Q -> Magnitude lookup table. */
-        size_t              mag_lut_size;             /**< And it's element-size. */
-        uint16_t           *log10_lut;                /**< Magnitude -> log10 lookup table. */
-        size_t              log10_lut_size;           /**< And it's element-size. */
-        convert_format      input_format;             /**< Converted input format. */
-        uint32_t            FIFO_bufs;                /**< Number of buffers for `fifo_init()` */
-        uint32_t            FIFO_acquire_ms;          /**< `fifo_acquire()` timeout in milli-sec (default 100). */
-        uint32_t            FIFO_dequeue_ms;          /**< `fifo_dequeue()` timeout in milli-sec (default 100). */
-        bool                FIFO_active;              /**< We have (and need) a FIFO for `mag_buf` data. */
-        bool                phase_enhance;            /**< Enable phase enhancement in `demod_*()`. */
-        int                 infile_fd;                /**< File descriptor for `--infile` option. */
-        volatile bool       exit;                     /**< Exit from the main loop when true. */
-        uint32_t           *ICAO_cache;               /**< Recently seen ICAO addresses. */
-        statistics          stat;                     /**< Decoder, aircraft and network statistics. */
-        uint64_t            last_update_ms;           /**< Last screen update in milliseconds. */
-        uint64_t            max_messages;             /**< How many messages to process before quitting. */
-        bool                no_stats;                 /**< Set to `true` in case no point showing statistics. */
-        bool                mode_AC;                  /**< Enable decoding of SSR Modes A & C. */
-        bool                under_appveyor;           /**< true if running on AppVeyor CI testing */
-        bool                adsb_fi;                  /**< true for "--device adsb.fi" */
-        uint32_t            a_follow;                 /**< Follow and log details of this aircraft. For debugging. */
+        FILETIME            start_FILETIME;         /**< The start-time on `FILETIME` form. */
+        SYSTEMTIME          start_SYSTEMTIME;       /**< The start-time on `SYSTEMTIME` form. */
+        LONG                timezone;               /**< Our time-zone in minutes. */
+        HANDLE              reader_thread;          /**< Device reader thread handle. */
+        DWORD               reader_thread_id;       /**< And it's thread ID. */
+        CRITICAL_SECTION    data_mutex;             /**< Mutex to synchronize buffer access. */
+        CRITICAL_SECTION    print_mutex;            /**< Mutex to synchronize printouts. */
+        uint16_t           *mag_lut;                /**< I/Q -> Magnitude lookup table. */
+        size_t              mag_lut_size;           /**< And it's element-size. */
+        uint16_t           *log10_lut;              /**< Magnitude -> log10 lookup table. */
+        size_t              log10_lut_size;         /**< And it's element-size. */
+        convert_format      input_format;           /**< Converter input format. */
+        uint32_t            FIFO_bufs;              /**< Number of buffers for `fifo_init()` */
+        uint32_t            FIFO_acquire_ms;        /**< `fifo_acquire()` timeout in milli-sec (default 100). */
+        uint32_t            FIFO_dequeue_ms;        /**< `fifo_dequeue()` timeout in milli-sec (default 100). */
+        bool                FIFO_active;            /**< We have (and need) a FIFO for `mag_buf` data. */
+        bool                phase_enhance;          /**< Enable phase enhancement in `demod_*()`. */
+        int                 infile_fd;              /**< File descriptor for `--infile` option. */
+        volatile bool       exit;                   /**< Exit from the main loop when true. */
+        uint32_t           *ICAO_cache;             /**< Recently seen ICAO addresses. */
+        uint64_t            last_update_ms;         /**< Last screen update in milliseconds. */
+        uint64_t            max_messages;           /**< How many messages to process before quitting. */
+        bool                no_stats;               /**< Set to `true` in case no point showing statistics. */
+        bool                mode_AC;                /**< Enable decoding of SSR Modes A & C. */
+        bool                under_appveyor;         /**< true if running on AppVeyor; for "Continuous Integration" testing */
+        bool                adsb_fi;                /**< true for "--device adsb.fi" */
+        uint32_t            a_follow;               /**< Follow and log details of this aircraft. For debugging. */
+        statistics          stat;                   /**< Decoder, aircraft and network statistics. */
 
-        /** Common stuff for RTLSDR and SDRplay:
+        /** Common stuff for a PHYS_DEVICE() device:
          */
-        char               *selected_dev;             /**< Name of selected device. */
-        int                 dig_agc;                  /**< Enable digital AGC. */
-        int                 bias_tee;                 /**< Enable bias-T voltage on coax input. */
-        int                 gain_auto;                /**< Use auto-gain. */
-        uint16_t            gain;                     /**< The gain setting for the active device (local or remote). Default is MODES_AUTO_GAIN. */
-        uint32_t            freq;                     /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
-        uint64_t            sample_counter;           /**< Accumulated count of samples */
-        uint32_t            sample_rate;              /**< The sample-rate. Default is MODES_DEFAULT_RATE. */
-        demod_func          demod_func;               /**< and the associated demodulator-function. */
-        unsigned            trailing_samples;         /**< Extra trailing samples in magnitude buffers */
-        unsigned            bytes_per_sample;         /**< Bytes per sample; 2 for RTLSDR or 4 for SDRPlay */
+        char               *selected_dev;           /**< Name of selected device. */
+        int                 dig_agc;                /**< Enable digital AGC. */
+        int                 bias_tee;               /**< Enable bias-T voltage on coax input. */
+        int                 gain_auto;              /**< Use auto-gain. */
+        uint16_t            gain;                   /**< The gain setting for the active device (local or remote). Default is MODES_AUTO_GAIN. */
+        uint32_t            freq;                   /**< The tuned frequency. Default is MODES_DEFAULT_FREQ. */
+        uint64_t            sample_counter;         /**< Accumulated count of samples */
+        uint32_t            sample_rate;            /**< The sample-rate. Default is MODES_DEFAULT_RATE. */
+        demod_func          demod_func;             /**< and the associated demodulator-function. */
+        unsigned            trailing_samples;       /**< Extra trailing samples in magnitude buffers */
+        unsigned            bytes_per_sample;       /**< Bytes per sample; 2 for RTLSDR or 4 for SDRPlay */
 
-        bool                DC_filter;                /**< Should we apply a DC filter? */
-        bool                measure_noise;            /**< Should we measure noise power? */
-        convert_func        converter_func;           /**< Function for converting IQ-data */
-        convert_state      *converter_state;          /**< Function state placeholder */
+        bool                DC_filter;              /**< Should we apply a DC filter? */
+        bool                measure_noise;          /**< Should we measure noise power? */
+        convert_func        converter_func;         /**< Function for converting IQ-data */
+        convert_state      *converter_state;        /**< Function state placeholder */
 
-        rtlsdr_conf         rtlsdr;                   /**< RTLSDR local specific settings. */
-        rtltcp_conf         rtltcp;                   /**< RTLSDR remote specific settings. */
-        sdrplay_conf        sdrplay;                  /**< SDRplay specific settings. */
-        sdrconnect_conf     sdrconnect;               /**< SDRconnect specific settings. */
-        airspy_conf         airspy;                   /**< AirSpy specific settings. */
-        gns_hulc_conf       gns_hulc;                 /**< GNS-HULC specific settings. */
+        rtlsdr_conf         rtlsdr;                 /**< RTLSDR local specific settings. */
+        rtltcp_conf         rtltcp;                 /**< RTLSDR remote specific settings. */
+        sdrplay_conf        sdrplay;                /**< SDRplay specific settings. */
+        sdrconnect_conf     sdrconnect;             /**< SDRconnect specific settings. */
+        airspy_conf         airspy;                 /**< AirSpy specific settings. */
+        gns_hulc_conf       gns_hulc;               /**< GNS-HULC specific settings. */
 
         /** Lists of connections for each network service:
          */
-#ifdef USE_SMARTLIST_NETIO
-        smartlist_t   *connections [MODES_NET_SERVICES_NUM];
-#else
         connection    *connections [MODES_NET_SERVICES_NUM];
-#endif
         mg_connection *sbs_out;                     /**< SBS output listening connection. */
         mg_connection *sbs_in;                      /**< SBS input active connection. */
         mg_connection *raw_out;                     /**< Raw output active/listening connection. */
         mg_connection *raw_in;                      /**< Raw input listening connection. */
-        mg_connection *http4_out;                   /**< HTTP listening connection. IPv4 */
-        mg_connection *http6_out;                   /**< HTTP listening connection. IPv6 */
-        mg_connection *rtl_tcp_in;                  /**< RTL_TCP active connection. IPv4 only */
-        mg_connection *dns_in;                      /**< DNS active connection. IPv4 only */
+        mg_connection *http4_out;                   /**< HTTP listening connection. IPv4. */
+        mg_connection *http6_out;                   /**< HTTP listening connection. IPv6. */
+        mg_connection *rtl_tcp_in;                  /**< RTL_TCP active connection. IPv4 only. */
+        mg_connection *dns_in;                      /**< DNS active connection. IPv4 only. */
         mg_connection *websock_in;                  /**< WebSocket active connection. */
-        mg_mgr         mgr;                         /**< Only one Mongoose connection manager */
-        char          *dns4;                        /**< Use default Windows DNSv4 server (not 8.8.8.8) */
-        char          *dns6;                        /**< Or a IPv6 server */
-        bool           show_host_name;              /**< Try to show the hostname too in `net_str_addr()` */
-        bool           https_enable;                /**< Enable TLS (MG_TLS_BUILTIN) for HTTP server */
-        bool           reverse_resolve;             /**< Call `net_reverse_resolve()` on accepted clients */
+        mg_mgr         mgr;                         /**< Only one Mongoose connection manager. */
+        char          *dns4;                        /**< Use default Windows DNSv4 server (not 8.8.8.8). */
+        char          *dns6;                        /**< Or a IPv6 server. */
+        bool           show_host_name;              /**< Try to show the hostname too in `net_str_addr()`. */
+        bool           https_enable;                /**< Enable TLS (MG_TLS_BUILTIN) for HTTP server. */
+        bool           reverse_resolve;             /**< Call `net_reverse_resolve()` on accepted clients. */
         uint32_t       net_poll_ms;                 /**< `mg_mgr_poll()` timeout in milli-sec (default 10). */
 
         /** Configuration
          */
-        char         *infile;                     /**< Input IQ samples from file with option `--infile file`. */
-        char         *logfile_current;            /**< Write debug/info to file with option `--logfile file`. */
-        char         *logfile_initial;            /**< The initial `--logfile file` w/o the below pattern. */
-        bool          logfile_daily;              /**< Create a new `logfile` at midnight; pattern always `x-<YYYY-MM-DD>.log`. */
-        FILE         *log;                        /**< Open it for exclusive write access. */
-        FILE         *log_cfg;                    /**< "cfg_file.log" file specially for `cfg_file.c` stuff. */
-        uint64_t      loops;                      /**< Read input file in a loop. */
-        uint32_t      debug;                      /**< `DEBUG()` mode bits. */
-        int           raw;                        /**< Raw output format. */
-        int           net;                        /**< Enable networking. */
-        int           net_only;                   /**< Enable just networking. */
-        int           net_active;                 /**< With `Modes.net`, call `connect()` (not `listen()`). */
-        int           silent;                     /**< Silent mode for network testing. */
-        int           interactive;                /**< Interactive mode */
-        uint16_t      interactive_rows;           /**< Interactive mode: max number of rows. */
-        uint32_t      interactive_ttl;            /**< Interactive mode: TTL before deletion. */
-        int           win_location;               /**< Use `Windows Location API` to get the `Modes.home_pos`. */
-        int           only_addr;                  /**< Print only ICAO addresses. */
-        int           metric;                     /**< Use metric units. */
-        bool          error_correct_1;            /**< Fix 1 bit errors (default: true). */
-        bool          error_correct_2;            /**< Fix 2 bit errors (default: false). */
-        int           keep_alive;                 /**< Send "Connection: keep-alive" if HTTP client sends it. */
-        int           speech_enable;              /**< Enable speech for planes entering and leaving. */
-        int           speech_volume;              /**< Speech volume; 0 - 100 percent */
-        char         *frames_js_tmp;              /**< The full name of the generated "Modes.tmp_dir/frames.js" used with "--debug jXX" */
-        char         *debug_html_src;             /**< The full source-name of the copied "Modes.tmp_dir/debug.html" used with "--debug jXX" */
-        char         *web_page_full;              /**< The fully qualified path of web_page */
-        char         *web_page;                   /**< The base-name of the web-page to server for HTTP clients. */
-        char         *web_root;                   /**< And it's directory. */
-        bool          web_root_touch;             /**< Touch all files in `web_root` first. */
-        bool          web_send_rssi;              /**< Send the "RSSI" in the JSON-data to the web-server */
-        bool          web_page_is_FA;             /**< True if `web_page_full` is from FlightAware */
-        bool          http_log_enable;            /**< Enable log-file for HTTP server. */
-        char         *http_log_name;              /**< The full path of the HTTP server log-file. */
-        FILE         *http_log;                   /**< The `FILE*` the HTTP server log-file. */
-        char         *aircraft_db;                /**< The `aircraft-database.csv` file. */
-        char         *aircraft_db_url;            /**< Value of key `aircrafts-update = url` */
-        int           strip_level;                /**< For `--strip X` mode. */
-        pos_t         home_pos;                   /**< Coordinates of home position. */
-        cartesian_t   home_pos_cart;              /**< Coordinates of home position (cartesian). */
-        bool          home_pos_ok;                /**< We have a good home position. */
-        bool          home_pos_hulc;              /**< If `Modes.home_pos_ok`, are we using position from GNS-Hulc? */
-        uint64_t      max_dist;                   /**< Absolute maximum decoding distance, in metres */
-        uint64_t      min_dist;                   /**< Absolute minimum distance for `--only-addr`, in metres */
-        bool          wininet_HTTP2;              /**< Enable HTTP/2 for WinInet API. */
-        const char   *wininet_last_error;         /**< Last error from WinInet API. */
-        char         *tests;                      /**< Perform tests specified by pattern. */
-        int           tui_interface;              /**< Selected `--tui` interface. */
-        bool          update;                     /**< Option `--update` was used to update missing .csv-files */
-        bool          cpr_trace;                  /**< Report CPR events to .log-file? default true */
-        bool          console_icon;               /**< In interactive-mode, do a `SendMessage (WM_SETICON)` for our icon */
+        char         *infile;                       /**< Input IQ samples from file with option `--infile file`. */
+        char         *logfile_current;              /**< Write debug/info to file with option `--logfile file`. */
+        char         *logfile_initial;              /**< The initial `--logfile file` w/o the below pattern. */
+        bool          logfile_daily;                /**< Create a new `logfile` at midnight; pattern always `x-<YYYY-MM-DD>.log`. */
+        FILE         *log;                          /**< Open it for exclusive write access. */
+        FILE         *log_cfg;                      /**< "cfg_file.log" file specially for `cfg_file.c` stuff. */
+        uint64_t      loops;                        /**< Read input file in a loop. */
+        uint32_t      debug;                        /**< `DEBUG()` mode bits. */
+        int           raw;                          /**< Raw output format. */
+        int           net;                          /**< Enable networking. */
+        int           net_only;                     /**< Enable just networking. */
+        int           net_active;                   /**< With `Modes.net`, call `connect()` (not `listen()`). */
+        int           silent;                       /**< Silent mode for network testing. */
+        int           interactive;                  /**< Interactive mode */
+        uint16_t      interactive_rows;             /**< Interactive mode: max number of rows. */
+        uint32_t      interactive_ttl;              /**< Interactive mode: TTL before deletion. */
+        int           win_location;                 /**< Use `Windows Location API` to get the `Modes.home_pos`. */
+        int           only_addr;                    /**< Print only ICAO addresses. */
+        int           metric;                       /**< Use metric units. */
+        bool          error_correct_1;              /**< Fix 1 bit errors (default: true). */
+        bool          error_correct_2;              /**< Fix 2 bit errors (default: false). */
+        int           keep_alive;                   /**< Send "Connection: keep-alive" if HTTP client sends it. */
+        int           speech_enable;                /**< Enable speech for planes entering and leaving. */
+        int           speech_volume;                /**< Speech volume; 0 - 100 percent */
+        char         *frames_js_tmp;                /**< The full name of the generated "Modes.tmp_dir/frames.js" used with "--debug jXX" */
+        char         *debug_html_src;               /**< The full source-name of the copied "Modes.tmp_dir/debug.html" used with "--debug jXX" */
+        char         *web_page_full;                /**< The fully qualified path of web_page */
+        char         *web_page;                     /**< The base-name of the web-page to server for HTTP clients. */
+        char         *web_root;                     /**< And it's directory. */
+        bool          web_root_touch;               /**< Touch all files in `web_root` first. */
+        bool          web_send_rssi;                /**< Send the "RSSI" in the JSON-data to the web-server */
+        bool          web_page_is_FA;               /**< True if `web_page_full` is from FlightAware */
+        bool          http_log_enable;              /**< Enable log-file for HTTP server. */
+        char         *http_log_name;                /**< The full path of the HTTP server log-file. */
+        FILE         *http_log;                     /**< The `FILE*` the HTTP server log-file. */
+        char         *aircraft_db;                  /**< The `aircraft-database.csv` file. */
+        char         *aircraft_db_url;              /**< Value of key `aircrafts-update = url` */
+        int           strip_level;                  /**< For `--strip X` mode. */
+        pos_t         home_pos;                     /**< Coordinates of home position. */
+        cartesian_t   home_pos_cart;                /**< Coordinates of home position (cartesian). */
+        bool          home_pos_ok;                  /**< We have a good home position. */
+        bool          home_pos_hulc;                /**< If `Modes.home_pos_ok`, are we using position from GNS-Hulc? */
+        uint64_t      max_dist;                     /**< Absolute maximum decoding distance, in metres */
+        uint64_t      min_dist;                     /**< Absolute minimum distance for `--only-addr`, in metres */
+        bool          wininet_HTTP2;                /**< Enable HTTP/2 for WinInet API. */
+        const char   *wininet_last_error;           /**< Last error from WinInet API. */
+        char         *tests;                        /**< Perform tests specified by pattern. */
+        int           tui_interface;                /**< Selected `--tui` interface. */
+        bool          update;                       /**< Option `--update` was used to update missing .csv-files */
+        bool          cpr_trace;                    /**< Report CPR events to .log-file? default true */
+        bool          console_icon;                 /**< In interactive-mode, do a `SendMessage (WM_SETICON)` for our icon */
 
-        smartlist_t  *logfile_ignore;             /**< Messages to ignore when writing to`logfile`. A list of `log_ignore` */
+        smartlist_t  *logfile_ignore;               /**< Messages to ignore when writing to`logfile`. A list of `log_ignore` */
 
 #if defined(USE_BIN_FILES)
-        bin_data      bin;                        /**< Binary-files and data */
+        bin_data      bin;                          /**< Binary-files and data */
 #endif
-        char          chk_marker [4];             /**< To check if this structure is "out of wack" */
+        char          chk_marker [4];               /**< To check if this structure is "out of wack" */
       } global_data;
 
 extern global_data Modes;
