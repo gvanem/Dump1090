@@ -123,6 +123,7 @@ typedef struct aircraft_priv {
         uint64_t         json_interval;      /**< Client polling interval; 1 sec */
         int              json_history_next;  /**<  */
         mg_str           json_history [120]; /**<  */
+        bool             zstd_enable;        /**< Enable ZSTD compression */
 
         /** Data for `OUTLINE_JSON` file
          */
@@ -3141,12 +3142,14 @@ char *aircraft_receiver_json (char *buf, size_t *size_p)
                   "\"history\": %d, "
                   "\"lat\": %.8g, "        /* if 'Modes.home_pos_ok == false', this is 0. */
                   "\"lon\": %.8g, "        /* ditto */
+                  "\"zstd\": %s, "
                   "\"outlineJson\": %s}",  /* ranges available */
                   PROG_VERSION,
                   g_data.json_interval,
                   history_size,
                   Modes.home_pos.lat,
                   Modes.home_pos.lon,
+                  g_data.zstd_enable    ? "true" : "false", /* todo */
                   g_data.outline_enable ? "true" : "false");
   *size_p = len;
   return (buf);
@@ -3538,6 +3541,7 @@ bool aircraft_init (void)
 
   g_data.a_sort = INTERACTIVE_SORT_NONE;
   g_data.json_interval = 1000;
+  g_data.zstd_enable   = Modes.zstd_enable; /**< \todo */
 
 #if defined(USE_BIN_FILES)
   g_data.p_get_country = aircraft_get_country2;

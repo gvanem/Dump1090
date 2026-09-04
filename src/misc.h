@@ -526,6 +526,7 @@ typedef struct global_data {
         bool                mode_AC;                /**< Enable decoding of SSR Modes A & C. */
         bool                under_appveyor;         /**< true if running on AppVeyor; for "Continuous Integration" testing */
         bool                adsb_fi;                /**< true for "--device adsb.fi" */
+        bool                zstd_enable;            /**< \todo support ZSTD compression of JSON-data */
         uint32_t            a_follow;               /**< Follow and log details of this aircraft. For debugging. */
         statistics          stat;                   /**< Decoder, aircraft and network statistics. */
 
