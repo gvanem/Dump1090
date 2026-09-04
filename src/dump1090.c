@@ -135,6 +135,7 @@ static const cfg_table config[] = {
     { "adsb-fi-print-old",       ARG_FUNC,    (void*) adsb_fi_print_old },
     { "adsb-fi-raw-buf-time",    ARG_FUNC,    (void*) adsb_fi_raw_buf_time },
     { "adsb-fi-sleep-time",      ARG_FUNC,    (void*) adsb_fi_sleep_time },
+    { "adsb-fi-adsb-lol",        ARG_FUNC,    (void*) adsb_fi_use_lol },
     { "airspy-dll",              ARG_FUNC,    (void*) airspy_set_dll_name },
     { "bias-t",                  ARG_FUNC,    (void*) set_bias_tee },
     { "console-icon",            ARG_ATOB,    (void*) &Modes.console_icon },
@@ -3518,7 +3519,7 @@ static void show_help (const char *fmt, ...)
             "                             `--device udp://host:port' - select remote RTLSDR udp service (default port=%u).\n"
             "                             `--device ws://host:port'  - select remote SDRConnect service (default port=%u).\n"
             "                             `--device gns-hulc<N>'     - select serial-port HULC smart antenna (default N=%d for COM%d).\n"
-            "                             `--device adsb.fi'         - get data from 'https://opendata.adsb.fi/api/v3'.\n"
+            "                             `--device adsb.fi'         - get data from '%s'.\n"
             "  --infile <filename>   Read data from file (use `-' for stdin).\n"
             "  --informat <format>   Format for `--infile`; `UC8`, `SC16` or `SC16Q11` (default: `UC8`)\n"
             "  --interactive         Enable interactive mode.\n"
@@ -3536,7 +3537,7 @@ static void show_help (const char *fmt, ...)
             "  --version, -V, -VV    Show version info. `-VV' for details.\n"
             "  --help, -h            Show this help.\n\n",
             MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_RTL_TCP, MODES_NET_PORT_WEBSOCK,
-            GNS_HULC_DEFAULT_COMPORT, GNS_HULC_DEFAULT_COMPORT);
+            GNS_HULC_DEFAULT_COMPORT, GNS_HULC_DEFAULT_COMPORT, adsb_fi_url());
 
     printf ("  Shows only matching ICAO-addresses;     `dump1090.exe --only-addr 4A*`.\n"
             "  Shows only non-matching ICAO-addresses; `dump1090.exe --only-addr !48*`.\n\n"
@@ -4068,7 +4069,7 @@ static void set_device (const char *arg)
   }
   else if (!stricmp(arg, "adsb.fi"))
   {
-    Modes.selected_dev = strdup ("https://opendata.adsb.fi/api/v3");
+    Modes.selected_dev = strdup (adsb_fi_url());
     Modes.adsb_fi = true;
   }
 

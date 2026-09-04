@@ -25,6 +25,13 @@
 #define MIN_SLEEP_TIME 1000
 
 /**
+ * \def MIN_SLEEP_TIME_LOL
+ * The minimum Sleep() time between requests to "https://api.adsb.lol".
+ * Not sure about what the actual low-limit is.
+ */
+#define MIN_SLEEP_TIME_LOL 5000
+
+/**
  * \def RAW_BUF_TIME
  * Default and minimum time between calls to `print_raw()`.
  */
@@ -38,6 +45,12 @@
  * \ref https://github.com/adsbfi/opendata
  */
 #define ADSB_FI_URL_FORMAT  "https://opendata.adsb.fi/api/v3/lat/%.6f/lon/%.6f/dist/%u"
+
+/**
+ * \def ADSB_LOL_URL_FORMAT
+ * The alternate URL to use.
+ */
+#define ADSB_LOL_URL_FORMAT  "https://api.adsb.lol/v2/lat/%.6f/lon/%.6f/dist/%u"
 
 /**
  * \def AC_LIST_INCREMENT
@@ -75,6 +88,7 @@ typedef struct adsb_fi_stats {
         uint64_t  bytes_recv;      /**< total response bytes received */
         uint32_t  requests_sent;   /**< total requests sent */
         uint32_t  responses_recv;  /**< total responses received */
+        uint32_t  http_stat;       /**< last HTTP status */
         uint32_t  http_err;        /**< total HTTP != 200 */
         uint32_t  wininet_err;     /**< total WinInet problems */
       } adsb_fi_stats;
@@ -90,11 +104,7 @@ typedef struct adsb_fi_priv {
         uint32_t         raw_buf_time;     /**< time between `print_raw()`. In milli-sec */
         bool             print_old;        /**< print old `ac_list::raw_buf` elements? */
         bool             print_non_icao;   /**< print "~XXXX" ICAO addresses? */
-        bool             sleep_time_set;
-        bool             max_distance_set;
-        bool             raw_buf_time_set;
-        bool             print_old_set;
-        bool             print_non_icao_set;
+        bool             use_adsb_lol;     /**< use `ADSB_LOL_URL_FORMAT`? */
         adsb_fi_stats    stats;            /**< accumulated statistics */
         char            *url;              /**< the URL we send to */
         char            *data;             /**< the last data we got */
@@ -107,6 +117,7 @@ typedef struct adsb_fi_priv {
 
 static adsb_fi_priv g_data;
 
+static void     set_defaults (void);
 static char    *send_request (void);
 static uint32_t process_response (mg_str body);
 static uint32_t print_raw (void);
@@ -114,40 +125,33 @@ static void     json_dump (const char *data);
 static int      compare_on_addr (const void *_a, const void *_b);
 
 /**
- * Set default values unless set from config-callbacks.
+ * Initialize and set default values unless set from config-callbacks.
+ *
+ * The use of `download_to_buf()` is not very thread-safe.
+ * Hence do not close WinInet after `download_to_buf()`.
+ * But initialize and keep it open from now on. Since with a
+ * large max-distance, we'll get a large number of `AIRPORT_API_PENDING`
+ * records in `API_thread_worker()` in "--interactive" mode.
  */
 bool adsb_fi_init (void)
 {
-  /**
-   * `download_to_buf()` to not very thread-safe. Hence do not close
-   * WinInet after `download_to_buf()`. But initialize and keep it open
-   * from now on. With a large max-distance, we'll get a large number of
-   * `AIRPORT_API_PENDING` records in `API_thread_worker()` for
-   * "--interactive" mode.
-   */
   bool rc = download_init_once();
 
-  if (!g_data.max_distance_set)
-     g_data.max_distance = MAX_DISTANCE;
+  set_defaults();
 
-  if (!g_data.sleep_time_set)
-     g_data.sleep_time = MIN_SLEEP_TIME;
-
-  if (!g_data.raw_buf_time_set)
-     g_data.raw_buf_time = RAW_BUF_TIME;
-
-  if (!g_data.print_old_set)
-     g_data.print_old = false;
-
-  if (!g_data.print_non_icao_set)
-     g_data.print_non_icao = false;
+  if (g_data.use_adsb_lol)
+  {
+    g_data.sleep_time   = max (g_data.sleep_time, MIN_SLEEP_TIME_LOL);
+    g_data.raw_buf_time = max (g_data.raw_buf_time, MIN_SLEEP_TIME_LOL);
+  }
 
   InitializeCriticalSection (&g_data.crit);
 
-  TRACE ("max_distance: %u miles, sleep_time: %u msec, "
-         "raw_buf_time: %u msec, print_old: %d, print_non_icao: %d\n",
-         g_data.max_distance, g_data.sleep_time, g_data.raw_buf_time,
-         g_data.print_old, g_data.print_non_icao);
+  TRACE ("max_distance: %u miles, sleep_time: %u msec, raw_buf_time: %u msec\n",
+         g_data.max_distance, g_data.sleep_time, g_data.raw_buf_time);
+
+  TRACE ("print_old: %d, print_non_icao: %d, use_adsb_lol: %d\n",
+         g_data.print_old, g_data.print_non_icao, g_data.use_adsb_lol);
 
   return (rc);
 }
@@ -181,6 +185,38 @@ uint32_t adsb_fi_num_planes (void)
 }
 
 /**
+ * Return the start of the active URL.
+ * The scheme + host part only.
+ */
+const char *adsb_fi_url (void)
+{
+  static char ret [100];
+  const char *url   = g_data.use_adsb_lol ? ADSB_LOL_URL_FORMAT : ADSB_FI_URL_FORMAT;
+  const char *slash = strchr (url + strlen("https://"), '/');
+
+  return strncpy (ret, url, slash - url);
+}
+
+/**
+ * Set all defaults once
+ */
+static void set_defaults (void)
+{
+  static bool done = false;
+
+  if (done)
+     return;
+
+  done = true;
+  g_data.max_distance   = MAX_DISTANCE;
+  g_data.sleep_time     = MIN_SLEEP_TIME;
+  g_data.raw_buf_time   = RAW_BUF_TIME;
+  g_data.print_old      = false;
+  g_data.print_non_icao = false;
+  g_data.use_adsb_lol   = false;
+}
+
+/**
  * Return max plane distane we query for.
  * In km if `Modes.metric == true`.
  */
@@ -199,11 +235,10 @@ bool adsb_fi_max_distance (const char *arg)
   char    *end;
   uint64_t val = strtoull (arg, &end, 10);
 
+  set_defaults();
+
   if (end > arg && val >= MIN_DISTANCE && val <= MAX_DISTANCE)
-  {
-    g_data.max_distance = (uint32_t) val;
-    g_data.max_distance_set = true;
-  }
+     g_data.max_distance = (uint32_t) val;
   else
   {
     cfg_illegal_val ("adsb-fi-max-distance", arg);
@@ -220,11 +255,10 @@ bool adsb_fi_sleep_time (const char *arg)
   char    *end;
   uint64_t val = strtoull (arg, &end, 10);
 
+  set_defaults();
+
   if (end > arg && val >= MIN_SLEEP_TIME)
-  {
-    g_data.sleep_time = (uint32_t) val;
-    g_data.sleep_time_set = true;
-  }
+     g_data.sleep_time = (uint32_t) val;
   else
   {
     cfg_illegal_val ("adsb-fi-sleep-time", arg);
@@ -241,11 +275,10 @@ bool adsb_fi_raw_buf_time (const char *arg)
   char    *end;
   uint64_t val = strtoull (arg, &end, 10);
 
+  set_defaults();
+
   if (end > arg && val >= RAW_BUF_TIME)
-  {
-    g_data.raw_buf_time = (uint32_t) val;
-    g_data.raw_buf_time_set = true;
-  }
+     g_data.raw_buf_time = (uint32_t) val;
   else
   {
     cfg_illegal_val ("adsb-fi-raw-buf-time", arg);
@@ -259,8 +292,8 @@ bool adsb_fi_raw_buf_time (const char *arg)
  */
 bool adsb_fi_print_old (const char *arg)
 {
+  set_defaults();
   g_data.print_old = cfg_true (arg);
-  g_data.print_old_set = true;
   return (true);
 }
 
@@ -269,8 +302,18 @@ bool adsb_fi_print_old (const char *arg)
  */
 bool adsb_fi_print_non_icao (const char *arg)
 {
+  set_defaults();
   g_data.print_non_icao = cfg_true (arg);
-  g_data.print_non_icao_set = true;
+  return (true);
+}
+
+/**
+ * Config-callback for "adsb-fi-use_lol = 0|1".
+ */
+bool adsb_fi_use_lol (const char *arg)
+{
+  set_defaults();
+  g_data.use_adsb_lol = cfg_true (arg);
   return (true);
 }
 
@@ -291,7 +334,7 @@ void adsb_fi_read_loop (void)
     {
       static uint64_t last_update;
       uint64_t now = MSEC_TIME();
-      uint32_t num;
+      uint32_t num = 0;
 
       /* update-time expired?
        */
@@ -320,7 +363,8 @@ void adsb_fi_read_loop (void)
     {
       /* This assumes our home-pos never changes.
        */
-      g_data.url = mg_mprintf (ADSB_FI_URL_FORMAT, Modes.home_pos.lat, Modes.home_pos.lon, g_data.max_distance);
+      g_data.url = mg_mprintf (g_data.use_adsb_lol ? ADSB_LOL_URL_FORMAT : ADSB_FI_URL_FORMAT,
+                               Modes.home_pos.lat, Modes.home_pos.lon, g_data.max_distance);
       TRACE ("Fetching from '%s'\n", g_data.url);
     }
 
@@ -339,7 +383,7 @@ void adsb_fi_read_loop (void)
     }
 
     /* Call `Sleep(sleep_time)` (minimum 1 sec) between requests.
-     * Otherwise we will be blacklisted :-(
+     * Otherwise we'll get a "HTTP 429 Too Many Requests" or similar.
      */
     Sleep (g_data.sleep_time);
   }
@@ -423,9 +467,8 @@ static uint32_t print_raw (void)
       if (!g_data.print_non_icao)
          continue;
 
-      addr &= ~MODES_NON_ICAO_ADDRESS;
       addr_buf[0] = '~';
-      _itoa (addr, addr_buf+1, 16);
+      _itoa (addr & MODES_ICAO_ADDRESS_MASK, addr_buf+1, 16);
     }
     else
       _itoa (addr, addr_buf, 16);
@@ -600,7 +643,7 @@ static uint32_t process_response (mg_str body)
     if (flight_str[0] != '-')
     {
       str_rtrim (flight_str);
-      if (flight_str[0] == '.')  /* Fix e.g. ".N966JT" -> "N966JT" */
+      if (flight_str[0] == '.')    /* Fix e.g. ".N966JT" -> "N966JT" */
          ofs2 = 1;
     }
 
@@ -743,9 +786,9 @@ static void CALLBACK wininet_callback (
  */
 static char *send_request (void)
 {
-  uint64_t start_t = MSEC_TIME();
-  size_t   sz;
-  char    *data = download_to_buf (g_data.url);
+  double  start_t = get_usec_now();
+  size_t  sz;
+  char   *data = download_to_buf (g_data.url);
 
   if (!data)
   {
@@ -768,14 +811,15 @@ static char *send_request (void)
   if (download_status() != 200)
   {
     TRACE ("HTTP %d\n", download_status());
+    g_data.stats.http_stat = download_status();
     g_data.stats.http_err++;
     FREE (data);
   }
   else
   {
     sz = strlen (data);
-    TRACE ("HTTP 200: got %zd bytes (%.2f MB/s)\n",
-           sz, (1E-3 * sz) / (MSEC_TIME() - start_t));
+    TRACE ("HTTP 200: got %zd bytes (%.0f kB/s)\n", sz, 1E3 * sz / (get_usec_now() - start_t));
+    g_data.stats.http_stat = 200;
     g_data.stats.bytes_recv += sz;
     g_data.stats.responses_recv++;
   }
