@@ -10,9 +10,9 @@ bool        adsb_fi_sleep_time (const char *arg);
 bool        adsb_fi_raw_buf_time (const char *arg);
 bool        adsb_fi_print_old (const char *arg);
 bool        adsb_fi_print_non_icao (const char *arg);
-bool        adsb_fi_use_lol (const char *arg);
 uint32_t    adsb_fi_num_planes (void);
 uint32_t    adsb_fi_get_max_distance (void);
-const char *adsb_fi_url (void);
+void        adsb_fi_use_lol (void);
+const char *adsb_fi_url (bool use_lol);
 
 

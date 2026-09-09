@@ -185,16 +185,20 @@ uint32_t adsb_fi_num_planes (void)
 }
 
 /**
- * Return the start of the active URL.
+ * Return the start of the 2 possible URLs.
  * The scheme + host part only.
  */
-const char *adsb_fi_url (void)
+const char *adsb_fi_url (bool use_lol)
 {
-  static char ret [100];
-  const char *url   = g_data.use_adsb_lol ? ADSB_LOL_URL_FORMAT : ADSB_FI_URL_FORMAT;
+  static char buf [2][100];
+  static int  idx = 0;
+  const char *url   = use_lol ? ADSB_LOL_URL_FORMAT : ADSB_FI_URL_FORMAT;
   const char *slash = strchr (url + strlen("https://"), '/');
+  char       *ret   = buf [idx];
 
-  return strncpy (ret, url, slash - url);
+  strncpy (ret, url, slash - url);
+  idx = (idx + 1) & 1;   /* use 2 buffers in round-robin */
+  return (ret);
 }
 
 /**
@@ -213,7 +217,6 @@ static void set_defaults (void)
   g_data.raw_buf_time   = RAW_BUF_TIME;
   g_data.print_old      = false;
   g_data.print_non_icao = false;
-  g_data.use_adsb_lol   = false;
 }
 
 /**
@@ -225,6 +228,11 @@ uint32_t adsb_fi_get_max_distance (void)
   if (Modes.metric)
      return (uint32_t) round ((double)g_data.max_distance * 1.852);
   return (g_data.max_distance);
+}
+
+void adsb_fi_use_lol (void)
+{
+  g_data.use_adsb_lol = true;
 }
 
 /**
@@ -304,16 +312,6 @@ bool adsb_fi_print_non_icao (const char *arg)
 {
   set_defaults();
   g_data.print_non_icao = cfg_true (arg);
-  return (true);
-}
-
-/**
- * Config-callback for "adsb-fi-use_lol = 0|1".
- */
-bool adsb_fi_use_lol (const char *arg)
-{
-  set_defaults();
-  g_data.use_adsb_lol = cfg_true (arg);
   return (true);
 }
 
