@@ -27,6 +27,7 @@
   #pragma clang diagnostic ignored "-Wunused-function"
   #pragma clang diagnostic ignored "-Wunused-label"
   #pragma clang diagnostic ignored "-Wunused-parameter"
+  #pragma clang diagnostic ignored "-Wunused-but-set-global"
   #pragma clang diagnostic ignored "-Wpragma-pack"
   #pragma clang diagnostic ignored "-Wsign-compare"
   #pragma clang diagnostic ignored "-Wmissing-field-initializers"
