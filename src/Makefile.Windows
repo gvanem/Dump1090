@@ -218,7 +218,9 @@ else
   $(error Add an env-var 'CPU=x64' (or 'CPU=x86') depending on the active compiler.)
 endif
 
-OS_LIBS   = advapi32.lib dnsapi.lib iphlpapi.lib ole32.lib setupapi.lib shlwapi.lib uuid.lib user32.lib winmm.lib winusb.lib
+OS_LIBS = advapi32.lib dnsapi.lib iphlpapi.lib ole32.lib setupapi.lib shlwapi.lib \
+          uuid.lib user32.lib winmm.lib winusb.lib
+
 ASAN_LIBS =
 COPY_DLLs =
 
