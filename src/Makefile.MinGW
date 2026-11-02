@@ -13,7 +13,7 @@ THIS_FILE  = Makefile.MinGW
 MAKEFLAGS += --warn-undefined-variables
 
 USE_ASTYLE     ?= 0
-USE_BIN_FILES  ?= 0
+USE_BIN_FILES  ?= 1
 USE_PACKED_DLL ?= 0
 HAVE_BSEARCH_S ?= 1
 
@@ -40,7 +40,9 @@ CFLAGS = -g -O2                 \
 CFLAGS += # -DUSE_MG_DNS=1
 
 ifeq ($(USE_BIN_FILES),1)
-  CFLAGS += -DUSE_BIN_FILES
+  CFLAGS    += -DUSE_BIN_FILES
+  GENERATED += $(OBJ_DIR)/gen_data.h \
+               $(OBJ_DIR)/gen-code-blocks.c
 endif
 
 ifeq ($(HAVE_BSEARCH_S),0)
@@ -167,6 +169,7 @@ $(OBJ_DIR):
 BIN_DIR = $(realpath $(TEMP))/dump1090/standing-data/results
 
 $(OBJ_DIR)/gen-code-blocks.c \
+$(OBJ_DIR)/gen_data.h        \
 $(BIN_DIR)/gen_data.h        \
 $(BIN_DIR)/code-blocks.bin: ../tools/gen_data.py | $(OBJ_DIR)
 	$(call green_msg, Generating $(BRIGHT_WHITE)$@)
