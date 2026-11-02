@@ -14,8 +14,6 @@
  * The OnLocationChanged() callback gets triggered once a minute.
  * The GPSDirect driver in Simulation mode can be used for more rapid changes.
  */
-#define CINTERFACE
-#define COBJMACROS
 
 #include <winsock2.h>
 #include <windows.h>
