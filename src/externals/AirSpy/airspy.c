@@ -98,12 +98,12 @@ static struct dyn_struct airspy_funcs [] = {
 #undef ADD_FUNC
 
 /**
- * Load the `airspy.dll` from a specific location or let `LoadLibraryA()`
+ * Load the `airspy.dll` from a specific location or let `load_module()`
  * search along the `PATH`.
  *
  * The `airspy-dll` value in `dump1090.cfg` is empty by default and
- * `sdr.dll_name` equals `airspy.dll`. Hence `LoadLibraryA()`
- * will search along the `PATH`.
+ * `sdr.dll_name` equals `airspy.dll`. Hence `load_module()`
+ * will search along the `PATH`. \ref `load_module()` in `misc.c`
  *
  * But the config-callback `airspy_set_dll_name()` could have set another
  * custom value.
@@ -124,7 +124,7 @@ static bool airspy_load_funcs (void)
     DWORD err = GetLastError();
 
     /**
-     * The `LoadLibraryA()` above will fail with `err == ERROR_BAD_EXE_FORMAT` (193)
+     * The `load_module()` above will fail with `err == ERROR_BAD_EXE_FORMAT` (193)
      * if we're running a 32-bit Dump1090 and we loaded a 64-bit "airspy.dll".
      * And vice-versa.
      */
