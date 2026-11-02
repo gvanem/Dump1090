@@ -150,6 +150,7 @@ static const cfg_table config[] = {
     { "sdrplay-lna-state",       ARG_FUNC,    (void*) sdrplay_set_lna_state },
     { "sdrplay-lna-state",       ARG_FUNC,    (void*) sdrplay_set_lna_state },
     { "sdrplay-minver",          ARG_FUNC,    (void*) sdrplay_set_minver },
+    { "sdrplay-service-start",   ARG_FUNC,    (void*) sdrplay_service_start },
     { "sdrplay-tuner",           ARG_FUNC,    (void*) sdrplay_set_tuner },
     { "sdrplay-usb-bulk",        ARG_FUNC,    (void*) sdrplay_set_USB_bulk_mode  },
     { "sdrplay-hearth-beat",     ARG_ATOB,    (void*) &Modes.sdrplay.hearth_beat },

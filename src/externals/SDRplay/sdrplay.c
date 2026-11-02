@@ -9,13 +9,14 @@
 #include "sdrplay.h"
 #include "sdrplay_api.h"
 
-#define MODES_RSP_BUF_SIZE   (MODES_ASYNC_BUF_SIZE / sizeof(uint16_t))
-#define MODES_RSP_BUFFERS     16          /**< Must be power of 2 */
+#define MODES_RSP_BUF_SIZE    (MODES_ASYNC_BUF_SIZE / sizeof(uint16_t))
+#define MODES_RSP_BUFFERS      16         /**< Must be power of 2 */
 
 #define RSP_MIN_GAIN_THRESH   512         /**< Increase gain if peaks below this */
 #define RSP_MAX_GAIN_THRESH  1024         /**< Decrease gain if peaks above this */
 #define RSP_ACC_SHIFT          13         /**< Sets time constant of averaging filter */
 #define MODES_RSP_INITIAL_GR   20
+#define SDRPLAY_SERVICE_NAME  "SDRplayAPIService"
 
 /**
  * \def CALL_FUNC()
@@ -56,6 +57,12 @@ typedef struct sdrplay_priv {
         bool                           disable_broadcast_notch;
         bool                           disable_DAB_notch;
         bool                           decay_filter;
+        bool                           service_running;    /**< Is the "SDRplayAPIService" started? */
+        bool                           service_start;      /**< Start the "SDRplayAPIService" if it's not started */
+        const char                    *service_name;
+        SERVICE_STATUS                 service_stat;
+        SC_HANDLE                      service_manager;    /**< Handle from `OpenSCManager()` */
+        SC_HANDLE                      service_handle;     /**< Handle from `OpenServiceA()` */
         volatile bool                  cancelling;
         volatile bool                  uninit_done;
 
@@ -131,7 +138,10 @@ typedef struct sdrplay_priv {
  * uses) so the filter starts at a neutral point instead of an
  * artificially low one.
  */
-static sdrplay_priv sdr = { .max_sig_acc = (RSP_MIN_GAIN_THRESH << RSP_ACC_SHIFT) };
+static sdrplay_priv sdr = { .service_name = SDRPLAY_SERVICE_NAME,
+                            .max_sig_acc  = (RSP_MIN_GAIN_THRESH << RSP_ACC_SHIFT)
+                          };
+
 
 /**
  * TESTING: fixed gRdB (0-59, direct -- NOT the tenths-of-dB `gain`
@@ -261,12 +271,12 @@ static bool sdrplay_check_registry (char *full_name)
  *
  * Otherwise search the Registry key `SDRPLAY_REG_DBG + Install_Dir` for an absolute path.
  *
- * Finally let `LoadLibraryA()` (inside `load_dynamic_table()`) search along the
+ * Finally let `load_module()` (inside `load_dynamic_table()`) search along the
  * `%PATH%`.
  *
  * \note
  * default value for `sdr.dll_name` is `"sdrplay_api.dll"`. Hence
- * `LoadLibraryA()` will search along the `%PATH%` if not found in the Registry.
+ * `load_module()` will search along the `%PATH%` if not found in the Registry.
  */
 static bool sdrplay_load_funcs (void)
 {
@@ -291,7 +301,7 @@ static bool sdrplay_load_funcs (void)
     err = GetLastError();
 
     /**
-     * The `LoadLibraryA()` above will fail with `err == ERROR_BAD_EXE_FORMAT` (193)
+     * The `load_module()` above will fail with `err == ERROR_BAD_EXE_FORMAT` (193)
      * if we're running a 32-bit Dump1090 and we loaded a 64-bit "sdrplay_api.dll".
      * And vice-versa.
      */
@@ -312,6 +322,133 @@ static bool sdrplay_load_funcs (void)
   TRACE ("full_name: '%s'\n", full_name);
   TRACE ("dll_name:  '%s'\n", sdr.dll_name);
   return (true);
+}
+
+#define ADD_VALUE(v)  { (DWORD)v, #v }
+
+static const search_list srv_states[] = {
+             ADD_VALUE (SERVICE_CONTINUE_PENDING),
+             ADD_VALUE (SERVICE_PAUSE_PENDING),
+             ADD_VALUE (SERVICE_PAUSED),
+             ADD_VALUE (SERVICE_RUNNING),
+             ADD_VALUE (SERVICE_START_PENDING),
+             ADD_VALUE (SERVICE_STOP_PENDING),
+             ADD_VALUE (SERVICE_STOPPED)
+           };
+
+static const search_list srv_types[] = {
+             ADD_VALUE (SERVICE_FILE_SYSTEM_DRIVER),
+             ADD_VALUE (SERVICE_KERNEL_DRIVER),
+             ADD_VALUE (SERVICE_WIN32_OWN_PROCESS),
+             ADD_VALUE (SERVICE_WIN32_SHARE_PROCESS),
+             ADD_VALUE (SERVICE_USER_OWN_PROCESS),
+             ADD_VALUE (SERVICE_USER_SHARE_PROCESS),
+           { SERVICE_USER_OWN_PROCESS   | SERVICE_INTERACTIVE_PROCESS, "OWN_PROCESS/INTERACTIVE" },
+           { SERVICE_USER_SHARE_PROCESS | SERVICE_INTERACTIVE_PROCESS, "SHARE_PROCESS/INTERACTIVE" },
+         };
+
+#undef ADD_VALUE
+
+/**
+ * Return the name of `SERVICE_STATUS::dwCurrentState`
+ */
+static const char *service_status_name (DWORD srv_state)
+{
+  const char *name = search_list_name (srv_state, srv_states, DIM(srv_states));
+  static char buf [100];
+
+  if (!name)
+  {
+    snprintf (buf, sizeof(buf), "unknown %lu", srv_state);
+    name = buf;
+  }
+  return (name);
+}
+
+/**
+ * Return the name of `SERVICE_STATUS::dwServiceType`
+ */
+static const char *service_type_name (DWORD srv_type)
+{
+  const char *name = search_list_name (srv_type, srv_types, DIM(srv_types));
+  static char buf [100];
+
+  if (!name)
+  {
+    snprintf (buf, sizeof(buf), "unknown %lu", srv_type);
+    name = buf;
+  }
+  return (name);
+}
+
+/**
+ * Check if the `sdr.service_name` is running.
+ */
+static bool sdrplay_check_service (void)
+{
+  DWORD err;
+  BOOL  rc;
+
+  sdr.service_manager = OpenSCManager (NULL, NULL, SC_MANAGER_CONNECT);
+  if (!sdr.service_manager)
+  {
+    TRACE ("OpenSCManager() failed: %s", win_strerror(GetLastError()));
+    return (false);
+  }
+
+  TRACE ("Checking if '%s' is running\n", sdr.service_name);
+  sdr.service_handle = OpenServiceA (sdr.service_manager, sdr.service_name,
+                                     SERVICE_START | SERVICE_QUERY_STATUS);
+  if (!sdr.service_handle)
+  {
+    err = GetLastError();
+    TRACE ("OpenService() failed: %s\n",  win_strerror(err));
+    if (err == ERROR_SERVICE_DOES_NOT_EXIST)
+       LOG_STDERR ("The service '%s' is not installed.\n", sdr.service_name);
+    return (false);
+  }
+
+  memset (&sdr.service_stat, '\0', sizeof(sdr.service_stat));
+  rc = QueryServiceStatus (sdr.service_handle, &sdr.service_stat);
+
+  TRACE ("Service status: %s, Service type: %s\n",
+         service_status_name(sdr.service_stat.dwCurrentState),
+         service_type_name(sdr.service_stat.dwServiceType));
+
+  sdr.service_running = (rc == TRUE && sdr.service_stat.dwCurrentState == SERVICE_RUNNING);
+
+  if (rc == TRUE && sdr.service_stat.dwCurrentState == SERVICE_STOPPED)
+     LOG_STDERR ("The service '%s' is STOPPED.\nTry \"net start %s\" to start it.\n",
+                 sdr.service_name, sdr.service_name);
+  return (rc);
+}
+
+/**
+ * If the `SDRPLAY_SERVICE_NAME` is not running,
+ * try to start it if `sdr.service_start == true`.
+ */
+static bool sdrplay_start_service (void)
+{
+  DWORD err;
+  bool  res;
+
+  TRACE ("Service '%s' not running. Trying to start it\n", sdr.service_name);
+  if (StartService(sdr.service_handle, 0, NULL))
+  {
+    TRACE ("Successfull started service '%s'\n", sdr.service_name);
+    res = true;
+  }
+  else
+  {
+    err = GetLastError();
+    res = true;
+    if (err != ERROR_SERVICE_ALREADY_RUNNING && err != ERROR_ALREADY_EXISTS)
+    {
+      TRACE ("StartService() failed: %s\n", win_strerror(err));
+      res = false;
+    }
+  }
+  return (res);
 }
 
 /**
@@ -340,8 +477,9 @@ static void sdrplay_store_error_details (int type)
 
   sdr.error_timestamp = 0ULL;
   memset (&sdr.error_info, '\0', sizeof(sdr.error_info));
+
   info = (*sdr.sdrplay_api_GetLastErrorByType) (SDRPLAY_HANDLE, type, &time);
-  if (info)  /* can it return NULL? */
+  if (info)  /* can it return NULL if the Service is running? */
   {
     sdr.error_timestamp = time;
     sdr.error_info = *info;
@@ -1345,19 +1483,38 @@ static bool sdrplay_check_cfg_antenna (void)
  */
 int sdrplay_init (const char *name, int index, sdrplay_dev **device)
 {
+  bool srv_ok;
+
   *device = NULL;
 
-  TRACE ("name:        '%s', index: %d\n", name, index);
-  TRACE ("dll_name:    '%s'\n", sdr.dll_name);
-  TRACE ("set_from_cfg: %d\n", sdr.set_from_cfg);
-  TRACE ("antenna_port: %d / '%c'\n", Modes.sdrplay.antenna_port, isalpha(Modes.sdrplay.antenna_port) ? Modes.sdrplay.antenna_port : '-');
-  TRACE ("diversity:    %d\n", Modes.sdrplay.diversity_mode);
-  TRACE ("hearth_beat:  %d\n", Modes.sdrplay.hearth_beat);
-  TRACE ("tuner:        %d / '%c'\n", Modes.sdrplay.tuner, isalpha(Modes.sdrplay.tuner) ? Modes.sdrplay.tuner : '-');
-  TRACE ("ADSB_mode:    %d / %s\n", sdr.ADSB_mode, sdrplay_adsb_mode(sdr.ADSB_mode));
-  TRACE ("USB_mode:     %d / %s\n", sdr.USB_mode, sdrplay_USB_mode_name(sdr.USB_mode));
-  TRACE ("decay_filter: %d\n", sdr.decay_filter);
-  TRACE ("lna_state:    %d\n", sdr.lna_state);
+  TRACE ("name:         '%s', index: %d\n", name, index);
+  TRACE ("dll_name:     '%s'\n", sdr.dll_name);
+  TRACE ("set_from_cfg:  %d\n", sdr.set_from_cfg);
+  TRACE ("antenna_port:  %d / '%c'\n", Modes.sdrplay.antenna_port, isalpha(Modes.sdrplay.antenna_port) ? Modes.sdrplay.antenna_port : '-');
+  TRACE ("diversity:     %d\n", Modes.sdrplay.diversity_mode);
+  TRACE ("hearth_beat:   %d\n", Modes.sdrplay.hearth_beat);
+  TRACE ("tuner:         %d / '%c'\n", Modes.sdrplay.tuner, isalpha(Modes.sdrplay.tuner) ? Modes.sdrplay.tuner : '-');
+  TRACE ("ADSB_mode:     %d / %s\n", sdr.ADSB_mode, sdrplay_adsb_mode(sdr.ADSB_mode));
+  TRACE ("USB_mode:      %d / %s\n", sdr.USB_mode, sdrplay_USB_mode_name(sdr.USB_mode));
+  TRACE ("decay_filter:  %d\n", sdr.decay_filter);
+  TRACE ("lna_state:     %d\n", sdr.lna_state);
+  TRACE ("service_name: '%s'\n", sdr.service_name);
+  TRACE ("service_start: %d\n", sdr.service_start);
+
+  srv_ok = (sdrplay_check_service() && sdr.service_running);
+
+  if (!srv_ok && sdr.service_start)
+     srv_ok = sdrplay_start_service();
+
+  if (sdr.service_handle)
+     CloseServiceHandle (sdr.service_handle);
+  if (sdr.service_manager)
+     CloseServiceHandle (sdr.service_manager);
+
+  sdr.service_handle = sdr.service_manager = NULL;
+
+  if (!srv_ok)
+     goto failed;
 
   if (sdr.min_version == 0.0)
      sdr.min_version = SDRPLAY_API_VERSION;   /* = 3.14F */
@@ -1668,7 +1825,7 @@ bool sdrplay_set_dll_name (const char *arg)
   DWORD len, attr;
 
   /* If not absolute or relative we must assume it's on PATH.
-   * Hence cannot know if this is a valid DLL until we call `LoadLibraryA()`
+   * Hence we cannot know if this is a valid DLL until we call `load_module()`
    */
   if (!strpbrk(arg, "/\\"))
   {
@@ -1731,6 +1888,16 @@ bool sdrplay_set_USB_bulk_mode (const char *arg)
 bool sdrplay_set_decay_filter (const char *arg)
 {
   sdr.decay_filter = cfg_true (arg);
+  return (true);
+}
+
+/**
+ * Config-parser callback; <br>
+ * parse "sdrplay-service-start" and sets `sdr.service_start`.
+ */
+bool sdrplay_service_start (const char *arg)
+{
+  sdr.service_start = cfg_true (arg);
   return (true);
 }
 
