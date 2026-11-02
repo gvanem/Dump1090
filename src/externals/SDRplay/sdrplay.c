@@ -441,16 +441,12 @@ static bool sdrplay_check_service (void)
          service_status_name(sdr.service_stat.dwCurrentState),
          service_type_name(sdr.service_stat.dwServiceType));
 
-  sdr.service_running = (rc == TRUE && sdr.service_stat.dwCurrentState == SERVICE_RUNNING);
-
-  if (rc == TRUE && sdr.service_stat.dwCurrentState == SERVICE_STOPPED)
-     LOG_STDERR ("The service '%s' is STOPPED.\nTry \"net start %s\" to start it.\n",
-                 sdr.service_name, sdr.service_name);
+  sdr.service_running = (sdr.service_stat.dwCurrentState == SERVICE_RUNNING);
   return (rc);
 }
 
 /**
- * If the `SDRPLAY_SERVICE_NAME` is not running,
+ * If the `sdr.service_name` is not running,
  * try to start it if `sdr.service_start == true`.
  */
 static bool sdrplay_start_service (void)
@@ -461,7 +457,7 @@ static bool sdrplay_start_service (void)
   TRACE ("Service '%s' not running. Trying to start it\n", sdr.service_name);
   if (StartService(sdr.service_handle, 0, NULL))
   {
-    TRACE ("Successfull started service '%s'\n", sdr.service_name);
+    TRACE ("Successfully started service '%s'\n", sdr.service_name);
     res = true;
   }
   else
@@ -475,6 +471,41 @@ static bool sdrplay_start_service (void)
     }
   }
   return (res);
+}
+
+/**
+ * Combined check and optioanlly start of `sdr.service_name`
+ */
+static bool sdrplay_check_and_start_service (void)
+{
+  bool service_ok;
+
+  TRACE ("service_name:       '%s'\n", sdr.service_name);
+  TRACE ("service_start:       %d\n", sdr.service_start);
+
+  service_ok = (sdrplay_check_service() && sdr.service_running);
+  TRACE ("service_ok:          %d\n", service_ok);
+
+  if (!service_ok && sdr.service_start)
+     service_ok = sdrplay_start_service();
+
+  TRACE ("service_ok:          %d\n", service_ok);
+  TRACE ("sdr.service_running: %d\n", sdr.service_running);
+
+  if (!sdr.service_start && !sdr.service_running)
+  {
+    LOG_STDERR ("The service '%s' is not RUNNING.\nTry \"net start %s\" to start it.\n",
+                sdr.service_name, sdr.service_name);
+    service_ok = false;
+  }
+
+  if (sdr.service_handle)
+     CloseServiceHandle (sdr.service_handle);
+  if (sdr.service_manager)
+     CloseServiceHandle (sdr.service_manager);
+
+  sdr.service_handle = sdr.service_manager = NULL;
+  return (service_ok);
 }
 
 /**
@@ -1509,8 +1540,6 @@ static bool sdrplay_check_cfg_antenna (void)
  */
 int sdrplay_init (const char *name, int index, sdrplay_dev **device)
 {
-  bool srv_ok;
-
   *device = NULL;
 
   TRACE ("name:         '%s', index: %d\n", name, index);
@@ -1524,22 +1553,8 @@ int sdrplay_init (const char *name, int index, sdrplay_dev **device)
   TRACE ("USB_mode:      %d / %s\n", sdr.USB_mode, sdrplay_USB_mode_name(sdr.USB_mode));
   TRACE ("decay_filter:  %d\n", sdr.decay_filter);
   TRACE ("lna_state:     %d\n", sdr.lna_state);
-  TRACE ("service_name: '%s'\n", sdr.service_name);
-  TRACE ("service_start: %d\n", sdr.service_start);
 
-  srv_ok = (sdrplay_check_service() && sdr.service_running);
-
-  if (!srv_ok && sdr.service_start)
-     srv_ok = sdrplay_start_service();
-
-  if (sdr.service_handle)
-     CloseServiceHandle (sdr.service_handle);
-  if (sdr.service_manager)
-     CloseServiceHandle (sdr.service_manager);
-
-  sdr.service_handle = sdr.service_manager = NULL;
-
-  if (!srv_ok)
+  if (!sdrplay_check_and_start_service())
      goto failed;
 
   if (sdr.min_version == 0.0)
