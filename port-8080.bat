@@ -18,5 +18,5 @@ if %_cmdproc. == 4NT. .or. %_cmdproc. == TCC. (
 
 %_echo% Capturing %NUM% packets of Loopback traffic on port 8080 ...
 
-windump.exe -i\Device\NPF_Loopback -#tvc %NUM% port 8080 | tee.exe %LOG_FILE%
+windump.exe -i \Device\NPF_Loopback -#tvc %NUM% port 8080 | tee.exe %LOG_FILE%
 
