@@ -2084,6 +2084,28 @@ DEF_WIN_FUNC (BOOL, HttpQueryInfoA, (HINTERNET handle,
 #define HTTP_PROTOCOL_FLAG_HTTP2 0x02
 #endif
 
+#define USE_LoadLibraryEx 1
+
+HANDLE load_module (const char *dll_name)
+{
+#if USE_LoadLibraryEx
+  HANDLE hnd;
+  DWORD  prev_mode = 0;
+  DWORD  err;
+  BOOL   have_err = SetThreadErrorMode (SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX,
+                                        &prev_mode);
+
+  hnd = LoadLibraryExA (dll_name, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+  err = GetLastError();
+  if (have_err)
+     SetThreadErrorMode (prev_mode, NULL);
+  SetLastError (err);
+  return (hnd);
+#else
+  return LoadLibraryA (dll_name);
+#endif
+}
+
 /**
  * Handles dynamic loading and unloading of DLLs and their functions.
  */
@@ -2099,7 +2121,7 @@ int load_dynamic_table (struct dyn_struct *tab, int tab_size)
 
     if (prev && !stricmp(tab->mod_name, prev->mod_name))
          mod_handle = prev->mod_handle;
-    else mod_handle = LoadLibraryA (tab->mod_name);
+    else mod_handle = load_module (tab->mod_name);
 
     if (mod_handle)
     {

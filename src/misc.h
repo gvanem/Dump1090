@@ -915,6 +915,7 @@ uint32_t    download_to_file (const char *url, const char *file);
 char       *download_to_buf  (const char *url);
 int         download_status (void);
 bool        download_init_once (void);
+HANDLE      load_module (const char *dll_name);
 int         load_dynamic_table (dyn_struct *tab, int tab_size);
 int         unload_dynamic_table (dyn_struct *tab, int tab_size);
 bool        test_add (char **pattern, const char *what);
