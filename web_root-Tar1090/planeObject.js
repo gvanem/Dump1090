@@ -20,6 +20,7 @@ function PlaneObject(icao) {
 
     // Track history as a series of line segments
     this.elastic_feature = null;
+    this.heading_feature = null;
     this.track_linesegs = [];
     this.history_size = 0;
     this.trace = []; // save last 30 seconds of positions
@@ -83,7 +84,8 @@ PlaneObject.prototype.setNull = function() {
     this.nav_heading    = null;
     this.nav_modes      = null;
     this.nav_qnh        = null;
-    this.rc				= null;
+    this.rc             = null;
+    this.spi            = null;
 
     this.rotation       = 0;
     this.rotationCache = 999;
@@ -170,6 +172,7 @@ function planeCloneState(target, source) {
     target.nav_modes = source.nav_modes;
     target.nav_qnh = source.nav_qnh;
     target.rc = source.rc;
+    target.spi = source.spi;
     target.rotation = source.rotation;
     target.rotationCache = source.rotationCache;
     target.nac_p = source.nac_p;
@@ -250,6 +253,10 @@ PlaneObject.prototype.isFiltered = function() {
     if (this.selected)
         return false;
 
+    // aiscatcher layer switched off: hide the ships from the table as well
+    if (this.dataSource == 'ais' && g.aiscatcherLayer && !g.aiscatcherLayer.getVisible())
+        return true;
+
     if (noRegOnly && (
         (this.registration || this.icao.startsWith('~'))
         || (this.category && this.category.startsWith('C'))
@@ -262,7 +269,14 @@ PlaneObject.prototype.isFiltered = function() {
     }
 
     for (const filter of filters_active) {
-        if (!this[filter.field] || !this[filter.field].toUpperCase().match(filter.PATTERN)) {
+        const value = this[filter.field];
+        if (!value) {
+            return true;
+        }
+        const index = value.toUpperCase().search(filter.PATTERN);
+        // placeholder names (no callsign / empty callsign) only match from the start (#419)
+        const placeholder = filter.field == 'name' && (value == 'no callsign' || value == 'empty callsign');
+        if (placeholder ? index != 0 : index < 0) {
             //this[filter.field] && console.log(this[filter.field].toUpperCase() + ' ' + filter.PATTERN);
             return true;
         }
@@ -741,6 +755,12 @@ PlaneObject.prototype.getMarkerColor = function(options) {
         h = 0;
         s = 100;
         l = 40;
+    }
+
+    if (this.spi == 1 && identOverrideColor) {
+        h = identOverrideColor.h;
+        s = identOverrideColor.s;
+        l = identOverrideColor.l;
     }
 
     if (h < 0) {
@@ -1581,6 +1601,7 @@ PlaneObject.prototype.updateData = function(now, last, data, init) {
     this.nav_qnh = data.nav_qnh;
     this.geom_rate = data.geom_rate;
     this.rc = data.rc;
+    this.spi = data.spi;
     if (!replay || data.squawk != null)
         this.squawk = (data.squawk == null) ? null : `${data.squawk}`;
     this.wd = data.wd;
@@ -1930,6 +1951,10 @@ PlaneObject.prototype.updateLines = function() {
         this.trail_features.removeFeature(this.elastic_feature);
         this.elastic_feature = null;
     }
+    if (this.heading_feature) {
+        this.trail_features.removeFeature(this.heading_feature);
+        this.heading_feature = null;
+    }
 
     // create any missing fixed line features
 
@@ -2085,6 +2110,25 @@ PlaneObject.prototype.updateLines = function() {
         trail_add.push(this.elastic_feature);
     }
 
+    // dashed line in the direction of travel for the selected aircraft
+    if (headingLineMinutes > 0 && !showTrace && this.selected && !SelectedAllPlanes
+        && this.track != null && this.gs > 0 && this.altitude != "ground" && this.seen_pos < 15) {
+        const distance = this.gs * 1852 / 60 * headingLineMinutes; // knots to meters
+        const end = TAR.utils.geodesic_destination(this.position, this.track * Math.PI / 180, distance);
+        let line = new ol.geom.LineString([this.position, end]);
+        line.transform('EPSG:4326', 'EPSG:3857');
+        this.heading_feature = new ol.Feature(line);
+        this.heading_feature.setStyle(new ol.style.Style({
+            stroke: new ol.style.Stroke({
+                color: monochromeTracks || hslToRgb(altitudeColor(this.altitude)),
+                width: newWidth,
+                lineDash: [4 * newWidth, 6 * newWidth],
+            })
+        }));
+        this.heading_feature.hex = this.icao;
+        trail_add.push(this.heading_feature);
+    }
+
 
     if (trail_add.length > 0)
         this.trail_features.addFeatures(trail_add);
@@ -2110,6 +2154,7 @@ PlaneObject.prototype.removeTrail = function() {
         delete this.track_linesegs[i].label;
     }
     this.elastic_feature = null;
+    this.heading_feature = null;
 };
 
 // This is to remove the line from the screen if we deselect the plane
@@ -2541,6 +2586,7 @@ PlaneObject.prototype.updateTraceData = function(state, _now) {
         this.baro_rate = data.baro_rate;
         this.geom_rate = data.geom_rate;
         this.rc = data.rc;
+        this.spi = data.spi;
         this.squawk = (data.squawk == null) ? null : `${data.squawk}`;
 
         this.wd = data.wd;
@@ -2820,12 +2866,13 @@ PlaneObject.prototype.getAirline = function() {
     }
     const callsign = this.name || '';
     const registration = this.registration || '';
-    const key = `${callsign}|${registration}`;
+    const category = this.category || '';
+    const key = `${callsign}|${registration}|${category}`;
     if (this.airlineKey === key) {
         return this.airline;
     }
     this.airlineKey = key;
-    this.airline = lookupAirlineForCallsign(callsign, registration);
+    this.airline = lookupAirlineForCallsign(callsign, registration, category);
     return this.airline;
 };
 
