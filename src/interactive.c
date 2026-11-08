@@ -263,24 +263,24 @@ typedef struct table_row {
         int         flags;
       } table_row;
 
-static void show_dep (const table *t, const aircraft *a);
-static void show_dst (const table *t, const aircraft *a);
+static const char *show_dep (const table *t, const aircraft *a);
+static const char *show_dst (const table *t, const aircraft *a);
 
 static const table_row headers1[] = {
-                  { "ICAO",     "%06X",    6 },
-                  { "Callsign", "%s",      0 },
-                  { "Reg-num",  "%s",      0 },
-                  { "Cntry",    "%s",      0 },
-                  { "DEP",      (char*)show_dep, 0, ROW_FUNC },
-                  { "DST",      (char*)show_dst, 0, ROW_FUNC },
-                  { "Altitude", "%s",      0 },
-                  { "Speed",    "%4u",     4 },
-                  { "Lat",      "%+7.3lf", 7 },
-                  { "Long",     "%+6.3lf", 6 },
-                  { "Hdg",      "%d",      0 },
-                  { "Dist",     "%.1lf",   0 },
-                  { "Msg",      "%5u",     5 },
-                  { "Seen",     "%2d",     2 },
+                  { "ICAO",     "%06X",    6, 0 },
+                  { "Callsign", "%s",      0, 0 },
+                  { "Reg-num",  "%s",      0, 0 },
+                  { "Cntry",    "%s",      0, 0 },
+                  { "DEP",      show_dep,  0, ROW_FUNC },
+                  { "DST",      show_dst,  0, ROW_FUNC },
+                  { "Altitude", "%s",      0, 0 },
+                  { "Speed",    "%4u",     4, 0 },
+                  { "Lat",      "%+7.3lf", 7, 0 },
+                  { "Long",     "%+6.3lf", 6, 0 },
+                  { "Hdg",      "%d",      0, 0 },
+                  { "Dist",     "%.1lf",   0, 0 },
+                  { "Msg",      "%5u",     5, 0 },
+                  { "Seen",     "%2d",     2, 0 },
                 };
 
 static table *g_table;
@@ -312,7 +312,7 @@ static void show_one_aircraft (aircraft *a, int row, const POINT *mouse, uint64_
     else table_show (g_table, column, row, a);
   }
 }
-#endif
+#endif /* if 0, \\todo code */
 
 static void curses_hilight_header (int x, int field)
 {
