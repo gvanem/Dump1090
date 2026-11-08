@@ -76,6 +76,7 @@ typedef struct rtlsdr_tuner_iface {
                        uint32_t *applied_bw  /* configured bw in Hz */,
                        int      apply        /* 1 == configure it!, 0 == deliver applied_bw */);
 
+        int (*set_bw_center) (void *, int32_t if_band_center_freq);
         int (*set_gain_index) (void *, unsigned int index);
         int (*set_if_gain) (void *, int stage, int gain /* tenth dB */);
         int (*set_gain_mode) (void *, int manual);
@@ -294,7 +295,10 @@ int r820t_init (void *dev)
   else
   {
     devt->r82xx_c.i2c_addr = R820T_I2C_ADDR;
-    devt->r82xx_c.rafael_chip = CHIP_R820T;
+    if (rtlsdr_check_dongle_model (dev, "RTLSDRBlog", "Blog V4L"))
+       devt->r82xx_c.rafael_chip = CHIP_R828S;
+    else
+       devt->r82xx_c.rafael_chip = CHIP_R820T;
   }
 
   rtlsdr_get_xtal_freq (devt, NULL, &devt->r82xx_c.xtal);
@@ -331,6 +335,15 @@ int r820t_set_bw (void *dev, int bw, uint32_t *applied_bw, int apply)
   if (r)
      return (r);
   return rtlsdr_set_center_freq (devt, devt->freq);
+}
+
+int r820t_set_bw_center (void *dev, int32_t if_band_center_freq)
+{
+  uint32_t applied_bw;
+  rtlsdr_dev_t *devt = (rtlsdr_dev_t*) dev;
+
+  r82xx_set_bw_center (&devt->r82xx_p, if_band_center_freq);
+  return r820t_set_bw (devt, devt->bw, &applied_bw, 1);
 }
 
 int r820t_set_gain_index (void *dev, unsigned int index)
@@ -376,41 +389,41 @@ int r820t_set_sideband (void *dev, int sideband)
  */
 static rtlsdr_tuner_iface_t tuners [] = {
   {
-    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL /* dummy for unknown tuners */
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL /* dummy for unknown tuners */
   },
   {
     e4000_init, e4000_exit,
-    e4000_set_freq, e4000_set_bw, e4000_set_gain_index, e4000_set_if_gain,
+    e4000_set_freq, e4000_set_bw, NULL, e4000_set_gain_index, e4000_set_if_gain,
     e4000_set_gain_mode, e4000_set_i2c_register,
     e4000_get_i2c_register, NULL, e4k_get_gains
   },
   {
     fc0012_init, fc0012_exit,
-    fc0012_set_freq, fc001x_set_bw, fc0012_set_gain_index, NULL,
+    fc0012_set_freq, fc001x_set_bw, NULL, fc0012_set_gain_index, NULL,
     fc001x_set_gain_mode, fc001x_set_i2c_register,
     fc0012_get_i2c_register, NULL, fc001x_get_gains
   },
   {
     fc0013_init, fc0013_exit,
-    fc0013_set_freq, fc001x_set_bw, fc0013_set_gain_index, NULL,
+    fc0013_set_freq, fc001x_set_bw, NULL, fc0013_set_gain_index, NULL,
     fc001x_set_gain_mode, fc001x_set_i2c_register,
     fc0013_get_i2c_register, NULL, fc001x_get_gains
   },
   {
     fc2580_init, fc2580_exit,
-    fc2580_set_freq, fc2580_set_bw, fc2580_set_gain_index, NULL,
+    fc2580_set_freq, fc2580_set_bw, NULL, fc2580_set_gain_index, NULL,
     fc2580_set_gain_mode, fc2580_set_i2c_register,
     fc2580_get_i2c_register, NULL, fc2580_get_gains
   },
   {
     r820t_init, r820t_exit,
-    r820t_set_freq, r820t_set_bw, r820t_set_gain_index, NULL,
+    r820t_set_freq, r820t_set_bw, r820t_set_bw_center, r820t_set_gain_index, NULL,
     r820t_set_gain_mode, r820t_set_i2c_register,
     r820t_get_i2c_register, r820t_set_sideband, r82xx_get_gains
   },
   {
     r820t_init, r820t_exit,
-    r820t_set_freq, r820t_set_bw, r820t_set_gain_index, NULL,
+    r820t_set_freq, r820t_set_bw, r820t_set_bw_center, r820t_set_gain_index, NULL,
     r820t_set_gain_mode, r820t_set_i2c_register,
     r820t_get_i2c_register, r820t_set_sideband, r82xx_get_gains
   },
@@ -1809,6 +1822,18 @@ int rtlsdr_set_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t bw)
   return (r);
 }
 
+int rtlsdr_set_tuner_band_center (rtlsdr_dev_t *dev, int32_t if_band_center_freq)
+{
+  int r;
+
+  if (!dev || !dev->tuner || !dev->tuner->set_bw_center)
+     return (-1);
+
+  r = (*dev->tuner->set_bw_center) (dev, if_band_center_freq);
+  RTL_TRACE (1, "%s(): if_band_center_freq: %d\n", __FUNCTION__, if_band_center_freq, r);
+  return (r);
+}
+
 int rtlsdr_set_tuner_gain_index (rtlsdr_dev_t *dev, unsigned int index)
 {
   int r = 0;
@@ -1972,7 +1997,8 @@ int rtlsdr_set_dithering (rtlsdr_dev_t *dev, int dither)
   if (!dev || !dev->tuner)
      return -1;
 
-  if (dev->tuner_type == RTLSDR_TUNER_R820T || dev->tuner_type == RTLSDR_TUNER_R828D)
+  if (dev->tuner_type == RTLSDR_TUNER_R820T ||
+      dev->tuner_type == RTLSDR_TUNER_R828D)
   {
     rtlsdr_set_i2c_repeater (dev, 1);
     r = r82xx_set_dither (&dev->r82xx_p, dither);
@@ -2099,7 +2125,8 @@ int rtlsdr_set_direct_sampling (rtlsdr_dev_t *dev, int on)
       rtlsdr_set_i2c_repeater (dev, 0);
     }
 
-    if (dev->tuner_type == RTLSDR_TUNER_R820T || dev->tuner_type == RTLSDR_TUNER_R828D)
+    if (dev->tuner_type == RTLSDR_TUNER_R820T ||
+        dev->tuner_type == RTLSDR_TUNER_R828D)
     {
       r |= rtlsdr_set_if_freq (dev, R82XX_IF_FREQ);
 
@@ -2234,7 +2261,8 @@ int rtlsdr_set_offset_tuning (rtlsdr_dev_t *dev, int on)
   if (!dev)
      return (-1);
 
-  if (dev->tuner_type == RTLSDR_TUNER_R820T || dev->tuner_type == RTLSDR_TUNER_R828D)
+  if (dev->tuner_type == RTLSDR_TUNER_R820T ||
+      dev->tuner_type == RTLSDR_TUNER_R828D)
      return (-2);
 
   if (dev->direct_sampling)
@@ -3035,7 +3063,8 @@ quit:
   if (!dev)
        exit_state = RTLSDR_INACTIVE;
   else exit_state = dev->async_status;
-  RTL_TRACE (1, "%s(): r: %d, dev: 0x%p, state: %s -> %s\n",
+
+  RTL_TRACE (1, "%s(): r: %2d, dev: 0x%p, state: %s -> %s\n",
              __FUNCTION__, r, dev, async_status_name(entry_state), async_status_name(exit_state));
 
   return (r);

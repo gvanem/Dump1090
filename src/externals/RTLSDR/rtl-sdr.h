@@ -320,6 +320,15 @@ RTLSDR_API int rtlsdr_set_and_get_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t b
 RTLSDR_API int rtlsdr_set_tuner_bandwidth (rtlsdr_dev_t *dev, uint32_t bw);
 
 /*!
+ * Sets the center of the filtered tuner band.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param if_band_center_freq in Hz. Zero means, that band center shall be at default IF).
+ * \return 0 on success
+ */
+RTLSDR_API int rtlsdr_set_tuner_band_center (rtlsdr_dev_t *dev, int32_t if_band_center_freq);
+
+/*!
  * Set the mixer sideband for the device.
  *
  * \param dev the device handle given by rtlsdr_open()
@@ -528,9 +537,8 @@ RTLSDR_API int rtlsdr_cancel_async (rtlsdr_dev_t *dev);
 RTLSDR_API int rtlsdr_ir_query (rtlsdr_dev_t *dev, uint8_t *buf, size_t buf_len);
 
 /*
- * These extra GPIO functions are not needed in Dump1090.
- * But hey are part of some other RTLSDR libraries.
- * So implement these too to make this "library" more in line with the others.
+ * These extra GPIO functions are needed by 'PyRTLSDR'. Not here.
+ * So implement these too.
  */
 RTLSDR_API int rtlsdr_set_gpio_bit (rtlsdr_dev_t *dev, uint8_t gpio, int val);
 RTLSDR_API int rtlsdr_set_gpio_input (rtlsdr_dev_t *dev, uint8_t val);

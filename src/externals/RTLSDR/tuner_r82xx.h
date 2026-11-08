@@ -62,18 +62,20 @@ struct r82xx_config {
 };
 
 struct r82xx_priv {
-	const struct r82xx_config	*cfg;
-	uint8_t						regs[NUM_REGS];
-	uint32_t					int_freq;
-	uint32_t					freq; //in MHz
-	int16_t						abs_gain;
-	uint8_t						input;
-	uint8_t						old_gain;
-	uint8_t						reg8[16];
-	int							has_lock;
-	int							init_done;
-	int							sideband;
-	void 						*rtl_dev;
+	const struct r82xx_config *cfg;
+	uint8_t			regs[NUM_REGS];
+	uint32_t		int_freq;
+	uint32_t		freq; //in MHz
+	int16_t			abs_gain;
+	uint8_t			input;
+	uint8_t			old_gain;
+	uint8_t			reg8[16];
+	int			has_lock;
+	int			init_done;
+	int			sideband;
+	int			if_band_center_freq;
+	void 			*rtl_dev;
+	uint8_t			fil_cal_code;
 };
 
 struct r82xx_freq_range {
@@ -92,5 +94,6 @@ int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsig
 int r82xx_get_i2c_register(struct r82xx_priv *priv, unsigned char* data, int *len, int *strength);
 int r82xx_set_sideband(struct r82xx_priv *priv, int sideband);
 int r82xx_set_dither(struct r82xx_priv *priv, int dither);
+int r82xx_set_bw_center(struct r82xx_priv *priv, int32_t if_band_center_freq);
 const int *r82xx_get_gains(int *len);
 #endif

@@ -196,7 +196,7 @@ R11		[7:5] 	FILT_BW			Filter bandwidth manual course tune
 								010 or 001: middle
 								111: narrowest
 		[4]		CAL_TRIGGER		channel filter auto calibration start triggering
-								1: start
+								1: start, 0: stop
 		[3:0] 	HP_COR			High pass filter corner control
 								0000: highest
 								1111: lowest
@@ -335,8 +335,8 @@ R23		[7:6] 	PW_LDO_D		PLL digital low drop out regulator supply current switch
 ------------------------------------------------------------------------------------
 R24		[7]		pw_ringout		RingPLL Test VCO Output Enable
 								0: off, 1: on
-		[6]		ring_cp_current	RingPLL charge pump curren
-								0: 15u, 1: 150u
+		[6]		ring_cp_current	RingPLL charge pump current
+								0: 15uA, 1: 150uA
 		[5]		ring_div[0]		ring_div bit 0
 0x18	[4] 	ring_pwd		RingPLL power
 								0: off, 1:on
@@ -646,6 +646,12 @@ static const int16_t abs_freqs_rtlsdr_v4[] = {
 static const int16_t abs_gains_rtlsdr_v4[] = {
 210,136,112,101,114,138,169,215,255,167,165,168,168,182,171,170,160,159,160,159,152,152,148,148,126,127,127,128,141,140,141,140,149,129,130,140,126,120,115,114,119,127,114,115,114,119,146,119,109,106, 97, 94, 94, 97,106,115,137,169, 189, 206, 211, 208};
 
+//RTL-SDR Blog V4L
+static const int16_t abs_freqs_rtlsdr_v4l[] = {
+  1,  3,  5, 10, 15, 20, 23, 25, 27, 27, 28, 30, 32, 35, 40, 50, 50, 55, 55, 60, 60, 65, 65, 70, 70, 75, 75,100,100,140,140,174,174,200,200,240,240,280,280,320,345,345,600,850,1000,1500,1700,1750};
+static const int16_t abs_gains_rtlsdr_v4l[] = {
+210,136,112,101,114,138,169,215,255,169,161,149,141,134,137,143,139,139,127,127,127,127,118,118,113,114, 90, 92,104,107,107,102, 86, 83, 77, 72, 69, 68, 59, 66, 71, 71, 92,109, 118, 138, 145, 153};
+
 static void calculate_abs_gain(struct r82xx_priv *priv)
 {
 	if (priv->cfg->rafael_chip == CHIP_R828D)
@@ -655,6 +661,8 @@ static void calculate_abs_gain(struct r82xx_priv *priv)
 		else
 			priv->abs_gain = interpolate(priv->freq, ARRAY_SIZE(abs_gains_r828d), abs_freqs_r828d, abs_gains_r828d);
 	}
+	else if (priv->cfg->rafael_chip == CHIP_R828S)
+		priv->abs_gain = interpolate(priv->freq, ARRAY_SIZE(abs_gains_rtlsdr_v4l), abs_freqs_rtlsdr_v4l, abs_gains_rtlsdr_v4l);
 	else
 		priv->abs_gain = interpolate(priv->freq, ARRAY_SIZE(abs_gains_r820t), abs_freqs_r820t, abs_gains_r820t);
 }
@@ -959,7 +967,7 @@ int r82xx_set_i2c_register(struct r82xx_priv *priv, unsigned i2c_register, unsig
 
 static const int16_t lna_freqs_r820t[] = {
 	  25,  30,  50,  75, 100, 200, 500, 750, 980,1250,1500,1700};
-static const int16_t lna_gains_r820t[][16] = {
+static const int16_t lna_gains_r820t[][12] = {
 	{  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0},
 	{ 36,  36,  35,  35,  35,  35,  33,  30,  29,  28,  30,  30},
 	{ 77,  76,  74,  74,  74,  74,  70,  66,  65,  64,  69,  68},
@@ -979,7 +987,7 @@ static const int16_t lna_gains_r820t[][16] = {
 
 static const int16_t lna_freqs_r828d[] = {
 	  25,  30,  50, 100, 200, 345, 345, 500, 750, 980,1250,1500,1700};
-static const int16_t lna_gains_r828d[][16] = {
+static const int16_t lna_gains_r828d[][13] = {
 	{  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0},
 	{ 43,  41,  37,  35,  36,  41,  42,  39,  33,  32,  33,  29,  29},
 	{ 99,  94,  84,  78,  79,  87,  87,  82,  71,  69,  72,  67,  64},
@@ -1016,6 +1024,26 @@ static const int16_t lna_gains_rtlsdr_v4[][21] = {
 	{371, 370, 368, 356, 349, 328, 326, 326, 324, 338, 356, 352, 352, 343, 332, 328, 301, 278, 259, 248, 244},
 	{419, 417, 413, 392, 379, 351, 348, 351, 348, 371, 396, 386, 384, 377, 363, 353, 325, 300, 279, 266, 260},
 	{446, 443, 438, 415, 400, 372, 369, 372, 369, 394, 420, 408, 404, 379, 370, 377, 355, 326, 303, 287, 274}};
+
+static const int16_t lna_freqs_rtlsdr_v4l[] = {
+	   1,  10,  27,  27, 30,  50,  75, 100, 200, 500, 750, 980,1250,1500,1700};
+static const int16_t lna_gains_rtlsdr_v4l[][15] = {
+	{  0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0},
+	{ 19,  20,  22,  36,  36,  35,  35,  35,  35,  33,  30,  29,  28,  30,  30},
+	{ 45,  48,  51,  76,  76,  74,  74,  74,  74,  70,  66,  65,  64,  69,  68},
+	{ 98, 100, 101, 113, 113, 109, 108, 108, 107, 105, 103, 104, 104, 104, 104},
+	{129, 130, 130, 141, 141, 136, 131, 131, 130, 131, 134, 137, 139, 130, 124},
+	{132, 134, 136, 155, 155, 150, 147, 146, 145, 146, 149, 152, 154, 147, 142},
+	{135, 137, 140, 180, 180, 176, 174, 172, 172, 173, 176, 179, 181, 175, 170},
+	{164, 166, 169, 205, 205, 201, 200, 199, 198, 200, 202, 205, 206, 202, 194},
+	{197, 199, 201, 231, 231, 228, 227, 226, 226, 229, 231, 233, 230, 227, 215},
+	{230, 232, 234, 258, 258, 254, 254, 254, 253, 255, 253, 249, 240, 232, 211},
+	{264, 265, 267, 279, 279, 275, 274, 273, 271, 274, 267, 256, 242, 233, 213},
+	{299, 300, 301, 291, 291, 287, 286, 284, 282, 288, 278, 263, 246, 236, 215},
+	{333, 333, 333, 305, 305, 301, 299, 296, 294, 302, 290, 271, 251, 241, 220},
+	{371, 370, 368, 327, 327, 322, 321, 319, 316, 317, 297, 276, 256, 242, 218},
+	{419, 417, 413, 343, 343, 339, 338, 337, 334, 334, 317, 296, 272, 252, 225},
+	{446, 443, 438, 299, 299, 322, 339, 342, 343, 346, 325, 303, 279, 255, 227}};
 
 static const int r82xx_mixer_gains[]  = {
  	0, 13, 32, 49, 63, 76, 91, 105, 119, 133, 148, 161, 174, 174, 174, 174
@@ -1092,6 +1120,8 @@ static int r82xx_get_signal_strength(struct r82xx_priv *priv, unsigned char* dat
 			else
 				lna_gain = interpolate(priv->freq, ARRAY_SIZE(lna_freqs_r828d), lna_freqs_r828d, lna_gains_r828d[lna_index]);
 		}
+		else if (priv->cfg->rafael_chip == CHIP_R828S)
+			lna_gain = interpolate(priv->freq, ARRAY_SIZE(lna_freqs_rtlsdr_v4l), lna_freqs_rtlsdr_v4l, lna_gains_rtlsdr_v4l[lna_index]);
 		else
 			lna_gain = interpolate(priv->freq, ARRAY_SIZE(lna_freqs_r820t), lna_freqs_r820t, lna_gains_r820t[lna_index]);
 	}
@@ -1144,30 +1174,96 @@ static const struct r82xx_val r82xx[]= {
 	{ 900, 0x0f, 0xeb, 1500},
 	{1150, 0x0f, 0xec, 1380},
 	{1250, 0x0f, 0xed, 1340},
-	{1370, 0x0f, 0xee, 1305},
-	{1410, 0x0e, 0xee, 1320},
-	{1440, 0x0d, 0xee, 1340},
-	{1480, 0x0c, 0xee, 1360},
-	{1510, 0x0b, 0xee, 1375},
-	{1550, 0x0a, 0xee, 1395},
-	{1590, 0x09, 0xee, 1415},
-	{1630, 0x08, 0xee, 1435},
-	{1660, 0x07, 0xee, 1450},
-	{1700, 0x06, 0xee, 1470},
+	{1350, 0x0f, 0xee, 1295},
+	{1380, 0x0e, 0xee, 1310},
+	{1420, 0x0d, 0xee, 1330},
+	{1460, 0x0c, 0xee, 1350},
+	{1490, 0x0b, 0xee, 1365},
+	{1530, 0x0a, 0xee, 1385},
+	{1570, 0x09, 0xee, 1405},
+	{1600, 0x08, 0xee, 1420},
+	{1650, 0x07, 0xee, 1445},
+	{1690, 0x06, 0xee, 1465},
 	{1740, 0x05, 0xee, 1490},
-	{1790, 0x04, 0xee, 1515},
-	{1830, 0x03, 0xee, 1535},
-	{1870, 0x02, 0xee, 1555},
-	{2000, 0x09, 0xae, 1580},
-	{2100, 0x0f, 0x8e, 1620},
-	{2900, 0x04, 0x8e, 2060},
-	{5000, 0x0b, 0x6b, 3570},
+	{1780, 0x04, 0xee, 1510},
+	{1830, 0x0b, 0xae, 1535},
+	{1870, 0x0a, 0xae, 1555},
+	{1930, 0x09, 0xae, 1585},
+	{1980, 0x08, 0xae, 1610},
+	{2040, 0x07, 0xae, 1640},
+	{2090, 0x06, 0xae, 1665},
+	{2160, 0x05, 0xae, 1700},
+	{2190, 0x04, 0xae, 1715},
+	{2250, 0x0b, 0x8e, 1745},
+	{2330, 0x0a, 0x8e, 1785},
+	{2410, 0x09, 0x8e, 1825},
+	{2480, 0x08, 0x8e, 1860},
+	{2560, 0x07, 0x8e, 1900},
+	{2640, 0x06, 0x8e, 1940},
+	{2730, 0x05, 0x8e, 1985},
+	{2820, 0x04, 0x8e, 2030},
+	{2930, 0x03, 0x8e, 2085},
+	{3030, 0x02, 0x8e, 2135},
+	{3140, 0x01, 0x8e, 2190},
+	{3260, 0x00, 0x8e, 2250},
 };
+
+int r82xx_filter_cali(struct r82xx_priv *priv)
+{
+	uint32_t filt_cal_lo;
+	uint8_t data[5];
+	int rc;
+	uint8_t fil_cal_code;
+
+	uint8_t range = r82xx_read_cache_reg(priv, 0x0b) & 0x60;
+
+	/* mean clock frequencies of the SC filter */
+	if (range == 0) filt_cal_lo = 73120;
+	else if (range == 0x60)	filt_cal_lo = 53350;
+	else filt_cal_lo = 61640;
+
+	for (int i = 0; i < 2; i++)
+	{
+		// set cali clk =on
+		rc = r82xx_write_reg_mask(priv, 0x0f, 0x04, 0x04);
+		if (rc < 0)	return rc;
+
+		rc = r82xx_set_pll(priv, filt_cal_lo * 1000);
+		if (rc < 0)	return rc;
+
+		/* Start Trigger */
+		rc = r82xx_write_reg_mask(priv, 0x0b, 0x10, 0x10);
+		if (rc < 0)	return rc;
+
+		Sleep(10);
+
+		// Stop Trigger
+		rc = r82xx_write_reg_mask(priv, 0x0b, 0x00, 0x10);
+		if (rc < 0) return rc;
+
+		// set cali clk =off
+		rc = r82xx_write_reg_mask(priv, 0x0f, 0x00, 0x04);
+		if (rc < 0)	return rc;
+
+		rc = r82xx_read(priv, data, sizeof(data));
+		if (rc < 0)	return rc;
+		fil_cal_code = data[4] & 0x0f;
+
+		/* Check if calibration worked */
+		if (fil_cal_code > 4 && fil_cal_code < 12) // mean value is 8
+		{
+			priv->fil_cal_code = fil_cal_code;
+			printf("Calibrating the tuner filter with %d kHz = %x\n", filt_cal_lo, fil_cal_code);
+			break;
+		}
+	}
+	return 0;
+}
 
 int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t * applied_bw, int apply)
 {
-	int rc;
-	unsigned int i;
+	int rc, i, lp;
+	int diff = priv->fil_cal_code - 8; // mean cal code is 8
 
 	for(i=0; i < ARRAY_SIZE(r82xx) - 1; ++i)
 	{
@@ -1177,11 +1273,14 @@ int r82xx_set_bandwidth(struct r82xx_priv *priv, int bw, uint32_t * applied_bw, 
 	}
 	*applied_bw = r82xx[i].bw * 1000;
 	if (apply)
-		priv->int_freq = r82xx[i].int_freq * 1000;
+		priv->int_freq = r82xx[i].int_freq * 1000 + priv->if_band_center_freq;
 	else
 		return 0;
 
-	rc = r82xx_write_reg_mask(priv, 0x0a, r82xx[i].lp, 0x0f);
+	lp = r82xx[i].lp + diff;
+	if (lp < 0) lp = 0;
+	if (lp > 15) lp = 15;
+	rc = r82xx_write_reg_mask(priv, 0x0a, lp, 0x0f);
 	if (rc < 0)
 		return rc;
 
@@ -1220,11 +1319,11 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 
 
 	is_rtlsdr_blog_v4 = (priv->cfg->xtal > 24000000.0) && (priv->cfg->rafael_chip == CHIP_R828D);
-	is_rtlsdr_blog_v4l = rtlsdr_check_dongle_model(priv->rtl_dev, "RTLSDRBlog", "Blog V4L");
+	is_rtlsdr_blog_v4l = priv->cfg->rafael_chip == CHIP_R828S;
 
 	/* if it's an RTL-SDR Blog V4, automatically upconvert by 28.8 MHz if we tune to HF
 	 * so that we don't need to manually set any upconvert offset in the SDR software */
-	upconvert_freq = (is_rtlsdr_blog_v4 || is_rtlsdr_blog_v4l) ? ((freq <= MHZ(27)) ? (freq + priv->cfg->xtal) : freq) : freq;
+	upconvert_freq = (is_rtlsdr_blog_v4 || is_rtlsdr_blog_v4l) ? ((freq < MHZ(27)) ? (freq + priv->cfg->xtal) : freq) : freq;
 
 	priv->freq = freq / 1000000;
 	calculate_abs_gain(priv);
@@ -1246,19 +1345,6 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 		 *(to avoid excessive register writes when tuning rapidly)
 		 */
 		band = (freq < MHZ(27)) ? HF : ((freq >= MHZ(27) && freq < MHZ(250)) ? VHF : UHF);
-
-		/* bypass tracking filter for HF to reduce insertion loss,
-		 * the upconverter path doesn't benefit from it.
-		 * Must be outside band-change guard since r82xx_set_mux
-		 * re-applies the tracking filter on every frequency change. */
-		if (band == HF) {
-			rc = r82xx_write_reg_mask(priv, 0x1a, 0x40, 0xc3);
-			if (rc < 0)
-				goto err;
-			rc = r82xx_write_reg(priv, 0x1b, 0x00);
-			if (rc < 0)
-				goto err;
-		}
 
 		/* switch between tuner inputs on the RTL-SDR Blog V4 */
 		if (band != priv->input) {
@@ -1294,20 +1380,7 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 		/* select tuner band based on frequency and only switch if there is a band change
 		 *(to avoid excessive register writes when tuning rapidly)
 		 */
-		band = (freq <= MHZ(27)) ? HF : UHF;
-
-		/* bypass tracking filter for HF to reduce insertion loss,
-		 * the upconverter path doesn't benefit from it.
-		 * Must be outside band-change guard since r82xx_set_mux
-		 * re-applies the tracking filter on every frequency change. */
-		if (band == HF) {
-			rc = r82xx_write_reg_mask(priv, 0x1a, 0x40, 0xc3);
-			if (rc < 0)
-				goto err;
-			rc = r82xx_write_reg(priv, 0x1b, 0x00);
-			if (rc < 0)
-				goto err;
-		}
+		band = (freq < MHZ(27)) ? HF : UHF;
 
 		/* switch between tuner inputs on the RTL-SDR Blog V4L */
 		if (band != priv->input) {
@@ -1374,7 +1447,6 @@ err:
 /*
  * r82xx standby logic
  */
-
 int r82xx_standby(struct r82xx_priv *priv)
 {
 	int rc;
@@ -1649,8 +1721,10 @@ int r82xx_init(struct r82xx_priv *priv)
 	uint8_t buf[16];
 	int offset = 0x80;
 
+	priv->if_band_center_freq = 0;
 	memset(priv->reg8, 0, 16);
 	priv->old_gain = 255;
+	priv->fil_cal_code = 8;
 
 	if (priv->cfg->cal_imr) // (re)calibration wanted
 	{
@@ -1692,6 +1766,11 @@ int r82xx_init(struct r82xx_priv *priv)
 	rc = r82xx_write_reg_mask(priv, 0x08, priv->reg8[12], 0x3f);
 	if(rc < 0)
 		goto err;
+
+	r82xx_filter_cali(priv);
+	if(rc < 0)
+		goto err;
+
 	priv->init_done = 1;
 
 err:
@@ -1709,4 +1788,10 @@ const int *r82xx_get_gains(int *len)
 int r82xx_set_dither(struct r82xx_priv *priv, int dither)
 {
 	return r82xx_write_reg_mask(priv, 0x12, dither ? 0x00 : 0x10, 0x10);
+}
+
+int r82xx_set_bw_center(struct r82xx_priv *priv, int32_t if_band_center_freq)
+{
+	priv->if_band_center_freq = if_band_center_freq;
+	return 0;
 }
