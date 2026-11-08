@@ -838,21 +838,20 @@ static bool net_timer_add (intptr_t service, int timeout_ms, int flag, void (*ti
   return (true);
 }
 
-static bool net_timer_del (intptr_t service)
+static void net_timer_del (intptr_t service)
 {
-  mg_timer *t = modeS_net_services [service].timer;
+  mg_timer *timer = modeS_net_services [service].timer;
 
-  if (t)
-  {
-    if (service == MODES_NET_SERVICE_WEBSOCK)
-         DEBUG (DEBUG_WEBSOCKET, "Stopping timer for %s (%s).\n", net_handler_descr(service), net_handler_url(service));
-    else DEBUG (DEBUG_NET, "Stopping timer for %s (%s)\n", net_handler_descr(service), net_handler_url(service));
+  if (!timer)
+     return;
 
-    mg_timer_free (&Modes.mgr.timers, t);
-    modeS_net_services [service].timer = NULL;
-    free (t);
-  }
-  return (t != NULL);
+  if (service == MODES_NET_SERVICE_WEBSOCK)
+       DEBUG (DEBUG_WEBSOCKET, "Stopping timer for %s (%s).\n", net_handler_descr(service), net_handler_url(service));
+  else DEBUG (DEBUG_NET, "Stopping timer for %s (%s)\n", net_handler_descr(service), net_handler_url(service));
+
+  mg_timer_free (&Modes.mgr.timers, timer);
+  modeS_net_services [service].timer = NULL;
+  free (timer);
 }
 
 static void net_timer_del_all (void)
@@ -1454,9 +1453,8 @@ static uint32_t net_conn_free_all (void)
       net_conn_free (conn, service);
       num++;
     }
-    free (modeS_net_services [service].last_err);
-    free (modeS_net_services[service].url);
-    modeS_net_services[service].url = modeS_net_services [service].last_err = NULL;
+    FREE (modeS_net_services [service].last_err);
+    FREE (modeS_net_services[service].url);
   }
   return (num);
 }
@@ -3481,14 +3479,12 @@ bool net_exit (void)
 
   g_deny_list = g_unique_ips = g_reverse_rec = NULL;
 
-  free (Modes.dns4);
-  free (Modes.dns6);
-  free (Modes.rtltcp.info);
-  free (lookup_table);
+  FREE (Modes.dns4);
+  FREE (Modes.dns6);
+  FREE (lookup_table);
+  FREE (Modes.rtltcp.info);
 
   Modes.mgr.conns = NULL;
-  Modes.dns4 = Modes.dns6 = NULL;
-  lookup_table = NULL;
 
   if (num > 0)
      Sleep (100);
