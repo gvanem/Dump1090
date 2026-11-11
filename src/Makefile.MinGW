@@ -109,6 +109,7 @@ vpath %.c externals            \
 SOURCES += $(addprefix externals/,   \
              mongoose.c              \
              sqlite3.c               \
+             gzip.c                  \
              zip.c                   \
              AirSpy/airspy.c         \
              GNS-Hulc/gns-hulc.c     \

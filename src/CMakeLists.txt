@@ -47,6 +47,7 @@ set(SOURCES
     externals/GNS-Hulc/gns-serial.c
     externals/PDC-Mod/amalgamation.c
     externals/sqlite3.c
+    externals/gzip.c
     externals/zip.c
     externals/RTLSDR/librtlsdr.c
     externals/RTLSDR/trace.c

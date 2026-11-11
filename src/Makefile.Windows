@@ -323,6 +323,7 @@ vpath %.c externals            \
 SOURCES += $(addprefix externals/,   \
              mongoose.c              \
              sqlite3.c               \
+             gzip.c                  \
              zip.c                   \
              AirSpy/airspy.c         \
              GNS-Hulc/gns-hulc.c     \
@@ -798,6 +799,7 @@ DOXY_HEADERS = ../adsb-fi.h                         \
                ../raw-sbs.h                         \
                ../smartlist.h                       \
                ../speech.h                          \
+               ../externals/gzip.h                  \
                ../externals/zip.h                   \
                ../externals/AirSpy/airspy.h         \
                ../externals/GNS-Hulc/gns-hulc.h     \

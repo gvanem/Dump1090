@@ -9,7 +9,7 @@
 
 #define VER_MAJOR 1
 #define VER_MINOR 0
-#define VER_MICRO 1
+#define VER_MICRO 2
 
 /**
  * Warning control:
@@ -207,9 +207,8 @@
  * We need no compression support. Only decompression.
  * For MinGW-w64, drop support for symlinks.
  */
-#define MINIZ_NO_ZLIB_APIS  1
-#define ZIP_ENABLE_DEFLATE  0
-#define ZIP_HAVE_SYMLINK    0
+#define ZIP_ENABLE_DEFLATE     0
+#define ZIP_HAVE_SYMLINK       0
 
 /**
  * clang-cl with `ASAN` may not like this in `externals/miniz.h`:
@@ -237,6 +236,7 @@
 #define strupr(s)            _strupr (s)
 #define access(file, mode)   _access (file, mode)
 #define fileno(stream)       _fileno (stream)
+#define filelength(fd)       _filelength (fd)
 
 /**
  * Options for `_DEBUG` / `-MDd` mode:

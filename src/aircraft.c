@@ -14,6 +14,7 @@
 #include "smartlist.h"
 #include "sqlite3.h"
 #include "zip.h"
+#include "gzip.h"
 #include "cpr.h"
 #include "net_io.h"
 #include "aircraft.h"
@@ -25,23 +26,25 @@
 #define AIRCRAFT_DATABASE_CSV   "aircraft-database.csv"
 
 /**
- * \def AIRCRAFT_DATABASE_URL
- * The default URL for the `--update` option.
+ * \def AIRCRAFT_DATABASE_URL1
+ * \def AIRCRAFT_DATABASE_URL2
+ * The URLs for the `--update` option.
  */
-#define AIRCRAFT_DATABASE_URL   "https://s3.opensky-network.org/data-samples/metadata/aircraftDatabase.zip"
+#define AIRCRAFT_DATABASE_URL1   "https://s3.opensky-network.org/data-samples/metadata/aircraftDatabase.zip"
+#define AIRCRAFT_DATABASE_URL2   "https://github.com/wiedehopf/tar1090-db/raw/refs/heads/csv/aircraft.csv.gz"
 
 /**
  * \def AIRCRAFT_DATABASE_TMP
  * The basename for downloading a new `aircraft-database.csv`.
  *
  * E.g. Use WinInet API to download:<br>
- *  `AIRCRAFT_DATABASE_URL` -> `%TEMP%\\dump1090\\aircraft-database-temp.zip`
+ *  `AIRCRAFT_DATABASE_URL1` -> `%TEMP%\\dump1090\\aircraft-database-temp.zip`
  *
  * extract this using: <br>
  *  `zip_extract (\"%TEMP%\\dump1090\\aircraft-database-temp.zip\", \"%TEMP%\\dump1090\\aircraft-database-temp.csv\")`.
  *
  * and finally call: <br>
- *   `CopyFile ("%TEMP%\\dump1090\\aircraft-database-temp.csv", <final_destination>)`.
+ *   `CopyFileA ("%TEMP%\\dump1090\\aircraft-database-temp.csv", <final_destination>)`.
  */
 #define AIRCRAFT_DATABASE_TMP  "aircraft-database-temp"
 
@@ -108,7 +111,8 @@ typedef struct aircraft_priv {
         bool             sql_file_found;     /**< Does `g_data.sql_file` exist? */
         bool             test_mode;          /**< "--test aircraft" was specified */
         bool             test_done;          /**< Already done tests? */
-        char            *zip_url;            /**< URL for OpenSky's `AIRCRAFT_DATABASE_URL` */
+        char            *zip_url;            /**< URL for OpenSky's `AIRCRAFT_DATABASE_URL1` */
+        char            *gzip_url;           /**< URL for Tar1090-DB's `AIRCRAFT_DATABASE_URL2` */
         func_get_country p_get_country;      /**< Func-pointer to a `aircraft_get_country()` function */
         func_is_military p_is_military;      /**< Func-pointer to a `aircraft_is_military()` function */
         int              a_sort;             /**< The column sort method for aircrafts in `--interactive` mode. >= 0 is ascending, < 0 descending */
@@ -1567,7 +1571,7 @@ static int extract_callback (const char *file, void *arg)
   const char *tmp_file = arg;
 
   TRACE ("Copying extracted file '%s' to '%s'\n", file, tmp_file);
-  if (!CopyFileA (file, tmp_file, FALSE))
+  if (!CopyFileA(file, tmp_file, FALSE))
      LOG_STDERR ("CopyFileA (\"%s\", \"%s\") failed: %s\n", file, tmp_file, win_strerror(GetLastError()));
   return (0);
 }
@@ -1654,6 +1658,43 @@ bool aircraft_update_CSV (const char *db_file, const char *url, time_t max_age)
   LOG_STDERR ("Deleting '%s' to force a rebuild in 'aircraft_load_CSV()'\n", g_data.sql_file);
   DeleteFileA (g_data.sql_file);
   g_data.sql_file_found = false;
+  return (true);
+}
+
+/**
+ * Use WinInet API to download: <br>
+ *  `AIRCRAFT_DATABASE_URL2` to `%TEMP%\\dump1090\\aircraft.csv.gz`.
+ *
+ * And extract it using: <br>
+ *  `gzip_extract ("%TEMP%\\dump1090\\aircraft.csv.gz", "%TEMP%\\dump1090")`.
+ *
+ * The name `aircraft.csv` is stored in the header of the `.csv.gz` file.
+ * \ref `gzip::fname_ptr`.
+ *
+ * This function is simpler than `aircraft_update_CSV()` since a .gz file
+ * does not contain multiple files.
+ */
+static bool aircraft_download_github (const char *url)
+{
+  char to_file [MAX_PATH];
+
+  snprintf (to_file, sizeof(to_file), "%s\\%s", Modes.tmp_dir, "aircraft.csv.gz");
+  puts ("");
+  TRACE ("Downloading '%s' to '%s'\n", url, to_file);
+
+  if (download_to_file(url, to_file) <= 0)
+  {
+    TRACE ("Failed to download '%s': '%s'\n", url, Modes.wininet_last_error);
+    return (false);
+  }
+
+  int ret = gzip_extract (to_file, Modes.tmp_dir, NULL, NULL);
+  puts ("");
+  if (ret != 0)
+  {
+    TRACE ("gzip_extract (\"%s\") failed: %d\n", to_file, ret);
+    return (false);
+  }
   return (true);
 }
 
@@ -3518,10 +3559,12 @@ void aircraft_pre_init (void)
 
   assert (Modes.where_am_I);
   assert (g_data.csv_file == NULL);
-  assert (g_data.zip_url == NULL);
+  assert (g_data.zip_url  == NULL);
+  assert (g_data.gzip_url == NULL);
 
   g_data.csv_file = mg_mprintf ("%s\\%s", Modes.where_am_I, AIRCRAFT_DATABASE_CSV);
-  g_data.zip_url  = strdup (AIRCRAFT_DATABASE_URL);
+  g_data.zip_url  = strdup (AIRCRAFT_DATABASE_URL1);
+  g_data.gzip_url = strdup (AIRCRAFT_DATABASE_URL2);
 
   g_data.outline_enable = true;
   g_data.outline_json = mg_mprintf ("%s\\%s", Modes.tmp_dir, OUTLINE_JSON);
@@ -3560,6 +3603,12 @@ bool aircraft_init (void)
 
   aircraft_SQL_set_name();
 
+  if (g_data.test_mode)
+  {
+    aircraft_download_github ( g_data.gzip_url);
+    return (false);   /* To test aircraft_download_github() */
+  }
+
   if (strcmp(g_data.csv_file, "NUL") && (g_data.zip_url || Modes.update))
   {
     if (!aircraft_update_CSV(g_data.csv_file, g_data.zip_url, CSV_MAX_AGE))
@@ -3567,6 +3616,7 @@ bool aircraft_init (void)
     if (!aircraft_load_CSV() && !Modes.update)
        return (false);
   }
+
   return (true);
 }
 
@@ -3600,6 +3650,7 @@ void aircraft_exit (bool free_aircrafts)
   FREE (g_data.sql_file);
   FREE (g_data.icao_spec);
   FREE (g_data.zip_url);
+  FREE (g_data.gzip_url);
   FREE (g_data.outline_json);
 
 #if defined(USE_BIN_FILES)
