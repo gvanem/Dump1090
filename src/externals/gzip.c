@@ -107,7 +107,6 @@ static int gzip_init (gzip *gz, void *mem, size_t mem_len)
 static int gzip_deflate (gzip *gz, void *mem_out, size_t mem_out_len)
 {
   z_stream zs;
-  mz_ulong ret;
   int      rc;
 
   memset (&zs, '\0', sizeof(zs));
@@ -125,7 +124,6 @@ static int gzip_deflate (gzip *gz, void *mem_out, size_t mem_out_len)
   while (1)
   {
     size_t bytes_to_read = min (CHUNK_SIZE, gz->data_len);
-    int    rc;
 
     zs.avail_in += bytes_to_read;
     rc = mz_inflate (&zs, MZ_SYNC_FLUSH);
