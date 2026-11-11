@@ -40,7 +40,7 @@
 
 typedef struct gzip {
         size_t    data_len;
-        char     *fname_ptr;
+        uint8_t  *fname_ptr;
         uint8_t  *data_ptr;
         mz_ulong  out_len;
       } gzip;
@@ -53,20 +53,19 @@ typedef enum gzip_err {
 
 /**
  * Check the GZIP header read in at `mem`.
- * \retval  GZ_OK (0) if okay
- * \retval  < 0       on error
+ * \retval  GZ_OK           if okay
+ * \retval  GZ_INVALID_HDR  on invalid GZ header
  *
  * \ref https://en.wikipedia.org/wiki/Gzip
  */
-static int gzip_init (gzip *gz, void *mem, size_t mem_len)
+static int gzip_init (gzip *gz, uint8_t *mem, size_t mem_len)
 {
-  char *mem8_ptr = (char*) mem;
-  char *hptr     = mem8_ptr + 0;    /* .gz header */
-  char *hauxptr  = mem8_ptr + 10;   /* auxillary header */
+  uint8_t *hptr    = mem + 0;    /* .gz header */
+  uint8_t *hauxptr = mem + 10;   /* auxillary header */
 
   memset (gz, '\0', sizeof(*gz));
 
-  if (hptr[0] != 0x1F || hptr[1] != (char)0x8B)  /* wrong signature */
+  if (hptr[0] != 0x1F || hptr[1] != 0x8B)  /* wrong signature */
   {
     TRACE ("Invalid GZIP header: %04X\n", (hptr[1] << 8) + hptr[0]);
     return (GZ_INVALID_HDR);
@@ -83,7 +82,7 @@ static int gzip_init (gzip *gz, void *mem, size_t mem_len)
 
   if (hptr[3] & 0x08)     /* FNAME bit */
   {
-    gz->fname_ptr = (char*) hauxptr;
+    gz->fname_ptr = hauxptr;
     while (*hauxptr)
        hauxptr++;
     hauxptr++;
@@ -99,7 +98,7 @@ static int gzip_init (gzip *gz, void *mem, size_t mem_len)
   if (hptr[3] & 0x2)     /* FHCRC bit */
      hauxptr += 2;
 
-  gz->data_ptr = (uint8_t*) hauxptr;
+  gz->data_ptr = hauxptr;
   gz->data_len = mem_len - (hauxptr - hptr);
   return (GZ_OK);
 }
@@ -196,7 +195,7 @@ int gzip_extract (const char *gzip_name, const char *dir,
   if (fread(mem_in, 1, in_size, in_file) != in_size)
      goto quit;
 
-  if (gzip_init(&gz, mem_in, in_size) < 0)
+  if (gzip_init(&gz, (uint8_t*)mem_in, in_size) < 0)
   {
     TRACE ("gzip_init() failed\n");
     goto quit;
@@ -212,7 +211,7 @@ int gzip_extract (const char *gzip_name, const char *dir,
          gz.out_len, out_size, in_size, gz.fname_ptr);
 
   snprintf (out_filename, sizeof(out_filename), "%s\\%s",
-            dir, gz.fname_ptr ? gz.fname_ptr : "gzip.tmp");
+            dir, gz.fname_ptr ? (const char*)gz.fname_ptr : "gzip.tmp");
 
   TRACE ("Decompressing '%s' to '%s'\n", gzip_name, out_filename);
 
